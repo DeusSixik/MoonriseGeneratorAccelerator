@@ -39,6 +39,8 @@ dependencies {
 
     modImplementation "curse.maven:spark-361579:6225208"
 
+    include(minecraftClientRuntimeLibraries("dev.sdm:TracySocketClient:0.12.2-1"))
+
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
 }

@@ -20,7 +20,8 @@
     "client": []
   },
   "mixins": [
-    "moonrise_generator_accelerator.mixins.json"
+    "moonrise_generator_accelerator.mixins.json",
+    "moonrise_generator_accelerator_profiler.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.17.0",

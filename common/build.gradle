@@ -13,4 +13,5 @@ dependencies {
 
     compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
 
+    compileOnly("dev.sdm:TracySocketClient:0.12.2-1")
 }
