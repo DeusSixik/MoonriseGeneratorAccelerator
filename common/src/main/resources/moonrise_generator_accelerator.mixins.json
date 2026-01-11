@@ -6,6 +6,7 @@
   "client": [
   ],
   "mixins": [
+    "level.levelgen.MixinBeardifier",
     "level.levelgen.MixinNoiseBasedAquifer$optimize_noise",
     "level.levelgen.MixinNoiseBasedChunkGenerator",
     "level.strucutres.MixinChunkAccess$SynchronizeStructureData",
