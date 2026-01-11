@@ -10,8 +10,10 @@ accessible field net/minecraft/world/level/chunk/LevelChunkSection tickingBlockC
 accessible field net/minecraft/world/level/chunk/LevelChunkSection states Lnet/minecraft/world/level/chunk/PalettedContainer;
 accessible field net/minecraft/world/level/chunk/LevelChunkSection biomes Lnet/minecraft/world/level/chunk/PalettedContainerRO;
 
-accessible field net/minecraft/world/level/chunk/PalettedContainer data Lnet/minecraft/world/level/chunk/PalettedContainer$Data;
 accessible field net/minecraft/world/level/chunk/PalettedContainer strategy Lnet/minecraft/world/level/chunk/PalettedContainer$Strategy;
+
+accessible field net/minecraft/world/level/chunk/PalettedContainer data Lnet/minecraft/world/level/chunk/PalettedContainer$Data;
+accessible field net/minecraft/world/level/chunk/PalettedContainer registry Lnet/minecraft/core/IdMap;
 accessible field net/minecraft/world/level/chunk/PalettedContainer$Data palette Lnet/minecraft/world/level/chunk/Palette;
 
 accessible field net/minecraft/world/level/levelgen/LegacyRandomSource$LegacyPositionalRandomFactory seed J
