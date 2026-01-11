@@ -3,7 +3,7 @@ package dev.sixik.moonrisegeneratoraccelerator.profiler;
 import java.util.function.Supplier;
 
 public class BtsProfilerSettings {
-    
+
     public static boolean Global = true;
     public static boolean WorldGeneration = false;
     public static boolean EntityTick = false;

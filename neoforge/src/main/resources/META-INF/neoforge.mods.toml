@@ -33,3 +33,6 @@ config = "moonrise_generator_accelerator.mixins.json"
 
 [[mixins]]
 config = "moonrise_generator_accelerator_profiler.mixins.json"
+
+[[accessTransformers]]
+file="META-INF/accesstransformer.cfg"

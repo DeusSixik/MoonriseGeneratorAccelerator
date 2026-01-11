@@ -6,7 +6,13 @@
   "client": [
   ],
   "mixins": [
-    "level.strucutres.MixinChunkAccess$SynchronizeStructureData"
+    "level.strucutres.MixinChunkAccess$SynchronizeStructureData",
+    "level.strucutres.pools.MixinEmptyPoolElement$default_empty_list",
+    "level.strucutres.pools.MixinFeaturePoolElement$cached",
+    "level.strucutres.pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",
+    "level.strucutres.pools.MixinJigsawPlacement$use_cached_jigsaws",
+    "level.strucutres.pools.MixinSinglePoolElement$cache_jigsawBlocks",
+    "level.strucutres.pools.MixinStructurePoolElement$cache_jigsawBlocks"
   ],
   "injectors": {
     "defaultRequire": 1
