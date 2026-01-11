@@ -6,7 +6,10 @@
   "client": [
   ],
   "mixins": [
-    "level.chunk.storage.MixinLevelChunkSection$optimize_biome_iteration",
+    "level.biome.MixinClimate$ParameterList$change_search",
+    "level.biome.MixinClimate$TargetPoint$optimize_allocation",
+    "level.biome.MixinMultiNoiseBiomeSource",
+    "level.chunk.MixinLevelChunkSection$optimize_biome_iteration",
     "level.levelgen.MixinBeardifier",
     "level.levelgen.MixinNoiseBasedAquifer$optimize_noise",
     "level.levelgen.MixinNoiseBasedChunkGenerator",

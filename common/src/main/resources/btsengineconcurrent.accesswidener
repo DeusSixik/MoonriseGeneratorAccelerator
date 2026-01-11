@@ -27,3 +27,25 @@ accessible field net/minecraft/world/level/levelgen/Xoroshiro128PlusPlus seedHi 
 accessible field net/minecraft/world/level/levelgen/XoroshiroRandomSource randomNumberGenerator Lnet/minecraft/world/level/levelgen/Xoroshiro128PlusPlus;
 
 accessible field net/minecraft/world/level/levelgen/Aquifer$FluidStatus fluidLevel I
+
+accessible class net/minecraft/world/level/biome/Climate$RTree
+accessible method net/minecraft/world/level/biome/Climate$RTree <init> (Lnet/minecraft/world/level/biome/Climate$RTree$Node;)V
+
+accessible class net/minecraft/world/level/biome/Climate$RTree$Leaf
+accessible method net/minecraft/world/level/biome/Climate$RTree$Leaf <init> (Lnet/minecraft/world/level/biome/Climate$ParameterPoint;Ljava/lang/Object;)V
+
+accessible class net/minecraft/world/level/biome/Climate$RTree$Node
+accessible method net/minecraft/world/level/biome/Climate$RTree$Node <init> (Ljava/util/List;)V
+
+accessible class net/minecraft/world/level/biome/Climate$RTree$SubTree
+accessible method net/minecraft/world/level/biome/Climate$RTree$SubTree <init> (Ljava/util/List;)V
+
+accessible class net/minecraft/world/level/biome/Climate$SpawnFinder
+accessible method net/minecraft/world/level/biome/Climate$SpawnFinder <init> (Ljava/util/List;Lnet/minecraft/world/level/biome/Climate$Sampler;)V
+
+accessible class net/minecraft/world/level/biome/Climate$DistanceMetric
+
+accessible field net/minecraft/world/level/biome/Climate$RTree root Lnet/minecraft/world/level/biome/Climate$RTree$Node;
+accessible field net/minecraft/world/level/biome/Climate$RTree$Node parameterSpace [Lnet/minecraft/world/level/biome/Climate$Parameter;
+accessible field net/minecraft/world/level/biome/Climate$RTree$Leaf value Ljava/lang/Object;
+accessible field net/minecraft/world/level/biome/Climate$RTree$SubTree children [Lnet/minecraft/world/level/biome/Climate$RTree$Node;

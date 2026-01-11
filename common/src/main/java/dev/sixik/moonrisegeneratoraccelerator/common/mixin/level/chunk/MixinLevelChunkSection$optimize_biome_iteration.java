@@ -1,4 +1,4 @@
-package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.chunk.storage;
+package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.chunk;
 
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;

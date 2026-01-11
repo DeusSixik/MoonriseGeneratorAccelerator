@@ -1,4 +1,7 @@
 # Project exclude paths
+/common/.gradle
+/neoforge/.gradle
+/fabric/.gradle
 /.gradle/
 /build/
 /common/build/
