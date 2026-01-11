@@ -1,1 +1,27 @@
 accessWidener v2 named
+
+accessible method net/minecraft/world/level/levelgen/NoiseChunk getInterpolatedState ()Lnet/minecraft/world/level/block/state/BlockState;
+accessible method net/minecraft/world/level/levelgen/NoiseChunk cellWidth ()I
+accessible method net/minecraft/world/level/levelgen/NoiseChunk cellHeight ()I
+
+accessible field net/minecraft/world/level/chunk/LevelChunkSection nonEmptyBlockCount S
+accessible field net/minecraft/world/level/chunk/LevelChunkSection tickingFluidCount S
+accessible field net/minecraft/world/level/chunk/LevelChunkSection tickingBlockCount S
+accessible field net/minecraft/world/level/chunk/LevelChunkSection states Lnet/minecraft/world/level/chunk/PalettedContainer;
+accessible field net/minecraft/world/level/chunk/LevelChunkSection biomes Lnet/minecraft/world/level/chunk/PalettedContainerRO;
+
+accessible field net/minecraft/world/level/chunk/PalettedContainer data Lnet/minecraft/world/level/chunk/PalettedContainer$Data;
+accessible field net/minecraft/world/level/chunk/PalettedContainer strategy Lnet/minecraft/world/level/chunk/PalettedContainer$Strategy;
+accessible field net/minecraft/world/level/chunk/PalettedContainer$Data palette Lnet/minecraft/world/level/chunk/Palette;
+
+accessible field net/minecraft/world/level/levelgen/LegacyRandomSource$LegacyPositionalRandomFactory seed J
+
+accessible field net/minecraft/world/level/levelgen/XoroshiroRandomSource$XoroshiroPositionalRandomFactory seedLo J
+accessible field net/minecraft/world/level/levelgen/XoroshiroRandomSource$XoroshiroPositionalRandomFactory seedHi J
+
+accessible field net/minecraft/world/level/levelgen/Xoroshiro128PlusPlus seedLo J
+accessible field net/minecraft/world/level/levelgen/Xoroshiro128PlusPlus seedHi J
+
+accessible field net/minecraft/world/level/levelgen/XoroshiroRandomSource randomNumberGenerator Lnet/minecraft/world/level/levelgen/Xoroshiro128PlusPlus;
+
+accessible field net/minecraft/world/level/levelgen/Aquifer$FluidStatus fluidLevel I

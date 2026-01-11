@@ -8,7 +8,8 @@
   "mixins": [
     "init.MixinCommands$add_profiler_commands",
     "init.MixinMinecraftServer$profiler_mark_frame",
-    "moonrise.MixinNewChunkHolder$profiler"
+    "moonrise.MixinNewChunkHolder$profiler",
+    "vanilla.generation.MixinChunkStatusTasks$add_profiler"
   ],
   "injectors": {
     "defaultRequire": 1
