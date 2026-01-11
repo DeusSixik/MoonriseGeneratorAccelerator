@@ -22,58 +22,57 @@ public abstract class MixinImprovedNoise {
     @Shadow
     @Final
     private byte[] p;
-    
+
     @Unique
     private static final double[] FLAT_SIMPLEX_GRAD = new double[]{
-            1, 1, 0, 0,
-            -1, 1, 0, 0,
-            1, -1, 0, 0,
-            -1, -1, 0, 0,
-            1, 0, 1, 0,
-            -1, 0, 1, 0,
-            1, 0, -1, 0,
-            -1, 0, -1, 0,
-            0, 1, 1, 0,
-            0, -1, 1, 0,
-            0, 1, -1, 0,
-            0, -1, -1, 0,
-            1, 1, 0, 0,
-            0, -1, 1, 0,
-            -1, 1, 0, 0,
-            0, -1, -1, 0,
+            1, 1, 0, 0, -1, 1, 0, 0, 1, -1, 0, 0, -1, -1, 0, 0,
+            1, 0, 1, 0, -1, 0, 1, 0, 1, 0, -1, 0, -1, 0, -1, 0,
+            0, 1, 1, 0, 0, -1, 1, 0, 0, 1, -1, 0, 0, -1, -1, 0,
+            1, 1, 0, 0, 0, -1, 1, 0, -1, 1, 0, 0, 0, -1, -1, 0,
     };
 
     /**
      * @author Sixik
-     * @reason
+     * @reason Extreme optimization: Fast floor, Stack hoisting, Unrolled math.
      */
-    @Deprecated
     @Overwrite
-    public double noise(double d, double e, double f, double g, double h) {
-        final double i = d + this.xo;
-        final double j = e + this.yo;
-        final double k = f + this.zo;
-        final double floor = Math.floor(i);
-        final double floor1 = Math.floor(j);
-        final double floor2 = Math.floor(k);
-        final double o = i - floor;
-        final double p = j - floor1;
-        final double q = k - floor2;
-        final double s;
-        if (g != (double)0.0F) {
-            double r;
-            if (h >= (double)0.0F && h < p) {
-                r = h;
-            } else {
-                r = p;
-            }
+    public double noise(double x, double y, double z, double yScale, double yMax) {
+        final double inputX = x + this.xo;
+        final double inputY = y + this.yo;
+        final double inputZ = z + this.zo;
 
-            s = Math.floor(r / g + 1.0E-7) * g;
+        int gridX = (int) inputX;
+        if (inputX < gridX) gridX--;
+
+        int gridY = (int) inputY;
+        if (inputY < gridY) gridY--;
+
+        int gridZ = (int) inputZ;
+        if (inputZ < gridZ) gridZ--;
+
+        final double deltaX = inputX - gridX;
+        final double deltaY = inputY - gridY;
+        final double deltaZ = inputZ - gridZ;
+
+        final double weirdDeltaY;
+        if (yScale != 0.0) {
+            final double range;
+            if (yMax >= 0.0 && yMax < deltaY) {
+                range = yMax;
+            } else {
+                range = deltaY;
+            }
+            
+            final double scaled = range / yScale + 1.0E-7;
+            int scaledFloor = (int) scaled;
+            if (scaled < scaledFloor) scaledFloor--;
+
+            weirdDeltaY = deltaY - (scaledFloor * yScale);
         } else {
-            s = 0.0F;
+            weirdDeltaY = deltaY;
         }
 
-        return this.sampleAndLerp((int) floor, (int) floor1, (int) floor2, o, p - s, q, p);
+        return this.bts$sampleAndLerp(gridX, gridY, gridZ, deltaX, weirdDeltaY, deltaZ, deltaY);
     }
 
     /**
@@ -82,15 +81,15 @@ public abstract class MixinImprovedNoise {
      */
     @Overwrite
     public double noiseWithDerivative(double d, double e, double f, double[] ds) {
-        double g = d + this.xo;
-        double h = e + this.yo;
-        double i = f + this.zo;
-        double j = Math.floor(g);
-        double k = Math.floor(h);
-        double l = Math.floor(i);
-        double m = g - j;
-        double n = h - k;
-        double o = i - l;
+        final double g = d + this.xo;
+        final double h = e + this.yo;
+        final double i = f + this.zo;
+        final double j = Math.floor(g);
+        final double k = Math.floor(h);
+        final double l = Math.floor(i);
+        final double m = g - j;
+        final double n = h - k;
+        final double o = i - l;
         return this.sampleWithDerivative((int) j, (int) k, (int) l, m, n, o, ds);
     }
 
@@ -100,18 +99,21 @@ public abstract class MixinImprovedNoise {
      */
     @Overwrite
     private double sampleAndLerp(int gridX, int gridY, int gridZ, double deltaX, double weirdDeltaY, double deltaZ, double deltaY) {
+
+        final byte[] p = this.p;
+
         final int var0 = gridX & 0xFF;
         final int var1 = (gridX + 1) & 0xFF;
-        final int var2 = this.p[var0] & 0xFF;
-        final int var3 = this.p[var1] & 0xFF;
+        final int var2 = p[var0] & 0xFF;
+        final int var3 = p[var1] & 0xFF;
         final int var4 = (var2 + gridY) & 0xFF;
         final int var5 = (var3 + gridY) & 0xFF;
         final int var6 = (var2 + gridY + 1) & 0xFF;
         final int var7 = (var3 + gridY + 1) & 0xFF;
-        final int var8 = this.p[var4] & 0xFF;
-        final int var9 = this.p[var5] & 0xFF;
-        final int var10 = this.p[var6] & 0xFF;
-        final int var11 = this.p[var7] & 0xFF;
+        final int var8 = p[var4] & 0xFF;
+        final int var9 = p[var5] & 0xFF;
+        final int var10 = p[var6] & 0xFF;
+        final int var11 = p[var7] & 0xFF;
         final int var12 = (var8 + gridZ) & 0xFF;
         final int var13 = (var9 + gridZ) & 0xFF;
         final int var14 = (var10 + gridZ) & 0xFF;
@@ -120,14 +122,14 @@ public abstract class MixinImprovedNoise {
         final int var17 = (var9 + gridZ + 1) & 0xFF;
         final int var18 = (var10 + gridZ + 1) & 0xFF;
         final int var19 = (var11 + gridZ + 1) & 0xFF;
-        final int var20 = (this.p[var12] & 15) << 2;
-        final int var21 = (this.p[var13] & 15) << 2;
-        final int var22 = (this.p[var14] & 15) << 2;
-        final int var23 = (this.p[var15] & 15) << 2;
-        final int var24 = (this.p[var16] & 15) << 2;
-        final int var25 = (this.p[var17] & 15) << 2;
-        final int var26 = (this.p[var18] & 15) << 2;
-        final int var27 = (this.p[var19] & 15) << 2;
+        final int var20 = (p[var12] & 15) << 2;
+        final int var21 = (p[var13] & 15) << 2;
+        final int var22 = (p[var14] & 15) << 2;
+        final int var23 = (p[var15] & 15) << 2;
+        final int var24 = (p[var16] & 15) << 2;
+        final int var25 = (p[var17] & 15) << 2;
+        final int var26 = (p[var18] & 15) << 2;
+        final int var27 = (p[var19] & 15) << 2;
         final double var60 = deltaX - 1.0;
         final double var61 = weirdDeltaY - 1.0;
         final double var62 = deltaZ - 1.0;
@@ -158,5 +160,77 @@ public abstract class MixinImprovedNoise {
         final double var120 = var113 + var118;
         final double var121 = var115 + var119;
         return var120 + (var103 * (var121 - var120));
+    }
+
+    /**
+     * @author Sixik
+     * @reason Local variable hoisting for array 'p' + SIMD-friendly math structure.
+     */
+    @Unique
+    private double bts$sampleAndLerp(int gridX, int gridY, int gridZ, double x, double wy, double z, double y) {
+        final byte[] p = this.p;
+
+        final int X = gridX & 0xFF;
+        final int Y = gridY & 0xFF;
+        final int Z = gridZ & 0xFF;
+
+        // A = p[X] + Y
+        final int A = (p[X] & 0xFF) + Y;
+        final int AA = (p[A & 0xFF] & 0xFF) + Z;
+        final int AB = (p[(A + 1) & 0xFF] & 0xFF) + Z;
+
+        // B = p[X + 1] + Y
+        final int B = (p[(X + 1) & 0xFF] & 0xFF) + Y;
+        final int BA = (p[B & 0xFF] & 0xFF) + Z;
+        final int BB = (p[(B + 1) & 0xFF] & 0xFF) + Z;
+
+        final int gi000 = (p[AA & 0xFF] & 15) << 2;
+        final int gi001 = (p[(AA + 1) & 0xFF] & 15) << 2;
+        final int gi010 = (p[AB & 0xFF] & 15) << 2;
+        final int gi011 = (p[(AB + 1) & 0xFF] & 15) << 2;
+        final int gi100 = (p[BA & 0xFF] & 15) << 2;
+        final int gi101 = (p[(BA + 1) & 0xFF] & 15) << 2;
+        final int gi110 = (p[BB & 0xFF] & 15) << 2;
+        final int gi111 = (p[(BB + 1) & 0xFF] & 15) << 2;
+
+        final double x1 = x - 1.0;
+        final double wy1 = wy - 1.0;
+        final double z1 = z - 1.0;
+
+        // N000
+        final double n000 = FLAT_SIMPLEX_GRAD[gi000] * x +
+                FLAT_SIMPLEX_GRAD[gi000 | 1] * wy +
+                FLAT_SIMPLEX_GRAD[gi000 | 2] * z;
+        // N100
+        final double n100 = FLAT_SIMPLEX_GRAD[gi100] * x1 +
+                FLAT_SIMPLEX_GRAD[gi100 | 1] * wy +
+                FLAT_SIMPLEX_GRAD[gi100 | 2] * z;
+        // N010
+//        final double n010 = FLAT_SIMPLEX_GRAD[gi010] * x +
+//                FLAT_SIMPLEX_GRAD[gi010 | 1] * (wy - 1.0) +
+//                FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
+
+        final double n001 = FLAT_SIMPLEX_GRAD[gi001] * x + FLAT_SIMPLEX_GRAD[gi001 | 1] * wy + FLAT_SIMPLEX_GRAD[gi001 | 2] * z1;
+        final double n101 = FLAT_SIMPLEX_GRAD[gi101] * x1 + FLAT_SIMPLEX_GRAD[gi101 | 1] * wy + FLAT_SIMPLEX_GRAD[gi101 | 2] * z1;
+
+        final double n011 = FLAT_SIMPLEX_GRAD[gi011] * x + FLAT_SIMPLEX_GRAD[gi011 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi011 | 2] * z1;
+        final double n111 = FLAT_SIMPLEX_GRAD[gi111] * x1 + FLAT_SIMPLEX_GRAD[gi111 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi111 | 2] * z1;
+
+        final double n010_ = FLAT_SIMPLEX_GRAD[gi010] * x + FLAT_SIMPLEX_GRAD[gi010 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
+        final double n110_ = FLAT_SIMPLEX_GRAD[gi110] * x1 + FLAT_SIMPLEX_GRAD[gi110 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi110 | 2] * z;
+
+        final double u = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+        final double v = y * y * y * (y * (y * 6.0 - 15.0) + 10.0);
+        final double w = z * z * z * (z * (z * 6.0 - 15.0) + 10.0);
+
+        final double lerpX1 = n000 + u * (n100 - n000);
+        final double lerpX2 = n010_ + u * (n110_ - n010_);
+        final double lerpX3 = n001 + u * (n101 - n001);
+        final double lerpX4 = n011 + u * (n111 - n011);
+
+        final double lerpY1 = lerpX1 + v * (lerpX2 - lerpX1);
+        final double lerpY2 = lerpX3 + v * (lerpX4 - lerpX3);
+
+        return lerpY1 + w * (lerpY2 - lerpY1);
     }
 }

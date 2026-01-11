@@ -1,20 +1,20 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.synth;
 
-import com.mojang.datafixers.util.Pair;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-
-import java.util.stream.IntStream;
 
 @Mixin(PerlinNoise.class)
 public abstract class MixinPerlinNoise {
+
+    @Unique
+    private static final double WRAP_DOMAIN = 33554432.0;
+    @Unique
+    private static final double WRAP_RECRIPROCAL = 1.0 / WRAP_DOMAIN;
 
     @Shadow
     @Final
@@ -51,14 +51,18 @@ public abstract class MixinPerlinNoise {
         double d = 0.0;
         double e = this.lowestFreqInputFactor;
         double f = this.lowestFreqValueFactor;
+
+        final ImprovedNoise[] array = this.noiseLevels;
+        final double[] array2 = this.canvas$amplitudesArray;
+
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            ImprovedNoise perlinNoiseSampler = this.noiseLevels[i];
+            ImprovedNoise perlinNoiseSampler = array[i];
             if (perlinNoiseSampler != null) {
                 @SuppressWarnings("deprecation")
                 double g = perlinNoiseSampler.noise(
                         PerlinNoise.wrap(x * e), PerlinNoise.wrap(y * e), PerlinNoise.wrap(z * e), 0.0, 0.0
                 );
-                d += this.canvas$amplitudesArray[i] * g * f;
+                d += array2[i] * g * f;
             }
             e *= 2.0;
             f /= 2.0;
@@ -72,6 +76,6 @@ public abstract class MixinPerlinNoise {
      */
     @Overwrite
     public static double wrap(double value) {
-        return value - Math.floor(value / 3.3554432E7 + 0.5) * 3.3554432E7;
+        return value - Math.floor(value * WRAP_RECRIPROCAL + 0.5) * WRAP_DOMAIN;
     }
 }

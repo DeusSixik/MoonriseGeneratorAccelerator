@@ -1,7 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.feature;
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-import it.unimi.dsi.fastutil.objects.ObjectSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelSimulatedReader;

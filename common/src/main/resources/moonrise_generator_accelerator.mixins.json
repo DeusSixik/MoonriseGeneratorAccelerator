@@ -17,6 +17,7 @@
     "level.levelgen.MixinNoiseBasedChunkGenerator",
     "level.levelgen.feature.MixinConfiguredFeature",
     "level.levelgen.feature.MixinOreFeature",
+    "level.levelgen.material.MixinMaterialRuleList",
     "level.levelgen.synth.MixinImprovedNoise",
     "level.levelgen.synth.MixinPerlinNoise",
     "level.strucutres.MixinChunkAccess$SynchronizeStructureData",

@@ -11,7 +11,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 
 @Mixin(StructurePoolElement.class)
 public class MixinStructurePoolElement$cache_jigsawBlocks implements StructurePoolElementCache {

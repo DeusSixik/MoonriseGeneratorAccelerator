@@ -1,7 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator;
 
 import com.mojang.logging.LogUtils;
-import dev.sdm.profiler.TracyProfiler;
 import dev.sdm.profiler.network.TcpClient;
 import org.slf4j.Logger;
 

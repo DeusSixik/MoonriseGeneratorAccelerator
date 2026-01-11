@@ -10,7 +10,6 @@ import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator;
 
-import java.util.ArrayList;
 import java.util.function.BiConsumer;
 
 public class PooledTreeDecoratorContext extends TreeDecorator.Context {

@@ -5,7 +5,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.*;
 import org.jetbrains.annotations.NotNull;
 
-import static net.minecraft.world.level.levelgen.XoroshiroRandomSource.*;
+import static net.minecraft.world.level.levelgen.XoroshiroRandomSource.XoroshiroPositionalRandomFactory;
 
 public class SomeUtils {
 

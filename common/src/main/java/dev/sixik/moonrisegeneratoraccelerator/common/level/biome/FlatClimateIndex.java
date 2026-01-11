@@ -4,8 +4,8 @@ import com.mojang.datafixers.util.Pair;
 import net.minecraft.world.level.biome.Climate;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * High-performance spatial index for Minecraft climate parameter lookup.

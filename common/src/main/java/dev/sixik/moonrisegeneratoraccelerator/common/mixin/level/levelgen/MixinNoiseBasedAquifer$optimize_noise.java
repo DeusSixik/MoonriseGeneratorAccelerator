@@ -1,7 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
 import dev.sixik.moonrisegeneratoraccelerator.common.utils.SomeUtils;
-import dev.sixik.moonrisegeneratoraccelerator.profiler.BtsProfilerUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
