@@ -6,4 +6,6 @@
 /fabric/build/
 /neoforge/.gradle/
 /neoforge/build/
+/neoforge/run/
+/fabric/run/
 /.idea/

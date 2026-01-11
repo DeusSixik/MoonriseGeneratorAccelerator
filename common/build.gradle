@@ -11,5 +11,6 @@ dependencies {
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "curse.maven:moonrise-1096335:7089177"
 
+    compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
 
 }

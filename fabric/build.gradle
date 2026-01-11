@@ -30,6 +30,7 @@ dependencies {
     modImplementation "curse.maven:moonrise-1096335:7089176"
     include(implementation(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.7-beta.1")))
 
+    modImplementation "curse.maven:spark-361579:5759670"
 
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')

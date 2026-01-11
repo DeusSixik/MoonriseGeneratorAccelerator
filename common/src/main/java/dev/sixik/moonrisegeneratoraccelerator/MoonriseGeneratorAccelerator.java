@@ -6,6 +6,5 @@ public final class MoonriseGeneratorAccelerator {
     public static void init() {
         // Write common init code here.
 
-
     }
 }

@@ -7,5 +7,7 @@ import net.neoforged.fml.common.Mod;
 public final class MoonriseGeneratorAcceleratorNeoForge {
     public MoonriseGeneratorAcceleratorNeoForge() {
         MoonriseGeneratorAccelerator.init();
+
+
     }
 }
