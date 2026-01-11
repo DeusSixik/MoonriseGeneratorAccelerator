@@ -1,7 +1,5 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.moonrisegeneratoraccelerator.common.utils.SomeUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
@@ -55,14 +53,6 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     @Shadow
     @Final
     private DensityFunction barrierNoise;
-
-    @Shadow
-    protected abstract Aquifer.FluidStatus getAquiferStatus(long l);
-
-    @Shadow
-    private static double similarity(int i, int j) {
-        throw new RuntimeException();
-    }
 
     @Shadow
     @Final
@@ -159,8 +149,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     }
 
 
-    @WrapMethod(method = "computeSubstance")
-    public BlockState bts$computeSubstance(DensityFunction.FunctionContext context, double substance, Operation<BlockState> original) {
+    @Overwrite
+    public BlockState computeSubstance(DensityFunction.FunctionContext context, double substance) {
         final int i = context.blockX();
         final int j = context.blockY();
         final int k = context.blockZ();
@@ -179,8 +169,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         }
     }
 
-    @WrapMethod(method = "calculatePressure")
-    private double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2, Operation<Double> original) {
+    @Overwrite
+    private double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
         final int i = context.blockY();
 
         final BlockState blockState = fluidLevel.at(i);
@@ -199,8 +189,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         return 2.0;
     }
 
-    @WrapMethod(method = "getAquiferStatus")
-    private Aquifer.FluidStatus getAquiferStatus(long pos, Operation<Aquifer.FluidStatus> original) {
+    @Overwrite
+    private Aquifer.FluidStatus getAquiferStatus(long pos) {
         final int i = BlockPos.getX(pos);
         final int j = BlockPos.getY(pos);
         final int k = BlockPos.getZ(pos);
@@ -218,8 +208,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         }
     }
 
-    @WrapMethod(method = "computeSurfaceLevel")
-    private int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent, Operation<Integer> original) {
+    @Overwrite
+    private int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent) {
         final DensityFunction.SinglePointContext unblendedNoisePos = new DensityFunction.SinglePointContext(x, y, z);
         double d;
         double d1;
@@ -246,8 +236,12 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         return i;
     }
 
-    @WrapMethod(method = "similarity")
-    private static double bts$similarity(int i, int j, Operation<Double> original) {
+    /**
+     * @author
+     * @reason
+     */
+    @Overwrite
+    private static double similarity(int i, int j) {
         return 1.0D - (double) Math.abs(j - i) * 0.04D;
     }
 
