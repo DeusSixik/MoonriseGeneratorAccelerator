@@ -49,3 +49,7 @@ accessible field net/minecraft/world/level/biome/Climate$RTree root Lnet/minecra
 accessible field net/minecraft/world/level/biome/Climate$RTree$Node parameterSpace [Lnet/minecraft/world/level/biome/Climate$Parameter;
 accessible field net/minecraft/world/level/biome/Climate$RTree$Leaf value Ljava/lang/Object;
 accessible field net/minecraft/world/level/biome/Climate$RTree$SubTree children [Lnet/minecraft/world/level/biome/Climate$RTree$Node;
+
+extendable class net/minecraft/world/level/levelgen/feature/treedecorators/TreeDecorator$Context
+
+accessible method net/minecraft/world/level/levelgen/Heightmap setHeight (III)V

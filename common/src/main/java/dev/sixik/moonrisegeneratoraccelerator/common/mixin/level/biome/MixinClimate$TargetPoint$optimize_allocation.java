@@ -1,6 +1,8 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.biome;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import net.minecraft.world.level.biome.Climate;
 import org.spongepowered.asm.mixin.*;
 
@@ -28,9 +30,9 @@ public class MixinClimate$TargetPoint$optimize_allocation {
      * @author Sixik
      * @reason Removes memory allocation (new long[7]) on every biome lookup.
      */
-    @Overwrite
     @VisibleForTesting
-    protected long[] toParameterArray() {
+    @WrapMethod(method = "toParameterArray")
+    public long[] toParameterArray(Operation<long[]> original) {
         long[] buffer = bts$PARAMETER_BUFFER.get();
         buffer[0] = this.temperature;
         buffer[1] = this.humidity;
