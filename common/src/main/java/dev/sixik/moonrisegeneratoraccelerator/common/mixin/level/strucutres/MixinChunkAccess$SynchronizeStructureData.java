@@ -16,6 +16,14 @@ import org.spongepowered.asm.mixin.*;
 import java.util.Map;
 import java.util.concurrent.locks.StampedLock;
 
+/**
+ * Concurrency note:
+ * <p>
+ * In profiling/tests, writes to structure data showed low contention, so this implementation
+ * uses {@code Reference2ObjectOpenHashMap} guarded by a {@code StampedLock} instead of a
+ * {@code ConcurrentHashMap}. This is expected to be faster in the common case.
+ * </p>
+ */
 @Mixin(ChunkAccess.class)
 public abstract class MixinChunkAccess$SynchronizeStructureData implements BlockGetter,
         BiomeManager.NoiseBiomeSource,
@@ -40,11 +48,11 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
 
     @WrapMethod(method = "getStartForStructure")
     public StructureStart bts$getStartForStructure$synchronized(Structure structure, Operation<StructureStart> original) {
-        final long stamp = bts$structuresData_structureStarts_Lock.writeLock();
+        final long stamp = bts$structuresData_structureStarts_Lock.readLock();
         try {
            return original.call(structure);
         } finally {
-            bts$structuresData_structureStarts_Lock.unlockWrite(stamp);
+            bts$structuresData_structureStarts_Lock.unlockRead(stamp);
         }
 
     }
