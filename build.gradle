@@ -1,0 +1,113 @@
+plugins {
+    id 'dev.architectury.loom' version '1.13-SNAPSHOT' apply false
+    id 'architectury-plugin' version '3.4-SNAPSHOT'
+    id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
+}
+
+architectury {
+    minecraft = project.minecraft_version
+}
+
+allprojects {
+    group = rootProject.maven_group
+    version = rootProject.mod_version
+
+    repositories {
+        maven { url = "https://maven.bawnorton.com/releases" }
+        maven { url = "https://maven.enjarai.dev/mirrors" }
+
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases'
+        }
+        maven { url = "https://maven.createmod.net" } // Ponder, Flywheel
+        maven { url = "https://maven.ithundxr.dev/snapshots" }
+        maven { url = "https://maven.blamejared.com" }
+        maven { url = "https://harleyoconnor.com/maven" }
+        maven { url = "https://maven.theillusivec4.top/" }
+        maven { url = "https://maven.squiddev.cc" }
+        maven { url = "https://www.cursemaven.com" }
+        maven { url = "https://api.modrinth.com/maven" }
+        maven { url = "https://maven.ftb.dev/releases" }
+        maven { url = "https://maven.architectury.dev" }
+        maven { url = "https://raw.githubusercontent.com/Fuzss/modresources/main/maven" }
+
+        maven {
+            url "https://maven.su5ed.dev/releases"
+        }
+
+        maven {
+            url = "https://jm.gserv.me/repository/maven-public"
+            content {
+                includeGroup "info.journeymap"
+                includeGroup "mysticdrew"
+            }
+        }
+
+        maven {
+            name "latviandevReleases"
+            url "https://maven.latvian.dev/releases"
+        }
+        maven {
+            name "kTT MavenReleases"
+            url "https://maven.kessokuteatime.work/releases"
+        }
+
+    }
+}
+
+subprojects {
+    apply plugin: 'dev.architectury.loom'
+    apply plugin: 'architectury-plugin'
+    apply plugin: 'maven-publish'
+
+    base {
+        // Set up a suffixed format for the mod jar names, e.g. `example-fabric`.
+        archivesName = "$rootProject.archives_name-$project.name"
+    }
+
+    repositories {
+        // Add repositories to retrieve artifacts from in here.
+        // You should only use this when depending on other mods because
+        // Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+        // See https://docs.gradle.org/current/userguide/declaring_repositories.html
+        // for more information about repositories.
+    }
+
+    dependencies {
+        minecraft "net.minecraft:minecraft:$rootProject.minecraft_version"
+        mappings loom.officialMojangMappings()
+    }
+
+    java {
+        // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+        // if it is present.
+        // If you remove this line, sources will not be generated.
+        withSourcesJar()
+
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        it.options.release = 21
+    }
+
+    // Configure Maven publishing.
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                artifactId = base.archivesName.get()
+                from components.java
+            }
+        }
+
+        // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+        repositories {
+            // Add repositories to publish to here.
+            // Notice: This block does NOT have the same function as the block in the top level.
+            // The repositories here will be used for publishing your artifact, not for
+            // retrieving dependencies.
+        }
+    }
+}

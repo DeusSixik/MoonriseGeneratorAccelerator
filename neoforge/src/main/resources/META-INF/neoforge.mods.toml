@@ -1,0 +1,32 @@
+modLoader = "javafml"
+loaderVersion = "[2,)"
+#issueTrackerURL = ""
+license = "GNU GPL 3.0"
+
+[[mods]]
+modId = "moonrise_generator_accelerator"
+version = "${version}"
+displayName = "Moonrise Generator Accelerator"
+authors = ""
+description = '''
+
+'''
+#logoFile = ""
+
+[[dependencies.moonrise_generator_accelerator]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.moonrise_generator_accelerator]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+
+[[mixins]]
+config = "moonrise_generator_accelerator.mixins.json"

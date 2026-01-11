@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "moonrise_generator_accelerator",
+  "version": "${version}",
+  "name": "Moonrise Generator Accelerator",
+  "description": "",
+  "authors": [
+    ""
+  ],
+  "contact": {
+    "homepage": ""
+  },
+  "license": "GPL-3.0",
+  "icon": "assets/moonrise_generator_accelerator/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.sixik.moonrisegeneratoraccelerator.fabric.MoonriseGeneratorAcceleratorFabric"
+    ],
+    "client": []
+  },
+  "mixins": [
+    "moonrise_generator_accelerator.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  },
+  "suggests": {
+    "another-mod": "*"
+  }
+}
