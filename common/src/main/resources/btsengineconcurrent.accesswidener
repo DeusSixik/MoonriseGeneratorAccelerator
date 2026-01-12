@@ -161,3 +161,7 @@ accessible method net/minecraft/world/level/levelgen/blending/BlendingData itera
 accessible method net/minecraft/world/level/levelgen/blending/BlendingData getHeight (III)D
 accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDensity ([DI)D
 accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDensity (III)D
+
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateXZ (II)V
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateY (IIIIII)V
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context getMinSurfaceLevel ()I

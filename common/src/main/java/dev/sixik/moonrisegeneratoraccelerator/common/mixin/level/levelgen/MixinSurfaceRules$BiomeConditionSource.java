@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 
 @Mixin(targets = "net.minecraft.world.level.levelgen.SurfaceRules$BiomeConditionSource")
-public abstract class MixinSurfaceRules$Context$BiomeConditionSource implements SurfaceRules.ConditionSource {
+public abstract class MixinSurfaceRules$BiomeConditionSource implements SurfaceRules.ConditionSource {
 
     /**
      * @author Sixik
