@@ -12,6 +12,8 @@
     "level.biome.MixinClimate$TargetPoint$optimize_allocation",
     "level.chunk.MixinLevelChunkSection$optimize_biome_iteration",
     "level.levelgen.MixinBeardifier",
+    "level.levelgen.MixinDensityFunctions$Ap2",
+    "level.levelgen.MixinDensityFunctions$HolderHolder",
     "level.levelgen.MixinHeightmap$optimize_logic",
     "level.levelgen.MixinNoiseBasedAquifer$optimize_noise",
     "level.levelgen.MixinNoiseBasedChunkGenerator",
