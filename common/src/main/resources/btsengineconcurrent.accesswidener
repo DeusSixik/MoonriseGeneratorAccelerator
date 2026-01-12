@@ -79,3 +79,13 @@ accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolato
 accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator swapSlices ()V
 
 accessible class net/minecraft/world/level/levelgen/NoiseChunk$NoiseChunkDensityFunction
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$SurfaceRule
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$SequenceRule
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$SequenceRule <init> (Ljava/util/List;)V
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$SequenceRuleSource
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$SequenceRuleSource <init> (Ljava/util/List;)V
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$Context
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context <init> (Lnet/minecraft/world/level/levelgen/SurfaceSystem;Lnet/minecraft/world/level/levelgen/RandomState;Lnet/minecraft/world/level/chunk/ChunkAccess;Lnet/minecraft/world/level/levelgen/NoiseChunk;Ljava/util/function/Function;Lnet/minecraft/core/Registry;Lnet/minecraft/world/level/levelgen/WorldGenerationContext;)V
