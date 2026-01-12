@@ -21,13 +21,15 @@ public class MixinMaterialRuleList {
 
     @WrapMethod(method = "calculate")
     public BlockState bts$calculate(DensityFunction.FunctionContext context, Operation<BlockState> original) {
-        BlockState blockState = null;
-        final int length = this.materialRuleList.size();
-        for (int i = 0; blockState == null && i < length; i++) {
-            NoiseChunk.BlockStateFiller blockStateFiller = materialRuleList.get(i);
-            blockState = blockStateFiller.calculate(context);
+        final List<NoiseChunk.BlockStateFiller> list = materialRuleList;
+
+        for (int i = 0; i < list.size(); i++) {
+            final BlockState blockState = list.get(i).calculate(context);
+
+            if (blockState != null)
+                return blockState;
         }
 
-        return blockState;
+        return null;
     }
 }

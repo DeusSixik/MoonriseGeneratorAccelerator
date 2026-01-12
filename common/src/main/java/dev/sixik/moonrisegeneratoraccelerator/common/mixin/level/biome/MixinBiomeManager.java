@@ -10,7 +10,8 @@ import org.spongepowered.asm.mixin.*;
 public class MixinBiomeManager {
 
     @Final
-    @Shadow private BiomeManager.NoiseBiomeSource noiseBiomeSource;
+    @Shadow
+    private BiomeManager.NoiseBiomeSource noiseBiomeSource;
     @Final
     @Shadow
     private long biomeZoomSeed;
@@ -25,65 +26,74 @@ public class MixinBiomeManager {
      */
     @Overwrite
     public Holder<Biome> getBiome(BlockPos pos) {
-        int x = pos.getX() - 2;
-        int y = pos.getY() - 2;
-        int z = pos.getZ() - 2;
+        final int x = pos.getX() - 2;
+        final int y = pos.getY() - 2;
+        final int z = pos.getZ() - 2;
 
-        // Bit shifts instead of division
-        int quartX = x >> 2;
-        int quartY = y >> 2;
-        int quartZ = z >> 2;
+        /*
+            Bit shifts instead of division
+         */
+        final int quartX = x >> 2;
+        final int quartY = y >> 2;
+        final int quartZ = z >> 2;
 
-        // Pre-calculate fractions
-        double fracX = (double)(x & 3) / 4.0D;
-        double fracY = (double)(y & 3) / 4.0D;
-        double fracZ = (double)(z & 3) / 4.0D;
+        /*
+            Pre-calculate fractions
+         */
+        final double fracX = (double) (x & 3) / 4.0D;
+        final double fracY = (double) (y & 3) / 4.0D;
+        final double fracZ = (double) (z & 3) / 4.0D;
 
         int bestCornerIndex = 0;
         double minDistance = Double.POSITIVE_INFINITY;
 
-        // Unrolled loop or optimized iteration
-        // p - это индекс угла (0..7)
         for (int p = 0; p < 8; ++p) {
-            // Разворачиваем булевы флаги в битовые операции
-            boolean isX = (p & 4) == 0;
-            boolean isY = (p & 2) == 0;
-            boolean isZ = (p & 1) == 0;
+            final boolean isX = (p & 4) == 0;
+            final boolean isY = (p & 2) == 0;
+            final boolean isZ = (p & 1) == 0;
 
-            int cx = isX ? quartX : quartX + 1;
-            int cy = isY ? quartY : quartY + 1;
-            int cz = isZ ? quartZ : quartZ + 1;
+            final int cx = isX ? quartX : quartX + 1;
+            final int cy = isY ? quartY : quartY + 1;
+            final int cz = isZ ? quartZ : quartZ + 1;
 
-            double offX = isX ? fracX : fracX - 1.0D;
-            double offY = isY ? fracY : fracY - 1.0D;
-            double offZ = isZ ? fracZ : fracZ - 1.0D;
+            final double offX = isX ? fracX : fracX - 1.0D;
+            final double offY = isY ? fracY : fracY - 1.0D;
+            final double offZ = isZ ? fracZ : fracZ - 1.0D;
 
-            // INLINED getFiddledDistance
-            // 1. LCG Chain: next(seed, x) -> next(m, y) -> next(m, z) -> ...
-            long l = this.biomeZoomSeed;
+            /*
+                LCG Chain: next(seed, x) -> next(m, y) -> next(m, z) -> ...
+             */
+            final long l = this.biomeZoomSeed;
 
-            // Step 1: Mix Seed + Coords
+            /*
+                Mix Seed + Coords
+             */
             long m = l * LCG_MUL + LCG_ADD + cx;
             m = m * LCG_MUL + LCG_ADD + cy;
             m = m * LCG_MUL + LCG_ADD + cz;
 
-            // Step 2: Mix Coords again
+            /*
+                Mix Coords again
+             */
             m = m * LCG_MUL + LCG_ADD + cx;
             m = m * LCG_MUL + LCG_ADD + cy;
             m = m * LCG_MUL + LCG_ADD + cz;
 
-            // Step 3: Calculate offsets (Fiddles)
-            // Replace Math.floorMod(l >> 24, 1024) with (l >> 24) & 1023
-            double fX = bts$getFiddle(m);
+            /*
+                Calculate offsets (Fiddles)
+             */
+            final double fX = bts$getFiddle(m);
 
             m = m * LCG_MUL + LCG_ADD + l;
-            double fY = bts$getFiddle(m);
+            final double fY = bts$getFiddle(m);
 
             m = m * LCG_MUL + LCG_ADD + l;
-            double fZ = bts$getFiddle(m);
+            final double fZ = bts$getFiddle(m);
 
-            // Final Distance
-            double dist = bts$sq(offZ + fZ) + bts$sq(offY + fY) + bts$sq(offX + fX);
+            /*
+                Final Distance
+             */
+            final double dist = bts$sq(offZ + fZ) + bts$sq(offY + fY) + bts$sq(offX + fX);
 
             if (minDistance > dist) {
                 bestCornerIndex = p;
@@ -91,9 +101,9 @@ public class MixinBiomeManager {
             }
         }
 
-        int finalX = (bestCornerIndex & 4) == 0 ? quartX : quartX + 1;
-        int finalY = (bestCornerIndex & 2) == 0 ? quartY : quartY + 1;
-        int finalZ = (bestCornerIndex & 1) == 0 ? quartZ : quartZ + 1;
+        final int finalX = (bestCornerIndex & 4) == 0 ? quartX : quartX + 1;
+        final int finalY = (bestCornerIndex & 2) == 0 ? quartY : quartY + 1;
+        final int finalZ = (bestCornerIndex & 1) == 0 ? quartZ : quartZ + 1;
 
         return this.noiseBiomeSource.getNoiseBiome(finalX, finalY, finalZ);
     }
@@ -105,7 +115,7 @@ public class MixinBiomeManager {
      */
     @Unique
     private static double bts$getFiddle(long l) {
-        double d = (double)((int)(l >> 24) & 1023) / 1024.0D;
+        double d = (double) ((int) (l >> 24) & 1023) / 1024.0D;
         return (d - 0.5D) * 0.9D;
     }
 

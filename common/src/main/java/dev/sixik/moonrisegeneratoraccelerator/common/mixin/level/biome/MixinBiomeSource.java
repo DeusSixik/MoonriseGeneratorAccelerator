@@ -23,29 +23,26 @@ public abstract class MixinBiomeSource {
      */
     @Overwrite
     public Set<Holder<Biome>> getBiomesWithin(int x, int y, int z, int radius, Climate.Sampler sampler) {
-        int minX = QuartPos.fromBlock(x - radius);
-        int minY = QuartPos.fromBlock(y - radius);
-        int minZ = QuartPos.fromBlock(z - radius);
-        int maxX = QuartPos.fromBlock(x + radius);
-        int maxY = QuartPos.fromBlock(y + radius);
-        int maxZ = QuartPos.fromBlock(z + radius);
+        final int minX = QuartPos.fromBlock(x - radius);
+        final int minY = QuartPos.fromBlock(y - radius);
+        final int minZ = QuartPos.fromBlock(z - radius);
+        final int maxX = QuartPos.fromBlock(x + radius);
+        final int maxY = QuartPos.fromBlock(y + radius);
+        final int maxZ = QuartPos.fromBlock(z + radius);
 
-        int sizeX = maxX - minX + 1;
-        int sizeY = maxY - minY + 1;
-        int sizeZ = maxZ - minZ + 1;
+        final int sizeX = maxX - minX + 1;
+        final int sizeY = maxY - minY + 1;
+        final int sizeZ = maxZ - minZ + 1;
 
-        // Используем ReferenceOpenHashSet из fastutil (0 мусора при добавлении)
-        // Если fastutil нет, можно использовать просто new HashSet<>(), но с initial capacity.
-        // Предполагаем, что fastutil есть (он есть в майне).
-        it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<Holder<Biome>> set =
+        final it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<Holder<Biome>> set =
                 new it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<>();
 
         for(int k = 0; k < sizeZ; ++k) {
             for(int j = 0; j < sizeX; ++j) {
                 for(int i = 0; i < sizeY; ++i) {
-                    int qX = minX + j;
-                    int qY = minY + i;
-                    int qZ = minZ + k;
+                    final int qX = minX + j;
+                    final int qY = minY + i;
+                    final int qZ = minZ + k;
                     set.add(this.getNoiseBiome(qX, qY, qZ, sampler));
                 }
             }
