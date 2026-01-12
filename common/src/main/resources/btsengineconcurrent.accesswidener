@@ -89,3 +89,17 @@ accessible method net/minecraft/world/level/levelgen/SurfaceRules$SequenceRuleSo
 
 accessible class net/minecraft/world/level/levelgen/SurfaceRules$Context
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context <init> (Lnet/minecraft/world/level/levelgen/SurfaceSystem;Lnet/minecraft/world/level/levelgen/RandomState;Lnet/minecraft/world/level/chunk/ChunkAccess;Lnet/minecraft/world/level/levelgen/NoiseChunk;Ljava/util/function/Function;Lnet/minecraft/core/Registry;Lnet/minecraft/world/level/levelgen/WorldGenerationContext;)V
+accessible field net/minecraft/world/level/levelgen/SurfaceRules$Context pos Lnet/minecraft/core/BlockPos$MutableBlockPos;
+accessible field net/minecraft/world/level/levelgen/SurfaceRules$Context blockX I
+accessible field net/minecraft/world/level/levelgen/SurfaceRules$Context blockY I
+accessible field net/minecraft/world/level/levelgen/SurfaceRules$Context blockZ I
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$LazyYCondition
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$LazyYCondition <init> (Lnet/minecraft/world/level/levelgen/SurfaceRules$Context;)V
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$Condition
+
+accessible class net/minecraft/world/level/levelgen/SurfaceRules$BiomeConditionSource
+accessible method net/minecraft/world/level/levelgen/SurfaceRules$BiomeConditionSource <init> (Ljava/util/List;)V
+
+accessible field net/minecraft/world/level/levelgen/SurfaceRules$BiomeConditionSource biomeNameTest Ljava/util/function/Predicate;
