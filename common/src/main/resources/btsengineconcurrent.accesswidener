@@ -105,3 +105,21 @@ accessible method net/minecraft/world/level/levelgen/SurfaceRules$BiomeCondition
 accessible field net/minecraft/world/level/levelgen/SurfaceRules$BiomeConditionSource biomeNameTest Ljava/util/function/Predicate;
 
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Constant
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$Constant <init> (D)V
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Mapped
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$Mapped <init> (Lnet/minecraft/world/level/levelgen/DensityFunctions$Mapped$Type;Lnet/minecraft/world/level/levelgen/DensityFunction;DD)V
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Mapped$Type
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Clamp
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$Clamp <init> (Lnet/minecraft/world/level/levelgen/DensityFunction;DD)V
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd <init> (Lnet/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type;Lnet/minecraft/world/level/levelgen/DensityFunction;DDD)V
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd$Type
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$RangeChoice
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$RangeChoice <init> (Lnet/minecraft/world/level/levelgen/DensityFunction;DDLnet/minecraft/world/level/levelgen/DensityFunction;Lnet/minecraft/world/level/levelgen/DensityFunction;)V

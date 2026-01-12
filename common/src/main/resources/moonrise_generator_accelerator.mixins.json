@@ -19,6 +19,8 @@
     "level.levelgen.MixinNoiseBasedChunkGenerator",
     "level.levelgen.MixinNoiseChunk",
     "level.levelgen.MixinNoiseInterpolator",
+    "level.levelgen.MixinNoiseRouter$add_custom_optimizer",
+    "level.levelgen.MixinRandomState$inject_route_optimizer",
     "level.levelgen.MixinSurfaceRules",
     "level.levelgen.MixinSurfaceRules$Context",
     "level.levelgen.MixinSurfaceRules$Context$BiomeConditionSource",
