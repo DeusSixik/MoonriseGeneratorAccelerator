@@ -12,3 +12,5 @@
 /neoforge/run/
 /fabric/run/
 /.idea/
+/common/logs
+/common/compiler

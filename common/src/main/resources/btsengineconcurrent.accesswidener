@@ -130,6 +130,8 @@ accessible method net/minecraft/world/level/levelgen/DensityFunctions$ShiftedNoi
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$Noise
 accessible method net/minecraft/world/level/levelgen/DensityFunctions$Noise <init> (Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;DD)V
 
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Ap2
+
 accessible field net/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type codec Lnet/minecraft/util/KeyDispatchDataCodec;
 
 accessible class net/minecraft/world/level/levelgen/blending/BlendingData$BiomeConsumer
@@ -165,3 +167,6 @@ accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDe
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateXZ (II)V
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateY (IIIIII)V
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context getMinSurfaceLevel ()I
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendAlpha
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendOffset
