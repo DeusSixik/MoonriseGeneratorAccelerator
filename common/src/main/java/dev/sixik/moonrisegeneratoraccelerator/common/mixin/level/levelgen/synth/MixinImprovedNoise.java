@@ -35,6 +35,7 @@ public abstract class MixinImprovedNoise {
      * @author Sixik
      * @reason Extreme optimization: Fast floor, Stack hoisting, Unrolled math.
      */
+    @Deprecated
     @Overwrite
     public double noise(double x, double y, double z, double yScale, double yMax) {
         final double inputX = x + this.xo;
@@ -62,7 +63,7 @@ public abstract class MixinImprovedNoise {
             } else {
                 range = deltaY;
             }
-            
+
             final double scaled = range / yScale + 1.0E-7;
             int scaledFloor = (int) scaled;
             if (scaled < scaledFloor) scaledFloor--;

@@ -1,0 +1,8 @@
+package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
+
+public interface NoiseChunkPatch {
+
+    double bts$getInverseCellWidth();
+
+    double bts$getInverseCellHeight();
+}

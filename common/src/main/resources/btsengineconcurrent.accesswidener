@@ -53,3 +53,29 @@ accessible field net/minecraft/world/level/biome/Climate$RTree$SubTree children 
 extendable class net/minecraft/world/level/levelgen/feature/treedecorators/TreeDecorator$Context
 
 accessible method net/minecraft/world/level/levelgen/Heightmap setHeight (III)V
+
+accessible field net/minecraft/world/level/levelgen/NoiseChunk interpolating Z
+accessible field net/minecraft/world/level/levelgen/NoiseChunk fillingCell Z
+accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellX I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellY I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellZ I
+
+accessible class net/minecraft/world/level/levelgen/NoiseChunk$CacheOnce
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$CacheOnce <init> (Lnet/minecraft/world/level/levelgen/NoiseChunk;Lnet/minecraft/world/level/levelgen/DensityFunction;)V
+
+accessible class net/minecraft/world/level/levelgen/NoiseChunk$CacheAllInCell
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$CacheAllInCell <init> (Lnet/minecraft/world/level/levelgen/NoiseChunk;Lnet/minecraft/world/level/levelgen/DensityFunction;)V
+accessible field net/minecraft/world/level/levelgen/NoiseChunk$CacheAllInCell noiseFiller Lnet/minecraft/world/level/levelgen/DensityFunction;
+accessible field net/minecraft/world/level/levelgen/NoiseChunk$CacheAllInCell values [D
+
+accessible class net/minecraft/world/level/levelgen/NoiseChunk$FlatCache
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$FlatCache <init> (Lnet/minecraft/world/level/levelgen/NoiseChunk;Lnet/minecraft/world/level/levelgen/DensityFunction;Z)V
+
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator <init> (Lnet/minecraft/world/level/levelgen/NoiseChunk;Lnet/minecraft/world/level/levelgen/DensityFunction;)V
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator updateForX (D)V
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator updateForY (D)V
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator updateForZ (D)V
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator selectCellYZ (II)V
+accessible method net/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator swapSlices ()V
+
+accessible class net/minecraft/world/level/levelgen/NoiseChunk$NoiseChunkDensityFunction
