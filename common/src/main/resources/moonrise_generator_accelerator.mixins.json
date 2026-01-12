@@ -25,6 +25,7 @@
     "level.levelgen.feature.MixinOreFeature",
     "level.levelgen.material.MixinMaterialRuleList",
     "level.levelgen.synth.MixinImprovedNoise",
+    "level.levelgen.synth.MixinNormalNoise",
     "level.levelgen.synth.MixinPerlinNoise",
     "level.strucutres.MixinChunkAccess$SynchronizeStructureData",
     "level.strucutres.pools.MixinEmptyPoolElement$default_empty_list",
