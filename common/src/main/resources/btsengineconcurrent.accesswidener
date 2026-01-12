@@ -123,3 +123,5 @@ accessible class net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd$Ty
 
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$RangeChoice
 accessible method net/minecraft/world/level/levelgen/DensityFunctions$RangeChoice <init> (Lnet/minecraft/world/level/levelgen/DensityFunction;DDLnet/minecraft/world/level/levelgen/DensityFunction;Lnet/minecraft/world/level/levelgen/DensityFunction;)V
+
+accessible field net/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type codec Lnet/minecraft/util/KeyDispatchDataCodec;

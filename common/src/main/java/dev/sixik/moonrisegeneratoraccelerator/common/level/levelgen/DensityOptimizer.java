@@ -183,19 +183,35 @@ public class DensityOptimizer {
                 if (aUnwrapped.minValue() >= bUnwrapped.maxValue()) return a;
                 if (bUnwrapped.minValue() >= aUnwrapped.maxValue()) return b;
             }
+
+//            /*
+//                We pass the Ms to the constructor "a" and "b" (possibly wrapped in a Holder),
+//                or the expanded "aU"/"bU" — preferably expanded to remove the extra call stack.
+//             */
+//            return switch (type) {
+//                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
+//                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
+//                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
+//                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
+//            };
         }
 
         /*
             MulOrAdd Folding
          */
         if (f instanceof DensityFunctions.MulOrAdd ma) {
-            DensityFunction inner = unwrap(ma.input());
-            if (inner instanceof DensityFunctions.Constant c) {
+            DensityFunction inputU = unwrap(ma.input());
+            if (inputU instanceof DensityFunctions.Constant c) {
                 return switch (ma.specificType()) {
                     case ADD -> DensityFunctions.constant(c.value() + ma.argument());
                     case MUL -> DensityFunctions.constant(c.value() * ma.argument());
                 };
             }
+
+//            return switch (ma.specificType()) {
+//                case ADD -> new DensitySpecializations.FastLinearAdd(inputU, ma.argument());
+//                case MUL -> new DensitySpecializations.FastLinearMul(inputU, ma.argument());
+//            };
         }
 
         /*
