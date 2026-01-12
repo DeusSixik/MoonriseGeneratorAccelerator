@@ -253,6 +253,16 @@ public class DensityOptimizer {
             }
         }
 
+        if (f instanceof DensityFunctions.ShiftedNoise sn) {
+            DensityFunction sx = unwrap(sn.shiftX());
+            DensityFunction sy = unwrap(sn.shiftY());
+            DensityFunction sz = unwrap(sn.shiftZ());
+
+            if (isZero(sx) && isZero(sy) && isZero(sz)) {
+                return new DensityFunctions.Noise(sn.noise(), sn.xzScale(), sn.yScale());
+            }
+        }
+
         return f;
     }
 

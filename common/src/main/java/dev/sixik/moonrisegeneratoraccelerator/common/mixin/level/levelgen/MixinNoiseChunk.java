@@ -1,10 +1,16 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.CachedPointContext;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseChunkPatch;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
+import net.minecraft.world.level.levelgen.NoiseSettings;
+import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
@@ -51,6 +57,22 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Shadow
     private int cellStartBlockX;
 
+    @Shadow
+    @Final
+    private NoiseSettings noiseSettings;
+    @Shadow
+    @Final
+    private DensityFunction initialDensityNoJaggedness;
+    @Shadow
+    @Final
+    private Long2IntMap preliminarySurfaceLevel;
+    @Shadow
+    private long lastBlendingDataPos;
+    @Shadow
+    private Blender.BlendingOutput lastBlendingOutput;
+    @Shadow
+    @Final
+    private Blender blender;
     @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
@@ -164,6 +186,57 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         final NoiseChunk.NoiseInterpolator[] array = bts$interpolatorsArray;
         for (int i = 0; i < array.length; i++) {
             array[i].swapSlices();
+        }
+    }
+
+    /**
+     * @author Sixik
+     * @reason Micro optimization
+     */
+    @Overwrite
+    private int computePreliminarySurfaceLevel(long l) {
+        final int i = (int) (l & 4294967295L);
+        final int j = (int) (l >>> 32 & 4294967295L);
+        final int k = this.noiseSettings.minY();
+        final int h = this.noiseSettings.height();
+        final int cH = this.cellHeight;
+
+        final DensityFunction el = this.initialDensityNoJaggedness;
+        final CachedPointContext cachedContext = new CachedPointContext();
+
+        for(int m = k + h; m >= k; m -= cH) {
+            if (el.compute(cachedContext.update(i, m, j)) > 0.390625D) {
+                return m;
+            }
+        }
+
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * @author Sixik
+     * @reason Unnecessary operations have been removed
+     */
+    @Overwrite
+    public int preliminarySurfaceLevel(int i, int j) {
+        return this.preliminarySurfaceLevel.computeIfAbsent(i & 4294967295L | ((long)j & 4294967295L) << 32, this::computePreliminarySurfaceLevel);
+    }
+
+    /**
+     * @author Sixik
+     * @reason Optimize key generation and remove method call overhead
+     */
+    @Overwrite
+    Blender.BlendingOutput getOrComputeBlendingOutput(int x, int z) {
+        final long key = (long)x & 0xFFFFFFFFL | ((long)z << 32);
+
+        if (this.lastBlendingDataPos == key) {
+            return this.lastBlendingOutput;
+        } else {
+            this.lastBlendingDataPos = key;
+            final Blender.BlendingOutput result = this.blender.blendOffsetAndFactor(x, z);
+            this.lastBlendingOutput = result;
+            return result;
         }
     }
 }

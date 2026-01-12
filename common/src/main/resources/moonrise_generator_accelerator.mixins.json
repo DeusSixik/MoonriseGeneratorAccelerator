@@ -18,6 +18,7 @@
     "level.levelgen.MixinNoiseBasedAquifer$optimize_noise",
     "level.levelgen.MixinNoiseBasedChunkGenerator",
     "level.levelgen.MixinNoiseChunk",
+    "level.levelgen.MixinNoiseChunk$Cache2D",
     "level.levelgen.MixinNoiseInterpolator",
     "level.levelgen.MixinNoiseRouter$add_custom_optimizer",
     "level.levelgen.MixinRandomState$inject_route_optimizer",
