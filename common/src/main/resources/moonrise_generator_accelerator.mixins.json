@@ -29,6 +29,8 @@
     "level.levelgen.MixinSurfaceRules$Context$TemperatureHelperCondition",
     "level.levelgen.MixinSurfaceRules$SequenceRule",
     "level.levelgen.MixinSurfaceRules$SequenceRuleSource",
+    "level.levelgen.blending.MixinBlender$redirect_to_new_blender",
+    "level.levelgen.blending.MixinBlendingData",
     "level.levelgen.feature.MixinConfiguredFeature",
     "level.levelgen.feature.MixinOreFeature",
     "level.levelgen.material.MixinMaterialRuleList",

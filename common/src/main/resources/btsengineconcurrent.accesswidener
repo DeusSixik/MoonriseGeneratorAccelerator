@@ -118,7 +118,7 @@ accessible class net/minecraft/world/level/levelgen/DensityFunctions$Clamp
 accessible method net/minecraft/world/level/levelgen/DensityFunctions$Clamp <init> (Lnet/minecraft/world/level/levelgen/DensityFunction;DD)V
 
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd
-accessible method net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd <init> (Lnet/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type;Lnet/minecraft/world/level/levelgen/DensityFunction;DDD)V
+#accessible method net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd <init> (Lnet/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type;Lnet/minecraft/world/level/levelgen/DensityFunction;DDD)V
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$MulOrAdd$Type
 
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$RangeChoice
@@ -131,3 +131,33 @@ accessible class net/minecraft/world/level/levelgen/DensityFunctions$Noise
 accessible method net/minecraft/world/level/levelgen/DensityFunctions$Noise <init> (Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;DD)V
 
 accessible field net/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type codec Lnet/minecraft/util/KeyDispatchDataCodec;
+
+accessible class net/minecraft/world/level/levelgen/blending/BlendingData$BiomeConsumer
+accessible class net/minecraft/world/level/levelgen/blending/BlendingData$DensityConsumer
+accessible class net/minecraft/world/level/levelgen/blending/BlendingData$HeightConsumer
+
+accessible field net/minecraft/world/level/levelgen/blending/Blender EMPTY Lnet/minecraft/world/level/levelgen/blending/Blender;
+accessible field net/minecraft/world/level/levelgen/blending/Blender SHIFT_NOISE Lnet/minecraft/world/level/levelgen/synth/NormalNoise;
+accessible field net/minecraft/world/level/levelgen/blending/Blender HEIGHT_BLENDING_RANGE_CELLS I
+accessible field net/minecraft/world/level/levelgen/blending/Blender HEIGHT_BLENDING_RANGE_CHUNKS I
+accessible field net/minecraft/world/level/levelgen/blending/Blender DENSITY_BLENDING_RANGE_CELLS I
+accessible field net/minecraft/world/level/levelgen/blending/Blender DENSITY_BLENDING_RANGE_CHUNKS I
+accessible field net/minecraft/world/level/levelgen/blending/Blender OLD_CHUNK_XZ_RADIUS D
+accessible field net/minecraft/world/level/levelgen/blending/Blender heightAndBiomeBlendingData Lit/unimi/dsi/fastutil/longs/Long2ObjectOpenHashMap;
+accessible field net/minecraft/world/level/levelgen/blending/Blender densityBlendingData Lit/unimi/dsi/fastutil/longs/Long2ObjectOpenHashMap;
+accessible method net/minecraft/world/level/levelgen/blending/Blender <init> (Lit/unimi/dsi/fastutil/longs/Long2ObjectOpenHashMap;Lit/unimi/dsi/fastutil/longs/Long2ObjectOpenHashMap;)V
+accessible method net/minecraft/world/level/levelgen/blending/Blender heightToOffset (D)D
+accessible method net/minecraft/world/level/levelgen/blending/Blender getBlendingDataValue (IIILnet/minecraft/world/level/levelgen/blending/Blender$CellValueGetter;)D
+accessible method net/minecraft/world/level/levelgen/blending/Blender getBlendingDataValue (Lnet/minecraft/world/level/levelgen/blending/Blender$CellValueGetter;IIIII)D
+accessible method net/minecraft/world/level/levelgen/blending/Blender blendBiome (III)Lnet/minecraft/core/Holder;
+accessible method net/minecraft/world/level/levelgen/blending/Blender generateBorderTick (Lnet/minecraft/world/level/chunk/ChunkAccess;Lnet/minecraft/core/BlockPos;)V
+accessible method net/minecraft/world/level/levelgen/blending/Blender makeOffsetOldChunkDistanceGetter (Lnet/minecraft/core/Direction8;Lnet/minecraft/world/level/levelgen/blending/BlendingData;)Lnet/minecraft/world/level/levelgen/blending/Blender$DistanceGetter;
+accessible method net/minecraft/world/level/levelgen/blending/Blender distanceToCube (DDDDDD)D
+accessible class net/minecraft/world/level/levelgen/blending/Blender$CellValueGetter
+
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData iterateDensities (IIIILnet/minecraft/world/level/levelgen/blending/BlendingData$DensityConsumer;)V
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData iterateBiomes (IIILnet/minecraft/world/level/levelgen/blending/BlendingData$BiomeConsumer;)V
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData iterateHeights (IILnet/minecraft/world/level/levelgen/blending/BlendingData$HeightConsumer;)V
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData getHeight (III)D
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDensity ([DI)D
+accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDensity (III)D
