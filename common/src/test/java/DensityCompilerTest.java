@@ -1,26 +1,34 @@
 import dev.sixik.density_compiller.compiler.DensityCompiler;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
-import net.minecraft.world.level.levelgen.Beardifier;
-import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.levelgen.*;
+import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
 
 public class DensityCompilerTest {
+
 
     @BeforeAll
     static void setup() {
@@ -82,7 +90,8 @@ public class DensityCompilerTest {
 
         DensityFunction c10 = new Beardifier(objects.listIterator(), objects2.listIterator());
 
-        DensityFunctions.ShiftedNoise mig = new DensityFunctions.ShiftedNoise(c10, max, c10, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));;
+        DensityFunctions.ShiftedNoise mig = new DensityFunctions.ShiftedNoise(c10, max, c10, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
+        ;
         DensityFunction c20 = new DensityFunctions.Constant(20.0);
         DensityFunction sh1 = new DensityFunctions.ShiftedNoise(c20, mig, c20, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
 
@@ -218,6 +227,184 @@ public class DensityCompilerTest {
 
         } catch (Exception e) {
             throw new RuntimeException("Compilation error: " + fileName, e);
+        }
+    }
+
+    @Test
+    void testFillArrayMatchesCompute() {
+        DensityFunction root = createDensityFunction();
+        DensityFunction compiled = mockCompiledFunction(root);
+
+        int size = 64;
+        double[] results = new double[size];
+
+        DensityFunction.ContextProvider mockProvider = Mockito.mock(DensityFunction.ContextProvider.class);
+
+        DensityFunction.FunctionContext[] contexts = new DensityFunction.FunctionContext[size];
+        for (int i = 0; i < size; i++) {
+            DensityFunction.FunctionContext mockCtx = Mockito.mock(DensityFunction.FunctionContext.class);
+            when(mockCtx.blockX()).thenReturn(i);
+            when(mockCtx.blockY()).thenReturn(i * 2);
+            when(mockCtx.blockZ()).thenReturn(0);
+
+            contexts[i] = mockCtx;
+        }
+
+        when(mockProvider.forIndex(anyInt())).thenAnswer(inv -> contexts[(Integer) inv.getArgument(0)]);
+
+        compiled.fillArray(results, mockProvider);
+
+        for (int i = 0; i < size; i++) {
+            double expected = compiled.compute(contexts[i]);
+            double actual = results[i];
+
+            Assertions.assertEquals(expected, actual, 1e-9, "Mismatch at index " + i);
+        }
+    }
+
+    @Test
+    void testVanillaEquivalence() {
+        final DensityFunction original = createDensityFunction();
+
+        DensityFunction optimized = mockCompiledFunction(original);
+
+        int size = 256;
+        double[] vanillaResults = new double[size];
+        double[] optimizedResults = new double[size];
+
+        DensityFunction.ContextProvider testProvider = new TestContextProvider(size);
+
+        original.fillArray(vanillaResults, testProvider);
+        optimized.fillArray(optimizedResults, testProvider);
+
+        for (int i = 0; i < size; i++) {
+
+            System.out.println(vanillaResults[i] + " | " + optimizedResults[i]);
+
+            assertEquals(vanillaResults[i], optimizedResults[i], 1e-12,
+                    "Дерево выдало разные результаты на индексе " + i);
+
+            assertEquals(optimizedResults[i], optimized.compute(testProvider.forIndex(i)), 1e-12,
+                    "Внутренний дисбаланс в оптимизированном классе на индексе " + i);
+        }
+    }
+
+    @Test
+    void benchmarkDensityPerformance() {
+        final HolderLookup.RegistryLookup<DensityFunction> holder =
+                VanillaRegistries.createLookup().lookup(Registries.DENSITY_FUNCTION).get();
+
+        final DensityFunction original = NoiseRouterData.getFunction(holder, NoiseRouterData.DEPTH);
+        final DensityFunction optimized = mockCompiledFunction(original);
+
+        int size = 16384;
+        double[] vanillaResults = new double[size];
+        double[] optimizedResults = new double[size];
+        TestContextProvider provider = new TestContextProvider(size);
+
+        final int operations = 100;
+
+        RandomSource source = RandomSource.create(256);
+
+        System.out.println("Start Vanilla Test");
+        System.gc();
+
+        source.setSeed(256);
+        long startVanilla = System.nanoTime();
+        for (int i = 0; i < operations; i++) {
+            provider.setContext(source.nextInt(size - 1), source.nextInt(0, 16), source.nextInt(0, 16), source.nextInt(0, 16));
+            original.fillArray(vanillaResults, provider);
+        }
+        long endVanilla = System.nanoTime();
+
+        System.out.println("Start ASM Path Test");
+        System.gc();
+
+        source.setSeed(256);
+        long startOptimized = System.nanoTime();
+        for (int i = 0; i < operations; i++) {
+            provider.setContext(source.nextInt(size - 1), source.nextInt(0, 16), source.nextInt(0, 16), source.nextInt(0, 16));
+            optimized.fillArray(optimizedResults, provider);
+        }
+        long endOptimized = System.nanoTime();
+
+        for (int i = 0; i < size; i++) {
+            assertEquals(vanillaResults[i], optimizedResults[i], 1e-12,
+                    "Дерево выдало разные результаты на индексе " + i);
+
+            assertEquals(optimizedResults[i], optimized.compute(provider.forIndex(i)), 1e-12,
+                    "Внутренний дисбаланс в оптимизированном классе на индексе " + i);
+        }
+
+        double vanillaTime = (endVanilla - startVanilla) / 1_000_000.0;
+        double optimizedTime = (endOptimized - startOptimized) / 1_000_000.0;
+
+        System.out.printf("Vanilla total time: %.2f ms%n", vanillaTime);
+        System.out.printf("Optimized total time: %.2f ms%n", optimizedTime);
+        System.out.printf("Speedup: %.2fx%n", vanillaTime / optimizedTime);
+
+
+    }
+
+    private DensityFunction createDensityFunction() {
+        final HolderLookup.RegistryLookup<DensityFunction> holder =
+                VanillaRegistries.createLookup().lookup(Registries.DENSITY_FUNCTION).get();
+
+        boolean bl = true;
+        boolean bl2 = false;
+
+        return NoiseRouterData.getFunction(holder, bl ? NoiseRouterData.DEPTH_LARGE : (bl2 ? NoiseRouterData.DEPTH_AMPLIFIED : NoiseRouterData.DEPTH));
+    }
+
+    private DensityFunction mockCompiledFunction(DensityFunction root) {
+        final DensityOptimizer optimizer = new DensityOptimizer();
+        final DensityFunction opt = optimizer.optimize(root);
+
+
+        final DensityCompiler compiler = new DensityCompiler();
+        compiler.compileAndDump(opt, "density_fillArray_");
+        return compiler.compile(opt);
+    }
+
+    public static class TestContextProvider implements DensityFunction.ContextProvider {
+
+        private final SimpleContext[] contexts;
+
+        public TestContextProvider(int size) {
+            this.contexts = new SimpleContext[size];
+            for (int i = 0; i < size; i++) {
+                this.contexts[i] = new SimpleContext(0, i, 0);
+            }
+        }
+
+        /**
+         * Позволяет задать кастомные координаты для теста (например, 3D сетку).
+         */
+        public void setContext(int index, int x, int y, int z) {
+            this.contexts[index] = new SimpleContext(x, y, z);
+        }
+
+        @Override
+        public DensityFunction.FunctionContext forIndex(int i) {
+            return contexts[i];
+        }
+
+        @Override
+        public void fillAllDirectly(double[] ds, DensityFunction densityFunction) {
+            // Стандартная реализация без побочных эффектов NoiseChunk
+            for (int i = 0; i < ds.length; i++) {
+                ds[i] = densityFunction.compute(contexts[i]);
+            }
+        }
+
+        /**
+         * Легковесный контекст, который не требует Blender.
+         */
+        public record SimpleContext(int blockX, int blockY, int blockZ) implements DensityFunction.FunctionContext {
+            @Override
+            public Blender getBlender() {
+                return Blender.empty(); // Возвращаем пустой блендер, чтобы не было NPE
+            }
         }
     }
 }

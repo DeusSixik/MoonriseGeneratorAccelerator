@@ -190,3 +190,8 @@ accessible field net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaled
 
 accessible method net/minecraft/world/level/levelgen/DensityFunctions$EndIslandDensityFunction getHeightValue (Lnet/minecraft/world/level/levelgen/synth/SimplexNoise;II)F
 accessible field net/minecraft/world/level/levelgen/DensityFunctions$EndIslandDensityFunction islandNoise Lnet/minecraft/world/level/levelgen/synth/SimplexNoise;
+
+accessible method net/minecraft/world/level/levelgen/NoiseRouterData getFunction (Lnet/minecraft/core/HolderGetter;Lnet/minecraft/resources/ResourceKey;)Lnet/minecraft/world/level/levelgen/DensityFunction;
+
+accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_AMPLIFIED Lnet/minecraft/resources/ResourceKey;
+accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_LARGE Lnet/minecraft/resources/ResourceKey;

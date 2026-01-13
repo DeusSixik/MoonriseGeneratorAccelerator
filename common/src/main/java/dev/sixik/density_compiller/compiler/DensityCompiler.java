@@ -145,38 +145,48 @@ public class DensityCompiler {
         mv.visitMaxs(1, 2);
         mv.visitEnd();
 
-        // 2. fillArray(double[] results, ContextProvider provider)
         mv = cw.visitMethod(ACC_PUBLIC, "fillArray", "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V", null, null);
         mv.visitCode();
+
+        // Локальные переменные:
+        // 0: this
+        // 1: ds (double[])
+        // 2: provider
+        // 3: i (int)
+        // 4: length (int)
+
+        // int length = ds.length;
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitInsn(ARRAYLENGTH);
+        mv.visitVarInsn(ISTORE, 4); // Сохраняем длину, чтобы не дергать поле каждый раз
+
+        // int i = 0;
+        mv.visitInsn(ICONST_0);
+        mv.visitVarInsn(ISTORE, 3);
 
         Label loopStart = new Label();
         Label loopEnd = new Label();
 
-        // int i = 0 (слот 3)
-        mv.visitInsn(ICONST_0);
-        mv.visitVarInsn(ISTORE, 3);
-
         mv.visitLabel(loopStart);
+        // if (i >= length) break;
         mv.visitVarInsn(ILOAD, 3);
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitInsn(ARRAYLENGTH);
+        mv.visitVarInsn(ILOAD, 4);
         mv.visitJumpInsn(IF_ICMPGE, loopEnd);
 
-        // Загружаем массив и индекс для DASTORE в конце
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitVarInsn(ILOAD, 3);
+        // ds[i] = ...
+        mv.visitVarInsn(ALOAD, 1); // Грузим массив
+        mv.visitVarInsn(ILOAD, 3); // Грузим индекс
 
-        // Готовим вызов: this.compute(provider.forIndex(i))
+        // ... this.compute(provider.forIndex(i))
         mv.visitVarInsn(ALOAD, 0); // this
+
         mv.visitVarInsn(ALOAD, 2); // provider
         mv.visitVarInsn(ILOAD, 3); // i
-
-        // ИСПРАВЛЕНО: используем visitMethodInsn с аргументом true в конце
         mv.visitMethodInsn(INVOKEINTERFACE,
                 "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
                 "forIndex",
                 "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;",
-                true); // itf = true
+                true);
 
         mv.visitMethodInsn(INVOKEVIRTUAL, className, "compute", CONTEXT_DESC, false);
         mv.visitInsn(DASTORE);
