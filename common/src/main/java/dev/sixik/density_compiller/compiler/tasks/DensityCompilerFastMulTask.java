@@ -5,7 +5,6 @@ import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import org.objectweb.asm.MethodVisitor;
 
-import static org.objectweb.asm.Opcodes.DADD;
 import static org.objectweb.asm.Opcodes.DMUL;
 
 public class DensityCompilerFastMulTask extends DensityCompilerTask<DensitySpecializations.FastMul> {

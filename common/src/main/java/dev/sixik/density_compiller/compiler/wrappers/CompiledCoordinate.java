@@ -1,6 +1,5 @@
 package dev.sixik.density_compiller.compiler.wrappers;
 
-import com.mojang.serialization.Codec;
 import net.minecraft.util.ToFloatFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;

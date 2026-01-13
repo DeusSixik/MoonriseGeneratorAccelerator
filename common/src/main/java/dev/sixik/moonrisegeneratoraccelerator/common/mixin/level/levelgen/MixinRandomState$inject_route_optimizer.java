@@ -1,6 +1,5 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
-import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseRouterCustomOptimizer;
 import net.minecraft.world.level.levelgen.NoiseRouter;
 import net.minecraft.world.level.levelgen.RandomState;
 import org.spongepowered.asm.mixin.Final;
@@ -21,6 +20,6 @@ public class MixinRandomState$inject_route_optimizer {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void bts$onInit(CallbackInfo ci) {
-        this.router = ((NoiseRouterCustomOptimizer)(Object)this.router).bts$routeOptimize();
+//        this.router = ((NoiseRouterCustomOptimizer)(Object)this.router).bts$routeOptimize();
     }
 }

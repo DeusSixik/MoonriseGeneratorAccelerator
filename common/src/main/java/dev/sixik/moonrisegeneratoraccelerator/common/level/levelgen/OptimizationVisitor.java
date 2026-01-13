@@ -10,7 +10,7 @@ public class OptimizationVisitor implements DensityFunction.Visitor{
 
     @Override
     public @NotNull DensityFunction apply(DensityFunction function) {
-        return optimizer.optimize(function);
+        return optimizer.rewriteLocal(function);
     }
 
     @Override

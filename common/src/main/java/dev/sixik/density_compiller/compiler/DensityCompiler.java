@@ -2,15 +2,16 @@ package dev.sixik.density_compiller.compiler;
 
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
-import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -19,6 +20,8 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompiler {
 
     public static final AtomicInteger ID_GEN = new AtomicInteger();
+    public static final String OBJECT_NAME = Type.getInternalName(Object.class);
+//    public static final String INTERFACE_NAME = OBJECT_NAME;
     public static final String INTERFACE_NAME = Type.getInternalName(DensityFunction.class);
     public static final String CONTEXT_DESC = "(Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;)D";
     public static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
@@ -26,8 +29,8 @@ public class DensityCompiler {
     /**
      *  Storage for "Leaves" (complex functions) that we cannot inline
      */
-    public final List<DensityFunction> leaves = new ArrayList<>();
-    public final Map<DensityFunction, Integer> leafToId = new ConcurrentHashMap<>();
+    public final List<Object> leaves = new ArrayList<>(); // Было DensityFunction
+    public final Map<Object, Integer> leafToId = new ConcurrentHashMap<>();
 
     static {
         DensityCompilerData.boot();
@@ -47,7 +50,7 @@ public class DensityCompiler {
         /*
             Field for storing an array of leaves: private final DensityFunction[] leaves;
          */
-        cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaves", "[L" + INTERFACE_NAME + ";", null, null).visitEnd();
+        cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaves", "[L" + OBJECT_NAME + ";", null, null).visitEnd();
 
         /*
             Constructor
@@ -74,66 +77,80 @@ public class DensityCompiler {
         final int id = ID_GEN.incrementAndGet();
         final String className = "dev/sixik/generated/OptimizedDensity_" + id;
 
-        /*
-            Create class
-         */
+        // ОБЯЗАТЕЛЬНО: Очищаем состояние перед каждой компиляцией
+        this.leaves.clear();
+        this.leafToId.clear();
+
         final ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         cw.visit(V17, ACC_PUBLIC | ACC_FINAL, className, null, "java/lang/Object", new String[]{INTERFACE_NAME});
 
-        /*
-            Field for storing an array of leaves: private final DensityFunction[] leaves;
-         */
-        cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaves", "[L" + INTERFACE_NAME + ";", null, null).visitEnd();
-
-        /*
-            Constructor
-         */
-        generateConstructor(cw, className);
-
-        /*
-            Method compute(FunctionContext ctx)
-         */
+        // 1. СНАЧАЛА генерируем compute, чтобы наполнить список leaves
         generateCompute(cw, className, root);
 
-        /*
-            Stubs for required methods (minValue, maxValue, codec)
-         */
+        // 2. ТЕПЕРЬ генерируем поля, когда мы точно знаем, сколько их и какие типы
+        for (int i = 0; i < leaves.size(); i++) {
+            Object leaf = leaves.get(i);
+            String descriptor = Type.getDescriptor(leaf.getClass());
+            cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaf_" + i, descriptor, null, null).visitEnd();
+        }
+
+        // 3. Генерируем конструктор
+        generateConstructor(cw, className);
+
+        // 4. Остальные методы
         generateDelegates(cw, className, root);
 
         cw.visitEnd();
 
+        final byte[] bytes = cw.toByteArray();
+
+        if(DensityCompilerParams.dumpGenerated) {
+            CompilerInfrastructure.debugWriteClass("OptimizedDensity_" + id + ".class", bytes);
+        }
+
         /*
             Instantiate
          */
-        return CompilerInfrastructure.defineAndInstantiate(className, cw.toByteArray(), leaves);
+        return CompilerInfrastructure.defineAndInstantiate(className, bytes, leaves);
     }
 
     private void generateConstructor(ClassWriter cw, String className) {
         final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
                 "<init>",
-                "([L" + INTERFACE_NAME + ";)V",
+                "([Ljava/lang/Object;)V",
                 null,
                 null);
         mv.visitCode();
 
         // super()
         mv.visitVarInsn(ALOAD, 0);
-        mv.visitMethodInsn(INVOKESPECIAL,
-                "java/lang/Object",
-                "<init>",
-                "()V",
-                false);
+        mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
 
-        // this.leaves = leavesArg;
-        mv.visitVarInsn(ALOAD, 0);
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitFieldInsn(PUTFIELD,
-                className,
-                "leaves",
-                "[L" + INTERFACE_NAME + ";");
+        // !!! Распаковка массива в поля
+        for (int i = 0; i < leaves.size(); i++) {
+            Object leaf = leaves.get(i);
+            String internalName = Type.getInternalName(leaf.getClass());
+            String descriptor = Type.getDescriptor(leaf.getClass());
+
+            mv.visitVarInsn(ALOAD, 0);       // this
+            mv.visitVarInsn(ALOAD, 1);       // args array (Object[])
+
+            // Оптимизация загрузки индекса
+            if (i <= 5) mv.visitInsn(ICONST_0 + i);
+            else if (i <= 127) mv.visitIntInsn(BIPUSH, i);
+            else mv.visitIntInsn(SIPUSH, i);
+
+            mv.visitInsn(AALOAD);            // Берем Object из массива
+
+            // !!! Обязательный каст к конкретному типу поля
+            mv.visitTypeInsn(CHECKCAST, internalName);
+
+            // Записываем в поле leaf_N
+            mv.visitFieldInsn(PUTFIELD, className, "leaf_" + i, descriptor);
+        }
 
         mv.visitInsn(RETURN);
-        mv.visitMaxs(2, 2);
+        mv.visitMaxs(0, 0); // COMPUTE_MAXS сам посчитает
         mv.visitEnd();
     }
 
@@ -199,22 +216,23 @@ public class DensityCompiler {
         mv.visitCode();
 
         if (DensityCompilerParams.useThisMapper) {
-            mv.visitVarInsn(ALOAD, 0);      // put 'this' to stack
-            mv.visitInsn(ARETURN);                  // return he
-            mv.visitMaxs(1, 2);   // Stack: 1 (this), Locals: 2 (this + visitor)
+            mv.visitVarInsn(ALOAD, 0);
+            mv.visitInsn(ARETURN);
+            mv.visitMaxs(1, 2);
         } else {
-            mv.visitVarInsn(ALOAD, 1);      // Load 'visitor'
-            mv.visitVarInsn(ALOAD, 0);      // Load 'this'
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitVarInsn(ALOAD, 0);
             mv.visitMethodInsn(INVOKEINTERFACE,
                     "net/minecraft/world/level/levelgen/DensityFunction$Visitor",
                     "apply",
                     "(Lnet/minecraft/world/level/levelgen/DensityFunction;)Lnet/minecraft/world/level/levelgen/DensityFunction;",
                     true);
             mv.visitInsn(ARETURN);
-            mv.visitMaxs(2, 2);   // Stack: 2, Locals: 2
+            mv.visitMaxs(2, 2);
         }
         mv.visitEnd();
 
+        // fillArray
         mv = cw.visitMethod(ACC_PUBLIC,
                 "fillArray",
                 "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
@@ -222,12 +240,10 @@ public class DensityCompiler {
                 null);
         mv.visitCode();
 
-        // int length = ds.length;
         mv.visitVarInsn(ALOAD, 1);
         mv.visitInsn(ARRAYLENGTH);
-        mv.visitVarInsn(ISTORE, 4); // We keep the length so that we don't have to pull the field every time
+        mv.visitVarInsn(ISTORE, 4);
 
-        // int i = 0;
         mv.visitInsn(ICONST_0);
         mv.visitVarInsn(ISTORE, 3);
 
@@ -235,20 +251,16 @@ public class DensityCompiler {
         final Label loopEnd = new Label();
 
         mv.visitLabel(loopStart);
-        // if (i >= length) break;
         mv.visitVarInsn(ILOAD, 3);
         mv.visitVarInsn(ILOAD, 4);
         mv.visitJumpInsn(IF_ICMPGE, loopEnd);
 
-        // ds[i] = ...
-        mv.visitVarInsn(ALOAD, 1); // Load array
-        mv.visitVarInsn(ILOAD, 3); // Load array
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitVarInsn(ILOAD, 3);
 
-        // ... this.compute(provider.forIndex(i))
-        mv.visitVarInsn(ALOAD, 0); // this
-
-        mv.visitVarInsn(ALOAD, 2); // provider
-        mv.visitVarInsn(ILOAD, 3); // i
+        mv.visitVarInsn(ALOAD, 0);
+        mv.visitVarInsn(ALOAD, 2);
+        mv.visitVarInsn(ILOAD, 3);
         mv.visitMethodInsn(INVOKEINTERFACE,
                 "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
                 "forIndex",
@@ -269,35 +281,23 @@ public class DensityCompiler {
         // minValue
         mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);
         mv.visitCode();
-
-        // We just take the value from the original root and push it into the bytecode.
         mv.visitLdcInsn(root.minValue());
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();
 
-        // maxValue()
+        // maxValue
         mv = cw.visitMethod(ACC_PUBLIC, "maxValue", "()D", null, null);
         mv.visitCode();
-
-        // Similarly, for the maximum as in the minimum
         mv.visitLdcInsn(root.maxValue());
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();
 
-        /*
-            codec - you can return null or throw an exception, as the compiled object is not serializable
-            You usually don't need a codec for runtime generation.
-            Of course, it is possible that some mod will suddenly want to serialize noise data, but this is unlikely
-         */
-        mv = cw.visitMethod(ACC_PUBLIC,
-                "codec",
-                "()Lnet/minecraft/util/KeyDispatchDataCodec;",
-                null,
-                null);
+        // codec
+        mv = cw.visitMethod(ACC_PUBLIC, "codec", "()Lnet/minecraft/util/KeyDispatchDataCodec;", null, null);
         mv.visitCode();
-        mv.visitInsn(ACONST_NULL); // Возвращаем null (осторожно, может крашнуть дебаггеры)
+        mv.visitInsn(ACONST_NULL);
         mv.visitInsn(ARETURN);
         mv.visitMaxs(1, 1);
         mv.visitEnd();

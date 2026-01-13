@@ -2,10 +2,8 @@ package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Type;
 
 import static org.objectweb.asm.Opcodes.*;
 

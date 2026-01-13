@@ -55,4 +55,32 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
 
         // wrapper.holder().getValue(blockX * xzScale, blockY * yScale, blockZ * xzScale)
     }
+
+    private void pushCoords(MethodVisitor mv, double xz, double y) {
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(xz);
+        mv.visitInsn(DMUL);
+
+        // (blockX * 0.25
+
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(y);
+        mv.visitInsn(DMUL);
+
+        // (blockX * xzScale, blockY * yScale
+
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(xz);
+        mv.visitInsn(DMUL);
+        // (blockX * xzScale, blockY * yScale, blockZ * xzScale)
+    }
 }

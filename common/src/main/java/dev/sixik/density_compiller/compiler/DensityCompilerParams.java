@@ -7,4 +7,6 @@ public class DensityCompilerParams {
     public static boolean useThisMapper = true;
 
     public static boolean useCheckMethodAdapter = false;
+
+    public static boolean dumpGenerated = true;
 }

@@ -6,8 +6,8 @@ import dev.sixik.density_compiller.compiler.utils.DensityCompilerMath;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
-import static org.objectweb.asm.Opcodes.*;
-import static org.objectweb.asm.Opcodes.INVOKESTATIC;
+import static org.objectweb.asm.Opcodes.DADD;
+import static org.objectweb.asm.Opcodes.DMUL;
 
 public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         DensityCompilerTask<DensityFunctions.TwoArgumentSimpleFunction> {

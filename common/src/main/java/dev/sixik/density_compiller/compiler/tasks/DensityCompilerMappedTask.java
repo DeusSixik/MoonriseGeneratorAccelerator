@@ -6,7 +6,8 @@ import dev.sixik.density_compiller.compiler.utils.DensityCompilerMath;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
-import static org.objectweb.asm.Opcodes.*;
+import static org.objectweb.asm.Opcodes.DMUL;
+import static org.objectweb.asm.Opcodes.DUP2;
 
 public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFunctions.Mapped> {
 

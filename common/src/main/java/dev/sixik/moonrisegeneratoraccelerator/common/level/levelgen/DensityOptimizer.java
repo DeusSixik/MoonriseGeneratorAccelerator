@@ -1,14 +1,12 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
 
 import dev.sixik.density_compiller.compiler.DensityCompiler;
-import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
-import java.util.WeakHashMap;
 
 /**
  * Optimizes density function expressions by applying constant folding and branch pruning.
@@ -63,17 +61,7 @@ public class DensityOptimizer {
         /*
             Recursively optimizing children (bottom-up approach)
          */
-        DensityFunction optimizedChildren = function.mapAll(new DensityFunction.Visitor() {
-            @Override
-            public DensityFunction apply(DensityFunction child) {
-                return rewriteLocal(child);
-            }
-
-            @Override
-            public DensityFunction.NoiseHolder visitNoise(DensityFunction.NoiseHolder noise) {
-                return noise;
-            }
-        });
+        DensityFunction optimizedChildren = function.mapAll(new OptimizationVisitor());
 
         /*
             Applying the simplification rules to the current node
@@ -87,18 +75,20 @@ public class DensityOptimizer {
     private static final Map<DensityFunction, DensityFunction> cache2 = new IdentityHashMap<>();
 
     public DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
-        // Если функция слишком простая (константа), нет смысла её компилировать
-        if (cache2.containsKey(original)) {
-            return mapped;
+        if (original.getClass().getName().startsWith("dev.sixik.generated.")) {
+            return original;
         }
 
-        // Компилируем и возвращаем новый объект
-
-
-        COMPILER.compileAndDump(mapped, "density_");
-        cache2.put(original, mapped);
-
-        return mapped;
+        //        // Если функция слишком простая (константа), нет смысла её компилировать
+//        if (cache2.containsKey(original)) {
+//            return cache2.get(original);
+//        }
+//
+//        // Компилируем и возвращаем новый объект
+//
+//        final DensityFunction newDensity = COMPILER.compile(mapped);;
+//        cache2.put(original, newDensity);
+        return COMPILER.compile(mapped);
     }
 
     private boolean isTooSimple(DensityFunction func) {
@@ -118,7 +108,7 @@ public class DensityOptimizer {
      * @param f The density function node to rewrite
      * @return A potentially simplified version of the input function
      */
-    private DensityFunction rewriteLocal(DensityFunction f) {
+    public DensityFunction rewriteLocal(DensityFunction f) {
         /*
             The most important step is to remove the wrappers to see the real data.
          */

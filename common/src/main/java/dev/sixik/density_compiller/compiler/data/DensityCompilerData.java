@@ -2,7 +2,6 @@ package dev.sixik.density_compiller.compiler.data;
 
 import dev.sixik.density_compiller.compiler.tasks.*;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.wrappers.DensityFunctionSplineWrapper;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -56,7 +55,7 @@ public class DensityCompilerData {
         register(DensitySpecializations.FastMul.class, DensityCompilerFastMulTask::new);
         register(DensitySpecializations.FastMin.class, DensityCompilerFastMinTask::new);
         register(DensitySpecializations.FastMax.class, DensityCompilerFastMaxTask::new);
-        register(DensityFunctionSplineWrapper.class, DensityCompilerDensityFunctionSplineWrapperTask::new);
+//        register(DensityFunctionSplineWrapper.class, DensityCompilerDensityFunctionSplineWrapperTask::new);
 
 
         isLoaded = true;

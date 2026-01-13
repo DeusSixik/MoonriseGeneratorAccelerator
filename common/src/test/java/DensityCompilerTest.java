@@ -10,17 +10,24 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.level.levelgen.*;
+import net.minecraft.world.level.levelgen.Beardifier;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseRouterData;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Random;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,7 +98,7 @@ public class DensityCompilerTest {
         DensityFunction c10 = new Beardifier(objects.listIterator(), objects2.listIterator());
 
         DensityFunctions.ShiftedNoise mig = new DensityFunctions.ShiftedNoise(c10, max, c10, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
-        ;
+
         DensityFunction c20 = new DensityFunctions.Constant(20.0);
         DensityFunction sh1 = new DensityFunctions.ShiftedNoise(c20, mig, c20, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
 
@@ -210,8 +217,6 @@ public class DensityCompilerTest {
         System.out.println("Compiling " + fileName + "...");
         try {
             DensityCompiler compiler = new DensityCompiler();
-            compiler.compileAndDump(root, fileName);
-
             /*
                 We are also creating an instance to check that it does not crash in runtime.
              */
@@ -302,7 +307,7 @@ public class DensityCompilerTest {
         double[] optimizedResults = new double[size];
         TestContextProvider provider = new TestContextProvider(size);
 
-        final int operations = 100;
+        final int operations = 200;
 
         RandomSource source = RandomSource.create(256);
 

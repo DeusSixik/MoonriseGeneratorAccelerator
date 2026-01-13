@@ -3,7 +3,6 @@ package dev.sixik.density_compiller.compiler.tasks;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.DensityFunctionSplineWrapper;
-import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
 
@@ -11,6 +10,6 @@ public class DensityCompilerDensityFunctionSplineWrapperTask extends DensityComp
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctionSplineWrapper node, DensityCompilerContext ctx) {
-        ctx.emitLeafCall(node);
+        ctx.emitLeafCall(mv, node);
     }
 }
