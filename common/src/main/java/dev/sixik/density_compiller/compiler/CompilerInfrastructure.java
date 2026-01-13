@@ -14,15 +14,22 @@ public class CompilerInfrastructure {
      */
     private static final DynamicClassLoader LOADER = new DynamicClassLoader(CompilerInfrastructure.class.getClassLoader());
 
-    public static DensityFunction defineAndInstantiate(String className, byte[] bytes, List<Object> leaves) {
+    public static DensityFunction defineAndInstantiate(String className, byte[] bytes, List<DensityFunction> leaves) {
         try {
+            /*
+                Load class
+             */
             Class<?> clazz = LOADER.define(className.replace('/', '.'), bytes);
 
-            // Ищем конструктор, принимающий Object[], так как в байт-коде мы прописали ([Ljava/lang/Object;)V
-            Constructor<?> constructor = clazz.getConstructor(Object[].class);
+            /*
+                We are looking for a constructor that accepts an array of DensityFunction[] (our leaves)
+             */
+            Constructor<?> constructor = clazz.getConstructor(DensityFunction[].class);
 
-            // Передаем массив напрямую
-            return (DensityFunction) constructor.newInstance((Object) leaves.toArray());
+            /*
+                Creating an instance
+             */
+            return (DensityFunction) constructor.newInstance((Object) leaves.toArray(new DensityFunction[0]));
         } catch (Exception e) {
             throw new RuntimeException("Failed to instantiate compiled density function: " + className, e);
         }

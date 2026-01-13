@@ -13,8 +13,6 @@ import static org.objectweb.asm.Opcodes.*;
 
 public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv, String className, DensityFunction root) {
 
-    private static final String DENSITY_FUNCTION_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction";
-
     public String CTX() {
         return DensityCompiler.CTX;
     }
@@ -72,54 +70,39 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
     }
 
     public void emitLeafCall(MethodVisitor mv, DensityFunction leaf) {
-        // 1. Сначала загружаем поле с объектом (используем нашу новую логику полей)
-        emitLeafCallReference(mv, leaf);
-        // Стек: [ConcreteClassType]
-
-        // 2. Поскольку поле имеет тип конкретного класса (например, SomeModFunction),
-        // а нам нужно вызвать метод интерфейса DensityFunction.compute,
-        // безопаснее всего скастить его к интерфейсу (хотя для invokevirtual это необязательно,
-        // но для invokeinterface нужно правильное имя владельца).
-        mv.visitTypeInsn(CHECKCAST, DENSITY_FUNCTION_INTERNAL);
-
-        // 3. Загружаем аргумент Context
-        mv.visitVarInsn(ALOAD, 1);
-
-        // 4. Вызываем compute через интерфейс DensityFunction
-        // Мы НЕ можем использовать DensityCompiler.INTERFACE_NAME, так как это Object
-        mv.visitMethodInsn(INVOKEINTERFACE,
-                DENSITY_FUNCTION_INTERNAL,
-                "compute",
-                DensityCompiler.CONTEXT_DESC,
-                true);
-    }
-
-    public void emitLeafCallReference(MethodVisitor mv, Object leaf) {
-//        int idx = compiler.leafToId.computeIfAbsent(leaf, k -> {
-//            compiler.leaves.add(k);
-//            return compiler.leaves.size() - 1;
-//        });
-//
-//        mv.visitVarInsn(ALOAD, 0); // this
-//        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
-//
-//        if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
-//        else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
-//        else mv.visitIntInsn(SIPUSH, idx);
-//
-//        mv.visitInsn(AALOAD);
-
-        // 1. Регистрируем лист и получаем ID
         int idx = compiler.leafToId.computeIfAbsent(leaf, k -> {
             compiler.leaves.add(k);
             return compiler.leaves.size() - 1;
         });
 
-        // 2. Получаем дескриптор типа для этого конкретного объекта
-        String descriptor = Type.getDescriptor(leaf.getClass());
-
-        // 3. Генерируем прямой доступ к полю
         mv.visitVarInsn(ALOAD, 0); // this
-        mv.visitFieldInsn(GETFIELD, className, "leaf_" + idx, descriptor);
+        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
+
+        if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
+        else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
+        else mv.visitIntInsn(SIPUSH, idx);
+
+        mv.visitInsn(AALOAD); // Got the DensityFunction object from the stack
+
+        mv.visitVarInsn(ALOAD, 1); // Loading the Context (method argument)
+
+        // Invoke compute
+        mv.visitMethodInsn(INVOKEINTERFACE, DensityCompiler.INTERFACE_NAME, "compute", DensityCompiler.CONTEXT_DESC, true);
+    }
+
+    public void emitLeafCallReference(MethodVisitor mv, DensityFunction leaf) {
+        int idx = compiler.leafToId.computeIfAbsent(leaf, k -> {
+            compiler.leaves.add(k);
+            return compiler.leaves.size() - 1;
+        });
+
+        mv.visitVarInsn(ALOAD, 0); // this
+        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
+
+        if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
+        else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
+        else mv.visitIntInsn(SIPUSH, idx);
+
+        mv.visitInsn(AALOAD);
     }
 }
