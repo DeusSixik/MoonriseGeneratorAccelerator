@@ -23,7 +23,9 @@ public class DensityCompiler {
     public static final String CONTEXT_DESC = "(Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;)D";
     public static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
 
-    // Хранилище для "Листьев" (сложных функций), которые мы не можем инлайнить
+    /**
+     *  Storage for "Leaves" (complex functions) that we cannot inline
+     */
     public final List<DensityFunction> leaves = new ArrayList<>();
     public final Map<DensityFunction, Integer> leafToId = new ConcurrentHashMap<>();
 
@@ -32,71 +34,104 @@ public class DensityCompiler {
     }
 
 
-
     public void compileAndDump(DensityFunction root, String filename) {
-        int id = ID_GEN.incrementAndGet(); // Фиктивный ID для теста
-        String className = "dev/sixik/generated/OptimizedDensity_" + id;
+        final int id = ID_GEN.incrementAndGet();
+        final String className = "dev/sixik/generated/OptimizedDensity_" + id;
 
-        // 1. Создаем класс
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        /*
+            Create class
+         */
+        final ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         cw.visit(V17, ACC_PUBLIC | ACC_FINAL, className, null, "java/lang/Object", new String[]{INTERFACE_NAME});
 
-        // 2. Поле для хранения массива листьев: private final DensityFunction[] leaves;
+        /*
+            Field for storing an array of leaves: private final DensityFunction[] leaves;
+         */
         cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaves", "[L" + INTERFACE_NAME + ";", null, null).visitEnd();
 
-        // 3. Конструктор
+        /*
+            Constructor
+         */
         generateConstructor(cw, className);
 
-        // 4. Метод compute(FunctionContext ctx)
+        /*
+            Method compute(FunctionContext ctx)
+         */
         generateCompute(cw, className, root);
 
-        // 5. Заглушки для обязательных методов (minValue, maxValue, codec)
+        /*
+            Stubs for required methods (minValue, maxValue, codec)
+         */
         generateDelegates(cw, className, root);
 
         cw.visitEnd();
+        final byte[] bytes = cw.toByteArray();
 
-        byte[] bytes = cw.toByteArray();
-
-        // ВОТ ЭТО ГЛАВНОЕ:
         CompilerInfrastructure.debugWriteClass(filename + id + ".class", bytes);
     }
 
     public DensityFunction compile(DensityFunction root) {
-        int id = ID_GEN.incrementAndGet();
-        String className = "dev/sixik/generated/OptimizedDensity_" + id;
+        final int id = ID_GEN.incrementAndGet();
+        final String className = "dev/sixik/generated/OptimizedDensity_" + id;
 
-        // 1. Создаем класс
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        /*
+            Create class
+         */
+        final ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         cw.visit(V17, ACC_PUBLIC | ACC_FINAL, className, null, "java/lang/Object", new String[]{INTERFACE_NAME});
 
-        // 2. Поле для хранения массива листьев: private final DensityFunction[] leaves;
+        /*
+            Field for storing an array of leaves: private final DensityFunction[] leaves;
+         */
         cw.visitField(ACC_PRIVATE | ACC_FINAL, "leaves", "[L" + INTERFACE_NAME + ";", null, null).visitEnd();
 
-        // 3. Конструктор
+        /*
+            Constructor
+         */
         generateConstructor(cw, className);
 
-        // 4. Метод compute(FunctionContext ctx)
+        /*
+            Method compute(FunctionContext ctx)
+         */
         generateCompute(cw, className, root);
 
-        // 5. Заглушки для обязательных методов (minValue, maxValue, codec)
+        /*
+            Stubs for required methods (minValue, maxValue, codec)
+         */
         generateDelegates(cw, className, root);
 
         cw.visitEnd();
 
-        // 6. Инстанцирование
+        /*
+            Instantiate
+         */
         return CompilerInfrastructure.defineAndInstantiate(className, cw.toByteArray(), leaves);
     }
 
     private void generateConstructor(ClassWriter cw, String className) {
-        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "<init>", "([L" + INTERFACE_NAME + ";)V", null, null);
+        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
+                "<init>",
+                "([L" + INTERFACE_NAME + ";)V",
+                null,
+                null);
         mv.visitCode();
+
         // super()
         mv.visitVarInsn(ALOAD, 0);
-        mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        mv.visitMethodInsn(INVOKESPECIAL,
+                "java/lang/Object",
+                "<init>",
+                "()V",
+                false);
+
         // this.leaves = leavesArg;
         mv.visitVarInsn(ALOAD, 0);
         mv.visitVarInsn(ALOAD, 1);
-        mv.visitFieldInsn(PUTFIELD, className, "leaves", "[L" + INTERFACE_NAME + ";");
+        mv.visitFieldInsn(PUTFIELD,
+                className,
+                "leaves",
+                "[L" + INTERFACE_NAME + ";");
+
         mv.visitInsn(RETURN);
         mv.visitMaxs(2, 2);
         mv.visitEnd();
@@ -105,19 +140,29 @@ public class DensityCompiler {
     public static final ThreadLocal<ArrayDeque<String>> L_LINK = ThreadLocal.withInitial(ArrayDeque::new);
 
     private void generateCompute(ClassWriter cw, String className, DensityFunction root) {
-        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "compute", CONTEXT_DESC, null, null);
-        mv = new org.objectweb.asm.util.CheckMethodAdapter(mv); // Добавь это!
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
+                "compute",
+                CONTEXT_DESC,
+                null,
+                null);
+
+        if(DensityCompilerParams.useCheckMethodAdapter)
+            mv = new org.objectweb.asm.util.CheckMethodAdapter(mv);
+
         mv.visitCode();
 
         L_LINK.get().clear();
 
         try {
             DensityCompilerContext context = new DensityCompilerContext(this, mv, className, root);
-            // Рекурсивно генерируем инструкции вычислений
+
+            /*
+                Recursively generate calculation instructions
+             */
             context.compileNode(root);
 
-            mv.visitInsn(DRETURN); // Возвращаем результат (double)
-            mv.visitMaxs(0, 0); // ASM сам посчитает стеки
+            mv.visitInsn(DRETURN);                // Return result (double)
+            mv.visitMaxs(0, 0); // ASM will calculate the stacks itself
             mv.visitEnd();
         } catch (Exception e) {
             printTrace("Error while end compile", L_LINK.get());
@@ -134,38 +179,60 @@ public class DensityCompiler {
         }
     }
 
-    // Заглушки для методов интерфейса
+
     private void generateDelegates(ClassWriter cw, String className, DensityFunction root) {
-        // 1. mapAll(Visitor visitor)
-        // Мы просто возвращаем this, так как оптимизированный код не должен меняться
-        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "mapAll", "(Lnet/minecraft/world/level/levelgen/DensityFunction$Visitor;)Lnet/minecraft/world/level/levelgen/DensityFunction;", null, null);
+        /*
+            Local variables:
+            0: this
+            1: ds (double[])
+            2: provider
+            3: i (int)
+            4: length (int)
+         */
+
+
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
+                "mapAll",
+                "(Lnet/minecraft/world/level/levelgen/DensityFunction$Visitor;)Lnet/minecraft/world/level/levelgen/DensityFunction;",
+                null,
+                null);
         mv.visitCode();
-        mv.visitVarInsn(ALOAD, 0);
-        mv.visitInsn(ARETURN);
-        mv.visitMaxs(1, 2);
+
+        if (DensityCompilerParams.useThisMapper) {
+            mv.visitVarInsn(ALOAD, 0);      // put 'this' to stack
+            mv.visitInsn(ARETURN);                  // return he
+            mv.visitMaxs(1, 2);   // Stack: 1 (this), Locals: 2 (this + visitor)
+        } else {
+            mv.visitVarInsn(ALOAD, 1);      // Load 'visitor'
+            mv.visitVarInsn(ALOAD, 0);      // Load 'this'
+            mv.visitMethodInsn(INVOKEINTERFACE,
+                    "net/minecraft/world/level/levelgen/DensityFunction$Visitor",
+                    "apply",
+                    "(Lnet/minecraft/world/level/levelgen/DensityFunction;)Lnet/minecraft/world/level/levelgen/DensityFunction;",
+                    true);
+            mv.visitInsn(ARETURN);
+            mv.visitMaxs(2, 2);   // Stack: 2, Locals: 2
+        }
         mv.visitEnd();
 
-        mv = cw.visitMethod(ACC_PUBLIC, "fillArray", "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V", null, null);
+        mv = cw.visitMethod(ACC_PUBLIC,
+                "fillArray",
+                "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
+                null,
+                null);
         mv.visitCode();
-
-        // Локальные переменные:
-        // 0: this
-        // 1: ds (double[])
-        // 2: provider
-        // 3: i (int)
-        // 4: length (int)
 
         // int length = ds.length;
         mv.visitVarInsn(ALOAD, 1);
         mv.visitInsn(ARRAYLENGTH);
-        mv.visitVarInsn(ISTORE, 4); // Сохраняем длину, чтобы не дергать поле каждый раз
+        mv.visitVarInsn(ISTORE, 4); // We keep the length so that we don't have to pull the field every time
 
         // int i = 0;
         mv.visitInsn(ICONST_0);
         mv.visitVarInsn(ISTORE, 3);
 
-        Label loopStart = new Label();
-        Label loopEnd = new Label();
+        final Label loopStart = new Label();
+        final Label loopEnd = new Label();
 
         mv.visitLabel(loopStart);
         // if (i >= length) break;
@@ -174,8 +241,8 @@ public class DensityCompiler {
         mv.visitJumpInsn(IF_ICMPGE, loopEnd);
 
         // ds[i] = ...
-        mv.visitVarInsn(ALOAD, 1); // Грузим массив
-        mv.visitVarInsn(ILOAD, 3); // Грузим индекс
+        mv.visitVarInsn(ALOAD, 1); // Load array
+        mv.visitVarInsn(ILOAD, 3); // Load array
 
         // ... this.compute(provider.forIndex(i))
         mv.visitVarInsn(ALOAD, 0); // this
@@ -202,35 +269,37 @@ public class DensityCompiler {
         // minValue
         mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);
         mv.visitCode();
-        mv.visitLdcInsn(0.0);
+
+        // We just take the value from the original root and push it into the bytecode.
+        mv.visitLdcInsn(root.minValue());
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();
 
-        // maxValue
+        // maxValue()
         mv = cw.visitMethod(ACC_PUBLIC, "maxValue", "()D", null, null);
         mv.visitCode();
-        mv.visitLdcInsn(0.0);
+
+        // Similarly, for the maximum as in the minimum
+        mv.visitLdcInsn(root.maxValue());
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();
 
-        // codec - можно вернуть null или кинуть exception, так как скомпилированный объект не сериализуем
-        // Но лучше вернуть кодек оригинала, если возможно, или заглушку.
-        // Для рантайма генерации кодек обычно не нужен.
-        mv = cw.visitMethod(ACC_PUBLIC, "codec", "()Lnet/minecraft/util/KeyDispatchDataCodec;", null, null);
+        /*
+            codec - you can return null or throw an exception, as the compiled object is not serializable
+            You usually don't need a codec for runtime generation.
+            Of course, it is possible that some mod will suddenly want to serialize noise data, but this is unlikely
+         */
+        mv = cw.visitMethod(ACC_PUBLIC,
+                "codec",
+                "()Lnet/minecraft/util/KeyDispatchDataCodec;",
+                null,
+                null);
         mv.visitCode();
         mv.visitInsn(ACONST_NULL); // Возвращаем null (осторожно, может крашнуть дебаггеры)
         mv.visitInsn(ARETURN);
         mv.visitMaxs(1, 1);
         mv.visitEnd();
-
-        // fillArray - просто делегируем в дефолтную реализацию (цикл по compute)
-        // Т.к. мы наследуем Object, нам нужно реализовать fillArray.
-        // Но DensityFunction.SimpleFunction имеет дефолтную реализацию.
-        // Здесь мы реализуем интерфейс напрямую, поэтому можно просто скопипастить цикл,
-        // Либо (проще) сделать класс abstract и extends Object implements DensityFunction
-        // Но проще реализовать fillArray через вызов compute в цикле (как в SimpleFunction).
-        // (Опустим для краткости, это не горячий путь для NoiseRouter в 1.20)
     }
 }

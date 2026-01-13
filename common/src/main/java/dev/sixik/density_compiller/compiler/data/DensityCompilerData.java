@@ -94,7 +94,9 @@ public class DensityCompilerData {
             return REGISTRY.get(target);
         }
 
-        // Если прямого совпадения нет, ищем по иерархии
+        /*
+            If there is no direct match, we search by hierarchy.
+         */
         Class<?> bestCandidate = null;
         for (Class<?> registered : REGISTRY.keySet()) {
             if (registered.isAssignableFrom(target)) {
@@ -104,7 +106,9 @@ public class DensityCompilerData {
             }
         }
 
-        // ХАК: Если всё еще не нашли, проверяем по имени (для HolderHolder и прочих private records)
+        /*
+            If you still haven't found it, we check by name (for HolderHolder and other private records)
+         */
         if (bestCandidate == null) {
             String targetName = target.getSimpleName();
             for (Map.Entry<Class<?>, Supplier<DensityCompilerTask<?>>> entry : REGISTRY.entrySet()) {

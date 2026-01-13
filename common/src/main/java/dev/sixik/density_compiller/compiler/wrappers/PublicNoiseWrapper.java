@@ -7,9 +7,11 @@ public record PublicNoiseWrapper(DensityFunction.NoiseHolder holder) implements 
 
     @Override
     public double compute(FunctionContext context) {
-        // Этот метод НЕ должен вызываться в оптимизированном коде ShiftedNoise.
-        // Мы там вручную достаем holder и вызываем holder.getValue(...).
-        // Но для безопасности вернем 0.
+        /*
+            This method should NOT be called in the optimized ShiftedNoise code.
+            We manually take out the holder there and call holder.getValue(...).
+            But for safety, we'll return 0.
+         */
         return 0.0;
     }
 
@@ -20,13 +22,19 @@ public record PublicNoiseWrapper(DensityFunction.NoiseHolder holder) implements 
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        // Стандартная реализация визитора, на всякий случай
+
+        /*
+            The standard visitor implementation, just in case
+         */
         return visitor.apply(new PublicNoiseWrapper(visitor.visitNoise(this.holder)));
     }
 
     @Override
     public double minValue() {
-        // Делегируем границы шуму (важно для проверок диапазонов)
+
+        /*
+            Delegating boundaries to noise (important for range checks)
+         */
         return -this.maxValue();
     }
 
@@ -37,9 +45,11 @@ public record PublicNoiseWrapper(DensityFunction.NoiseHolder holder) implements 
 
     @Override
     public KeyDispatchDataCodec<? extends DensityFunction> codec() {
-        // Этот объект существует только в рантайме во время генерации.
-        // Сериализовать (сохранять на диск) его не нужно.
-        // Возвращаем null или кидаем ошибку.
-        return null; // throw new UnsupportedOperationException("Runtime wrapper");
+        /*
+            This object exists only in runtime during generation.
+            Serialize (save to disk) it is not needed.
+            Returning null
+         */
+        return null;
     }
 }

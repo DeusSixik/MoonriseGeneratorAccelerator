@@ -29,7 +29,7 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
 
     public void compileNode(MethodVisitor mv, DensityFunction node) {
         String nodeName = node.getClass().getSimpleName();
-        DensityCompiler.L_LINK.get().push(nodeName); // Записываем вход в узел
+        DensityCompiler.L_LINK.get().push(nodeName); // Recording the entrance to the node
 
         try {
             final Class<? extends DensityFunction> clz = node.getClass();
@@ -39,18 +39,22 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
                 taskSupplier.get().compileComputeImpl(mv, node, this);
             } else {
                 if (DensityCompilerParams.crashIfUnsupportedType) {
-                    // Если упадем тут - увидим путь в логах выше
+
+                    /*
+                        If we fall here, we'll see the path in the logs above.
+                     */
                     printTrace("Unsupported Type: " + node.getClass().getName());
                     throw new UnsupportedOperationException("Un support for class: " + node.getClass().getName());
                 }
                 emitLeafCall(mv, node);
             }
         } catch (Exception e) {
-            // Если случилась любая ошибка (включая ASM или NPE)
+
+            /*
+                If any error has occurred (including ASM or NPE)
+             */
             printTrace("Error while compiling node");
             throw e;
-        } finally {
-//            DensityCompiler.link.pop(); // Удаляем при выходе
         }
     }
 
@@ -80,11 +84,11 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
         else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
         else mv.visitIntInsn(SIPUSH, idx);
 
-        mv.visitInsn(AALOAD); // Получили объект DensityFunction со стека
+        mv.visitInsn(AALOAD); // Got the DensityFunction object from the stack
 
-        mv.visitVarInsn(ALOAD, 1); // Загружаем Context (аргумент метода)
+        mv.visitVarInsn(ALOAD, 1); // Loading the Context (method argument)
 
-        // Вызываем compute
+        // Invoke compute
         mv.visitMethodInsn(INVOKEINTERFACE, DensityCompiler.INTERFACE_NAME, "compute", DensityCompiler.CONTEXT_DESC, true);
     }
 

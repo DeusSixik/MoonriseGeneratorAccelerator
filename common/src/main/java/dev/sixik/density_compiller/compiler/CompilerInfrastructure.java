@@ -9,18 +9,26 @@ import java.util.List;
 
 public class CompilerInfrastructure {
 
-    // Кастомный загрузчик, чтобы превращать byte[] в Class<?>
+    /**
+     * Custom loader to turn byte[] into Class<?>
+     */
     private static final DynamicClassLoader LOADER = new DynamicClassLoader(CompilerInfrastructure.class.getClassLoader());
 
     public static DensityFunction defineAndInstantiate(String className, byte[] bytes, List<DensityFunction> leaves) {
         try {
-            // 1. Загружаем класс
+            /*
+                Load class
+             */
             Class<?> clazz = LOADER.define(className.replace('/', '.'), bytes);
 
-            // 2. Ищем конструктор, который принимает массив DensityFunction[] (наши листья)
+            /*
+                We are looking for a constructor that accepts an array of DensityFunction[] (our leaves)
+             */
             Constructor<?> constructor = clazz.getConstructor(DensityFunction[].class);
 
-            // 3. Создаем инстанс
+            /*
+                Creating an instance
+             */
             return (DensityFunction) constructor.newInstance((Object) leaves.toArray(new DensityFunction[0]));
         } catch (Exception e) {
             throw new RuntimeException("Failed to instantiate compiled density function: " + className, e);
@@ -36,7 +44,9 @@ public class CompilerInfrastructure {
         }
     }
 
-    // Простой ClassLoader с доступом к defineClass
+    /**
+     * A simple ClassLoader with access to defineClass
+     */
     static class DynamicClassLoader extends ClassLoader {
         protected DynamicClassLoader(ClassLoader parent) {
             super(parent);
