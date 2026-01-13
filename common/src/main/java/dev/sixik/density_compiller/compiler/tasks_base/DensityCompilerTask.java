@@ -9,5 +9,5 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
         compileCompute(visitor, (T) function, context);
     }
 
-    protected abstract void compileCompute(MethodVisitor visitor, T function, DensityCompilerContext context);
+    protected abstract void compileCompute(MethodVisitor mv, T node, DensityCompilerContext ctx);
 }

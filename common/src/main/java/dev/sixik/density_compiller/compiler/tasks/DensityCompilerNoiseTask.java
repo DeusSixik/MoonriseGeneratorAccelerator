@@ -9,7 +9,7 @@ import org.objectweb.asm.Type;
 
 import static org.objectweb.asm.Opcodes.*;
 
-public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFunctions.ShiftA> {
+public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctions.Noise> {
 
     private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
     private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
@@ -17,8 +17,8 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
 
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftA node, DensityCompilerContext ctx) {
-        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Noise node, DensityCompilerContext ctx) {
+        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.noise());
         ctx.emitLeafCallReference(mv, wrapper);
         mv.visitTypeInsn(CHECKCAST, WRAPPER);
         mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
@@ -29,30 +29,30 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
         mv.visitInsn(I2D);
 
-        mv.visitLdcInsn(0.25D);
+        mv.visitLdcInsn(node.xzScale());
         mv.visitInsn(DMUL);
 
         // (blockX * 0.25
 
-        mv.visitInsn(DCONST_0);
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
+        mv.visitInsn(I2D);
 
-        // (blockX * 0.25, 0
+        mv.visitLdcInsn(node.yScale());
+        mv.visitInsn(DMUL);
+
+        // (blockX * xzScale, blockY * yScale
 
         mv.visitVarInsn(ALOAD, 1);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
         mv.visitInsn(I2D);
 
-        mv.visitLdcInsn(0.25D);
+        mv.visitLdcInsn(node.xzScale());
         mv.visitInsn(DMUL);
-        // (blockX * 0.25, 0, blockZ * 0.25)
+        // (blockX * xzScale, blockY * yScale, blockZ * xzScale)
 
         mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
 
-        // wrapper.holder().getValue(blockX * 0.25, 0, blockZ * 0.25)
-
-        mv.visitLdcInsn(4.0D);
-        mv.visitInsn(DMUL);
-
-        // wrapper.holder().getValue(blockX * 0.25, 0, blockZ * 0.25) * 4.0
+        // wrapper.holder().getValue(blockX * xzScale, blockY * yScale, blockZ * xzScale)
     }
 }

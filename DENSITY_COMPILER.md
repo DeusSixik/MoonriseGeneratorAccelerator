@@ -11,16 +11,22 @@
 | BlendAlpha               | ✅         |
 | BlendOffset              | ✅         |
 | BeardifierMarker         | ✅         |
-| HolderHolder             | ❌         |
-| Marker                   | ❌         |
-| Noise                    | ❌         |
-| EndIslandDensityFunction | ❌         |
-| WeirdScaledSampler       | ❌         |
+| HolderHolder             | ✅         |
+| Marker                   | ✅         |
+| EndIslandDensityFunction | 🟨        |
+| WeirdScaledSampler       | ✅         |
 | ShiftedNoise             | ✅         |
 | RangeChoice              | ✅         |
 | ShiftA                   | ✅         |
 | ShiftB                   | ✅         |
 | Shift                    | ✅         |
-| BlendDensity             | ❌         |
+| BlendDensity             | ✅         |
 | Clamp                    | ✅         |
 | Mapped                   | ✅         |
+| MulOrAdd                 | ✅         |
+| Noise                    | ✅         |
+| YClampedGradient         | ✅         |
+
+- ✅ Full Support
+- 🟨 Incomplete support. Some parts are not translated into ByteCode and use a wrapper for processing
+- ❌ Unsupported

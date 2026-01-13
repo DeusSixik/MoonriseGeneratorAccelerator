@@ -23,45 +23,50 @@ public class DensityCompilerMath {
         visitor.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
     }
 
-    public static void compileNegativeFactor(MethodVisitor mv, double factor) {
-        mv.visitInsn(DUP2);      // [d, d]
-        mv.visitInsn(DCONST_0);  // [d, d, 0.0]
-        mv.visitInsn(DCMPL);     // d == 0.0
+    public static void clampedMap(MethodVisitor visitor) {
+        visitor.visitMethodInsn(INVOKESTATIC, "net/minecraft/util/Mth", "clampedMap", "(DDDDD)D", false);
+    }
 
+    public static void compileNegativeFactor(MethodVisitor mv, double factor) {
         Label labelEnd = new Label();
+
+        mv.visitInsn(DUP2);          // [d, d]
+        mv.visitInsn(DCONST_0);      // [d, d, 0.0]
+        mv.visitInsn(DCMPL);         // [d, res_int]
+
         mv.visitJumpInsn(IFGT, labelEnd); // d > 0
 
-        mv.visitLdcInsn(factor); // [d, factor]
-        mv.visitInsn(DMUL);   // [d * factor]
+        // Если d <= 0
+        mv.visitLdcInsn(factor);     // [d, factor]
+        mv.visitInsn(DMUL);          // [d * factor]
 
         mv.visitLabel(labelEnd);
     }
 
     public static void compileSqueeze(MethodVisitor mv) {
-        // e = clamp(d, -1, 1)
+        /*
+            e = clamp(d, -1, 1)
+         */
         mv.visitLdcInsn(-1.0);
         mv.visitLdcInsn(1.0);
         clamp(mv);
+        // Stack: [e]
 
-        mv.visitInsn(DUP2); // [e, e]
+        mv.visitInsn(DUP2);      // [e, e]
+        mv.visitLdcInsn(2.0);    // [e, e, 2.0]
+        mv.visitInsn(DDIV);      // [e, e/2.0]
 
-        mv.visitLdcInsn(2.0);
-        mv.visitInsn(DDIV); // [e, e/2]
+        mv.visitInsn(DUP2_X2);   // [e/2.0, e, e/2.0]
+        mv.visitInsn(POP2);      // [e/2.0, e]
 
-        mv.visitInsn(SWAP + 1); // double swap
+        mv.visitInsn(DUP2);      // [e/2.0, e, e]
+        mv.visitInsn(DUP2);      // [e/2.0, e, e, e]
+        mv.visitInsn(DMUL);      // [e/2.0, e, e*e]
+        mv.visitInsn(DMUL);      // [e/2.0, e*e*e]
+        mv.visitLdcInsn(24.0);   // [e/2.0, e^3, 24.0]
+        mv.visitInsn(DDIV);      // [e/2.0, e^3/24.0]
 
-        mv.visitVarInsn(DSTORE, 2); // save e/2 to slot 2
-
-        // e * e * e / 24.0
-        mv.visitInsn(DUP2);
-        mv.visitInsn(DUP2);
-        mv.visitInsn(DMUL);
-        mv.visitInsn(DMUL);     // e^3
-        mv.visitLdcInsn(24.0);
-        mv.visitInsn(DDIV);     // (e^3 / 24)
-
-        mv.visitVarInsn(DLOAD, 2); // load e/2
-        mv.visitInsn(SWAP + 1);    // swap to (e/2 - e^3/24)
-        mv.visitInsn(DSUB);
+        // (e/2.0) - (e^3/24.0)
+        mv.visitInsn(DSUB);      // [result]
     }
 }

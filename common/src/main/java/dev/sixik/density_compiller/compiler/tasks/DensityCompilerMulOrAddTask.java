@@ -5,11 +5,24 @@ import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
+import static org.objectweb.asm.Opcodes.DADD;
+import static org.objectweb.asm.Opcodes.DMUL;
+
 public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunctions.MulOrAdd> {
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd function, DensityCompilerContext ctx) {
-        ctx.compileNode(function.argument1());
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, DensityCompilerContext ctx) {
+        ctx.compileNode(mv, node.input());
 
+        switch (node.specificType()) {
+            case MUL -> {
+                mv.visitLdcInsn(node.argument());
+                mv.visitInsn(DMUL);
+            }
+            case ADD -> {
+                mv.visitLdcInsn(node.argument());
+                mv.visitInsn(DADD);
+            }
+        }
     }
 }

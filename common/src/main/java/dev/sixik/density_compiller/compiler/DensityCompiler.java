@@ -6,13 +6,12 @@ import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpeci
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -26,14 +25,16 @@ public class DensityCompiler {
 
     // Хранилище для "Листьев" (сложных функций), которые мы не можем инлайнить
     public final List<DensityFunction> leaves = new ArrayList<>();
-    public final Map<DensityFunction, Integer> leafToId = new HashMap<>();
+    public final Map<DensityFunction, Integer> leafToId = new ConcurrentHashMap<>();
 
     static {
         DensityCompilerData.boot();
     }
 
+
+
     public void compileAndDump(DensityFunction root, String filename) {
-        int id = 999; // Фиктивный ID для теста
+        int id = ID_GEN.incrementAndGet(); // Фиктивный ID для теста
         String className = "dev/sixik/generated/OptimizedDensity_" + id;
 
         // 1. Создаем класс
@@ -57,7 +58,7 @@ public class DensityCompiler {
         byte[] bytes = cw.toByteArray();
 
         // ВОТ ЭТО ГЛАВНОЕ:
-        CompilerInfrastructure.debugWriteClass(filename, bytes);
+        CompilerInfrastructure.debugWriteClass(filename + id + ".class", bytes);
     }
 
     public DensityFunction compile(DensityFunction root) {
@@ -101,106 +102,95 @@ public class DensityCompiler {
         mv.visitEnd();
     }
 
+    public static final ThreadLocal<ArrayDeque<String>> L_LINK = ThreadLocal.withInitial(ArrayDeque::new);
+
     private void generateCompute(ClassWriter cw, String className, DensityFunction root) {
         MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "compute", CONTEXT_DESC, null, null);
+        mv = new org.objectweb.asm.util.CheckMethodAdapter(mv); // Добавь это!
         mv.visitCode();
 
-        DensityCompilerContext context = new DensityCompilerContext(this, mv, className, root);
-        // Рекурсивно генерируем инструкции вычислений
-        context.compileNode(root);
+        L_LINK.get().clear();
 
-        mv.visitInsn(DRETURN); // Возвращаем результат (double)
-        mv.visitMaxs(0, 0); // ASM сам посчитает стеки
-        mv.visitEnd();
+        try {
+            DensityCompilerContext context = new DensityCompilerContext(this, mv, className, root);
+            // Рекурсивно генерируем инструкции вычислений
+            context.compileNode(root);
+
+            mv.visitInsn(DRETURN); // Возвращаем результат (double)
+            mv.visitMaxs(0, 0); // ASM сам посчитает стеки
+            mv.visitEnd();
+        } catch (Exception e) {
+            printTrace("Error while end compile", L_LINK.get());
+            throw e;
+        }
     }
 
-    private void compileNode(MethodVisitor mv, String className, DensityFunction node) {
-        // --- 1. FastAdd (Твой класс) ---
-        if (node instanceof DensitySpecializations.FastAdd op) {
-            compileNode(mv, className, op.a());
-            compileNode(mv, className, op.b());
-            mv.visitInsn(DADD);
-            return;
+    private void printTrace(String message, ArrayDeque<String> compilationStack) {
+        System.err.println("[DensityCompiler Trace] " + message);
+        System.err.println("Compilation Path (top is current):");
+        int depth = 0;
+        for (String s : compilationStack) {
+            System.err.println("  " + (depth++) + ": " + s);
         }
-
-        // --- 2. FastMul ---
-        if (node instanceof DensitySpecializations.FastMul op) {
-            compileNode(mv, className, op.a());
-            compileNode(mv, className, op.b());
-            mv.visitInsn(DMUL);
-            return;
-        }
-
-        // --- 3. FastMin ---
-        if (node instanceof DensitySpecializations.FastMin op) {
-            compileNode(mv, className, op.a());
-            compileNode(mv, className, op.b());
-            // Вызов Math.min(double, double)
-            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
-            return;
-        }
-
-        // --- 4. FastMax ---
-        if (node instanceof DensitySpecializations.FastMax op) {
-            compileNode(mv, className, op.a());
-            compileNode(mv, className, op.b());
-            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
-            return;
-        }
-
-        // --- 5. Constant ---
-        if (node instanceof DensityFunctions.Constant c) {
-            mv.visitLdcInsn(c.value());
-            return;
-        }
-
-        // --- 6. Стандартная Арифметика (Если вдруг попался Ap2) ---
-        if (node instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
-            compileNode(mv, className, ap2.argument1());
-            compileNode(mv, className, ap2.argument2());
-            switch (ap2.type()) {
-                case ADD -> mv.visitInsn(DADD);
-                case MUL -> mv.visitInsn(DMUL);
-                case MIN -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
-                case MAX -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
-            }
-            return;
-        }
-
-        // --- DEFAULT: Лист (Noise, Blender, ShiftedNoise, etc.) ---
-        // Мы не умеем это компилировать, поэтому вызываем как внешний объект
-        emitLeafCall(mv, className, node);
-    }
-
-    private void emitLeafCall(MethodVisitor mv, String className, DensityFunction leaf) {
-        // Регистрируем лист, если его нет
-        int idx = leafToId.computeIfAbsent(leaf, k -> {
-            leaves.add(k);
-            return leaves.size() - 1;
-        });
-
-        // Генерируем вызов: leaves[idx].compute(ctx)
-
-        mv.visitVarInsn(ALOAD, 0); // this
-        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + INTERFACE_NAME + ";");
-
-        // Загружаем индекс
-        if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
-        else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
-        else mv.visitIntInsn(SIPUSH, idx);
-
-        mv.visitInsn(AALOAD); // Получили объект DensityFunction со стека
-
-        mv.visitVarInsn(ALOAD, 1); // Загружаем Context (аргумент метода)
-
-        // Вызываем compute
-        mv.visitMethodInsn(INVOKEINTERFACE, INTERFACE_NAME, "compute", CONTEXT_DESC, true);
     }
 
     // Заглушки для методов интерфейса
     private void generateDelegates(ClassWriter cw, String className, DensityFunction root) {
+        // 1. mapAll(Visitor visitor)
+        // Мы просто возвращаем this, так как оптимизированный код не должен меняться
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "mapAll", "(Lnet/minecraft/world/level/levelgen/DensityFunction$Visitor;)Lnet/minecraft/world/level/levelgen/DensityFunction;", null, null);
+        mv.visitCode();
+        mv.visitVarInsn(ALOAD, 0);
+        mv.visitInsn(ARETURN);
+        mv.visitMaxs(1, 2);
+        mv.visitEnd();
+
+        // 2. fillArray(double[] results, ContextProvider provider)
+        mv = cw.visitMethod(ACC_PUBLIC, "fillArray", "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V", null, null);
+        mv.visitCode();
+
+        Label loopStart = new Label();
+        Label loopEnd = new Label();
+
+        // int i = 0 (слот 3)
+        mv.visitInsn(ICONST_0);
+        mv.visitVarInsn(ISTORE, 3);
+
+        mv.visitLabel(loopStart);
+        mv.visitVarInsn(ILOAD, 3);
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitInsn(ARRAYLENGTH);
+        mv.visitJumpInsn(IF_ICMPGE, loopEnd);
+
+        // Загружаем массив и индекс для DASTORE в конце
+        mv.visitVarInsn(ALOAD, 1);
+        mv.visitVarInsn(ILOAD, 3);
+
+        // Готовим вызов: this.compute(provider.forIndex(i))
+        mv.visitVarInsn(ALOAD, 0); // this
+        mv.visitVarInsn(ALOAD, 2); // provider
+        mv.visitVarInsn(ILOAD, 3); // i
+
+        // ИСПРАВЛЕНО: используем visitMethodInsn с аргументом true в конце
+        mv.visitMethodInsn(INVOKEINTERFACE,
+                "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
+                "forIndex",
+                "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;",
+                true); // itf = true
+
+        mv.visitMethodInsn(INVOKEVIRTUAL, className, "compute", CONTEXT_DESC, false);
+        mv.visitInsn(DASTORE);
+
+        mv.visitIincInsn(3, 1);
+        mv.visitJumpInsn(GOTO, loopStart);
+
+        mv.visitLabel(loopEnd);
+        mv.visitInsn(RETURN);
+        mv.visitMaxs(5, 4);
+        mv.visitEnd();
+
         // minValue
-        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);
+        mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);
         mv.visitCode();
         mv.visitLdcInsn(0.0);
         mv.visitInsn(DRETURN);

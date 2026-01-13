@@ -1,10 +1,12 @@
 package dev.sixik.density_compiller.compiler.tasks_base;
 
 import dev.sixik.density_compiller.compiler.DensityCompiler;
+import dev.sixik.density_compiller.compiler.DensityCompilerParams;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.Deque;
 import java.util.function.Supplier;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -26,13 +28,38 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
     }
 
     public void compileNode(MethodVisitor mv, DensityFunction node) {
-        final Class<? extends DensityFunction> clz = node.getClass();
+        String nodeName = node.getClass().getSimpleName();
+        DensityCompiler.L_LINK.get().push(nodeName); // Записываем вход в узел
 
-        final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
-        if (taskSupplier != null) {
-            taskSupplier.get().compileComputeImpl(mv, node, this);
-        } else {
-            emitLeafCall(mv, node);
+        try {
+            final Class<? extends DensityFunction> clz = node.getClass();
+            final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
+
+            if (taskSupplier != null) {
+                taskSupplier.get().compileComputeImpl(mv, node, this);
+            } else {
+                if (DensityCompilerParams.crashIfUnsupportedType) {
+                    // Если упадем тут - увидим путь в логах выше
+                    printTrace("Unsupported Type: " + node.getClass().getName());
+                    throw new UnsupportedOperationException("Un support for class: " + node.getClass().getName());
+                }
+                emitLeafCall(mv, node);
+            }
+        } catch (Exception e) {
+            // Если случилась любая ошибка (включая ASM или NPE)
+            printTrace("Error while compiling node");
+            throw e;
+        } finally {
+//            DensityCompiler.link.pop(); // Удаляем при выходе
+        }
+    }
+
+    private void printTrace(String message) {
+        System.err.println("[DensityCompiler Trace] " + message);
+        System.err.println("Compilation Path (top is current):");
+        int depth = 0;
+        for (String s : DensityCompiler.L_LINK.get()) {
+            System.err.println("  " + (depth++) + ": " + s);
         }
     }
 

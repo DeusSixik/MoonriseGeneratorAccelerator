@@ -2,10 +2,12 @@ package dev.sixik.density_compiller.compiler.data;
 
 import dev.sixik.density_compiller.compiler.tasks.*;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
+import dev.sixik.density_compiller.compiler.wrappers.DensityFunctionSplineWrapper;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 
 import java.util.Map;
 import java.util.function.Supplier;
@@ -32,6 +34,20 @@ public class DensityCompilerData {
         register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
         register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
         register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
+        register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
+        register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
+        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
+        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
+        register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
+        register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
+        register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
+        register(DensityFunctions.Spline.class, DensityCompilerSplineTask::new);
+        register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
+        register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
+
+        register(NoiseChunk.FlatCache.class, DensityCompilerFlatCacheTask::new);
+        register(NoiseChunk.Cache2D.class, DensityCompilerCache2DTask::new);
+        register(NoiseChunk.NoiseInterpolator.class, DensityCompilerNoiseInterpolatorTask::new);
 
         /*
             Custom
@@ -40,6 +56,7 @@ public class DensityCompilerData {
         register(DensitySpecializations.FastMul.class, DensityCompilerFastMulTask::new);
         register(DensitySpecializations.FastMin.class, DensityCompilerFastMinTask::new);
         register(DensitySpecializations.FastMax.class, DensityCompilerFastMaxTask::new);
+        register(DensityFunctionSplineWrapper.class, DensityCompilerDensityFunctionSplineWrapperTask::new);
 
 
         isLoaded = true;
@@ -73,31 +90,26 @@ public class DensityCompilerData {
 
     private static Supplier<DensityCompilerTask<?>> findBestMatch(Class<?> target) {
 
-        /*
-            If there's an exact match, we'll take it right away.
-         */
         if (REGISTRY.containsKey(target)) {
             return REGISTRY.get(target);
         }
 
-        /*
-            Otherwise, we are looking for the "nearest" parent.
-         */
+        // Если прямого совпадения нет, ищем по иерархии
         Class<?> bestCandidate = null;
-
         for (Class<?> registered : REGISTRY.keySet()) {
-
-            /*
-                Checking whether target is the registered heir (target instanceof registered)
-             */
             if (registered.isAssignableFrom(target)) {
-
-                /*
-                    If we haven't found a candidate yet, or the new candidate
-                    is "closer" (more specific) than the previous one.
-                 */
                 if (bestCandidate == null || bestCandidate.isAssignableFrom(registered)) {
                     bestCandidate = registered;
+                }
+            }
+        }
+
+        // ХАК: Если всё еще не нашли, проверяем по имени (для HolderHolder и прочих private records)
+        if (bestCandidate == null) {
+            String targetName = target.getSimpleName();
+            for (Map.Entry<Class<?>, Supplier<DensityCompilerTask<?>>> entry : REGISTRY.entrySet()) {
+                if (entry.getKey().getSimpleName().equals(targetName)) {
+                    return entry.getValue();
                 }
             }
         }

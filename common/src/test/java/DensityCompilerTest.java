@@ -132,6 +132,64 @@ public class DensityCompilerTest {
                         DensityFunctions.Mapped.create(DensityFunctions.Mapped.Type.HALF_NEGATIVE, new DensityFunctions.Constant(-10.0)),
                         "MappedHalfNeg",
                         -5.0
+                ),
+                Arguments.of(
+                        new DensityFunctions.MulOrAdd(
+                                DensityFunctions.MulOrAdd.Type.ADD,
+                                new DensityFunctions.Constant(1),
+                                0.1, 0.2, 0.3
+                        ),
+                        "MulOrAdd Add",
+                        1.3
+                ),
+                Arguments.of(
+                        new DensityFunctions.MulOrAdd(
+                                DensityFunctions.MulOrAdd.Type.MUL,
+                                new DensityFunctions.Constant(1),
+                                0.1, 0.2, 0.3
+                        ),
+                        "MulOrAdd Mul",
+                        0.3
+                ),
+                Arguments.of(
+                        new DensityFunctions.Noise(
+                                noise,
+                                1,
+                                1
+                        ),
+                        "Noise",
+                        0.0
+                ),
+                Arguments.of(
+                        new DensityFunctions.WeirdScaledSampler(
+                                new DensityFunctions.Constant(0.5),
+                                noise,
+                                DensityFunctions.WeirdScaledSampler.RarityValueMapper.TYPE1
+                        ),
+                        "WeirdSampler",
+                        0.0
+                ),
+                Arguments.of(
+                        new DensityFunctions.BlendDensity(
+                                new DensityFunctions.Constant(0.5)
+                        ),
+                        "BlendDensity",
+                        0.5
+                ),
+                Arguments.of(
+                        new DensityFunctions.YClampedGradient(
+                                2,
+                                5,
+                                10,
+                                4
+                        ),
+                        "YClampedGradient",
+                        10.0
+                ),
+                Arguments.of(
+                        new DensityFunctions.HolderHolder(Holder.direct(new DensityFunctions.Constant(505))),
+                        "HolderHolder",
+                        505
                 )
         );
     }

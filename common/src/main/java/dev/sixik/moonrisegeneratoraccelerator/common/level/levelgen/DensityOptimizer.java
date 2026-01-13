@@ -1,11 +1,14 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
 
+import dev.sixik.density_compiller.compiler.DensityCompiler;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Optimizes density function expressions by applying constant folding and branch pruning.
@@ -27,6 +30,8 @@ import java.util.Map;
  * </p>
  */
 public class DensityOptimizer {
+
+    private static final DensityCompiler COMPILER = new DensityCompiler();
 
     /*
         The cache is necessary in order not to get stuck in
@@ -74,9 +79,32 @@ public class DensityOptimizer {
             Applying the simplification rules to the current node
          */
         final DensityFunction result = rewriteLocal(optimizedChildren);
-
+//        optimizeByASM(result);
         cache.put(function, result);
         return result;
+    }
+
+    private static final Map<DensityFunction, DensityFunction> cache2 = new IdentityHashMap<>();
+
+    public DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
+        // Если функция слишком простая (константа), нет смысла её компилировать
+        if (cache2.containsKey(original)) {
+            return mapped;
+        }
+
+        // Компилируем и возвращаем новый объект
+
+
+        COMPILER.compileAndDump(mapped, "density_");
+        cache2.put(original, mapped);
+
+        return mapped;
+    }
+
+    private boolean isTooSimple(DensityFunction func) {
+        // Константы и маркеры не стоят целого нового класса
+        return func instanceof DensityFunctions.Constant
+                || func instanceof DensityFunctions.Marker;
     }
 
     /**
