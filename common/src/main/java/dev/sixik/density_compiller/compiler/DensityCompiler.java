@@ -22,6 +22,7 @@ public class DensityCompiler {
     public static final AtomicInteger ID_GEN = new AtomicInteger();
     public static final String INTERFACE_NAME = Type.getInternalName(DensityFunction.class);
     public static final String CONTEXT_DESC = "(Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;)D";
+    public static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
 
     // Хранилище для "Листьев" (сложных функций), которые мы не можем инлайнить
     public final List<DensityFunction> leaves = new ArrayList<>();
@@ -201,7 +202,7 @@ public class DensityCompiler {
         // minValue
         MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);
         mv.visitCode();
-        mv.visitLdcInsn(root.minValue());
+        mv.visitLdcInsn(0.0);
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();
@@ -209,7 +210,7 @@ public class DensityCompiler {
         // maxValue
         mv = cw.visitMethod(ACC_PUBLIC, "maxValue", "()D", null, null);
         mv.visitCode();
-        mv.visitLdcInsn(root.maxValue());
+        mv.visitLdcInsn(0.0);
         mv.visitInsn(DRETURN);
         mv.visitMaxs(2, 1);
         mv.visitEnd();

@@ -24,6 +24,14 @@ public class DensityCompilerData {
         register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
         register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
         register(DensityFunctions.BlendOffset.class, DensityCompilerBlendOffsetTask::new);
+        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
+        register(DensityFunctions.ShiftedNoise.class, DensityCompilerShiftedNoiseTask::new);
+        register(DensityFunctions.RangeChoice.class, DensityCompilerRangeChoiceTask::new);
+        register(DensityFunctions.ShiftA.class, DensityCompilerShiftATask::new);
+        register(DensityFunctions.ShiftB.class, DensityCompilerShiftBTask::new);
+        register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
+        register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
+        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
 
         /*
             Custom

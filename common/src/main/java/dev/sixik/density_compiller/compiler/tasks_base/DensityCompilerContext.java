@@ -13,6 +13,10 @@ import static org.objectweb.asm.Opcodes.SIPUSH;
 
 public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv, String className, DensityFunction root) {
 
+    public String CTX() {
+        return DensityCompiler.CTX;
+    }
+
     public boolean canCompile(DensityFunction node) {
         return DensityCompilerData.getTask(node.getClass()) != null;
     }
@@ -55,5 +59,21 @@ public record DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv,
 
         // Вызываем compute
         mv.visitMethodInsn(INVOKEINTERFACE, DensityCompiler.INTERFACE_NAME, "compute", DensityCompiler.CONTEXT_DESC, true);
+    }
+
+    public void emitLeafCallReference(MethodVisitor mv, DensityFunction leaf) {
+        int idx = compiler.leafToId.computeIfAbsent(leaf, k -> {
+            compiler.leaves.add(k);
+            return compiler.leaves.size() - 1;
+        });
+
+        mv.visitVarInsn(ALOAD, 0); // this
+        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
+
+        if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
+        else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
+        else mv.visitIntInsn(SIPUSH, idx);
+
+        mv.visitInsn(AALOAD);
     }
 }

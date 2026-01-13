@@ -170,3 +170,11 @@ accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context getMin
 
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendAlpha
 accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendOffset
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BeardifierMarker
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftNoise
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftA
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftB
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Shift
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendDensity
