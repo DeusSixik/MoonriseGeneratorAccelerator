@@ -11,7 +11,7 @@ public class DensityCompilerMarkerTask extends DensityCompilerTask<DensityFuncti
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Marker node, DensityCompilerContext ctx) {
         switch (node.type()) {
             case Interpolated -> ctx.emitLeafCall(mv, node);
-            default -> ctx.compileNode(mv, node.wrapped());
+            default -> ctx.compileNodeCompute(mv, node.wrapped());
         }
     }
 }

@@ -10,4 +10,8 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
     }
 
     protected abstract void compileCompute(MethodVisitor mv, T node, DensityCompilerContext ctx);
+
+    public void compileFill(MethodVisitor mv, T node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.emitLeafFill(mv, node, destArrayVar);
+    }
 }

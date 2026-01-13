@@ -31,7 +31,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitLdcInsn(node.xzScale());
         mv.visitInsn(DMUL);
 
-        ctx.compileNode(mv, node.shiftX());
+        ctx.compileNodeCompute(mv, node.shiftX());
 
         mv.visitInsn(DADD);
 
@@ -42,7 +42,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitLdcInsn(node.yScale());
         mv.visitInsn(DMUL);
 
-        ctx.compileNode(mv, node.shiftY());
+        ctx.compileNodeCompute(mv, node.shiftY());
 
         mv.visitInsn(DADD);
 
@@ -53,7 +53,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitLdcInsn(node.xzScale());
         mv.visitInsn(DMUL);
 
-        ctx.compileNode(mv, node.shiftZ());
+        ctx.compileNodeCompute(mv, node.shiftZ());
 
         mv.visitInsn(DADD);
 

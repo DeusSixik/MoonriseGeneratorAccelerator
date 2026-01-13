@@ -12,7 +12,7 @@ public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunc
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, DensityCompilerContext ctx) {
-        ctx.compileNode(mv, node.input());
+        ctx.compileNodeCompute(mv, node.input());
 
         switch (node.specificType()) {
             case MUL -> {

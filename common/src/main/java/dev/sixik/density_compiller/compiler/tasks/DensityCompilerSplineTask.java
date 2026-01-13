@@ -20,7 +20,7 @@ public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFuncti
              Deep copy of the spline with compilation of all coordinates inside
              mapAll will traverse the entire spline tree
          */
-        ctx.compileNode(mv, new DensityFunctionSplineWrapper(recursiveCreateCompute(mv, ctx, originalSpline)));
+        ctx.compileNodeCompute(mv, new DensityFunctionSplineWrapper(recursiveCreateCompute(mv, ctx, originalSpline)));
     }
 
     private CubicSpline<DensityFunctions.Spline.Point, CompiledCoordinate> recursiveCreateCompute(

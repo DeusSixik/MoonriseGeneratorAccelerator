@@ -60,6 +60,13 @@ public class DensityCompilerTest {
     }
 
     @Test
+    @DisplayName("fillArrayConst")
+    void testFillArrayConsts() {
+//        compileAndVerify(new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.ADD, new DensityFunctions.Constant(5), new DensityFunctions.Constant(5), 0, 5), "FillArrayConst.class", 10);
+        compileAndVerify(new DensityFunctions.Constant(10), "FillArrayConst.class", 10);
+    }
+
+    @Test
     @DisplayName("Min/Max Function Test")
     void testMinMax() {
         DensityFunction c10 = new DensityFunctions.Constant(10.0);

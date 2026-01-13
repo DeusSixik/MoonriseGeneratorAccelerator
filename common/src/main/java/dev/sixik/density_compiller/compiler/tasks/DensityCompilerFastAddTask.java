@@ -12,8 +12,8 @@ public class DensityCompilerFastAddTask extends DensityCompilerTask<DensitySpeci
 
     @Override
     protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastAdd function, DensityCompilerContext context) {
-        context.compileNode(visitor, function.a());
-        context.compileNode(visitor, function.b());
+        context.compileNodeCompute(visitor, function.a());
+        context.compileNodeCompute(visitor, function.b());
         visitor.visitInsn(DADD);
     }
 }

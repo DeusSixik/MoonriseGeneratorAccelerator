@@ -103,10 +103,15 @@ public class DensityCompiler {
 
         cw.visitEnd();
 
+        final byte[] bytes = cw.toByteArray();
+        if(DensityCompilerParams.dumpGenerated) {
+            CompilerInfrastructure.debugWriteClass("OptimizedDensity_" + id + ".class", bytes);
+        }
+
         /*
             Instantiate
          */
-        return CompilerInfrastructure.defineAndInstantiate(className, cw.toByteArray(), leaves);
+        return CompilerInfrastructure.defineAndInstantiate(className, bytes, leaves);
     }
 
     private void generateConstructor(ClassWriter cw, String className) {
@@ -160,7 +165,7 @@ public class DensityCompiler {
             /*
                 Recursively generate calculation instructions
              */
-            context.compileNode(root);
+            context.compileNodeCompute(root);
 
             mv.visitInsn(DRETURN);                // Return result (double)
             mv.visitMaxs(0, 0); // ASM will calculate the stacks itself
@@ -180,6 +185,41 @@ public class DensityCompiler {
         }
     }
 
+    public void generateFill(ClassWriter cw, String className, DensityFunction root) {
+        MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
+                "fillArray",
+                "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
+                null,
+                null);
+
+        if(DensityCompilerParams.useCheckMethodAdapter)
+            mv = new org.objectweb.asm.util.CheckMethodAdapter(mv);
+
+        mv.visitCode();
+
+        L_LINK.get().clear();
+
+        try {
+            // Инициализируем контекст.
+            // Важно: он должен знать, что переменные 0, 1, 2 заняты.
+            // Свободные слоты начинаются с 3.
+            DensityCompilerContext context = new DensityCompilerContext(this, mv, className, root);
+
+            // --- УДАЛЕНО: Создание tempBufferA и tempBufferB ---
+            // Мы НЕ создаем массивы здесь. Если они понадобятся (например для Add),
+            // нода сама вызовет context.allocateTempBuffer().
+
+            // Запускаем рекурсию. Пишем результат сразу в аргумент 1 (основной массив).
+            context.compileNodeFill(root, 1);
+
+            mv.visitInsn(RETURN);
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+        } catch (Exception e) {
+            printTrace("Error while generating fillArray", L_LINK.get());
+            throw e;
+        }
+    }
 
     private void generateDelegates(ClassWriter cw, String className, DensityFunction root) {
         /*
@@ -216,12 +256,14 @@ public class DensityCompiler {
         }
         mv.visitEnd();
 
-        mv = cw.visitMethod(ACC_PUBLIC,
-                "fillArray",
-                "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
-                null,
-                null);
-        mv.visitCode();
+        generateFill(cw, className, root) ;
+
+//        mv = cw.visitMethod(ACC_PUBLIC,
+//                "fillArray",
+//                "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
+//                null,
+//                null);
+//        mv.visitCode();
 
         // int length = ds.length;
         mv.visitVarInsn(ALOAD, 1);

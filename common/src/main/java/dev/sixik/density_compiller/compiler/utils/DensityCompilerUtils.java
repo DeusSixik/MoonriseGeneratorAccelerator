@@ -1,11 +1,80 @@
 package dev.sixik.density_compiller.compiler.utils;
 
+import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.function.Consumer;
+
 import static org.objectweb.asm.Opcodes.*;
 
-public class DensityCompilerMath {
+public class DensityCompilerUtils {
+
+    public static void arrayForFill(
+            DensityCompilerContext ctx,
+            int destArrayVar,
+            double value
+    ) {
+        arrayForI(ctx, destArrayVar, (i) -> {
+            final MethodVisitor mv = ctx.mv();
+            mv.visitVarInsn(ALOAD, destArrayVar);   // Array
+            mv.visitVarInsn(ILOAD, i);              // Index
+            mv.visitLdcInsn(value);                 // Value
+            mv.visitInsn(DASTORE);                  // Store double
+        });
+    }
+
+    public static void arrayForI(
+            DensityCompilerContext ctx,
+            int destArrayVar,
+            Consumer<Integer> iteration
+    ) {
+        int lenVar = ctx.allocateLocalVarIndex(); // int len
+        int iVar = ctx.allocateLocalVarIndex();   // int i
+
+        final MethodVisitor mv = ctx.mv();
+
+        // int len = destArray.length;
+        mv.visitVarInsn(ALOAD, destArrayVar);
+        mv.visitInsn(ARRAYLENGTH);
+        mv.visitVarInsn(ISTORE, lenVar);
+
+        // int i = 0;
+        mv.visitInsn(ICONST_0);
+        mv.visitVarInsn(ISTORE, iVar);
+
+        // Jump markers
+        Label startLoop = new Label();
+        Label endLoop = new Label();
+
+        // for start
+        mv.visitLabel(startLoop);
+
+        //  if (i >= len) break
+        mv.visitVarInsn(ILOAD, iVar);           // Load i
+        mv.visitVarInsn(ILOAD, lenVar);         // Load len
+        mv.visitJumpInsn(IF_ICMPGE, endLoop);   // if i >= len, jump to end
+
+        // body
+        iteration.accept(iVar);
+
+        // i++
+        mv.visitIincInsn(iVar, 1);
+
+        // continue;
+        mv.visitJumpInsn(GOTO, startLoop);
+
+        // for end
+        mv.visitLabel(endLoop);
+    }
+
+    public static void arrayFillD(MethodVisitor mv) {
+        mv.visitMethodInsn(INVOKESTATIC,
+                "java/util/Arrays",
+                "fill",
+                "([DD)V",
+                false);
+    }
 
     public static void min(MethodVisitor visitor) {
         visitor.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);

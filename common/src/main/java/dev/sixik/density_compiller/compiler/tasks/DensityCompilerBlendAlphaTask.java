@@ -11,4 +11,9 @@ public class DensityCompilerBlendAlphaTask extends DensityCompilerTask<DensityFu
     protected void compileCompute(MethodVisitor visitor, DensityFunctions.BlendAlpha function, DensityCompilerContext context) {
         visitor.visitLdcInsn(1.0);
     }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.BlendAlpha node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.arrayForFill(destArrayVar, 1.0);
+    }
 }

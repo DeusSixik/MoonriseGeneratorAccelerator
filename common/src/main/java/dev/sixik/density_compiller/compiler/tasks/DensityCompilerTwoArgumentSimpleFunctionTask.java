@@ -2,7 +2,7 @@ package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.utils.DensityCompilerMath;
+import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
@@ -17,13 +17,13 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
                                   DensityFunctions.TwoArgumentSimpleFunction function,
                                   DensityCompilerContext context
     ) {
-        context.compileNode(visitor, function.argument1());
-        context.compileNode(visitor, function.argument2());
+        context.compileNodeCompute(visitor, function.argument1());
+        context.compileNodeCompute(visitor, function.argument2());
         switch (function.type()) {
             case ADD -> visitor.visitInsn(DADD);
             case MUL -> visitor.visitInsn(DMUL);
-            case MIN -> DensityCompilerMath.min(visitor);
-            case MAX -> DensityCompilerMath.max(visitor);
+            case MIN -> DensityCompilerUtils.min(visitor);
+            case MAX -> DensityCompilerUtils.max(visitor);
         }
     }
 }

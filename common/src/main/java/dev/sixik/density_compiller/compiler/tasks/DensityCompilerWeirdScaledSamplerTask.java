@@ -23,7 +23,7 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
         mv.visitMethodInsn(INVOKEVIRTUAL, "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler", "rarityValueMapper", "()Lnet/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper;", false);
         mv.visitFieldInsn(GETFIELD, "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper", "mapper", "Lit/unimi/dsi/fastutil/doubles/Double2DoubleFunction;");
 
-        ctx.compileNode(mv, node.input());
+        ctx.compileNodeCompute(mv, node.input());
 
         mv.visitMethodInsn(INVOKEINTERFACE, MAPPER, "get", "(D)D", true);
 

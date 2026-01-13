@@ -18,7 +18,7 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
         mv.visitVarInsn(ALOAD, 1); // Context
 
-        ctx.compileNode(mv, node.input()); // input_double
+        ctx.compileNodeCompute(mv, node.input()); // input_double
 
         mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER, "blendDensity", "(L" + ctx.CTX() + ";D)D", false);
 

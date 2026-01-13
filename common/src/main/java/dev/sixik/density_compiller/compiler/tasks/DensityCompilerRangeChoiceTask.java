@@ -12,7 +12,7 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.RangeChoice node, DensityCompilerContext ctx) {
-        ctx.compileNode(mv, node.input());
+        ctx.compileNodeCompute(mv, node.input());
 
         Label labelPopAndOut = new Label();
         Label labelOut = new Label();
@@ -27,14 +27,14 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
         mv.visitInsn(DCMPG);                  // Stack: [res_int]
         mv.visitJumpInsn(IFGE, labelOut);     // input >= max
 
-        ctx.compileNode(mv, node.whenInRange()); // Stack: [res_in]
+        ctx.compileNodeCompute(mv, node.whenInRange()); // Stack: [res_in]
         mv.visitJumpInsn(GOTO, labelEnd);
 
         mv.visitLabel(labelPopAndOut);
         mv.visitInsn(POP2);
 
         mv.visitLabel(labelOut);
-        ctx.compileNode(mv, node.whenOutOfRange()); // Stack: [res_out]
+        ctx.compileNodeCompute(mv, node.whenOutOfRange()); // Stack: [res_out]
 
         mv.visitLabel(labelEnd);
     }

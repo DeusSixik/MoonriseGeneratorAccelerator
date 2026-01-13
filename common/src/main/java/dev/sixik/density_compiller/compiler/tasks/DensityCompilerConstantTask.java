@@ -11,4 +11,9 @@ public class DensityCompilerConstantTask extends DensityCompilerTask<DensityFunc
     protected void compileCompute(MethodVisitor visitor, DensityFunctions.Constant function, DensityCompilerContext context) {
         visitor.visitLdcInsn(function.value());
     }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.Constant node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.arrayForFill(destArrayVar, node.value());
+    }
 }

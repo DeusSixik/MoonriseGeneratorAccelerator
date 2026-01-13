@@ -2,7 +2,7 @@ package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.utils.DensityCompilerMath;
+import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
@@ -38,6 +38,6 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
         mv.visitLdcInsn(node.fromValue());
         mv.visitLdcInsn(node.toValue());
 
-        DensityCompilerMath.clampedMap(mv); // Stack [double, double, double, double, double] 10 slots
+        DensityCompilerUtils.clampedMap(mv); // Stack [double, double, double, double, double] 10 slots
     }
 }

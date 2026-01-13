@@ -2,7 +2,7 @@ package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.utils.DensityCompilerMath;
+import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
@@ -13,10 +13,10 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Mapped node, DensityCompilerContext ctx) {
-        ctx.compileNode(mv, node.input());
+        ctx.compileNodeCompute(mv, node.input());
 
         switch (node.type()) {
-            case ABS -> DensityCompilerMath.abs(mv);
+            case ABS -> DensityCompilerUtils.abs(mv);
             case SQUARE -> {
                 mv.visitInsn(DUP2);
                 mv.visitInsn(DMUL);
@@ -27,9 +27,9 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
                 mv.visitInsn(DMUL);
                 mv.visitInsn(DMUL);
             }
-            case HALF_NEGATIVE -> DensityCompilerMath.compileNegativeFactor(mv, 0.5);
-            case QUARTER_NEGATIVE -> DensityCompilerMath.compileNegativeFactor(mv, 0.25);
-            case SQUEEZE -> DensityCompilerMath.compileSqueeze(mv);
+            case HALF_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.5);
+            case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25);
+            case SQUEEZE -> DensityCompilerUtils.compileSqueeze(mv);
         }
     }
 }
