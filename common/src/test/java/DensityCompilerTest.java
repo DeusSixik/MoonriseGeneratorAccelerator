@@ -27,7 +27,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.Random;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,10 +59,11 @@ public class DensityCompilerTest {
     }
 
     @Test
-    @DisplayName("fillArrayConst")
-    void testFillArrayConsts() {
+    @DisplayName("testCompilation")
+    void testCompilation() {
 //        compileAndVerify(new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.ADD, new DensityFunctions.Constant(5), new DensityFunctions.Constant(5), 0, 5), "FillArrayConst.class", 10);
-        compileAndVerify(new DensityFunctions.Constant(10), "FillArrayConst.class", 10);
+//        compileAndVerify(new DensityFunctions.Constant(10), "FillArrayConst.class", 10);
+        compileAndVerify(new DensityFunctions.BlendDensity(new DensityFunctions.BlendDensity(new DensityFunctions.Constant(10))), "TestCompilation.class", 10);
     }
 
     @Test
