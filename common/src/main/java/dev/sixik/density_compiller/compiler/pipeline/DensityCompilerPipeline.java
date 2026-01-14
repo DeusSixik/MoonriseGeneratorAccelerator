@@ -2,8 +2,10 @@ package dev.sixik.density_compiller.compiler.pipeline;
 
 import dev.sixik.density_compiller.compiler.CompilerInfrastructure;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.DensityCompilerPipelineConfigurator;
+import dev.sixik.density_compiller.compiler.pipeline.generators_methods.*;
 import dev.sixik.density_compiller.compiler.pipeline.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
+import dev.sixik.density_compiller.compiler.pipeline.locals.DensityCompilerLocals;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
@@ -26,6 +28,7 @@ public class DensityCompilerPipeline {
     protected final LinkedList<DensityCompilerPipelineGenerator> generators = new LinkedList<>();
 
     public final DensityCompilerPipelineConfigurator configurator;
+    public final DensityCompilerLocals locals = new DensityCompilerLocals();
 
     public static DensityCompilerPipeline from(DensityFunction densityFunction) {
         return from(densityFunction, false);
@@ -46,12 +49,12 @@ public class DensityCompilerPipeline {
 
     public DensityCompilerPipeline(DensityCompilerPipelineConfigurator configurator, @Nullable DensityFunction densityFunction, int id) {
         this(configurator, densityFunction, id,
-                new DensityConstructorGenerator(),
                 new DensityComputeGenerator(),
                 new DensityFillArrayGenerator(),
                 new DensityMapAllGenerator(),
                 new DensityMinValueGenerator(),
-                new DensityMaxValueGenerator()
+                new DensityMaxValueGenerator(),
+                new DensityConstructorGenerator()
         );
     }
 
@@ -75,7 +78,8 @@ public class DensityCompilerPipeline {
         final String className = "dev/sixik/generated/OptimizedDensity_" + configurator.classSimpleName() + "_" + id;
 
         final ClassWriter cw = generateWriter();
-        generateByteCode(cw, root, id);
+        generateByteCodeMethods(cw, root, id);
+        generateByteCodeFields(cw, root, id);
 
         cw.visitEnd();
 
@@ -96,7 +100,7 @@ public class DensityCompilerPipeline {
                 );
     }
 
-    protected void generateByteCode(
+    protected void generateByteCodeMethods(
             ClassWriter cw,
             DensityFunction root,
             int id
@@ -110,9 +114,9 @@ public class DensityCompilerPipeline {
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
             mv.visitCode();
 
-            element.apply(
+            element.applyMethod(
                     this,
-                    element.getStructure().createContext(mv, className),
+                    element.getStructure(this).createContext(this, mv, className),
                     root,
                     className,
                     simpleClassName,
@@ -120,6 +124,28 @@ public class DensityCompilerPipeline {
             );
 
             mv.visitEnd();
+        }
+    }
+
+    protected void generateByteCodeFields(
+            ClassWriter cw,
+            DensityFunction root,
+            int id
+    ) {
+        final LinkedList<DensityCompilerPipelineGenerator> copy = generators;
+        final String className = configurator.className();
+        final String simpleClassName = configurator.classSimpleName();
+
+        for (int i = 0; i < copy.size(); i++) {
+            final DensityCompilerPipelineGenerator element = copy.get(i);
+            element.generateClassField(
+                    this,
+                    cw,
+                    root,
+                    className,
+                    simpleClassName,
+                    id
+            );
         }
     }
 

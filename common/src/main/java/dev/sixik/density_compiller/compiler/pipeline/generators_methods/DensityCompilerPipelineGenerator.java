@@ -1,6 +1,6 @@
-package dev.sixik.density_compiller.compiler.pipeline;
+package dev.sixik.density_compiller.compiler.pipeline.generators_methods;
 
-import dev.sixik.asm.AsmCtx;
+import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.ByteCodeGeneratorStructure;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -9,7 +9,7 @@ import org.objectweb.asm.MethodVisitor;
 
 public interface DensityCompilerPipelineGenerator {
 
-    void apply(
+    void applyMethod(
             DensityCompilerPipeline pipeline,
             PipelineAsmContext ctx,
             DensityFunction root,
@@ -22,8 +22,10 @@ public interface DensityCompilerPipelineGenerator {
         return null;
     }
 
-    default ByteCodeGeneratorStructure getStructure() {
-        return new ByteCodeGeneratorStructure(0, 0);
+    default ByteCodeGeneratorStructure getStructure(DensityCompilerPipeline pipeline) {
+        return new ByteCodeGeneratorStructure(0, -1);
     }
+
+    default void generateClassField(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root, String className, String simpleClassName, int id) {}
 
 }

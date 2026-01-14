@@ -15,6 +15,7 @@ public class AsmCtx {
     public final LocalsCache locals = new LocalsCache();
     public final FieldsCache fields = new FieldsCache();
 
+
     // где лежит текущий FunctionContext
     protected int currentContextVar;
 
