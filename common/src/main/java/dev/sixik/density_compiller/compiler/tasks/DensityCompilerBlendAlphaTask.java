@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -8,7 +9,7 @@ import org.objectweb.asm.MethodVisitor;
 public class DensityCompilerBlendAlphaTask extends DensityCompilerTask<DensityFunctions.BlendAlpha> {
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensityFunctions.BlendAlpha function, DensityCompilerContext context) {
+    protected void compileCompute(MethodVisitor visitor, DensityFunctions.BlendAlpha function, PipelineAsmContext context) {
         visitor.visitLdcInsn(1.0);
     }
 

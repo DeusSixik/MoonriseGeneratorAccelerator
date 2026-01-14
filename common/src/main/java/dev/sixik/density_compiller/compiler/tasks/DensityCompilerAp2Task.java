@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
@@ -13,16 +14,16 @@ import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions.Ap2> {
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.Ap2 node, DensityCompilerContext ctx) {
-        ctx.compileNodeCompute(mv, node.argument1()); // Put double (+2 slots)
-        ctx.compileNodeCompute(mv, node.argument2()); // Put double (+2 slots)
-
-        switch (node.type()) {
-            case ADD -> mv.visitInsn(DADD);
-            case MUL -> mv.visitInsn(DMUL);
-            case MIN -> DensityCompilerUtils.min(mv);
-            case MAX -> DensityCompilerUtils.max(mv);
-        }
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+//        ctx.compileNodeCompute(mv, node.argument1()); // Put double (+2 slots)
+//        ctx.compileNodeCompute(mv, node.argument2()); // Put double (+2 slots)
+//
+//        switch (node.type()) {
+//            case ADD -> mv.visitInsn(DADD);
+//            case MUL -> mv.visitInsn(DMUL);
+//            case MIN -> DensityCompilerUtils.min(mv);
+//            case MAX -> DensityCompilerUtils.max(mv);
+//        }
     }
 
     @Override

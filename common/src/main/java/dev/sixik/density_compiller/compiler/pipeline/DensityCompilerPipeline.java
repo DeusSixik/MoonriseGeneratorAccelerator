@@ -90,13 +90,17 @@ public class DensityCompilerPipeline {
         }
 
         final String formatedClassName = className.replace('/', '.');
+
+        Object[] constructorArgs = locals.leaves.isEmpty() ? new Object[0] : new Object[] { locals.leaves.toArray(new DensityFunction[0]) };
+
         return configurator.instantiate()
                 .newInstance(
                         this,
                         DYNAMIC_CLASS_LOADER,
                         className,
                         formatedClassName,
-                        bytes
+                        bytes,
+                        constructorArgs
                 );
     }
 

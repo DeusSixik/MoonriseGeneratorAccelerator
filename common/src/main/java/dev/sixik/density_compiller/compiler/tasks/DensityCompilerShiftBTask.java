@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
@@ -17,44 +18,44 @@ public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFuncti
 
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftB node, DensityCompilerContext ctx) {
-        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
-        ctx.emitLeafCallReference(mv, wrapper);
-        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
-
-        // wrapper.holder()
-
-        ctx.loadContext(mv);
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-        mv.visitInsn(I2D);
-
-        mv.visitLdcInsn(0.25D);
-        mv.visitInsn(DMUL);
-
-        // (blockZ * 0.25
-
-        ctx.loadContext(mv);
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
-        mv.visitInsn(I2D);
-
-        mv.visitLdcInsn(0.25D);
-        mv.visitInsn(DMUL);
-
-        // (blockZ * 0.25, blockX * 0.25
-
-        mv.visitInsn(DCONST_1);
-
-        // (blockZ * 0.25, blockX * 0.25, 0)
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
-
-        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0)
-
-        mv.visitLdcInsn(4.0D);
-        mv.visitInsn(DMUL);
-
-        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0) * 4.0
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftB node, PipelineAsmContext ctx) {
+//        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
+//        ctx.emitLeafCallReference(mv, wrapper);
+//        mv.visitTypeInsn(CHECKCAST, WRAPPER);
+//        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
+//
+//        // wrapper.holder()
+//
+//        ctx.loadContext(mv);
+//        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
+//        mv.visitInsn(I2D);
+//
+//        mv.visitLdcInsn(0.25D);
+//        mv.visitInsn(DMUL);
+//
+//        // (blockZ * 0.25
+//
+//        ctx.loadContext(mv);
+//        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+//        mv.visitInsn(I2D);
+//
+//        mv.visitLdcInsn(0.25D);
+//        mv.visitInsn(DMUL);
+//
+//        // (blockZ * 0.25, blockX * 0.25
+//
+//        mv.visitInsn(DCONST_1);
+//
+//        // (blockZ * 0.25, blockX * 0.25, 0)
+//
+//        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
+//
+//        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0)
+//
+//        mv.visitLdcInsn(4.0D);
+//        mv.visitInsn(DMUL);
+//
+//        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0) * 4.0
     }
 
     @Override
@@ -77,7 +78,7 @@ public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFuncti
              */
             int oldCtx = ctx.getCurrentContextVar();
             ctx.setCurrentContextVar(tempCtx);
-            this.compileCompute(mv, node, ctx);
+//            this.compileCompute(mv, node, ctx);
             ctx.setCurrentContextVar(oldCtx);
 
             mv.visitInsn(DASTORE);

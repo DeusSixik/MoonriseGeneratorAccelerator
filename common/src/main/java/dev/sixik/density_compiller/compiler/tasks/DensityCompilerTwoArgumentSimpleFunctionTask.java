@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
@@ -15,10 +16,10 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
     @Override
     protected void compileCompute(MethodVisitor visitor,
                                   DensityFunctions.TwoArgumentSimpleFunction function,
-                                  DensityCompilerContext context
+                                  PipelineAsmContext context
     ) {
-        context.compileNodeCompute(visitor, function.argument1());
-        context.compileNodeCompute(visitor, function.argument2());
+        context.visitNodeCompute(function.argument1());
+        context.visitNodeCompute(function.argument2());
         switch (function.type()) {
             case ADD -> visitor.visitInsn(DADD);
             case MUL -> visitor.visitInsn(DMUL);

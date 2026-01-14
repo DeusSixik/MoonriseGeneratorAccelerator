@@ -37,13 +37,10 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
         for (var entry : leavesMap.entrySet()) {
             final int index = entry.getValue();
 
-            ctx.putField(entry.getValue());
-
             ctx.loadThis();
             ctx.aload(1);
             ctx.iconst(index);
             mv.visitInsn(AALOAD);
-
             ctx.putField(index);
         }
 
@@ -53,11 +50,14 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
 
     @Override
     public MethodVisitor generateMethod(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root) {
+        final Map<DensityFunction, Integer> leavesMap = pipeline.locals.leafToId;
+        final String descriptor = leavesMap.isEmpty()
+                ? DescriptorBuilder.builder().buildMethodVoid()
+                : DescriptorBuilder.builder().array(DensityFunction.class).buildMethodVoid();
+
         return cw.visitMethod(ACC_PUBLIC,
                 "<init>",
-                DescriptorBuilder.builder()
-                        .array(DensityFunction.class)
-                        .buildMethodVoid(),
+                descriptor,
                 null,
                 null);
     }

@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -12,15 +13,15 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
     private static final String BLENDER = "net/minecraft/world/level/levelgen/blending/Blender";
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, DensityCompilerContext ctx) {
-        ctx.loadContext(mv); // Blender
-        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "getBlender", "()L" + BLENDER + ";", true);
-
-        ctx.loadContext(mv); // Context
-
-        ctx.compileNodeCompute(mv, node.input()); // input_double
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER, "blendDensity", "(L" + ctx.CTX() + ";D)D", false);
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
+//        ctx.loadContext(mv); // Blender
+//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "getBlender", "()L" + BLENDER + ";", true);
+//
+//        ctx.loadContext(mv); // Context
+//
+//        ctx.compileNodeCompute(mv, node.input()); // input_double
+//
+//        mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER, "blendDensity", "(L" + ctx.CTX() + ";D)D", false);
 
         // blender.blendDensity(context, double)
     }

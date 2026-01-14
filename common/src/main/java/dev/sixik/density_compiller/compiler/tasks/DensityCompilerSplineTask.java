@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.CompiledCoordinate;
@@ -13,14 +14,14 @@ import java.util.List;
 
 public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFunctions.Spline> {
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.Spline node, DensityCompilerContext ctx) {
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Spline node, PipelineAsmContext ctx) {
         CubicSpline<DensityFunctions.Spline.Point, DensityFunctions.Spline.Coordinate> originalSpline = node.spline();
 
         /*
              Deep copy of the spline with compilation of all coordinates inside
              mapAll will traverse the entire spline tree
          */
-        ctx.compileNodeCompute(mv, new DensityFunctionSplineWrapper(recursiveCreateCompute(mv, ctx, originalSpline)));
+//        ctx.compileNodeCompute(mv, new DensityFunctionSplineWrapper(recursiveCreateCompute(mv, ctx, originalSpline)));
     }
 
     private CubicSpline<DensityFunctions.Spline.Point, CompiledCoordinate> recursiveCreateCompute(

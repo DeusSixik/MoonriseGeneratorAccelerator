@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
@@ -17,9 +18,9 @@ public class DensityCompilerFastMaxTask extends DensityCompilerTask<DensitySpeci
 
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMax function, DensityCompilerContext context) {
-        context.compileNodeCompute(visitor, function.a());
-        context.compileNodeCompute(visitor, function.b());
+    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMax function, PipelineAsmContext context) {
+        context.visitNodeCompute(function.a());
+        context.visitNodeCompute(function.b());
         DensityCompilerUtils.max(visitor);
     }
 

@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -10,8 +11,8 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunctions.MulOrAdd> {
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, DensityCompilerContext ctx) {
-        ctx.compileNodeCompute(mv, node.input());
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.input());
 
         switch (node.specificType()) {
             case MUL -> {

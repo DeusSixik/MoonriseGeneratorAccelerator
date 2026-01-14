@@ -69,7 +69,7 @@ public final class DensityCompilerContext {
             if (taskSupplier != null) {
                 final DensityCompilerTask<?> task = taskSupplier.get();
                 if((task.buildBits() & DensityCompilerTask.COMPUTE) != 0) {
-                    taskSupplier.get().compileComputeImpl(mv, node, this);
+                    taskSupplier.get().compileComputeImpl(mv, node, null);
 
                     compiledFilesComput.add(clz.getName() + "_found");
 

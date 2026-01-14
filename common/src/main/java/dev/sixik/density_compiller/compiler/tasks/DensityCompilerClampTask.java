@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
@@ -18,8 +19,8 @@ import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctions.Clamp> {
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.Clamp node, DensityCompilerContext ctx) {
-        ctx.compileNodeCompute(mv, node.input());
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.input());
 
         mv.visitLdcInsn(node.minValue());
         mv.visitLdcInsn(node.maxValue());

@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
@@ -11,20 +12,20 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<DensityFunctions.YClampedGradient> {
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, DensityCompilerContext ctx) {
-        // 1. blockY (берем из контекста)
-        ctx.loadContext(mv);
-        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
-        mv.visitInsn(I2D);
-
-        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
-        mv.visitLdcInsn((double) node.fromY());
-        mv.visitLdcInsn((double) node.toY());
-        mv.visitLdcInsn(node.fromValue());
-        mv.visitLdcInsn(node.toValue());
-
-        // 3. Вызов Mth.clampedMap
-        DensityCompilerUtils.clampedMap(mv);
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
+//        // 1. blockY (берем из контекста)
+//        ctx.loadContext();
+//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
+//        mv.visitInsn(I2D);
+//
+//        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
+//        mv.visitLdcInsn((double) node.fromY());
+//        mv.visitLdcInsn((double) node.toY());
+//        mv.visitLdcInsn(node.fromValue());
+//        mv.visitLdcInsn(node.toValue());
+//
+//        // 3. Вызов Mth.clampedMap
+//        DensityCompilerUtils.clampedMap(mv);
     }
 
     @Override

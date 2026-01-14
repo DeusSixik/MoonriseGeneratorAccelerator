@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
@@ -21,27 +22,27 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
     private static final String RARITY_ENUM = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper";
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, DensityCompilerContext ctx) {
-        // 1. СНАЧАЛА загружаем Mapper (Target Object)
-        loadMapper(mv, node, ctx);
-
-        // 2. ПОТОМ вычисляем Input (Argument)
-        ctx.compileNodeCompute(mv, node.input());
-
-        // 3. Вызываем get(double)
-        mv.visitMethodInsn(INVOKEINTERFACE, MAPPER_INTERFACE, "get", "(D)D", true);
-
-        // 4. FIX: Аллоцируем 2 слота под double
-        int varE = ctx.allocateDoubleLocalVarIndex();
-        mv.visitVarInsn(DSTORE, varE);
-
-        // 5. Подготовка координат и вызов шума
-        generateNoiseCall(mv, node, ctx, varE);
-
-        // 6. Math.abs(noise) * e
-        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DMUL);
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx) {
+//        // 1. СНАЧАЛА загружаем Mapper (Target Object)
+//        loadMapper(mv, node, ctx);
+//
+//        // 2. ПОТОМ вычисляем Input (Argument)
+//        ctx.compileNodeCompute(mv, node.input());
+//
+//        // 3. Вызываем get(double)
+//        mv.visitMethodInsn(INVOKEINTERFACE, MAPPER_INTERFACE, "get", "(D)D", true);
+//
+//        // 4. FIX: Аллоцируем 2 слота под double
+//        int varE = ctx.allocateDoubleLocalVarIndex();
+//        mv.visitVarInsn(DSTORE, varE);
+//
+//        // 5. Подготовка координат и вызов шума
+//        generateNoiseCall(mv, node, ctx, varE);
+//
+//        // 6. Math.abs(noise) * e
+//        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
+//        mv.visitVarInsn(DLOAD, varE);
+//        mv.visitInsn(DMUL);
     }
 
     @Override

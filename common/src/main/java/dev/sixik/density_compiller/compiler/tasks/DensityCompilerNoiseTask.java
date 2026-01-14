@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
@@ -17,15 +18,15 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
 
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.Noise node, DensityCompilerContext ctx) {
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Noise node, PipelineAsmContext ctx) {
         final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.noise());
-        ctx.emitLeafCallReference(mv, wrapper);
+        ctx.visitLeafCall(wrapper);
         mv.visitTypeInsn(CHECKCAST, WRAPPER);
         mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
 
         // wrapper.holder()
 
-        ctx.loadContext(mv);
+        ctx.loadContext();
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
         mv.visitInsn(I2D);
 
@@ -34,7 +35,7 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
 
         // (blockX * 0.25
 
-        ctx.loadContext(mv);
+        ctx.loadContext();
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
         mv.visitInsn(I2D);
 
@@ -43,7 +44,7 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
 
         // (blockX * xzScale, blockY * yScale
 
-        ctx.loadContext(mv);
+        ctx.loadContext();
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
         mv.visitInsn(I2D);
 

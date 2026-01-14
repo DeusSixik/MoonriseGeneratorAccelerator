@@ -20,7 +20,34 @@ public class ASMTest {
 
     @Test
     public void generateClass() {
-        DensityCompilerPipeline.from(new DensityFunctions.Constant(5), true).startCompilation();
+        DensityFunctions.RangeChoice densityFunction2 = new DensityFunctions.RangeChoice(
+                new DensityFunctions.Constant(50),
+                10,
+                20,
+                new DensityFunctions.Constant(50),
+                new DensityFunctions.Constant(0)
+        );
+        DensityCompilerPipeline.from(
+                new DensityFunctions.RangeChoice(
+                        new DensityFunctions.RangeChoice(
+                                new DensityFunctions.Constant(50),
+                                10,
+                                20,
+                                densityFunction2,
+                                new DensityFunctions.Constant(0)
+                        ),
+                        10,
+                        20,
+                        densityFunction2,
+                        new DensityFunctions.Constant(0)
+                ),
+                 true
+        ).startCompilation();
+
+//        DensityCompilerPipeline.from(
+//                new DensityFunctions.Constant(5),
+//                 true
+//        ).startCompilation();
 
         //        DensityFunctions.Constant constant = new DensityFunctions.Constant(5);
 //
