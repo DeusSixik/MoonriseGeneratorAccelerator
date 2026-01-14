@@ -1,12 +1,8 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
-import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
-import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
-import net.minecraft.world.level.levelgen.blending.Blender;
 import org.objectweb.asm.MethodVisitor;
 
 import static dev.sixik.density_compiller.compiler.DensityCompiler.CTX;

@@ -1,6 +1,5 @@
 package dev.sixik.density_compiller.compiler.pipeline.configuration;
 
-import dev.sixik.asm.AsmCtx;
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import org.objectweb.asm.MethodVisitor;

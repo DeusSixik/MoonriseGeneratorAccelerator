@@ -1,21 +1,20 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
-import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Type;
 
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<DensityFunctions.WeirdScaledSampler> {
 
     private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
+    private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
     private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
+
     private static final String MAPPER_INTERFACE = "it/unimi/dsi/fastutil/doubles/Double2DoubleFunction";
-    private static final String WRAPPER = Type.getInternalName(PublicNoiseWrapper.class);
 
     // Внутренние имена классов Minecraft (обрати внимание на $)
     private static final String SAMPLER_CLASS = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler";
@@ -100,11 +99,8 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
     }
 
     private void generateNoiseCall(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx, int varE) {
-        PublicNoiseWrapper noiseWrapper = new PublicNoiseWrapper(node.noise());
-        ctx.visitLeafReference(noiseWrapper);
-        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
-
+        DensityFunction.NoiseHolder holder = node.noise();
+        ctx.visitCustomLeaf(holder, HOLDER_DESC);
         // X / e
         ctx.loadContext();
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
@@ -130,10 +126,8 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
     }
 
     private void generateNoiseCallFill(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx, int iVar, int varE) {
-        PublicNoiseWrapper noiseWrapper = new PublicNoiseWrapper(node.noise());
-        ctx.visitLeafReference(noiseWrapper);
-        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
+        DensityFunction.NoiseHolder holder = node.noise();
+        ctx.visitCustomLeaf(holder, HOLDER_DESC);
 
         int loopCtx = ctx.getOrAllocateLoopContext(iVar);
 

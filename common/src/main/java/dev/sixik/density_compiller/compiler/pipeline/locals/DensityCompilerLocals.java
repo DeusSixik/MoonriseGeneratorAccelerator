@@ -1,14 +1,10 @@
 package dev.sixik.density_compiller.compiler.pipeline.locals;
 
-import net.minecraft.world.level.levelgen.DensityFunction;
-
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class DensityCompilerLocals {
 
-    public final List<DensityFunction> leaves = new ArrayList<>();
-    public final Map<DensityFunction, Integer> leafToId = new IdentityHashMap<>();
+    public final List<Object> leaves = new ArrayList<>(); // Был List<DensityFunction>
+    public final Map<Object, Integer> leafToId = new IdentityHashMap<>(); // Был Map<DensityFunction, Integer>
+    public final Map<Integer, String> leafTypes = new HashMap<>(); // Новая карта: ID -> Descriptor
 }

@@ -2,7 +2,6 @@ package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.prese
 
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseRouterCustomDensity;
-import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.OptimizationVisitor;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.levelgen.DensityFunction;

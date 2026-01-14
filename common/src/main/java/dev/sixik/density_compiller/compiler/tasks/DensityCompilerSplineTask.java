@@ -1,10 +1,8 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
-import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.wrappers.CompiledCoordinate;
-import dev.sixik.density_compiller.compiler.wrappers.DensityFunctionSplineWrapper;
 import net.minecraft.util.CubicSpline;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;

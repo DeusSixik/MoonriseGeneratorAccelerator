@@ -7,7 +7,7 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import static org.objectweb.asm.Opcodes.*;
+import static org.objectweb.asm.Opcodes.ARRAYLENGTH;
 
 public class ASMTest {
 

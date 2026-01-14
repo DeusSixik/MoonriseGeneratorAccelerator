@@ -66,12 +66,6 @@ public class PipelineAsmContext extends AsmCtx {
             iload(iVar);
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
 
-
-//            invokeInterface(
-//                    DescriptorBuilder.builder().type(DensityFunction.ContextProvider.class).build(),
-//                    "forIndex",
-//                    DescriptorBuilder.builder().i().buildMethod(DensityFunction.FunctionContext.class)
-//            );
             astore(loopVar);
             cache.loopContextVar = loopVar;
         }
@@ -123,6 +117,31 @@ public class PipelineAsmContext extends AsmCtx {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Регистрирует объект как лист и возвращает его индекс и имя поля.
+     * @param leaf Объект (DensityFunction, NoiseHolder, Spline и т.д.)
+     * @param descriptor Дескриптор типа поля (например "Lnet/minecraft/.../NoiseHolder;")
+     */
+    public void visitCustomLeaf(Object leaf, String descriptor) {
+        final DensityCompilerLocals locals = pipeline.locals;
+
+        // Используем identity map или обычную, зависит от equals
+        int index = locals.leafToId.computeIfAbsent(leaf, (k) -> {
+            locals.leaves.add(k); // Добавляем в общий список для конструктора
+            return locals.leaves.size() - 1;
+        });
+
+        // ВАЖНО: Нам нужно сообщить DensityConstructorGenerator, какой тип у этого поля!
+        // Пока что у тебя все поля генерируются как DensityFunction.
+        // Чтобы это исправить, нужно хранить Map<Integer, String> fieldDescriptors в Locals.
+        locals.leafTypes.put(index, descriptor);
+
+        String fieldName = DEFAULT_LEAF_FUNCTION_NAME + "_" + index;
+
+        loadThis();
+        getField(fieldName, descriptor);
     }
 
     public void visitLeafCall(DensityFunction node) {

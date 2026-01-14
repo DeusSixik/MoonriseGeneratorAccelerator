@@ -7,10 +7,11 @@ import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Type;
 
 import java.util.Map;
 
-import static dev.sixik.density_compiller.compiler.DensityCompiler.INTERFACE_NAME;
+import static dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext.DEFAULT_LEAF_FUNCTION_NAME;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityConstructorGenerator implements DensityCompilerPipelineGenerator{
@@ -33,15 +34,21 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
                 DescriptorBuilder.builder().buildMethodVoid(),
                 false);
 
-        final Map<DensityFunction, Integer> leavesMap = pipeline.locals.leafToId;
+        Map<Object, Integer> leavesMap = pipeline.locals.leafToId;
         for (var entry : leavesMap.entrySet()) {
-            final int index = entry.getValue();
+            int index = entry.getValue();
+            String desc = pipeline.locals.leafTypes.getOrDefault(index, "Lnet/minecraft/world/level/levelgen/DensityFunction;");
+            String internalName = Type.getType(desc).getInternalName();
 
             ctx.loadThis();
-            ctx.aload(1);
+            ctx.aload(1); // Массив Object[] (бывший DensityFunction[])
             ctx.iconst(index);
             mv.visitInsn(AALOAD);
-            ctx.putField(index);
+
+            // ВАЖНО: Кастим Object к конкретному типу поля (NoiseHolder, Spline...)
+            mv.visitTypeInsn(CHECKCAST, internalName);
+
+            mv.visitFieldInsn(PUTFIELD, className, DEFAULT_LEAF_FUNCTION_NAME + "_" + index, desc);
         }
 
         mv.visitInsn(RETURN);
@@ -50,10 +57,10 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
 
     @Override
     public MethodVisitor generateMethod(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root) {
-        final Map<DensityFunction, Integer> leavesMap = pipeline.locals.leafToId;
+        Map<Object, Integer> leavesMap = pipeline.locals.leafToId;
         final String descriptor = leavesMap.isEmpty()
                 ? DescriptorBuilder.builder().buildMethodVoid()
-                : DescriptorBuilder.builder().array(DensityFunction.class).buildMethodVoid();
+                : DescriptorBuilder.builder().array(Object.class).buildMethodVoid();
 
         return cw.visitMethod(ACC_PUBLIC,
                 "<init>",
@@ -69,13 +76,16 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
 
     @Override
     public void generateClassField(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root, String className, String simpleClassName, int id) {
-        final String desc = DescriptorBuilder.builder().type(DensityFunction.class).build();
+        final Map<Object, Integer> leavesMap = pipeline.locals.leafToId;
 
-        final Map<DensityFunction, Integer> leavesMap = pipeline.locals.leafToId;
-        for (var index : leavesMap.values()) {
+        for (var entry : leavesMap.entrySet()) {
+            int index = entry.getValue();
+            // Берем дескриптор из карты типов. Если нет - по дефолту DensityFunction
+            String desc = pipeline.locals.leafTypes.getOrDefault(index, "Lnet/minecraft/world/level/levelgen/DensityFunction;");
+
             cw.visitField(ACC_PRIVATE | ACC_FINAL,
-                    PipelineAsmContext.DEFAULT_LEAF_FUNCTION_NAME + "_" + index,
-                    desc, null, null);
+                    DEFAULT_LEAF_FUNCTION_NAME + "_" + index,
+                    desc, null, null).visitEnd();
         }
     }
 }

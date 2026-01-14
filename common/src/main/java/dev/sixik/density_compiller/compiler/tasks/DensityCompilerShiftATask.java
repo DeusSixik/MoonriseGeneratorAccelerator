@@ -1,28 +1,28 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
-import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.wrappers.PublicNoiseWrapper;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Type;
 
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFunctions.ShiftA> {
 
     private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
-    private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
-    private static final String WRAPPER = Type.getInternalName(PublicNoiseWrapper.class);
+    private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
+    private static final String HOLDER_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
 
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftA node, PipelineAsmContext ctx) {
-        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
-        ctx.visitLeafReference(wrapper);
-        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
+        DensityFunction.NoiseHolder holder = node.offsetNoise();
+        ctx.visitCustomLeaf(holder, HOLDER_DESC);
+
+//        ctx.visitLeafReference(wrapper);
+//        mv.visitTypeInsn(CHECKCAST, WRAPPER);
+//        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
 
         // wrapper.holder()
 
@@ -47,14 +47,13 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
         mv.visitInsn(DMUL);
         // (blockX * 0.25, 0, blockZ * 0.25)
 
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
-
-        // wrapper.holder().getValue(blockX * 0.25, 0, blockZ * 0.25)
+        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
+        // holder().getValue(blockX * 0.25, 0, blockZ * 0.25)
 
         mv.visitLdcInsn(4.0D);
         mv.visitInsn(DMUL);
 
-        // wrapper.holder().getValue(blockX * 0.25, 0, blockZ * 0.25) * 4.0
+        // holder().getValue(blockX * 0.25, 0, blockZ * 0.25) * 4.0
     }
 
     @Override

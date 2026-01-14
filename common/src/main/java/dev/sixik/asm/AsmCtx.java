@@ -1,6 +1,7 @@
 package dev.sixik.asm;
 
-import org.objectweb.asm.*;
+import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
 
 import java.util.function.Consumer;
 

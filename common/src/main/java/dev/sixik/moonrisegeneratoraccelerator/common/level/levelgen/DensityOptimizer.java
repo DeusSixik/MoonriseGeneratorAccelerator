@@ -1,6 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
 
-import dev.sixik.density_compiller.compiler.DensityCompiler;
+import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -28,8 +28,6 @@ import java.util.Map;
  * </p>
  */
 public class DensityOptimizer {
-
-    private static final DensityCompiler COMPILER = new DensityCompiler();
 
     /*
         The cache is necessary in order not to get stuck in
@@ -87,7 +85,7 @@ public class DensityOptimizer {
 //
 //        final DensityFunction newDensity = COMPILER.compile(mapped);
 //        cache2.put(original, newDensity);
-        return COMPILER.compile(mapped);
+        return DensityCompilerPipeline.from(mapped, true).startCompilation();
     }
 
     private boolean isTooSimple(DensityFunction func) {

@@ -5,8 +5,6 @@ import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
 import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.List;
 
 public class BasicDensityInstantiate implements DensityInstantiate {
 
@@ -22,13 +20,11 @@ public class BasicDensityInstantiate implements DensityInstantiate {
         try {
             Class<?> clazz = loader.define(formatedClassName, bytes);
 
-            System.out.println(args.length);
-
             if (args.length == 0) {
                 Constructor<?> constructor = clazz.getConstructor();
                 return (DensityFunction) constructor.newInstance();
             } else {
-                Constructor<?> constructor = clazz.getConstructor(DensityFunction[].class);
+                Constructor<?> constructor = clazz.getConstructor(Object[].class);
                 return (DensityFunction) constructor.newInstance(args);
             }
         } catch (Exception e) {

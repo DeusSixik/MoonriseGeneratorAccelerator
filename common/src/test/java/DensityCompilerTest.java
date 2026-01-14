@@ -1,4 +1,3 @@
-import dev.sixik.density_compiller.compiler.DensityCompiler;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
