@@ -3,7 +3,6 @@ package dev.sixik.density_compiller.compiler.pipeline;
 import dev.sixik.density_compiller.compiler.CompilerInfrastructure;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.DensityCompilerPipelineConfigurator;
 import dev.sixik.density_compiller.compiler.pipeline.instatiates.BasicDensityInstantiate;
-import dev.sixik.density_compiller.compiler.pipeline.instatiates.DensityInstantiate;
 import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.jetbrains.annotations.Nullable;
@@ -11,7 +10,6 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -20,14 +18,14 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerPipeline {
 
     protected static final DynamicClassLoader DYNAMIC_CLASS_LOADER = new DynamicClassLoader(DensityCompilerPipeline.class.getClassLoader());
-
-    public static final AtomicInteger ID_GEN = new AtomicInteger();
-
-    protected final LinkedList<DensityCompilerPipelineGenerator> generators = new LinkedList<>();
-    public final DensityCompilerPipelineConfigurator configurator;
+    protected static final AtomicInteger ID_GEN = new AtomicInteger();
 
     private final DensityFunction root;
     private final int id;
+
+    protected final LinkedList<DensityCompilerPipelineGenerator> generators = new LinkedList<>();
+
+    public final DensityCompilerPipelineConfigurator configurator;
 
     public static DensityCompilerPipeline from(DensityFunction densityFunction) {
         return from(densityFunction, false);
@@ -110,6 +108,8 @@ public class DensityCompilerPipeline {
         for (int i = 0; i < copy.size(); i++) {
             final DensityCompilerPipelineGenerator element = copy.get(i);
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
+            mv.visitCode();
+
             element.apply(
                     this,
                     element.getStructure().createContext(mv, className),

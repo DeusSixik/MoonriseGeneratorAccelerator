@@ -5,6 +5,8 @@ import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
 import java.lang.reflect.Constructor;
+import java.util.ArrayList;
+import java.util.List;
 
 public class BasicDensityInstantiate implements DensityInstantiate {
 
@@ -27,11 +29,12 @@ public class BasicDensityInstantiate implements DensityInstantiate {
                 We are looking for a constructor that accepts an array of DensityFunction[] (our leaves)
              */
             Constructor<?> constructor = clazz.getConstructor(DensityFunction[].class);
+            List<DensityFunction> leaves = new ArrayList<>();
 
             /*
                 Creating an instance
              */
-            return (DensityFunction) constructor.newInstance(args);
+            return (DensityFunction) constructor.newInstance((Object) leaves.toArray(new DensityFunction[0]));
         } catch (Exception e) {
             throw new RuntimeException("Failed to instantiate compiled density function: " + className, e);
         }
