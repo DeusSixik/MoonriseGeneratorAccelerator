@@ -13,7 +13,7 @@ public class DensityCompilerCache2DTask extends DensityCompilerTask<NoiseChunk.C
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, NoiseChunk.Cache2D node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.wrapped(), destArrayVar);
+    public void compileFill(MethodVisitor mv, NoiseChunk.Cache2D node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.wrapped(), destArrayVar);
     }
 }

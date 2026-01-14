@@ -9,6 +9,10 @@ import org.objectweb.asm.MethodVisitor;
 
 public interface DensityCompilerPipelineGenerator {
 
+    default boolean ignore(DensityCompilerPipeline pipeline) {
+        return false;
+    }
+
     void applyMethod(
             DensityCompilerPipeline pipeline,
             PipelineAsmContext ctx,
@@ -23,7 +27,7 @@ public interface DensityCompilerPipelineGenerator {
     }
 
     default ByteCodeGeneratorStructure getStructure(DensityCompilerPipeline pipeline) {
-        return new ByteCodeGeneratorStructure(0, -1);
+        return new ByteCodeGeneratorStructure(5, 1);
     }
 
     default void generateClassField(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root, String className, String simpleClassName, int id) {}

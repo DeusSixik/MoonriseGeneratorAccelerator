@@ -26,7 +26,7 @@ public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFuncti
 
     private CubicSpline<DensityFunctions.Spline.Point, CompiledCoordinate> recursiveCreateCompute(
             MethodVisitor mv,
-            DensityCompilerContext ctx,
+            PipelineAsmContext ctx,
             CubicSpline<DensityFunctions.Spline.Point, DensityFunctions.Spline.Coordinate> originalSpline
     ) {
         final CubicSpline<DensityFunctions.Spline.Point, CompiledCoordinate> rewrite;
@@ -35,7 +35,7 @@ public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFuncti
             rewrite = CubicSpline.constant(compiledSpline.value());
         } else if (originalSpline instanceof CubicSpline.Multipoint<DensityFunctions.Spline.Point, DensityFunctions.Spline.Coordinate> ms) {
             rewrite = new CubicSpline.Multipoint<>(
-                    new CompiledCoordinate(ctx.compiler().compile(ms.coordinate().function().value())),
+                    new CompiledCoordinate(null /*ctx.compiler().compile(ms.coordinate().function().value())*/),
                     ms.locations(),
                     splineCoordinateToCompiledCoordinate(mv, ctx, ms.values()),
                     ms.derivatives(),
@@ -49,7 +49,7 @@ public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFuncti
 
     private List<CubicSpline<DensityFunctions.Spline.Point, CompiledCoordinate>> splineCoordinateToCompiledCoordinate(
             MethodVisitor mv,
-            DensityCompilerContext ctx,
+            PipelineAsmContext ctx,
             List<CubicSpline<DensityFunctions.Spline.Point, DensityFunctions.Spline.Coordinate>> orig
     ) {
 

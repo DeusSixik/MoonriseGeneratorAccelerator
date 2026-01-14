@@ -41,8 +41,8 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.RangeChoice node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.input(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensityFunctions.RangeChoice node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.input(), destArrayVar);
 
         double min = node.minInclusive();
         double max = node.maxExclusive();
@@ -54,7 +54,7 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
             /*
                 Creating a context in a NEW slot (for example, 10 or 11)
              */
-            int varContext = ctx.allocateLocalVarIndex();
+            int varContext = ctx.newLocalInt();
             mv.visitVarInsn(ALOAD, 2); // Provider
             mv.visitVarInsn(ILOAD, iVar);
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
@@ -83,7 +83,7 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
 
             int oldCtx = ctx.getCurrentContextVar();
             ctx.setCurrentContextVar(varContext); // Подменяем слот для вложенных нод
-            ctx.compileNodeCompute(node.whenInRange());
+            ctx.visitNodeCompute(node.whenInRange());
             ctx.setCurrentContextVar(oldCtx); // Возвращаем назад
 
             mv.visitInsn(DASTORE);
@@ -98,7 +98,7 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
             mv.visitVarInsn(ILOAD, iVar);
 
             ctx.setCurrentContextVar(varContext);
-            ctx.compileNodeCompute(node.whenOutOfRange());
+            ctx.visitNodeCompute(node.whenOutOfRange());
             ctx.setCurrentContextVar(oldCtx);
 
             mv.visitInsn(DASTORE);

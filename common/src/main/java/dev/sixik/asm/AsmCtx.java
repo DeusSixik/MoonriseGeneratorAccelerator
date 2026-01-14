@@ -67,6 +67,10 @@ public class AsmCtx {
         mv.visitVarInsn(ALOAD, var);
     }
 
+    public void daload() {
+        mv.visitInsn(DALOAD);
+    }
+
     public void iload(int var) {
         mv.visitVarInsn(ILOAD, var);
     }

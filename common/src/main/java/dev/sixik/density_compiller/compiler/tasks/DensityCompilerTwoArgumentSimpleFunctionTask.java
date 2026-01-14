@@ -29,8 +29,8 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.argument1(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.argument1(), destArrayVar);
 
         /*
             Optimization for MUL (Short-circuiting)
@@ -72,7 +72,7 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
             as it allows the second argument to use its vector fillArray optimization.
          */
         int tempArrayVar = ctx.allocateTempBuffer();
-        ctx.compileNodeFill(node.argument2(), tempArrayVar);
+        ctx.visitNodeFill(node.argument2(), tempArrayVar);
 
         int opcode = switch (node.type()) {
             case ADD -> DADD;

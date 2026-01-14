@@ -14,7 +14,7 @@ public class DensityCompilerBlendOffsetTask extends DensityCompilerTask<DensityF
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.BlendOffset node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.BlendOffset node, PipelineAsmContext ctx, int destArrayVar) {
         ctx.arrayForFill(destArrayVar, 0.0);
     }
 }

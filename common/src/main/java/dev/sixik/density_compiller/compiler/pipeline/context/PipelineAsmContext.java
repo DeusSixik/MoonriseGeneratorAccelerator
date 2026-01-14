@@ -8,6 +8,7 @@ import dev.sixik.density_compiller.compiler.pipeline.locals.DensityCompilerLocal
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
@@ -49,6 +50,34 @@ public class PipelineAsmContext extends AsmCtx {
         });
     }
 
+    public void startLoop() { this.cache.loopContextVar = -1; }
+
+    /**
+     * Возвращает контекст для текущей итерации.
+     * Если он еще не создан в этом цикле — создает и сохраняет в переменную.
+     */
+    public int getOrAllocateLoopContext(int iVar) {
+        final ContextCache cache = this.cache;
+        int loopVar = cache.loopContextVar;
+
+        if (loopVar == -1) {
+            loopVar = newLocalInt();
+            aload(2); // Provider
+            iload(iVar);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+
+
+//            invokeInterface(
+//                    DescriptorBuilder.builder().type(DensityFunction.ContextProvider.class).build(),
+//                    "forIndex",
+//                    DescriptorBuilder.builder().i().buildMethod(DensityFunction.FunctionContext.class)
+//            );
+            astore(loopVar);
+            cache.loopContextVar = loopVar;
+        }
+        return loopVar;
+    }
+
     public int getOrComputeLength(int destArrayVar) {
         final ContextCache cache = this.cache;
         int len = cache.cachedLengthVar;
@@ -58,8 +87,13 @@ public class PipelineAsmContext extends AsmCtx {
             aload(destArrayVar);
             mv.visitInsn(ARRAYLENGTH);
             istore(len);
+            cache.cachedLengthVar = len;
         }
         return len;
+    }
+
+    public void visitLeafReference(DensityFunction node) {
+        visitLeaf(node);
     }
 
     public void visitLeaf(DensityFunction leaf) {
@@ -99,7 +133,24 @@ public class PipelineAsmContext extends AsmCtx {
 
     public void visitContext() {
         mv.visitVarInsn(ALOAD, currentContextVar);
+
     }
+
+    public void invokeProviderForIndex() {
+        invokeProviderInterface(
+                "forIndex",
+                DescriptorBuilder.builder().i().buildMethod(DensityFunction.FunctionContext.class)
+        );
+    }
+
+    public void invokeProviderInterface(String name, String desc) {
+        invokeInterface(DescriptorBuilder.builder().type(DensityFunction.ContextProvider.class).build(), name, desc);
+    }
+
+    public void invokeContextInterface(String name, String desc) {
+        invokeInterface(DescriptorBuilder.builder().type(DensityFunction.FunctionContext.class).build(), name, desc);
+    }
+
 
     public void arrayForFill(
             int destArrayVar,
@@ -153,4 +204,127 @@ public class PipelineAsmContext extends AsmCtx {
         mv.visitLabel(endLoop);
     }
 
+    public void emitLeafFill(DensityFunction leaf, int destArrayVar) {
+
+        /*
+            Loading the function object itself (from the leaves array)
+         */
+        visitLeaf(leaf);
+
+        /*
+            Loading the destination array
+         */
+        aload(destArrayVar);
+
+        /*
+            Loading the ContextProvider (it is always in slot 2 in the fillArray method)
+         */
+        aload(2);
+
+        /*
+            Calling fillArray
+         */
+        mv.visitMethodInsn(INVOKEINTERFACE,
+                DensityCompiler.INTERFACE_NAME,
+                "fillArray",
+                DescriptorBuilder.builder()
+                        .array(double.class)
+                        .type(DensityFunction.ContextProvider.class)
+                        .buildMethodVoid(),
+                true);
+    }
+
+    public void visitNodeFill(DensityFunction node, int destArrayVar) {
+        try {
+            final Class<? extends DensityFunction> clz = node.getClass();
+            final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
+
+            if (taskSupplier != null) {
+
+                /*
+                    Calling a specific optimization for fill
+                    We need to attach the Task to the raw type or wildcards to call the method.
+                 */
+                final DensityCompilerTask task = taskSupplier.get();
+                if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
+                    task.compileFill(mv, node, this, destArrayVar);
+                    return;
+                }
+            }
+
+              /*
+                If there is no task, we call it as a sheet.
+             */
+            emitLeafFill(node, destArrayVar);
+        } catch (Exception e) {
+            throw e;
+        }
+    }
+
+    /**
+     * Allocates a new local variable for a temporary double[] array
+     * of the same length as the main array (which is in slot 1).
+     * Generates an array creation code (new double[length]).
+     *
+     * @return index of the new variable
+     */
+    public int allocateTempBuffer() {
+        int varIndex = newLocalInt();
+
+        /*
+            array.length (taking the length from the main array in slot 1)
+         */
+        aload(1);
+        insn(ARRAYLENGTH);
+
+        /*
+            new double[...]
+         */
+        mv.visitIntInsn(NEWARRAY, T_DOUBLE);
+
+        /*
+            ASTORE varIndex
+         */
+        astore(varIndex);
+
+        return varIndex;
+    }
+
+    public void compileNodeComputeForIndex(MethodVisitor mv, DensityFunction node, int iVar) {
+        if (node instanceof DensityFunctions.Constant c) {
+            mv.visitLdcInsn(c.value());
+            return;
+        }
+
+        // FIX: Мы не должны оставлять Context на стеке перед вызовом compileNodeCompute.
+        // Мы должны сохранить его в локальную переменную и передать через механизм ContextVar.
+
+        int tempCtxVar = newLocalInt();
+
+        // 1. Создаем контекст: provider.forIndex(i)
+        mv.visitVarInsn(ALOAD, 2); // Provider (всегда 2 в fillArray)
+        mv.visitVarInsn(ILOAD, iVar);
+        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+
+        // 2. Сохраняем в переменную
+        mv.visitVarInsn(ASTORE, tempCtxVar);
+
+        // 3. Компилируем ноду с этим контекстом
+        compileNodeComputeWithContext(node, tempCtxVar);
+    }
+
+    public void compileNodeComputeWithContext(DensityFunction node, int contextVarIndex) {
+        if (node instanceof DensityFunctions.Constant c) {
+            mv.visitLdcInsn(c.value());
+            return;
+        }
+
+        // FIX: Безопасное переключение контекста
+        int oldCtx = this.currentContextVar;
+        this.currentContextVar = contextVarIndex; // Переключаем указатель
+
+        visitNodeCompute(node); // Компилируем (теперь таски будут брать contextVarIndex)
+
+        this.currentContextVar = oldCtx; // Возвращаем обратно
+    }
 }

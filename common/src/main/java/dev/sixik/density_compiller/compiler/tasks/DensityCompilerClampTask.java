@@ -29,11 +29,11 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Clamp node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx, int destArrayVar) {
         /*
             Filling the array with input data
          */
-        ctx.compileNodeFill(node.input(), destArrayVar);
+        ctx.visitNodeFill(node.input(), destArrayVar);
 
         /*
             We cache the boundaries so as not to pull getters in the loop.

@@ -14,7 +14,7 @@ public class DensityCompilerHolderHolderTask extends DensityCompilerTask<Density
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.HolderHolder node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.function().value(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.function().value(), destArrayVar);
     }
 }

@@ -19,51 +19,51 @@ public class DensityCompilerShiftTask extends DensityCompilerTask<DensityFunctio
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Shift node, PipelineAsmContext ctx) {
-//        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
-//        ctx.emitLeafCallReference(mv, wrapper);
-//        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-//        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
-//
-//        // wrapper.holder()
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(0.25D);
-//        mv.visitInsn(DMUL);
-//
-//        // (blockX * 0.25
-//
-//        mv.visitLdcInsn(0.25D);
-//        mv.visitInsn(DMUL);
-//
-//        // (blockX * 0.25
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(0.25D);
-//        mv.visitInsn(DMUL);
-//
-//        // (blockX * 0.25, blockY * 0.25
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(0.25D);
-//        mv.visitInsn(DMUL);
-//        // (blockX * 0.25, blockY * 0.25, blockZ * 0.25)
-//
-//        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
-//
-//        // wrapper.holder().getValue(blockX * 0.25, blockY * 0.25, blockZ * 0.25)
-//
-//        mv.visitLdcInsn(4.0D);
-//        mv.visitInsn(DMUL);
-//
-//        // wrapper.holder().getValue(blockX * 0.25, blockY * 0.25, blockZ * 0.25) * 4.0
+        final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.offsetNoise());
+        ctx.visitLeafReference(wrapper);
+        mv.visitTypeInsn(CHECKCAST, WRAPPER);
+        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
+
+        // wrapper.holder()
+
+        ctx.loadContext();
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(0.25D);
+        mv.visitInsn(DMUL);
+
+        // (blockX * 0.25
+
+        mv.visitLdcInsn(0.25D);
+        mv.visitInsn(DMUL);
+
+        // (blockX * 0.25
+
+        ctx.loadContext();
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(0.25D);
+        mv.visitInsn(DMUL);
+
+        // (blockX * 0.25, blockY * 0.25
+
+        ctx.loadContext();
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(0.25D);
+        mv.visitInsn(DMUL);
+        // (blockX * 0.25, blockY * 0.25, blockZ * 0.25)
+
+        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
+
+        // wrapper.holder().getValue(blockX * 0.25, blockY * 0.25, blockZ * 0.25)
+
+        mv.visitLdcInsn(4.0D);
+        mv.visitInsn(DMUL);
+
+        // wrapper.holder().getValue(blockX * 0.25, blockY * 0.25, blockZ * 0.25) * 4.0
     }
 }

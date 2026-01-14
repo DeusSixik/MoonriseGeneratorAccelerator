@@ -14,7 +14,7 @@ public class DensityCompilerConstantTask extends DensityCompilerTask<DensityFunc
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Constant node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.Constant node, PipelineAsmContext ctx, int destArrayVar) {
         ctx.arrayForFill(destArrayVar, node.value());
     }
 }

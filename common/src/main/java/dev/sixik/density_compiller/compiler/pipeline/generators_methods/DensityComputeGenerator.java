@@ -25,7 +25,7 @@ public class DensityComputeGenerator implements DensityCompilerPipelineGenerator
 
     @Override
     public ByteCodeGeneratorStructure getStructure(DensityCompilerPipeline pipeline) {
-        return new ByteCodeGeneratorStructure(1, 1);
+        return new ByteCodeGeneratorStructure(2, 1);
     }
 
     @Override

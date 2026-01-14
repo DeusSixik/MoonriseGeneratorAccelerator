@@ -24,11 +24,11 @@ public class DensityCompilerFastMinTask extends DensityCompilerTask<DensitySpeci
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.a(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.a(), destArrayVar);
 
         int tempArrayVar = ctx.allocateTempBuffer();
-        ctx.compileNodeFill(node.b(), tempArrayVar);
+        ctx.visitNodeFill(node.b(), tempArrayVar);
 
         ctx.arrayForI(destArrayVar, (iVar) -> {
             mv.visitVarInsn(ALOAD, destArrayVar);

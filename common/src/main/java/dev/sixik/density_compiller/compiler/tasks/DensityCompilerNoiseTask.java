@@ -20,7 +20,7 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Noise node, PipelineAsmContext ctx) {
         final PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.noise());
-        ctx.visitLeafCall(wrapper);
+        ctx.visitLeafReference(wrapper);
         mv.visitTypeInsn(CHECKCAST, WRAPPER);
         mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
 

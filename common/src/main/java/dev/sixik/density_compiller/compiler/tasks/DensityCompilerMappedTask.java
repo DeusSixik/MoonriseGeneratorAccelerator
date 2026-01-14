@@ -18,8 +18,8 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.input(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.input(), destArrayVar);
 
         ctx.arrayForI(destArrayVar, (iVar) -> {
             mv.visitVarInsn(ALOAD, destArrayVar);

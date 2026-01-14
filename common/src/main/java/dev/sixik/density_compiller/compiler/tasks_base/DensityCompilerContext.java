@@ -119,7 +119,7 @@ public final class DensityCompilerContext {
                  */
                 final DensityCompilerTask task = taskSupplier.get();
                 if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
-                    task.compileFill(mv, node, this, destArrayVar);
+//                    task.compileFill(mv, node, this, destArrayVar);
 
                     compiledFilesFill.add(nodeName + "_found");
                     return;

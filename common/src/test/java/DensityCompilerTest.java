@@ -1,5 +1,6 @@
 import dev.sixik.density_compiller.compiler.DensityCompiler;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
+import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -243,11 +244,11 @@ public class DensityCompilerTest {
     private void compileAndVerify(DensityFunction root, String fileName, double expectedResult) {
         System.out.println("Compiling " + fileName + "...");
         try {
-            DensityCompiler compiler = new DensityCompiler();
+
             /*
                 We are also creating an instance to check that it does not crash in runtime.
              */
-            DensityFunction compiled = compiler.compile(root);
+            DensityFunction compiled = DensityCompilerPipeline.from(root, true).startCompilation();
 
             /*
                 Checking the math (using an empty context)
@@ -391,11 +392,7 @@ public class DensityCompilerTest {
     private DensityFunction mockCompiledFunction(DensityFunction root) {
         final DensityOptimizer optimizer = new DensityOptimizer();
         final DensityFunction opt = optimizer.optimize(root);
-
-
-        final DensityCompiler compiler = new DensityCompiler();
-        compiler.compileAndDump(opt, "density_fillArray_");
-        return compiler.compile(opt);
+        return DensityCompilerPipeline.from(opt, true).startCompilation();
     }
 
     public static class TestContextProvider implements DensityFunction.ContextProvider {

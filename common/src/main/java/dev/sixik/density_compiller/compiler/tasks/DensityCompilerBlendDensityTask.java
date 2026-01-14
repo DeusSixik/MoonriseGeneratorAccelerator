@@ -3,9 +3,13 @@ package dev.sixik.density_compiller.compiler.tasks;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
+import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.blending.Blender;
 import org.objectweb.asm.MethodVisitor;
 
+import static dev.sixik.density_compiller.compiler.DensityCompiler.CTX;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerBlendDensityTask extends DensityCompilerTask<DensityFunctions.BlendDensity> {
@@ -14,47 +18,52 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
-//        ctx.loadContext(mv); // Blender
-//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "getBlender", "()L" + BLENDER + ";", true);
-//
-//        ctx.loadContext(mv); // Context
-//
-//        ctx.compileNodeCompute(mv, node.input()); // input_double
-//
-//        mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER, "blendDensity", "(L" + ctx.CTX() + ";D)D", false);
+        ctx.loadContext(); // Blender
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "getBlender", "()L" + BLENDER + ";", true);
+
+        ctx.loadContext(); // Context
+
+        ctx.visitNodeCompute(node.input()); // input_double
+
+        mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER, "blendDensity", "(L" + CTX + ";D)D", false);
 
         // blender.blendDensity(context, double)
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.BlendDensity node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx, int destArrayVar) {
         /*
             First, we fill the array with input data
          */
-        ctx.compileNodeFill(node.input(), destArrayVar);
+        ctx.visitNodeFill(node.input(), destArrayVar);
 
         /*
             We need a Blender object to work with.
             We get it from the provider (through the first available context) or better through a local variable.
          */
-        int blenderVar = ctx.allocateLocalVarIndex();
+        int blenderVar = ctx.newLocalInt();
 
         /*
             Command flow: ContextProvider.forIndex(0).getBlender()
          */
-        mv.visitVarInsn(ALOAD, 2); // ContextProvider
-        mv.visitInsn(ICONST_0);
+        ctx.aload(2); // ContextProvider
+        ctx.iconst(0);
+//        ctx.invokeProviderForIndex();
+//        ctx.invokeContextInterface("getBlender",
+//                DescriptorBuilder.builder().type(Blender.class).buildMethodVoid()
+//        );
+
         mv.visitMethodInsn(INVOKEINTERFACE,
                 "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
                 "forIndex",
                 "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;",
                 true);
         mv.visitMethodInsn(INVOKEINTERFACE,
-                ctx.CTX(),
+                CTX,
                 "getBlender",
                 "()L" + BLENDER + ";",
                 true);
-        mv.visitVarInsn(ASTORE, blenderVar);
+        ctx.astore(blenderVar);
 
         ctx.arrayForI(destArrayVar, (iVar) -> {
 
@@ -62,16 +71,16 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
                 We are preparing the stack
                 for: ds[i] = blender.blendDensity(ContextProvider.forIndex(i), ds[i])
              */
-            mv.visitVarInsn(ALOAD, destArrayVar); // For the DASTORE at the end
-            mv.visitVarInsn(ILOAD, iVar);         // For the DASTORE at the end
-
-            mv.visitVarInsn(ALOAD, blenderVar);  // Target: Blender
+            ctx.aload(destArrayVar);    // For the DASTORE at the end
+            ctx.iload(iVar);            // For the DASTORE at the end
+            ctx.aload(blenderVar);      // Target: Blender
 
             /*
                 Getting the context for the current index
              */
-            mv.visitVarInsn(ALOAD, 2); // ContextProvider
-            mv.visitVarInsn(ILOAD, iVar);
+            ctx.aload(2); // ContextProvider
+            ctx.iload(iVar);
+//            ctx.invokeProviderForIndex();
             mv.visitMethodInsn(INVOKEINTERFACE,
                     "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
                     "forIndex",
@@ -81,16 +90,22 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
             /*
                 Getting the current value from the ds[i] array
              */
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
+            ctx.aload(destArrayVar);
+            ctx.iload(iVar);
             mv.visitInsn(DALOAD);
 
             /*
                 Calling blendDensity(context, double)
              */
+
+//            ctx.invokeVirtual(
+//                    DescriptorBuilder.builder().type(Blender.class).build(),
+//                    "blendDensity",
+//                    DescriptorBuilder.builder().type(DensityFunction.FunctionContext.class).d().buildMethod(double.class)
+//            );
             mv.visitMethodInsn(INVOKEVIRTUAL, BLENDER,
                     "blendDensity",
-                    "(L" + ctx.CTX() + ";D)D",
+                    "(L" + CTX + ";D)D",
                     false);
 
             /*

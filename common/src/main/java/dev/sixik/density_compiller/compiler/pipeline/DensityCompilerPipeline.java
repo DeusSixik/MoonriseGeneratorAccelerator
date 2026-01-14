@@ -115,6 +115,8 @@ public class DensityCompilerPipeline {
 
         for (int i = 0; i < copy.size(); i++) {
             final DensityCompilerPipelineGenerator element = copy.get(i);
+            if(element.ignore(this)) continue;
+
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
             mv.visitCode();
 
@@ -142,6 +144,9 @@ public class DensityCompilerPipeline {
 
         for (int i = 0; i < copy.size(); i++) {
             final DensityCompilerPipelineGenerator element = copy.get(i);
+
+            if(element.ignore(this)) continue;
+
             element.generateClassField(
                     this,
                     cw,

@@ -15,19 +15,19 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions.Ap2> {
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
-//        ctx.compileNodeCompute(mv, node.argument1()); // Put double (+2 slots)
-//        ctx.compileNodeCompute(mv, node.argument2()); // Put double (+2 slots)
-//
-//        switch (node.type()) {
-//            case ADD -> mv.visitInsn(DADD);
-//            case MUL -> mv.visitInsn(DMUL);
-//            case MIN -> DensityCompilerUtils.min(mv);
-//            case MAX -> DensityCompilerUtils.max(mv);
-//        }
+        ctx.visitNodeCompute(node.argument1()); // Put double (+2 slots)
+        ctx.visitNodeCompute(node.argument2()); // Put double (+2 slots)
+
+        switch (node.type()) {
+            case ADD -> mv.visitInsn(DADD);
+            case MUL -> mv.visitInsn(DMUL);
+            case MIN -> DensityCompilerUtils.min(mv);
+            case MAX -> DensityCompilerUtils.max(mv);
+        }
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Ap2 node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx, int destArrayVar) {
 
         /*
             Optimization: Constant Folding (if both arguments are constants)
@@ -45,7 +45,7 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
            /*
                 Just fill the array with the result and exit
             */
-            ctx.compileNodeFill(new DensityFunctions.Constant(result), destArrayVar);
+            ctx.visitNodeFill(new DensityFunctions.Constant(result), destArrayVar);
             return;
         }
 
@@ -53,7 +53,7 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
         DensityFunction arg2 = node.argument2();
 
         // 1. Сначала заполняем массив первым аргументом
-        ctx.compileNodeFill(arg1, destArrayVar);
+        ctx.visitNodeFill(arg1, destArrayVar);
 
         // 2. Быстрый путь для констант (без ленивых вычислений)
         if (arg2 instanceof DensityFunctions.Constant c) {
@@ -111,7 +111,7 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
             int oldCtx = ctx.getCurrentContextVar();
             ctx.setCurrentContextVar(loopCtx);
 
-            ctx.compileNodeCompute(arg2); // Стек: [Array, Index, Val1, Val2]
+            ctx.visitNodeCompute(arg2); // Стек: [Array, Index, Val1, Val2]
 
             ctx.setCurrentContextVar(oldCtx);
 

@@ -14,7 +14,7 @@ public class DensityCompilerBeardifierMarkerTask extends DensityCompilerTask<Den
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.BeardifierMarker node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.BeardifierMarker node, PipelineAsmContext ctx, int destArrayVar) {
         ctx.arrayForFill(destArrayVar, 0.0);
     }
 }

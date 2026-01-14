@@ -7,29 +7,31 @@ import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
+import static dev.sixik.density_compiller.compiler.DensityCompiler.CTX;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<DensityFunctions.YClampedGradient> {
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
-//        // 1. blockY (берем из контекста)
-//        ctx.loadContext();
-//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
-//        mv.visitLdcInsn((double) node.fromY());
-//        mv.visitLdcInsn((double) node.toY());
-//        mv.visitLdcInsn(node.fromValue());
-//        mv.visitLdcInsn(node.toValue());
-//
-//        // 3. Вызов Mth.clampedMap
-//        DensityCompilerUtils.clampedMap(mv);
+        // 1. blockY (берем из контекста)
+        ctx.loadContext();
+//        ctx.invokeContextInterface("blockY", "()I");
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
+        mv.visitInsn(I2D);
+
+        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
+        mv.visitLdcInsn((double) node.fromY());
+        mv.visitLdcInsn((double) node.toY());
+        mv.visitLdcInsn(node.fromValue());
+        mv.visitLdcInsn(node.toValue());
+
+        // 3. Вызов Mth.clampedMap
+        DensityCompilerUtils.clampedMap(mv);
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.YClampedGradient node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx, int destArrayVar) {
         // Используем цикл с ленивым контекстом
         ctx.arrayForI(destArrayVar, (iVar) -> {
             ctx.startLoop(); // Сброс кэша контекста для новой итерации
@@ -43,7 +45,8 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
 
             // 2. Достаем blockY из этого контекста
             mv.visitVarInsn(ALOAD, loopCtx);
-            mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
+//            ctx.invokeContextInterface("blockY", "()I");
+            mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
             mv.visitInsn(I2D);
 
             // 3. Загружаем константы (сразу double)

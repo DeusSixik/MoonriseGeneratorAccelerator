@@ -8,6 +8,7 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
+import static dev.sixik.density_compiller.compiler.DensityCompiler.CTX;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<DensityFunctions.ShiftedNoise> {
@@ -18,51 +19,52 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
 
-//
-//        PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.noise());
-//        ctx.emitLeafCallReference(mv, wrapper);
-//
-//        mv.visitTypeInsn(CHECKCAST, WRAPPER);
-//        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockX", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(node.xzScale());
-//        mv.visitInsn(DMUL);
-//
-//        ctx.compileNodeCompute(mv, node.shiftX());
-//
-//        mv.visitInsn(DADD);
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(node.yScale());
-//        mv.visitInsn(DMUL);
-//
-//        ctx.compileNodeCompute(mv, node.shiftY());
-//
-//        mv.visitInsn(DADD);
-//
-//        ctx.loadContext(mv);
-//        mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockZ", "()I", true);
-//        mv.visitInsn(I2D);
-//
-//        mv.visitLdcInsn(node.xzScale());
-//        mv.visitInsn(DMUL);
-//
-//        ctx.compileNodeCompute(mv, node.shiftZ());
-//
-//        mv.visitInsn(DADD);
-//
-//        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
+
+        PublicNoiseWrapper wrapper = new PublicNoiseWrapper(node.noise());
+        ctx.visitLeafReference(wrapper);
+
+        mv.visitTypeInsn(CHECKCAST, WRAPPER);
+        mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
+
+        ctx.loadContext();
+//        ctx.invokeContextInterface("blockX", "()I");
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(node.xzScale());
+        mv.visitInsn(DMUL);
+
+        ctx.visitNodeCompute(node.shiftX());
+
+        mv.visitInsn(DADD);
+
+        ctx.loadContext();
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(node.yScale());
+        mv.visitInsn(DMUL);
+
+        ctx.visitNodeCompute(node.shiftY());
+
+        mv.visitInsn(DADD);
+
+        ctx.loadContext();
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
+        mv.visitInsn(I2D);
+
+        mv.visitLdcInsn(node.xzScale());
+        mv.visitInsn(DMUL);
+
+        ctx.visitNodeCompute(node.shiftZ());
+
+        mv.visitInsn(DADD);
+
+        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, DensityCompilerContext ctx, int destArrayVar) {
+    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx, int destArrayVar) {
         ctx.arrayForI(destArrayVar, (iVar) -> {
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
@@ -77,7 +79,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
             ctx.setCurrentContextVar(currentCtx);
 
             // Генерируем вычисления шума (все внутренние compileNodeCompute подхватят наш currentCtx)
-//            this.compileCompute(mv, node, ctx);
+            this.compileCompute(mv, node, ctx);
 
             ctx.setCurrentContextVar(oldCtx);
 

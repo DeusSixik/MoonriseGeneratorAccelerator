@@ -27,8 +27,8 @@ public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunc
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.MulOrAdd node, DensityCompilerContext ctx, int destArrayVar) {
-        ctx.compileNodeFill(node.input(), destArrayVar);
+    public void compileFill(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx, int destArrayVar) {
+        ctx.visitNodeFill(node.input(), destArrayVar);
 
         double arg = node.argument();
         int opcode = (node.specificType() == DensityFunctions.MulOrAdd.Type.MUL) ? DMUL : DADD;
