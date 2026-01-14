@@ -12,146 +12,158 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
 
     private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
     private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
-    private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
+    private static final String HOLDER_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
 
+    // Интерфейс Double2DoubleFunction (fastutil)
     private static final String MAPPER_INTERFACE = "it/unimi/dsi/fastutil/doubles/Double2DoubleFunction";
 
-    // Внутренние имена классов Minecraft (обрати внимание на $)
+    // Внутренние имена классов (проверьте, соответствуют ли они вашей версии MC/Mapping)
     private static final String SAMPLER_CLASS = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler";
     private static final String RARITY_ENUM = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper";
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx) {
-        // 1. СНАЧАЛА загружаем Mapper (Target Object)
+        // --- Шаг 1: Загрузка Mapper ---
+        // Нам нужно, чтобы Mapper (объект) лежал на дне стека перед аргументом.
         loadMapper(mv, node, ctx);
+        // Stack: [mapper]
 
-        // 2. ПОТОМ вычисляем Input (Argument)
+        // --- Шаг 2: Вычисление аргумента (Input) ---
+        // Генерируем код для input(). Результат (double) ляжет поверх mapper.
         ctx.visitNodeCompute(node.input());
+        // Stack: [mapper, input_val]
 
-        // 3. Вызываем get(double)
+        // --- Шаг 3: Вызов mapper.get(double) ---
         mv.visitMethodInsn(INVOKEINTERFACE, MAPPER_INTERFACE, "get", "(D)D", true);
+        // Stack: [e]
 
-        // 4. FIX: Аллоцируем 2 слота под double
+        // --- Шаг 4: Сохраняем 'e' в переменную ---
+        // Нам нужно 'e' для деления координат и для финального умножения.
         int varE = ctx.newLocalDouble();
+        mv.visitInsn(DUP2); // Оставляем копию на стеке для шага 7
         mv.visitVarInsn(DSTORE, varE);
+        // Stack: [e]
 
-        // 5. Подготовка координат и вызов шума
-        generateNoiseCall(mv, node, ctx, varE);
+        // --- Шаг 5: Вызов NoiseHolder.getValue ---
+        DensityFunction.NoiseHolder holder = node.noise();
+        ctx.visitCustomLeaf(holder, HOLDER_DESC); // Stack: [e, holder]
 
-        // 6. Math.abs(noise) * e
+        // Координаты X/e, Y/e, Z/e
+        generateCoord(mv, ctx, "blockX", varE);
+        generateCoord(mv, ctx, "blockY", varE);
+        generateCoord(mv, ctx, "blockZ", varE);
+
+        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
+        // Stack: [e, noise]
+
+        // --- Шаг 6: Math.abs(noise) ---
         mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
-        mv.visitVarInsn(DLOAD, varE);
+        // Stack: [e, abs_noise]
+
+        // --- Шаг 7: Умножение ---
         mv.visitInsn(DMUL);
+        // Stack: [result]
     }
 
     @Override
     public void compileFill(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx, int destArrayVar) {
+        // 1. Заполняем массив входными данными
         ctx.visitNodeFill(node.input(), destArrayVar);
 
-        // FIX: Аллоцируем 2 слота под double перед началом цикла
-        // Это гарантирует, что iVar внутри цикла получит безопасный индекс (например, 9, а не 8)
+        // 2. Выделяем переменные ДО цикла
         int varE = ctx.newLocalDouble();
 
+        // Кэшируем Mapper (объект), чтобы не доставать его в каждом цикле
+        int varMapper = ctx.newLocalRef();
+        loadMapper(mv, node, ctx);
+        mv.visitVarInsn(ASTORE, varMapper);
+
+        // Кэшируем Holder
+        int varHolder = ctx.newLocalRef();
+        ctx.visitCustomLeaf(node.noise(), HOLDER_DESC);
+        mv.visitVarInsn(ASTORE, varHolder);
+
         ctx.arrayForI(destArrayVar, (iVar) -> {
-            ctx.startLoop();
-
-            // --- Шаг 1: Считаем E ---
-            loadMapper(mv, node, ctx);
-
+            // Подготовка стека для DASTORE (Array, Index)
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DALOAD);
+            // Stack: [Arr, I]
 
-            mv.visitMethodInsn(INVOKEINTERFACE, MAPPER_INTERFACE, "get", "(D)D", true);
-            mv.visitVarInsn(DSTORE, varE);
+            // --- Считаем E = mapper.get(input[i]) ---
+            mv.visitVarInsn(ALOAD, varMapper); // [Arr, I, mapper]
 
-            // --- Шаг 2: Считаем Шум ---
+            // Грузим input[i]
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
+            mv.visitInsn(DALOAD);              // [Arr, I, mapper, input_val]
 
-            generateNoiseCallFill(mv, node, ctx, iVar, varE);
+            mv.visitMethodInsn(INVOKEINTERFACE, MAPPER_INTERFACE, "get", "(D)D", true); // [Arr, I, e]
 
-            // --- Шаг 3: Финализация ---
-            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
+            mv.visitInsn(DUP2); // [Arr, I, e, e]
+            mv.visitVarInsn(DSTORE, varE); // [Arr, I, e] -> varE сохранен
+
+            // --- Считаем Шум ---
+            mv.visitVarInsn(ALOAD, varHolder); // [Arr, I, e, holder]
+
+            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
+
+            // X / e
+            loadCtxCoord(mv, loopCtx, "blockX");
             mv.visitVarInsn(DLOAD, varE);
-            mv.visitInsn(DMUL);
+            mv.visitInsn(DDIV);
 
+            // Y / e
+            loadCtxCoord(mv, loopCtx, "blockY");
+            mv.visitVarInsn(DLOAD, varE);
+            mv.visitInsn(DDIV);
+
+            // Z / e
+            loadCtxCoord(mv, loopCtx, "blockZ");
+            mv.visitVarInsn(DLOAD, varE);
+            mv.visitInsn(DDIV);
+
+            // getValue
+            mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false); // [Arr, I, e, noise]
+
+            // --- Abs ---
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false); // [Arr, I, e, abs_noise]
+
+            // --- Result ---
+            mv.visitInsn(DMUL); // [Arr, I, result]
+
+            // --- Store ---
             mv.visitInsn(DASTORE);
         });
     }
 
     /**
-     * Загружает объект Double2DoubleFunction на стек.
-     * Логика: Load Node (Leaf) -> Checkcast -> rarityValueMapper() -> .mapper
+     * Загружает RarityValueMapper.mapper (Double2DoubleFunction) на стек.
      */
     private void loadMapper(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx) {
-        // Грузим саму ноду WeirdScaledSampler как лист (это DensityFunction, так что можно)
+        // 1. Грузим сам объект WeirdScaledSampler как поле (Leaf)
         ctx.visitLeafReference(node);
 
-        // Кастим интерфейс DensityFunction к конкретному классу WeirdScaledSampler
+        // 2. Кастим (так как поле типа DensityFunction)
         mv.visitTypeInsn(CHECKCAST, SAMPLER_CLASS);
 
-        // Вызываем геттер enum-а
+        // 3. Достаем Enum RarityValueMapper
         mv.visitMethodInsn(INVOKEVIRTUAL, SAMPLER_CLASS, "rarityValueMapper", "()L" + RARITY_ENUM + ";", false);
 
-        // Берем поле mapper из enum-а
+        // 4. Достаем поле mapper из Enum
         mv.visitFieldInsn(GETFIELD, RARITY_ENUM, "mapper", "L" + MAPPER_INTERFACE + ";");
     }
 
-    private void generateNoiseCall(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx, int varE) {
-        DensityFunction.NoiseHolder holder = node.noise();
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-        // X / e
+    private void generateCoord(MethodVisitor mv, PipelineAsmContext ctx, String blockMethod, int varE) {
         ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, blockMethod, "()I", true);
         mv.visitInsn(I2D);
         mv.visitVarInsn(DLOAD, varE);
         mv.visitInsn(DDIV);
-
-        // Y / e
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
-        mv.visitInsn(I2D);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DDIV);
-
-        // Z / e
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-        mv.visitInsn(I2D);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DDIV);
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
     }
 
-    private void generateNoiseCallFill(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx, int iVar, int varE) {
-        DensityFunction.NoiseHolder holder = node.noise();
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-
-        int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-
-        // X / e
+    private void loadCtxCoord(MethodVisitor mv, int loopCtx, String blockMethod) {
         mv.visitVarInsn(ALOAD, loopCtx);
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
+        mv.visitMethodInsn(INVOKEINTERFACE, CTX, blockMethod, "()I", true);
         mv.visitInsn(I2D);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DDIV);
-
-        // Y / e
-        mv.visitVarInsn(ALOAD, loopCtx);
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
-        mv.visitInsn(I2D);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DDIV);
-
-        // Z / e
-        mv.visitVarInsn(ALOAD, loopCtx);
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-        mv.visitInsn(I2D);
-        mv.visitVarInsn(DLOAD, varE);
-        mv.visitInsn(DDIV);
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
     }
 }

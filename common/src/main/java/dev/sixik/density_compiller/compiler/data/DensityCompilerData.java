@@ -51,10 +51,10 @@ public class DensityCompilerData {
         /*
             Custom
          */
-        register(DensitySpecializations.FastAdd.class, DensityCompilerFastAddTask::new);
-        register(DensitySpecializations.FastMul.class, DensityCompilerFastMulTask::new);
-        register(DensitySpecializations.FastMin.class, DensityCompilerFastMinTask::new);
-        register(DensitySpecializations.FastMax.class, DensityCompilerFastMaxTask::new);
+//        register(DensitySpecializations.FastAdd.class, DensityCompilerFastAddTask::new);
+//        register(DensitySpecializations.FastMul.class, DensityCompilerFastMulTask::new);
+//        register(DensitySpecializations.FastMin.class, DensityCompilerFastMinTask::new);
+//        register(DensitySpecializations.FastMax.class, DensityCompilerFastMaxTask::new);
 //        register(DensityFunctionSplineWrapper.class, DensityCompilerDensityFunctionSplineWrapperTask::new);
 
 

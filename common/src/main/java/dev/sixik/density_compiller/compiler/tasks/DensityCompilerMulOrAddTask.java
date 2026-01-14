@@ -11,44 +11,70 @@ public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunc
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx) {
-        ctx.visitNodeCompute(node.input());
+        double arg = node.argument();
+        var type = node.specificType();
 
-        switch (node.specificType()) {
-            case MUL -> {
-                mv.visitLdcInsn(node.argument());
-                mv.visitInsn(DMUL);
-            }
-            case ADD -> {
-                mv.visitLdcInsn(node.argument());
-                mv.visitInsn(DADD);
-            }
+        // 1. Оптимизация: Умножение на 0 (Результат всегда 0)
+        if (type == DensityFunctions.MulOrAdd.Type.MUL && arg == 0.0) {
+            mv.visitInsn(DCONST_0);
+            return;
+        }
+
+        // 2. Оптимизация: Identity (+0 или *1 -> просто вычисляем input)
+        if ((type == DensityFunctions.MulOrAdd.Type.ADD && arg == 0.0) ||
+                (type == DensityFunctions.MulOrAdd.Type.MUL && arg == 1.0)) {
+            ctx.visitNodeCompute(node.input());
+            return;
+        }
+
+        // Стандартная логика
+        ctx.visitNodeCompute(node.input());
+        mv.visitLdcInsn(arg);
+
+        if (type == DensityFunctions.MulOrAdd.Type.MUL) {
+            mv.visitInsn(DMUL);
+        } else {
+            mv.visitInsn(DADD);
         }
     }
 
     @Override
     public void compileFill(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx, int destArrayVar) {
+        double arg = node.argument();
+        var type = node.specificType();
+
+        // --- Оптимизация 1: Умножение на 0 (Nuclear Option) ---
+        // Самое важное: НЕ вычисляем input вообще! Просто заливаем нулями.
+        if (type == DensityFunctions.MulOrAdd.Type.MUL && arg == 0.0) {
+            ctx.visitNodeFill(new DensityFunctions.Constant(0.0), destArrayVar);
+            return;
+        }
+
+        // --- Оптимизация 2: Identity ---
+        // Если +0 или *1, просто вычисляем input в массив и уходим.
+        // Никаких дополнительных циклов.
+        if ((type == DensityFunctions.MulOrAdd.Type.ADD && arg == 0.0) ||
+                (type == DensityFunctions.MulOrAdd.Type.MUL && arg == 1.0)) {
+            ctx.visitNodeFill(node.input(), destArrayVar);
+            return;
+        }
+
+        // --- Стандартная логика (Scalar application) ---
+
+        // 1. Сначала считаем тяжелый input
         ctx.visitNodeFill(node.input(), destArrayVar);
 
-        double arg = node.argument();
-        int opcode = (node.specificType() == DensityFunctions.MulOrAdd.Type.MUL) ? DMUL : DADD;
+        // 2. Применяем скаляр
+        int opcode = (type == DensityFunctions.MulOrAdd.Type.MUL) ? DMUL : DADD;
 
-        /*
-            Optimization: if it's addition from 0 or multiplication by 1, we don't do anything.
-         */
-        if (opcode == DADD && arg == 0.0) return;
-        if (opcode == DMUL && arg == 1.0) return;
-
-        /*
-            We perform the transformation in one cycle
-         */
         ctx.arrayForI(destArrayVar, (iVar) -> {
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DUP2); // Stack: [Array, Index, Array, Index]
+            mv.visitInsn(DUP2);   // [Arr, I, Arr, I]
 
-            mv.visitInsn(DALOAD); // Stack: [Array, Index, Value]
-            mv.visitLdcInsn(arg); // Stack: [Array, Index, Value, Argument]
-            mv.visitInsn(opcode); // Stack: [Array, Index, newValue]
+            mv.visitInsn(DALOAD); // [Arr, I, Val]
+            mv.visitLdcInsn(arg); // [Arr, I, Val, Arg]
+            mv.visitInsn(opcode); // [Arr, I, NewVal]
 
             mv.visitInsn(DASTORE);
         });

@@ -57,19 +57,18 @@ public class PipelineAsmContext extends AsmCtx {
      * Если он еще не создан в этом цикле — создает и сохраняет в переменную.
      */
     public int getOrAllocateLoopContext(int iVar) {
-        final ContextCache cache = this.cache;
-        int loopVar = cache.loopContextVar;
+        if (this.cache.loopContextVar == -1) {
+            // Выделяем новый слот REF
+            int var = newLocalRef();
 
-        if (loopVar == -1) {
-            loopVar = newLocalInt();
             aload(2); // Provider
             iload(iVar);
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
 
-            astore(loopVar);
-            cache.loopContextVar = loopVar;
+            astore(var);
+            this.cache.loopContextVar = var;
         }
-        return loopVar;
+        return this.cache.loopContextVar;
     }
 
     public int getOrComputeLength(int destArrayVar) {

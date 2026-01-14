@@ -8,75 +8,21 @@ import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
 
-public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFunctions.ShiftB> {
-
-    private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
-    private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
-    private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
-
-
+public class DensityCompilerShiftBTask extends DensityCompilerShiftTaskBase<DensityFunctions.ShiftB> {
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftB node, PipelineAsmContext ctx) {
-        DensityFunction.NoiseHolder holder = node.offsetNoise();
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-        // wrapper.holder()
-
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-        mv.visitInsn(I2D);
-
-        mv.visitLdcInsn(0.25D);
-        mv.visitInsn(DMUL);
-
-        // (blockZ * 0.25
-
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
-        mv.visitInsn(I2D);
-
-        mv.visitLdcInsn(0.25D);
-        mv.visitInsn(DMUL);
-
-        // (blockZ * 0.25, blockX * 0.25
-
-        mv.visitInsn(DCONST_1);
-
-        // (blockZ * 0.25, blockX * 0.25, 0)
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
-
-        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0)
-
-        mv.visitLdcInsn(4.0D);
-        mv.visitInsn(DMUL);
-
-        // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0) * 4.0
+    protected DensityFunction.NoiseHolder getHolder(DensityFunctions.ShiftB node) {
+        return node.offsetNoise();
     }
 
     @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftB node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
+    protected void generateCoordinates(MethodVisitor mv, PipelineAsmContext ctx) {
+        // Z * 0.25 (как первый аргумент X для шума)
+        genCoord(mv, ctx, "blockZ");
 
-            /*
-                Generating the context for the current iteration
-             */
-            int tempCtx = ctx.newLocalInt();
-            mv.visitVarInsn(ALOAD, 2); // Provider
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
-            mv.visitVarInsn(ASTORE, tempCtx);
+        // X * 0.25 (как второй аргумент Y для шума)
+        genCoord(mv, ctx, "blockX");
 
-            /*
-                Switch the context and call compute
-             */
-            int oldCtx = ctx.getCurrentContextVar();
-            ctx.setCurrentContextVar(tempCtx);
-            this.compileCompute(mv, node, ctx);
-            ctx.setCurrentContextVar(oldCtx);
-
-            mv.visitInsn(DASTORE);
-        });
+        // 0.0 (как третий аргумент Z для шума)
+        mv.visitInsn(DCONST_0); // У тебя было DCONST_1, исправил на 0 по логике ShiftB
     }
 }

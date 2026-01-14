@@ -7,6 +7,7 @@ import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
 
+@Deprecated
 public class DensityCompilerFastAddTask extends DensityCompilerTask<DensitySpecializations.FastAdd> {
 
 

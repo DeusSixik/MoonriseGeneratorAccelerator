@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.utils;
 
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -108,30 +109,47 @@ public class DensityCompilerUtils {
         mv.visitLabel(labelEnd);
     }
 
-    public static void compileSqueeze(MethodVisitor mv) {
-        /*
-            e = clamp(d, -1, 1)
-         */
-        mv.visitLdcInsn(-1.0);
-        mv.visitLdcInsn(1.0);
-        clamp(mv);
+    public static void compileSqueeze(MethodVisitor mv, PipelineAsmContext ctx, boolean needsClamp) {
+    /*
+        e = clamp(d, -1, 1)
+        Stack input: [d]
+    */
+        if (needsClamp) {
+            mv.visitLdcInsn(-1.0);
+            mv.visitLdcInsn(1.0);
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
+        }
         // Stack: [e]
 
-        mv.visitInsn(DUP2);      // [e, e]
-        mv.visitLdcInsn(2.0);    // [e, e, 2.0]
-        mv.visitInsn(DDIV);      // [e, e/2.0]
+    /*
+        Сохраняем 'e' в переменную, чтобы использовать дважды.
+        Это избавляет от DUP2_X2 ада.
+    */
+        int varE = ctx.newLocalDouble();
+        mv.visitInsn(DUP2);          // [e, e]
+        mv.visitVarInsn(DSTORE, varE); // [e] -> varE = e
 
-        mv.visitInsn(DUP2_X2);   // [e/2.0, e, e/2.0]
-        mv.visitInsn(POP2);      // [e/2.0, e]
+    /*
+        1. Считаем e / 2.0
+    */
+        mv.visitLdcInsn(2.0);
+        mv.visitInsn(DDIV);          // [e / 2.0]
 
-        mv.visitInsn(DUP2);      // [e/2.0, e, e]
-        mv.visitInsn(DUP2);      // [e/2.0, e, e, e]
-        mv.visitInsn(DMUL);      // [e/2.0, e, e*e]
-        mv.visitInsn(DMUL);      // [e/2.0, e*e*e]
-        mv.visitLdcInsn(24.0);   // [e/2.0, e^3, 24.0]
-        mv.visitInsn(DDIV);      // [e/2.0, e^3/24.0]
+    /*
+        2. Считаем e^3 / 24.0
+    */
+        mv.visitVarInsn(DLOAD, varE); // [e/2.0, e]
+        mv.visitInsn(DUP2);           // [e/2.0, e, e]
+        mv.visitInsn(DUP2);           // [e/2.0, e, e, e]
+        mv.visitInsn(DMUL);           // [e/2.0, e, e^2]
+        mv.visitInsn(DMUL);           // [e/2.0, e^3]
+        mv.visitLdcInsn(24.0);        // [e/2.0, e^3, 24.0]
+        mv.visitInsn(DDIV);           // [e/2.0, e^3/24.0]
 
-        // (e/2.0) - (e^3/24.0)
-        mv.visitInsn(DSUB);      // [result]
+    /*
+        3. Вычитаем: (e/2) - (e^3/24)
+    */
+        mv.visitInsn(DSUB);           // [result]
     }
 }

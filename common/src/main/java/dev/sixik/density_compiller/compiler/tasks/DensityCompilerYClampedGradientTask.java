@@ -6,58 +6,69 @@ import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
-import static dev.sixik.density_compiller.compiler.DensityCompiler.CTX;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<DensityFunctions.YClampedGradient> {
 
+    private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
+
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
-        // 1. blockY (берем из контекста)
+        // (double) functionContext.blockY()
         ctx.loadContext();
-//        ctx.invokeContextInterface("blockY", "()I");
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
         mv.visitInsn(I2D);
 
-        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
+        // Параметры градиента
         mv.visitLdcInsn((double) node.fromY());
         mv.visitLdcInsn((double) node.toY());
         mv.visitLdcInsn(node.fromValue());
         mv.visitLdcInsn(node.toValue());
 
-        // 3. Вызов Mth.clampedMap
+        // Используем инлайновую версию для скорости
         DensityCompilerUtils.clampedMap(mv);
     }
 
     @Override
     public void compileFill(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx, int destArrayVar) {
-        // Используем цикл с ленивым контекстом
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            ctx.startLoop(); // Сброс кэша контекста для новой итерации
+        // Кешируем параметры градиента в локальные переменные перед циклом,
+        // чтобы не делать LDC 4 раза за итерацию (улучшает читаемость байт-кода и работу с регистрами)
+        int vFromY = ctx.newLocalDouble();
+        mv.visitLdcInsn((double) node.fromY());
+        mv.visitVarInsn(DSTORE, vFromY);
 
-            // Готовим стек для записи: ds[i] = ...
+        int vToY = ctx.newLocalDouble();
+        mv.visitLdcInsn((double) node.toY());
+        mv.visitVarInsn(DSTORE, vToY);
+
+        int vFromVal = ctx.newLocalDouble();
+        mv.visitLdcInsn(node.fromValue());
+        mv.visitVarInsn(DSTORE, vFromVal);
+
+        int vToVal = ctx.newLocalDouble();
+        mv.visitLdcInsn(node.toValue());
+        mv.visitVarInsn(DSTORE, vToVal);
+
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            // Стек для DASTORE
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
 
-            // 1. Получаем контекст для текущего i
+            // 1. Получаем Y
             int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-
-            // 2. Достаем blockY из этого контекста
             mv.visitVarInsn(ALOAD, loopCtx);
-//            ctx.invokeContextInterface("blockY", "()I");
             mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
             mv.visitInsn(I2D);
 
-            // 3. Загружаем константы (сразу double)
-            mv.visitLdcInsn((double) node.fromY());
-            mv.visitLdcInsn((double) node.toY());
-            mv.visitLdcInsn(node.fromValue());
-            mv.visitLdcInsn(node.toValue());
+            // 2. Загружаем параметры из локальных переменных
+            mv.visitVarInsn(DLOAD, vFromY);
+            mv.visitVarInsn(DLOAD, vToY);
+            mv.visitVarInsn(DLOAD, vFromVal);
+            mv.visitVarInsn(DLOAD, vToVal);
 
-            // 4. Считаем map
+            // 3. Вычисление
             DensityCompilerUtils.clampedMap(mv);
 
-            // 5. Сохраняем
             mv.visitInsn(DASTORE);
         });
     }

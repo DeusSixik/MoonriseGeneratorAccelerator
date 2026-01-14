@@ -8,6 +8,7 @@ import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
 
+@Deprecated
 public class DensityCompilerFastMaxTask extends DensityCompilerTask<DensitySpecializations.FastMax> {
 
 

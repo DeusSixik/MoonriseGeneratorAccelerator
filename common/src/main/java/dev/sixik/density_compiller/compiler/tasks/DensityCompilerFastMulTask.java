@@ -3,10 +3,12 @@ package dev.sixik.density_compiller.compiler.tasks;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
 
+@Deprecated
 public class DensityCompilerFastMulTask extends DensityCompilerTask<DensitySpecializations.FastMul> {
 
 
