@@ -20,6 +20,6 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
     }
 
     public int buildBits() {
-        return COMPUTE;
+        return ALL;
     }
 }

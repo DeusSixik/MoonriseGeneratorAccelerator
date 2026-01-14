@@ -2,6 +2,7 @@ package dev.sixik.density_compiller.compiler.data;
 
 import dev.sixik.density_compiller.compiler.tasks.*;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
+import dev.sixik.density_compiller.compiler.wrappers.DensityFunctionSplineWrapper;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -22,31 +23,31 @@ public class DensityCompilerData {
         if(isLoaded) return;
 
         register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
-//        register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
-//        register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
-//        register(DensityFunctions.BlendOffset.class, DensityCompilerBlendOffsetTask::new);
-//        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
-//        register(DensityFunctions.ShiftedNoise.class, DensityCompilerShiftedNoiseTask::new);
-//        register(DensityFunctions.RangeChoice.class, DensityCompilerRangeChoiceTask::new);
-//        register(DensityFunctions.ShiftA.class, DensityCompilerShiftATask::new);
-//        register(DensityFunctions.ShiftB.class, DensityCompilerShiftBTask::new);
-//        register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
-//        register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
-//        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
-//        register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
-//        register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
-//        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
-//        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
-//        register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
-//        register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
-//        register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
+        register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
+        register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
+        register(DensityFunctions.BlendOffset.class, DensityCompilerBlendOffsetTask::new);
+        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
+        register(DensityFunctions.ShiftedNoise.class, DensityCompilerShiftedNoiseTask::new);
+        register(DensityFunctions.RangeChoice.class, DensityCompilerRangeChoiceTask::new);
+        register(DensityFunctions.ShiftA.class, DensityCompilerShiftATask::new);
+        register(DensityFunctions.ShiftB.class, DensityCompilerShiftBTask::new);
+        register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
+        register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
+        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
+        register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
+        register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
+        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
+        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
+        register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
+        register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
+        register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
 //        register(DensityFunctions.Spline.class, DensityCompilerSplineTask::new);
-//        register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
-//        register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
+        register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
+        register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
 
-//        register(NoiseChunk.FlatCache.class, DensityCompilerFlatCacheTask::new);
-//        register(NoiseChunk.Cache2D.class, DensityCompilerCache2DTask::new);
-//        register(NoiseChunk.NoiseInterpolator.class, DensityCompilerNoiseInterpolatorTask::new);
+        register(NoiseChunk.FlatCache.class, DensityCompilerFlatCacheTask::new);
+        register(NoiseChunk.Cache2D.class, DensityCompilerCache2DTask::new);
+        register(NoiseChunk.NoiseInterpolator.class, DensityCompilerNoiseInterpolatorTask::new);
 
         /*
             Custom

@@ -2,6 +2,7 @@ package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.prese
 
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseRouterCustomDensity;
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.OptimizationVisitor;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -29,7 +30,7 @@ public class MixinNoiseBasedChunkGenerator$test {
             final DensityFunction[] array = customDensity.bts$getDensity();
             for (int i = 0; i < array.length; i++) {
                 final DensityFunction originalDensity = array[i];
-                array[i] = OPTIMIZER.optimizeByASM(originalDensity, originalDensity);
+                array[i] = OPTIMIZER.optimize(originalDensity);
             }
             customDensity.bts$setDensity(array);
         }

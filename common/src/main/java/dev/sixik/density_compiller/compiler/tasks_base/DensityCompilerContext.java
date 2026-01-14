@@ -1,5 +1,6 @@
 package dev.sixik.density_compiller.compiler.tasks_base;
 
+import dev.sixik.asm.AsmCtx;
 import dev.sixik.density_compiller.compiler.DensityCompiler;
 import dev.sixik.density_compiller.compiler.DensityCompilerParams;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
@@ -8,6 +9,9 @@ import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.LinkedList;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -24,16 +28,26 @@ public final class DensityCompilerContext {
     private int currentContextVar = 1;
     private int loopContextVar = -1;
 
+    private final AsmCtx ctx;
+
+    private LinkedList<String> compiledFilesComput = new LinkedList<>();
+    private LinkedList<String> compiledFilesFill = new LinkedList<>();
+
     public DensityCompilerContext(DensityCompiler compiler, MethodVisitor mv, String className,
                                   DensityFunction root) {
         this.compiler = compiler;
         this.mv = mv;
         this.className = className;
         this.root = root;
+        this.ctx = new AsmCtx(mv, className, 0, 0);
     }
 
     public String CTX() {
         return DensityCompiler.CTX;
+    }
+
+    public AsmCtx getCtx() {
+        return ctx;
     }
 
     public boolean canCompile(DensityFunction node) {
@@ -56,6 +70,9 @@ public final class DensityCompilerContext {
                 final DensityCompilerTask<?> task = taskSupplier.get();
                 if((task.buildBits() & DensityCompilerTask.COMPUTE) != 0) {
                     taskSupplier.get().compileComputeImpl(mv, node, this);
+
+                    compiledFilesComput.add(clz.getName() + "_found");
+
                     return;
                 }
             }
@@ -70,6 +87,7 @@ public final class DensityCompilerContext {
                 throw new UnsupportedOperationException("Un support for class: " + node.getClass().getName());
             }
             emitLeafCall(mv, node);
+            compiledFilesComput.add(clz.getName() + "_none");
         } catch (Exception e) {
 
             /*
@@ -102,6 +120,8 @@ public final class DensityCompilerContext {
                 final DensityCompilerTask task = taskSupplier.get();
                 if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
                     task.compileFill(mv, node, this, destArrayVar);
+
+                    compiledFilesFill.add(nodeName + "_found");
                     return;
                 }
             }
@@ -110,6 +130,7 @@ public final class DensityCompilerContext {
                 If there is no task, we call it as a sheet.
              */
             emitLeafFill(mv, node, destArrayVar);
+            compiledFilesFill.add(nodeName + "_none");
         } catch (Exception e) {
             printTrace("Error while compiling node fill");
             throw e;
@@ -351,5 +372,34 @@ public final class DensityCompilerContext {
         int idx = nextLocalVarIndex;
         nextLocalVarIndex += 2;
         return idx;
+    }
+
+    public void writeEnd(String filename) {
+        try (PrintWriter fos = new PrintWriter("compiler/temp/" + filename)) {
+
+            fos.println("-------------------------------------");
+            fos.println("COMPUTE");
+            fos.println("-------------------------------------");
+            fos.println(" ");
+            fos.println(" ");
+
+            for (int i = 0; i < compiledFilesComput.size(); i++) {
+                fos.println(compiledFilesComput.get(i));
+            }
+
+            fos.println(" ");
+            fos.println(" ");
+            fos.println("-------------------------------------");
+            fos.println("FILL");
+            fos.println("-------------------------------------");
+            fos.println(" ");
+            fos.println(" ");
+
+            for (int i = 0; i < compiledFilesFill.size(); i++) {
+                fos.println(compiledFilesFill.get(i));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

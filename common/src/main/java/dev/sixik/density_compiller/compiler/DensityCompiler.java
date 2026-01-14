@@ -116,7 +116,7 @@ public class DensityCompiler {
         return CompilerInfrastructure.defineAndInstantiate(className, bytes, leaves);
     }
 
-    private void generateConstructor(ClassWriter cw, String className) {
+    protected void generateConstructor(ClassWriter cw, String className) {
         final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
                 "<init>",
                 "([L" + INTERFACE_NAME + ";)V",
@@ -147,7 +147,7 @@ public class DensityCompiler {
 
     public static final ThreadLocal<ArrayDeque<String>> L_LINK = ThreadLocal.withInitial(ArrayDeque::new);
 
-    private void generateCompute(ClassWriter cw, String className, DensityFunction root) {
+    protected void generateCompute(ClassWriter cw, String className, DensityFunction root) {
         MethodVisitor mv = cw.visitMethod(ACC_PUBLIC,
                 "compute",
                 CONTEXT_DESC,
@@ -172,13 +172,14 @@ public class DensityCompiler {
             mv.visitInsn(DRETURN);                // Return result (double)
             mv.visitMaxs(0, 0); // ASM will calculate the stacks itself
             mv.visitEnd();
+            context.writeEnd(root.getClass().getSimpleName() + "_compute_" + ID_GEN.get());
         } catch (Exception e) {
             printTrace("Error while end compile", L_LINK.get());
             throw e;
         }
     }
 
-    private void printTrace(String message, ArrayDeque<String> compilationStack) {
+    protected void printTrace(String message, ArrayDeque<String> compilationStack) {
         System.err.println("[DensityCompiler Trace] " + message);
         System.err.println("Compilation Path (top is current):");
         int depth = 0;
@@ -209,13 +210,14 @@ public class DensityCompiler {
             mv.visitInsn(RETURN);
             mv.visitMaxs(0, 0);
             mv.visitEnd();
+            context.writeEnd(root.getClass().getSimpleName() + "_fill_" + ID_GEN.get());
         } catch (Exception e) {
             printTrace("Error while generating fillArray", L_LINK.get());
             throw e;
         }
     }
 
-    private void generateDelegates(ClassWriter cw, String className, DensityFunction root) {
+    protected void generateDelegates(ClassWriter cw, String className, DensityFunction root) {
         /*
             Local variables:
             0: this

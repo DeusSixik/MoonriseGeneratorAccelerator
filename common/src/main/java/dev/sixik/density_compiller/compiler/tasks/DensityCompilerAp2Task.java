@@ -3,6 +3,7 @@ package dev.sixik.density_compiller.compiler.tasks;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -47,54 +48,87 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
             return;
         }
 
-        /*
-            Standard logic for ADD
-         */
-        if (node.type() == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD) {
+        DensityFunction arg1 = node.argument1();
+        DensityFunction arg2 = node.argument2();
 
-            /*
-                Filling the main array with the first argument
-             */
-            ctx.compileNodeFill(node.argument1(), destArrayVar);
+        // 1. Сначала заполняем массив первым аргументом
+        ctx.compileNodeFill(arg1, destArrayVar);
 
-            /*
-                If the second argument is also a constant, we don't create an array!
-             */
-            if (node.argument2() instanceof DensityFunctions.Constant c) {
-                double val = c.value();
-                ctx.arrayForI(destArrayVar, (iVar) -> {
-                    mv.visitVarInsn(ALOAD, destArrayVar);
-                    mv.visitVarInsn(ILOAD, iVar);
-                    mv.visitInsn(DUP2); // Duplicating Array + Index
-                    mv.visitInsn(DALOAD);
-                    mv.visitLdcInsn(val);
-                    mv.visitInsn(DADD);
-                    mv.visitInsn(DASTORE);
-                });
-                return;
-            }
-
-            /*
-                If both are complex, then we only allocate a temporary buffer.
-             */
-            int tempArrayVar = ctx.allocateTempBuffer();
-            ctx.compileNodeFill(node.argument2(), tempArrayVar);
-
+        // 2. Быстрый путь для констант (без ленивых вычислений)
+        if (arg2 instanceof DensityFunctions.Constant c) {
+            double val = c.value();
             ctx.arrayForI(destArrayVar, (iVar) -> {
                 mv.visitVarInsn(ALOAD, destArrayVar);
                 mv.visitVarInsn(ILOAD, iVar);
-
-                mv.visitVarInsn(ALOAD, destArrayVar);
-                mv.visitVarInsn(ILOAD, iVar);
+                mv.visitInsn(DUP2);
                 mv.visitInsn(DALOAD);
-
-                mv.visitVarInsn(ALOAD, tempArrayVar);
-                mv.visitVarInsn(ILOAD, iVar);
-                mv.visitInsn(DALOAD);
-
-                mv.visitInsn(DADD);
+                mv.visitLdcInsn(val);
+                applyOp(mv, node.type());
                 mv.visitInsn(DASTORE);
             });
+            return;
+        }
+
+        // 3. Полная логика с Lazy Evaluation и исправленным стеком
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            // ВАЖНО: Загружаем данные для DASTORE в самом начале!
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            // Берем текущее значение из массива
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitInsn(DALOAD); // Стек: [Array, Index, Val1]
+
+            Label end = new Label();
+
+            // Проверки Short-circuit
+            switch (node.type()) {
+                case MUL -> {
+                    mv.visitInsn(DUP2);
+                    mv.visitInsn(DCONST_0);
+                    mv.visitInsn(DCMPL);
+                    mv.visitJumpInsn(IFEQ, end); // Если 0, оставляем 0 на стеке и прыгаем
+                }
+                case MIN -> {
+                    mv.visitInsn(DUP2);
+                    mv.visitLdcInsn(arg2.minValue());
+                    mv.visitInsn(DCMPL);
+                    mv.visitJumpInsn(IFLT, end); // Если Val1 < min, оставляем Val1 и прыгаем
+                }
+                case MAX -> {
+                    mv.visitInsn(DUP2);
+                    mv.visitLdcInsn(arg2.maxValue());
+                    mv.visitInsn(DCMPG);
+                    mv.visitJumpInsn(IFGT, end); // Если Val1 > max, оставляем Val1 и прыгаем
+                }
+            }
+
+            // Если не прыгнули — вычисляем второе значение
+            ctx.startLoop();
+            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
+            int oldCtx = ctx.getCurrentContextVar();
+            ctx.setCurrentContextVar(loopCtx);
+
+            ctx.compileNodeCompute(arg2); // Стек: [Array, Index, Val1, Val2]
+
+            ctx.setCurrentContextVar(oldCtx);
+
+            // Выполняем операцию
+            applyOp(mv, node.type()); // Стек: [Array, Index, Result]
+
+            mv.visitLabel(end);
+            // Теперь и после вычислений, и после прыжка на стеке всегда: [Array, Index, Result]
+            mv.visitInsn(DASTORE);
+        });
+    }
+
+    private void applyOp(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction.Type type) {
+        switch (type) {
+            case ADD -> mv.visitInsn(DADD);
+            case MUL -> mv.visitInsn(DMUL);
+            case MIN -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+            case MAX -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
         }
     }
 }

@@ -66,8 +66,8 @@ public class DensityOptimizer {
         /*
             Applying the simplification rules to the current node
          */
-        final DensityFunction result = rewriteLocal(optimizedChildren);
-//        optimizeByASM(result);
+        DensityFunction result = rewriteLocal(optimizedChildren);
+        result = optimizeByASM(function, result);
         cache.put(function, result);
         return result;
     }
@@ -75,18 +75,17 @@ public class DensityOptimizer {
     private static final Map<DensityFunction, DensityFunction> cache2 = new IdentityHashMap<>();
 
     public DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
-        if (original.getClass().getName().startsWith("dev.sixik.generated.")) {
-            return original;
+        if (mapped.getClass().getName().startsWith("dev.sixik.generated.")) {
+            return mapped;
         }
 
-        //        // Если функция слишком простая (константа), нет смысла её компилировать
 //        if (cache2.containsKey(original)) {
 //            return cache2.get(original);
 //        }
 //
 //        // Компилируем и возвращаем новый объект
 //
-//        final DensityFunction newDensity = COMPILER.compile(mapped);;
+//        final DensityFunction newDensity = COMPILER.compile(mapped);
 //        cache2.put(original, newDensity);
         return COMPILER.compile(mapped);
     }
