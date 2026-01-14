@@ -1,4 +1,5 @@
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
+import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
@@ -19,10 +20,12 @@ public class ASMTest {
 
     @Test
     public void generateClass() {
-        DensityFunctions.Constant constant = new DensityFunctions.Constant(5);
+        DensityCompilerPipeline.from(new DensityFunctions.Constant(5), true).startCompilation();
 
-        TestCompiler compiler = new TestCompiler(this::method);
-        compiler.compile(constant);
+        //        DensityFunctions.Constant constant = new DensityFunctions.Constant(5);
+//
+//        TestCompiler compiler = new TestCompiler(this::method);
+//        compiler.compile(constant);
     }
 
     private void method(DensityCompilerContext context) {

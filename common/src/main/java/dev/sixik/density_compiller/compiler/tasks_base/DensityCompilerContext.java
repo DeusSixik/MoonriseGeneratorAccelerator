@@ -149,12 +149,12 @@ public final class DensityCompilerContext {
         /*
             Loading the destination array
          */
-        mv.visitVarInsn(ALOAD, destArrayVar);
+        ctx.aload(destArrayVar);
 
         /*
             Loading the ContextProvider (it is always in slot 2 in the fillArray method)
          */
-        mv.visitVarInsn(ALOAD, 2);
+        ctx.aload(2);
 
         /*
             Calling fillArray
@@ -208,8 +208,9 @@ public final class DensityCompilerContext {
             return compiler.leaves.size() - 1;
         });
 
-        mv.visitVarInsn(ALOAD, 0); // this
-        mv.visitFieldInsn(GETFIELD, className, "leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
+        ctx.loadThis(); // this
+        ctx.getField("leaves", "[L" + DensityCompiler.INTERFACE_NAME + ";");
+        // this.leaves
 
         if (idx <= 5) mv.visitInsn(ICONST_0 + idx);
         else if (idx <= 127) mv.visitIntInsn(BIPUSH, idx);
@@ -375,6 +376,8 @@ public final class DensityCompilerContext {
     }
 
     public void writeEnd(String filename) {
+        if(true) return;
+
         try (PrintWriter fos = new PrintWriter("compiler/temp/" + filename)) {
 
             fos.println("-------------------------------------");

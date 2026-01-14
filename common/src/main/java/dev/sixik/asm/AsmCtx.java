@@ -6,17 +6,17 @@ import java.util.function.Consumer;
 
 import static org.objectweb.asm.Opcodes.*;
 
-public final class AsmCtx {
-    private final MethodVisitor mv;
-    private final String ownerInternalName;
+public class AsmCtx {
+    protected final MethodVisitor mv;
+    protected final String ownerInternalName;
 
     // управление локалами
-    private int nextLocal;
+    protected int nextLocal;
     public final LocalsCache locals = new LocalsCache();
     public final FieldsCache fields = new FieldsCache();
 
     // где лежит текущий FunctionContext
-    private int currentContextVar;
+    protected int currentContextVar;
 
     public AsmCtx(MethodVisitor mv, String ownerInternalName, int firstFreeLocal, int currentContextVar) {
         this.mv = mv;
@@ -55,6 +55,10 @@ public final class AsmCtx {
 
     public void loadContext() {
         mv.visitVarInsn(ALOAD, currentContextVar);
+    }
+
+    public void loadThis() {
+        mv.visitVarInsn(ALOAD, 0);
     }
 
     // ---------- tiny emit helpers ----------
