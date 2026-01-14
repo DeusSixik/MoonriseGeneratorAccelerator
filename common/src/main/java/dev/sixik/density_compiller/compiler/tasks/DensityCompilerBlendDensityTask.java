@@ -13,10 +13,10 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, DensityCompilerContext ctx) {
-        mv.visitVarInsn(ALOAD, 1); // Blender
+        ctx.loadContext(mv); // Blender
         mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "getBlender", "()L" + BLENDER + ";", true);
 
-        mv.visitVarInsn(ALOAD, 1); // Context
+        ctx.loadContext(mv); // Context
 
         ctx.compileNodeCompute(mv, node.input()); // input_double
 

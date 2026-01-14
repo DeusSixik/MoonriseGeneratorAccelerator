@@ -25,7 +25,7 @@ public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFuncti
 
         // wrapper.holder()
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
         mv.visitInsn(I2D);
 
@@ -34,7 +34,7 @@ public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFuncti
 
         // (blockZ * 0.25
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
         mv.visitInsn(I2D);
 
@@ -55,5 +55,32 @@ public class DensityCompilerShiftBTask extends DensityCompilerTask<DensityFuncti
         mv.visitInsn(DMUL);
 
         // wrapper.holder().getValue(blockZ * 0.25, blockX * 0.25, 0) * 4.0
+    }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftB node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            /*
+                Generating the context for the current iteration
+             */
+            int tempCtx = ctx.allocateLocalVarIndex();
+            mv.visitVarInsn(ALOAD, 2); // Provider
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+            mv.visitVarInsn(ASTORE, tempCtx);
+
+            /*
+                Switch the context and call compute
+             */
+            int oldCtx = ctx.getCurrentContextVar();
+            ctx.setCurrentContextVar(tempCtx);
+            this.compileCompute(mv, node, ctx);
+            ctx.setCurrentContextVar(oldCtx);
+
+            mv.visitInsn(DASTORE);
+        });
     }
 }

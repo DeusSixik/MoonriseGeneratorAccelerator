@@ -11,4 +11,9 @@ public class DensityCompilerHolderHolderTask extends DensityCompilerTask<Density
     protected void compileCompute(MethodVisitor mv, DensityFunctions.HolderHolder node, DensityCompilerContext ctx) {
         ctx.compileNodeCompute(mv, node.function().value());
     }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.HolderHolder node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.compileNodeFill(node.function().value(), destArrayVar);
+    }
 }

@@ -10,8 +10,18 @@ public class DensityCompilerMarkerTask extends DensityCompilerTask<DensityFuncti
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Marker node, DensityCompilerContext ctx) {
         switch (node.type()) {
-            case Interpolated -> ctx.emitLeafCall(mv, node);
+            case Interpolated, FlatCache, Cache2D, CacheOnce, CacheAllInCell ->
+                    ctx.emitLeafCall(mv, node);
             default -> ctx.compileNodeCompute(mv, node.wrapped());
+        }
+    }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.Marker node, DensityCompilerContext ctx, int destArrayVar) {
+        switch (node.type()) {
+            case Interpolated, FlatCache, Cache2D, CacheOnce, CacheAllInCell ->
+                    ctx.emitLeafFill(mv, node, destArrayVar);
+            default -> ctx.compileNodeFill(node.wrapped(), destArrayVar);
         }
     }
 }

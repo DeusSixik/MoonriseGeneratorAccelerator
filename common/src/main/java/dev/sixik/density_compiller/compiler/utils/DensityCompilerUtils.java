@@ -29,42 +29,38 @@ public class DensityCompilerUtils {
             int destArrayVar,
             Consumer<Integer> iteration
     ) {
-        int lenVar = ctx.allocateLocalVarIndex(); // int len
-        int iVar = ctx.allocateLocalVarIndex();   // int i
+        /*
+            We get the same length variable for the entire method.
+         */
+        int lenVar = ctx.getOrComputeLength(destArrayVar);
+
+        /*
+            The i counter must still be unique for each loop
+            so that there are no nesting conflicts, but the JIT often collapses them on its own.
+         */
+        int iVar = ctx.allocateLocalVarIndex();
 
         final MethodVisitor mv = ctx.mv();
-
-        // int len = destArray.length;
-        mv.visitVarInsn(ALOAD, destArrayVar);
-        mv.visitInsn(ARRAYLENGTH);
-        mv.visitVarInsn(ISTORE, lenVar);
 
         // int i = 0;
         mv.visitInsn(ICONST_0);
         mv.visitVarInsn(ISTORE, iVar);
 
-        // Jump markers
         Label startLoop = new Label();
         Label endLoop = new Label();
 
-        // for start
         mv.visitLabel(startLoop);
 
-        //  if (i >= len) break
-        mv.visitVarInsn(ILOAD, iVar);           // Load i
-        mv.visitVarInsn(ILOAD, lenVar);         // Load len
-        mv.visitJumpInsn(IF_ICMPGE, endLoop);   // if i >= len, jump to end
+        // if (i >= len) break
+        mv.visitVarInsn(ILOAD, iVar);
+        mv.visitVarInsn(ILOAD, lenVar); // Using the general lenVar
+        mv.visitJumpInsn(IF_ICMPGE, endLoop);
 
-        // body
         iteration.accept(iVar);
 
-        // i++
         mv.visitIincInsn(iVar, 1);
-
-        // continue;
         mv.visitJumpInsn(GOTO, startLoop);
 
-        // for end
         mv.visitLabel(endLoop);
     }
 

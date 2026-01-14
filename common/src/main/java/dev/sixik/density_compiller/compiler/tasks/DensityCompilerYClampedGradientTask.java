@@ -12,32 +12,50 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, DensityCompilerContext ctx) {
-
-        /*
-            blockY (int) -> double
-         */
-        mv.visitVarInsn(ALOAD, 1);
+        // 1. blockY (берем из контекста)
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
         mv.visitInsn(I2D);
 
-        /*
-            fromY (int) -> double
-         */
-        mv.visitLdcInsn(node.fromY());
-        mv.visitInsn(I2D);
-
-        /*
-            toY (int) -> double
-         */
-        mv.visitLdcInsn(node.toY());
-        mv.visitInsn(I2D);
-
-        /*
-            romValue and toValue already double
-         */
+        // 2. Параметры (сразу как double, чтобы избежать I2D в байт-коде)
+        mv.visitLdcInsn((double) node.fromY());
+        mv.visitLdcInsn((double) node.toY());
         mv.visitLdcInsn(node.fromValue());
         mv.visitLdcInsn(node.toValue());
 
-        DensityCompilerUtils.clampedMap(mv); // Stack [double, double, double, double, double] 10 slots
+        // 3. Вызов Mth.clampedMap
+        DensityCompilerUtils.clampedMap(mv);
+    }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.YClampedGradient node, DensityCompilerContext ctx, int destArrayVar) {
+        // Используем цикл с ленивым контекстом
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            ctx.startLoop(); // Сброс кэша контекста для новой итерации
+
+            // Готовим стек для записи: ds[i] = ...
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            // 1. Получаем контекст для текущего i
+            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
+
+            // 2. Достаем blockY из этого контекста
+            mv.visitVarInsn(ALOAD, loopCtx);
+            mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
+            mv.visitInsn(I2D);
+
+            // 3. Загружаем константы (сразу double)
+            mv.visitLdcInsn((double) node.fromY());
+            mv.visitLdcInsn((double) node.toY());
+            mv.visitLdcInsn(node.fromValue());
+            mv.visitLdcInsn(node.toValue());
+
+            // 4. Считаем map
+            DensityCompilerUtils.clampedMap(mv);
+
+            // 5. Сохраняем
+            mv.visitInsn(DASTORE);
+        });
     }
 }

@@ -73,7 +73,9 @@ public class DensityCompiler {
 
     public DensityFunction compile(DensityFunction root) {
         final int id = ID_GEN.incrementAndGet();
-        final String className = "dev/sixik/generated/OptimizedDensity_" + id;
+
+        final String originalClassName = root.getClass().getSimpleName();
+        final String className = "dev/sixik/generated/OptimizedDensity_" + originalClassName + "_" + id;
 
         /*
             Create class
@@ -105,7 +107,7 @@ public class DensityCompiler {
 
         final byte[] bytes = cw.toByteArray();
         if(DensityCompilerParams.dumpGenerated) {
-            CompilerInfrastructure.debugWriteClass("OptimizedDensity_" + id + ".class", bytes);
+            CompilerInfrastructure.debugWriteClass("OptimizedDensity_" + originalClassName + "_" + id + ".class", bytes);
         }
 
         /*
@@ -200,16 +202,8 @@ public class DensityCompiler {
         L_LINK.get().clear();
 
         try {
-            // Инициализируем контекст.
-            // Важно: он должен знать, что переменные 0, 1, 2 заняты.
-            // Свободные слоты начинаются с 3.
             DensityCompilerContext context = new DensityCompilerContext(this, mv, className, root);
 
-            // --- УДАЛЕНО: Создание tempBufferA и tempBufferB ---
-            // Мы НЕ создаем массивы здесь. Если они понадобятся (например для Add),
-            // нода сама вызовет context.allocateTempBuffer().
-
-            // Запускаем рекурсию. Пишем результат сразу в аргумент 1 (основной массив).
             context.compileNodeFill(root, 1);
 
             mv.visitInsn(RETURN);
@@ -257,57 +251,6 @@ public class DensityCompiler {
         mv.visitEnd();
 
         generateFill(cw, className, root) ;
-
-//        mv = cw.visitMethod(ACC_PUBLIC,
-//                "fillArray",
-//                "([DLnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;)V",
-//                null,
-//                null);
-//        mv.visitCode();
-
-        // int length = ds.length;
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitInsn(ARRAYLENGTH);
-        mv.visitVarInsn(ISTORE, 4); // We keep the length so that we don't have to pull the field every time
-
-        // int i = 0;
-        mv.visitInsn(ICONST_0);
-        mv.visitVarInsn(ISTORE, 3);
-
-        final Label loopStart = new Label();
-        final Label loopEnd = new Label();
-
-        mv.visitLabel(loopStart);
-        // if (i >= length) break;
-        mv.visitVarInsn(ILOAD, 3);
-        mv.visitVarInsn(ILOAD, 4);
-        mv.visitJumpInsn(IF_ICMPGE, loopEnd);
-
-        // ds[i] = ...
-        mv.visitVarInsn(ALOAD, 1); // Load array
-        mv.visitVarInsn(ILOAD, 3); // Load array
-
-        // ... this.compute(provider.forIndex(i))
-        mv.visitVarInsn(ALOAD, 0); // this
-
-        mv.visitVarInsn(ALOAD, 2); // provider
-        mv.visitVarInsn(ILOAD, 3); // i
-        mv.visitMethodInsn(INVOKEINTERFACE,
-                "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider",
-                "forIndex",
-                "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;",
-                true);
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, className, "compute", CONTEXT_DESC, false);
-        mv.visitInsn(DASTORE);
-
-        mv.visitIincInsn(3, 1);
-        mv.visitJumpInsn(GOTO, loopStart);
-
-        mv.visitLabel(loopEnd);
-        mv.visitInsn(RETURN);
-        mv.visitMaxs(5, 4);
-        mv.visitEnd();
 
         // minValue
         mv = cw.visitMethod(ACC_PUBLIC, "minValue", "()D", null, null);

@@ -61,9 +61,29 @@ public class DensityCompilerTest {
     @Test
     @DisplayName("testCompilation")
     void testCompilation() {
+        final DensityFunction.NoiseHolder noise = new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(33, new ArrayList<>())), null);
+
 //        compileAndVerify(new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.ADD, new DensityFunctions.Constant(5), new DensityFunctions.Constant(5), 0, 5), "FillArrayConst.class", 10);
 //        compileAndVerify(new DensityFunctions.Constant(10), "FillArrayConst.class", 10);
-        compileAndVerify(new DensityFunctions.BlendDensity(new DensityFunctions.BlendDensity(new DensityFunctions.Constant(10))), "TestCompilation.class", 10);
+//        compileAndVerify(new DensityFunctions.BlendDensity(new DensityFunctions.BlendDensity(new DensityFunctions.Constant(10))), "TestCompilation.class", 10);
+//        compileAndVerify(new DensityFunctions.Clamp(new DensityFunctions.BlendDensity(new DensityFunctions.Constant(10)), 0, 10), "TestCompilation.class", 10);
+//        compileAndVerify(new DensityFunctions.Mapped(DensityFunctions.Mapped.Type.SQUARE, new DensityFunctions.BlendDensity(new DensityFunctions.Constant(10)), 0, 10), "TestCompilation.class", 100);
+//        compileAndVerify(new DensityFunctions.RangeChoice(
+//                new DensityFunctions.BlendDensity(new DensityFunctions.Constant(50)),
+//                10,
+//                20,
+//                new DensityFunctions.RangeChoice(
+//                        new DensityFunctions.BlendDensity(new DensityFunctions.Constant(50)),
+//                        10,
+//                        20,
+//                        new DensityFunctions.BlendDensity(new DensityFunctions.Constant(50)),
+//                        new DensityFunctions.BlendDensity(new DensityFunctions.Constant(4))
+//                ),
+//                new DensityFunctions.Constant(0)
+//        ), "TestCompilation.class", 0);
+        compileAndVerify(
+                new DensityFunctions.WeirdScaledSampler(new DensityFunctions.Constant(5), noise, DensityFunctions.WeirdScaledSampler.RarityValueMapper.TYPE1),
+                "TestCompilation.class", 0.0);
     }
 
     @Test

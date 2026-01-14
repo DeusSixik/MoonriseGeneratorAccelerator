@@ -25,7 +25,7 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
 
         // wrapper.holder()
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
         mv.visitInsn(I2D);
 
@@ -38,7 +38,7 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
 
         // (blockX * 0.25, 0
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
         mv.visitInsn(I2D);
 
@@ -54,5 +54,40 @@ public class DensityCompilerShiftATask extends DensityCompilerTask<DensityFuncti
         mv.visitInsn(DMUL);
 
         // wrapper.holder().getValue(blockX * 0.25, 0, blockZ * 0.25) * 4.0
+    }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftA node, DensityCompilerContext ctx, int destArrayVar) {
+
+        /*
+            ShiftNoise is the point where Minecraft usually stops vector optimization.
+            We will expand this into a loop that does not create FunctionContext objects,
+            but pulls blockX()/blockZ() directly.
+         */
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            /*
+                We repeat the compute logic, but we take the context from the provider for each i
+             */
+            int tempCtx = ctx.allocateLocalVarIndex();
+            mv.visitVarInsn(ALOAD, 2); // Provider
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+            mv.visitVarInsn(ASTORE, tempCtx);
+
+            /*
+                Setting the current context for loadContext to work correctly in compileCompute
+             */
+            int oldCtx = ctx.getCurrentContextVar();
+            ctx.setCurrentContextVar(tempCtx);
+
+            this.compileCompute(mv, node, ctx);
+
+            ctx.setCurrentContextVar(oldCtx);
+
+            mv.visitInsn(DASTORE);
+        });
     }
 }

@@ -24,7 +24,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitTypeInsn(CHECKCAST, WRAPPER);
         mv.visitMethodInsn(INVOKEVIRTUAL, WRAPPER, "holder", "()L" + HOLDER + ";", false);
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockX", "()I", true);
         mv.visitInsn(I2D);
 
@@ -35,7 +35,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
 
         mv.visitInsn(DADD);
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockY", "()I", true);
         mv.visitInsn(I2D);
 
@@ -46,7 +46,7 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
 
         mv.visitInsn(DADD);
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, ctx.CTX(), "blockZ", "()I", true);
         mv.visitInsn(I2D);
 
@@ -58,5 +58,29 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitInsn(DADD);
 
         mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
+    }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            // Сбрасываем кэш контекста для новой итерации
+            ctx.startLoop();
+
+            // Получаем (или создаем) контекст
+            int currentCtx = ctx.getOrAllocateLoopContext(iVar);
+
+            int oldCtx = ctx.getCurrentContextVar();
+            ctx.setCurrentContextVar(currentCtx);
+
+            // Генерируем вычисления шума (все внутренние compileNodeCompute подхватят наш currentCtx)
+            this.compileCompute(mv, node, ctx);
+
+            ctx.setCurrentContextVar(oldCtx);
+
+            mv.visitInsn(DASTORE);
+        });
     }
 }

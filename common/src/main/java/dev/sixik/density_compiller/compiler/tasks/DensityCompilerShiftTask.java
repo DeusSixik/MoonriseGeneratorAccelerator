@@ -25,7 +25,7 @@ public class DensityCompilerShiftTask extends DensityCompilerTask<DensityFunctio
 
         // wrapper.holder()
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
         mv.visitInsn(I2D);
 
@@ -39,7 +39,7 @@ public class DensityCompilerShiftTask extends DensityCompilerTask<DensityFunctio
 
         // (blockX * 0.25
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
         mv.visitInsn(I2D);
 
@@ -48,7 +48,7 @@ public class DensityCompilerShiftTask extends DensityCompilerTask<DensityFunctio
 
         // (blockX * 0.25, blockY * 0.25
 
-        mv.visitVarInsn(ALOAD, 1);
+        ctx.loadContext(mv);
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
         mv.visitInsn(I2D);
 

@@ -6,16 +6,35 @@ import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.MethodVisitor;
 
-import static org.objectweb.asm.Opcodes.DMUL;
-import static org.objectweb.asm.Opcodes.DUP2;
+import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFunctions.Mapped> {
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Mapped node, DensityCompilerContext ctx) {
         ctx.compileNodeCompute(mv, node.input());
+        generateTransformMath(mv, node.type());
+    }
 
-        switch (node.type()) {
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.compileNodeFill(node.input(), destArrayVar);
+
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitInsn(DUP2); // For DASTORE on end
+
+            mv.visitInsn(DALOAD); // Load ds[i]
+
+            generateTransformMath(mv, node.type());
+
+            mv.visitInsn(DASTORE);
+        });
+    }
+
+    private void generateTransformMath(MethodVisitor mv, DensityFunctions.Mapped.Type type) {
+        switch (type) {
             case ABS -> DensityCompilerUtils.abs(mv);
             case SQUARE -> {
                 mv.visitInsn(DUP2);

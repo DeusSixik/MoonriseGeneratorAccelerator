@@ -38,4 +38,70 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
 
         mv.visitLabel(labelEnd);
     }
+
+    @Override
+    public void compileFill(MethodVisitor mv, DensityFunctions.RangeChoice node, DensityCompilerContext ctx, int destArrayVar) {
+        ctx.compileNodeFill(node.input(), destArrayVar);
+
+        double min = node.minInclusive();
+        double max = node.maxExclusive();
+
+        ctx.arrayForI(destArrayVar, (iVar) -> {
+            Label labelOutOfRange = new Label();
+            Label labelEnd = new Label();
+
+            /*
+                Creating a context in a NEW slot (for example, 10 or 11)
+             */
+            int varContext = ctx.allocateLocalVarIndex();
+            mv.visitVarInsn(ALOAD, 2); // Provider
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+            mv.visitVarInsn(ASTORE, varContext);
+
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+            mv.visitInsn(DALOAD);
+
+            mv.visitInsn(DUP2);
+            mv.visitLdcInsn(min);
+            mv.visitInsn(DCMPL);
+            mv.visitJumpInsn(IFLT, labelOutOfRange);
+
+            mv.visitInsn(DUP2);
+            mv.visitLdcInsn(max);
+            mv.visitInsn(DCMPG);
+            mv.visitJumpInsn(IFGE, labelOutOfRange);
+
+            /*
+                In Range
+             */
+            mv.visitInsn(POP2);
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            int oldCtx = ctx.getCurrentContextVar();
+            ctx.setCurrentContextVar(varContext); // Подменяем слот для вложенных нод
+            ctx.compileNodeCompute(node.whenInRange());
+            ctx.setCurrentContextVar(oldCtx); // Возвращаем назад
+
+            mv.visitInsn(DASTORE);
+            mv.visitJumpInsn(GOTO, labelEnd);
+
+            /*
+                Out of Range
+             */
+            mv.visitLabel(labelOutOfRange);
+            mv.visitInsn(POP2);
+            mv.visitVarInsn(ALOAD, destArrayVar);
+            mv.visitVarInsn(ILOAD, iVar);
+
+            ctx.setCurrentContextVar(varContext);
+            ctx.compileNodeCompute(node.whenOutOfRange());
+            ctx.setCurrentContextVar(oldCtx);
+
+            mv.visitInsn(DASTORE);
+            mv.visitLabel(labelEnd);
+        });
+    }
 }
