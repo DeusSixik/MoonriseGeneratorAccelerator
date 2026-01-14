@@ -2,6 +2,9 @@ package dev.sixik.density_compiller.compiler.utils;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
@@ -151,5 +154,24 @@ public class DensityCompilerUtils {
         3. Вычитаем: (e/2) - (e^3/24)
     */
         mv.visitInsn(DSUB);           // [result]
+    }
+
+    public boolean isYInvariant(DensityFunction f) {
+        // Константы всегда инвариантны
+        if (f instanceof DensityFunctions.Constant) return true;
+
+        // Шум инвариантен, если его аргументы (X, Y, Z) инвариантны
+        if (f instanceof DensityFunctions.Noise n) {
+            // В майнкрафте Noise обычно берет стандартные X, Y, Z.
+            // Если Y зафиксирован (как в ShiftedNoise с нулевым ShiftY), он инвариантен.
+            return false; // По умолчанию шум зависит от Y
+        }
+
+        // Рекурсивная проверка для операций
+        if (f instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
+            return isYInvariant(ap2.argument1()) && isYInvariant(ap2.argument2());
+        }
+
+        return false;
     }
 }

@@ -37,46 +37,50 @@ public abstract class DensityCompilerShiftTaskBase<T extends DensityFunction> ex
         mv.visitInsn(DMUL);
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, T node, PipelineAsmContext ctx, int destArrayVar) {
-        DensityFunction.NoiseHolder holder = getHolder(node);
-
-        // 1. Грузим поле Holder
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-
-        // 2. Кэшируем в локальную переменную
-        int holderVar = ctx.newLocalRef();
-        mv.visitVarInsn(ASTORE, holderVar);
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-
-            mv.visitVarInsn(ALOAD, holderVar); // Грузим кэшированный holder
-
-            // Создаем контекст (к сожалению, без доступа к internals провайдера иначе никак)
-            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-            int oldCtx = ctx.getCurrentContextVar();
-            ctx.setCurrentContextVar(loopCtx);
-
-            generateCoordinates(mv, ctx);
-
-            ctx.setCurrentContextVar(oldCtx);
-
-            mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
-
-            mv.visitLdcInsn(4.0D);
-            mv.visitInsn(DMUL);
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, T node, PipelineAsmContext ctx, int destArrayVar) {
+//        DensityFunction.NoiseHolder holder = getHolder(node);
+//
+//        // 1. Грузим поле Holder
+//        ctx.visitCustomLeaf(holder, HOLDER_DESC);
+//
+//        // 2. Кэшируем в локальную переменную
+//        int holderVar = ctx.newLocalRef();
+//        mv.visitVarInsn(ASTORE, holderVar);
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//
+//            mv.visitVarInsn(ALOAD, holderVar); // Грузим кэшированный holder
+//
+//            // Создаем контекст (к сожалению, без доступа к internals провайдера иначе никак)
+//            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
+//            int oldCtx = ctx.getCurrentContextVar();
+//            ctx.setCurrentContextVar(loopCtx);
+//
+//            generateCoordinates(mv, ctx);
+//
+//            ctx.setCurrentContextVar(oldCtx);
+//
+//            mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
+//
+//            mv.visitLdcInsn(4.0D);
+//            mv.visitInsn(DMUL);
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 
     // Хелпер для генерации (coord * 0.25)
     protected void genCoord(MethodVisitor mv, PipelineAsmContext ctx, String blockMethod) {
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, blockMethod, "()I", true);
-        mv.visitInsn(I2D);
+
+        switch (blockMethod) {
+            case "blockX" -> ctx.loadBlockX();
+            case "blockY" -> ctx.loadBlockY();
+            case "blockZ" -> ctx.loadBlockZ();
+        }
+
         mv.visitLdcInsn(0.25D);
         mv.visitInsn(DMUL);
     }

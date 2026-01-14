@@ -57,59 +57,59 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
         }
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx, int destArrayVar) {
-        DensityFunction input = node.input();
-        double cMin = node.minValue();
-        double cMax = node.maxValue();
-
-        double inMin = input.minValue();
-        double inMax = input.maxValue();
-
-        // 1. Константа
-        if (inMax <= cMin) {
-            ctx.visitNodeFill(new DensityFunctions.Constant(cMin), destArrayVar);
-            return;
-        }
-        if (inMin >= cMax) {
-            ctx.visitNodeFill(new DensityFunctions.Constant(cMax), destArrayVar);
-            return;
-        }
-
-        // 2. Пропуск (Identity)
-        if (inMin >= cMin && inMax <= cMax) {
-            ctx.visitNodeFill(input, destArrayVar);
-            return;
-        }
-
-        // 3. Вычисление
-
-        // Сначала заливаем массив входом
-        ctx.visitNodeFill(input, destArrayVar);
-
-        boolean needMaxCheck = inMax > cMax;
-        boolean needMinCheck = inMin < cMin;
-
-        // In-place модификация
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DUP2); // [Arr, I, Arr, I]
-
-            mv.visitInsn(DALOAD); // [Arr, I, Val]
-
-            // Применяем Math.min / Math.max только если реально нужно
-            if (needMaxCheck) {
-                mv.visitLdcInsn(cMax);
-                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
-            }
-
-            if (needMinCheck) {
-                mv.visitLdcInsn(cMin);
-                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
-            }
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx, int destArrayVar) {
+//        DensityFunction input = node.input();
+//        double cMin = node.minValue();
+//        double cMax = node.maxValue();
+//
+//        double inMin = input.minValue();
+//        double inMax = input.maxValue();
+//
+//        // 1. Константа
+//        if (inMax <= cMin) {
+//            ctx.visitNodeFill(new DensityFunctions.Constant(cMin), destArrayVar);
+//            return;
+//        }
+//        if (inMin >= cMax) {
+//            ctx.visitNodeFill(new DensityFunctions.Constant(cMax), destArrayVar);
+//            return;
+//        }
+//
+//        // 2. Пропуск (Identity)
+//        if (inMin >= cMin && inMax <= cMax) {
+//            ctx.visitNodeFill(input, destArrayVar);
+//            return;
+//        }
+//
+//        // 3. Вычисление
+//
+//        // Сначала заливаем массив входом
+//        ctx.visitNodeFill(input, destArrayVar);
+//
+//        boolean needMaxCheck = inMax > cMax;
+//        boolean needMinCheck = inMin < cMin;
+//
+//        // In-place модификация
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DUP2); // [Arr, I, Arr, I]
+//
+//            mv.visitInsn(DALOAD); // [Arr, I, Val]
+//
+//            // Применяем Math.min / Math.max только если реально нужно
+//            if (needMaxCheck) {
+//                mv.visitLdcInsn(cMax);
+//                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+//            }
+//
+//            if (needMinCheck) {
+//                mv.visitLdcInsn(cMin);
+//                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
+//            }
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 }

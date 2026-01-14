@@ -12,8 +12,8 @@ public class DensityCompilerMarkerTask extends DensityCompilerTask<DensityFuncti
         ctx.visitNodeCompute(node.wrapped());
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.visitNodeFill(node.wrapped(), destArrayVar);
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx, int destArrayVar) {
+//        ctx.visitNodeFill(node.wrapped(), destArrayVar);
+//    }
 }

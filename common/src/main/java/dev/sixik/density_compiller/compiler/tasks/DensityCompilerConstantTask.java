@@ -12,8 +12,8 @@ public class DensityCompilerConstantTask extends DensityCompilerTask<DensityFunc
         visitor.visitLdcInsn(function.value());
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Constant node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.arrayForFill(destArrayVar, node.value());
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.Constant node, PipelineAsmContext ctx, int destArrayVar) {
+//        ctx.arrayForFill(destArrayVar, node.value());
+//    }
 }

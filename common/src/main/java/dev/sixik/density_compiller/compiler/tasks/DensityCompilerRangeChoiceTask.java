@@ -52,60 +52,60 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
         mv.visitLabel(labelEnd);
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.RangeChoice node, PipelineAsmContext ctx, int destArrayVar) {
-        // ... (оптимизации min/max те же) ...
-        double min = node.minInclusive();
-        double max = node.maxExclusive();
-        double inMin = node.input().minValue();
-        double inMax = node.input().maxValue();
-
-        if (inMin >= min && inMax < max) { ctx.visitNodeFill(node.whenInRange(), destArrayVar); return; }
-        if (inMax < min || inMin >= max) { ctx.visitNodeFill(node.whenOutOfRange(), destArrayVar); return; }
-
-        ctx.visitNodeFill(node.input(), destArrayVar);
-
-        int sharedCtxVar = ctx.newLocalInt();
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            Label labelOutOfRange = new Label();
-            Label labelEnd = new Label();
-
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DALOAD); // [val]
-
-            // Check Min
-            mv.visitInsn(DUP2);
-            mv.visitLdcInsn(min);
-            mv.visitInsn(DCMPL);
-            mv.visitJumpInsn(IFLT, labelOutOfRange);
-
-            // Check Max
-            mv.visitInsn(DUP2); // <-- FIX
-            mv.visitLdcInsn(max);
-            mv.visitInsn(DCMPG);
-            mv.visitJumpInsn(IFGE, labelOutOfRange);
-
-            // In Range
-            mv.visitInsn(POP2); // Remove val
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            compileBranch(mv, node.whenInRange(), ctx, iVar, sharedCtxVar);
-            mv.visitInsn(DASTORE);
-            mv.visitJumpInsn(GOTO, labelEnd);
-
-            // Out of Range
-            mv.visitLabel(labelOutOfRange);
-            mv.visitInsn(POP2); // Remove val
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            compileBranch(mv, node.whenOutOfRange(), ctx, iVar, sharedCtxVar);
-            mv.visitInsn(DASTORE);
-
-            mv.visitLabel(labelEnd);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.RangeChoice node, PipelineAsmContext ctx, int destArrayVar) {
+//        // ... (оптимизации min/max те же) ...
+//        double min = node.minInclusive();
+//        double max = node.maxExclusive();
+//        double inMin = node.input().minValue();
+//        double inMax = node.input().maxValue();
+//
+//        if (inMin >= min && inMax < max) { ctx.visitNodeFill(node.whenInRange(), destArrayVar); return; }
+//        if (inMax < min || inMin >= max) { ctx.visitNodeFill(node.whenOutOfRange(), destArrayVar); return; }
+//
+//        ctx.visitNodeFill(node.input(), destArrayVar);
+//
+//        int sharedCtxVar = ctx.newLocalInt();
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            Label labelOutOfRange = new Label();
+//            Label labelEnd = new Label();
+//
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DALOAD); // [val]
+//
+//            // Check Min
+//            mv.visitInsn(DUP2);
+//            mv.visitLdcInsn(min);
+//            mv.visitInsn(DCMPL);
+//            mv.visitJumpInsn(IFLT, labelOutOfRange);
+//
+//            // Check Max
+//            mv.visitInsn(DUP2); // <-- FIX
+//            mv.visitLdcInsn(max);
+//            mv.visitInsn(DCMPG);
+//            mv.visitJumpInsn(IFGE, labelOutOfRange);
+//
+//            // In Range
+//            mv.visitInsn(POP2); // Remove val
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            compileBranch(mv, node.whenInRange(), ctx, iVar, sharedCtxVar);
+//            mv.visitInsn(DASTORE);
+//            mv.visitJumpInsn(GOTO, labelEnd);
+//
+//            // Out of Range
+//            mv.visitLabel(labelOutOfRange);
+//            mv.visitInsn(POP2); // Remove val
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            compileBranch(mv, node.whenOutOfRange(), ctx, iVar, sharedCtxVar);
+//            mv.visitInsn(DASTORE);
+//
+//            mv.visitLabel(labelEnd);
+//        });
+//    }
 
     private void compileBranch(MethodVisitor mv, DensityFunction func, PipelineAsmContext ctx, int iVar, int ctxVarSlot) {
         if (func instanceof DensityFunctions.Constant c) {

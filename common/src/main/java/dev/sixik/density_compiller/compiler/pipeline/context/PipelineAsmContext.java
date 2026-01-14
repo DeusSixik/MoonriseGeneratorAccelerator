@@ -50,7 +50,74 @@ public class PipelineAsmContext extends AsmCtx {
         });
     }
 
-    public void startLoop() { this.cache.loopContextVar = -1; }
+    public void startLoop() {
+        this.cache.loopContextVar = -1;
+//        this.cache.xVar = -1;
+//        this.cache.yVar = -1;
+//        this.cache.zVar = -1;
+    }
+
+    public void loadBlender() {
+        if (cache.blenderVar != -1) {
+            mv.visitVarInsn(ALOAD, cache.blenderVar);
+        } else {
+            loadContext();
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
+        }
+    }
+
+    public void cacheBlender() {
+        if (cache.blenderVar == -1) {
+            cache.blenderVar = newLocalRef();
+            aload(2); // Provider
+            iconst(0);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
+            astore(cache.blenderVar);
+        }
+    }
+
+    public void preCacheConstants() {
+        // 1. Выделяем слоты
+        this.cache.xVar = newLocalDouble();
+        this.cache.yVar = newLocalDouble();
+        this.cache.zVar = newLocalDouble();
+        this.cache.blenderVar = newLocalRef();
+
+        // 2. Получаем контекст для индекса 0 (базовый контекст для констант)
+        if (this.currentContextVar == 1) {
+            // Мы в методе compute. Провайдера нет, берем всё из входного контекста.
+            aload(1);
+        } else {
+            // Мы в fillArray. Достаем контекст для индекса 0 из провайдера.
+            aload(2); // Provider
+            iconst(0);
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+        }
+        // Стек: [FunctionContext]
+        mv.visitInsn(DUP);
+
+        // Кэшируем Blender
+        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
+        mv.visitVarInsn(ASTORE, cache.blenderVar);
+
+        // Стек: [FunctionContext]
+        mv.visitInsn(DUP);
+        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockX", "()I", true);
+        mv.visitInsn(I2D);
+        mv.visitVarInsn(DSTORE, cache.xVar);
+
+        // Стек: [FunctionContext]
+        mv.visitInsn(DUP);
+        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockY", "()I", true);
+        mv.visitInsn(I2D);
+        mv.visitVarInsn(DSTORE, cache.yVar);
+
+        // Стек: [FunctionContext]
+        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockZ", "()I", true);
+        mv.visitInsn(I2D);
+        mv.visitVarInsn(DSTORE, cache.zVar);
+    }
 
     /**
      * Возвращает контекст для текущей итерации.
@@ -70,6 +137,55 @@ public class PipelineAsmContext extends AsmCtx {
         }
         return this.cache.loopContextVar;
     }
+
+    public void loadBlockX() {
+        if (cache.xVar != -1) {
+            mv.visitVarInsn(DLOAD, cache.xVar);
+        } else {
+            // Fallback для compute()
+            loadContext();
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockX", "()I", true);
+            mv.visitInsn(I2D);
+        }
+    }
+
+    public void loadBlockY() {
+        if (cache.yVar != -1) {
+            mv.visitVarInsn(DLOAD, cache.yVar);
+        } else {
+            // Fallback для compute()
+            loadContext();
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockY", "()I", true);
+            mv.visitInsn(I2D);
+        }
+    }
+
+    public void loadBlockZ() {
+        if (cache.zVar != -1) {
+            mv.visitVarInsn(DLOAD, cache.zVar);
+        } else {
+            loadContext();
+            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockZ", "()I", true);
+            mv.visitInsn(I2D);
+        }
+    }
+
+//    public void loadBlockY() {
+//        if (cache.loopContextVar != -1) {
+//            if (cache.yVar == -1) {
+//                cache.yVar = newLocalDouble();
+//                loadContext();
+//                mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockY", "()I", true);
+//                mv.visitInsn(I2D);
+//                mv.visitVarInsn(DSTORE, cache.yVar);
+//            }
+//            mv.visitVarInsn(DLOAD, cache.yVar);
+//        } else {
+//            loadContext();
+//            mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockY", "()I", true);
+//            mv.visitInsn(I2D);
+//        }
+//    }
 
     public int getOrComputeLength(int destArrayVar) {
         final ContextCache cache = this.cache;
@@ -106,7 +222,7 @@ public class PipelineAsmContext extends AsmCtx {
 
             if (taskSupplier != null) {
                 final DensityCompilerTask<?> task = taskSupplier.get();
-                if((task.buildBits() & DensityCompilerTask.COMPUTE) != 0) {
+                if ((task.buildBits() & DensityCompilerTask.COMPUTE) != 0) {
                     taskSupplier.get().compileComputeImpl(mv, node, this);
                     return;
                 }
@@ -120,7 +236,8 @@ public class PipelineAsmContext extends AsmCtx {
 
     /**
      * Регистрирует объект как лист и возвращает его индекс и имя поля.
-     * @param leaf Объект (DensityFunction, NoiseHolder, Spline и т.д.)
+     *
+     * @param leaf       Объект (DensityFunction, NoiseHolder, Spline и т.д.)
      * @param descriptor Дескриптор типа поля (например "Lnet/minecraft/.../NoiseHolder;")
      */
     public void visitCustomLeaf(Object leaf, String descriptor) {
@@ -263,11 +380,11 @@ public class PipelineAsmContext extends AsmCtx {
                     Calling a specific optimization for fill
                     We need to attach the Task to the raw type or wildcards to call the method.
                  */
-                final DensityCompilerTask task = taskSupplier.get();
-                if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
-                    task.compileFill(mv, node, this, destArrayVar);
-                    return;
-                }
+//                final DensityCompilerTask task = taskSupplier.get();
+//                if ((task.buildBits() & DensityCompilerTask.FILL) != 0) {
+//                    task.compileFill(mv, node, this, destArrayVar);
+//                    return;
+//                }
             }
 
               /*
@@ -345,4 +462,6 @@ public class PipelineAsmContext extends AsmCtx {
 
         this.currentContextVar = oldCtx; // Возвращаем обратно
     }
+
+
 }

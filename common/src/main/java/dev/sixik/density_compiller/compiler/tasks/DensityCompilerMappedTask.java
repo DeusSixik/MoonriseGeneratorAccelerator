@@ -17,33 +17,43 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
         generateTransformMath(mv, node.type(), node.input(), ctx);
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.visitNodeFill(node.input(), destArrayVar);
-
-        // Оптимизация: Если операция ABS и вход уже положительный -> ничего не делаем
-        if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
-            return;
-        }
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DUP2); // Stack: [Arr, I, Arr, I]
-
-            mv.visitInsn(DALOAD); // Stack: [Arr, I, Val]
-
-            generateTransformMath(mv, node.type(), node.input(), ctx);
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx, int destArrayVar) {
+//        ctx.visitNodeFill(node.input(), destArrayVar);
+//
+//        // Оптимизация: Если операция ABS и вход уже положительный -> ничего не делаем
+//        if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
+//            return;
+//        }
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DUP2); // Stack: [Arr, I, Arr, I]
+//
+//            mv.visitInsn(DALOAD); // Stack: [Arr, I, Val]
+//
+//            generateTransformMath(mv, node.type(), node.input(), ctx);
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 
     private void generateTransformMath(MethodVisitor mv, DensityFunctions.Mapped.Type type, DensityFunction input, PipelineAsmContext ctx) {
         switch (type) {
-            case ABS -> { /* ... */ }
-            case SQUARE -> { /* ... */ }
-            case CUBE -> { /* ... */ }
+            case ABS -> {
+                DensityCompilerUtils.abs(mv);
+            }
+            case SQUARE -> {
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DMUL);
+            }
+            case CUBE -> {
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DMUL);
+                mv.visitInsn(DMUL);
+            }
             case HALF_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.5);
             case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25);
             case SQUEEZE -> {

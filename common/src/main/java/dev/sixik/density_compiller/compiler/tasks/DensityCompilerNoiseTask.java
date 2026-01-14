@@ -51,42 +51,42 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
         }
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.Noise node, PipelineAsmContext ctx, int destArrayVar) {
-        DensityFunction.NoiseHolder holder = node.noise();
-
-        // 1. Грузим поле Holder на стек
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-
-        // 2. Сохраняем в локальную переменную (Ref), чтобы не дергать GETFIELD в цикле
-        int holderVar = ctx.newLocalRef();
-        mv.visitVarInsn(ASTORE, holderVar);
-
-        double xzScale = node.xzScale();
-        double yScale = node.yScale();
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-
-            // Грузим holder из локальной переменной
-            mv.visitVarInsn(ALOAD, holderVar);
-
-            // --- Подготовка координат для getValue ---
-            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-            int oldCtx = ctx.getCurrentContextVar();
-            ctx.setCurrentContextVar(loopCtx);
-
-            generateCoordinate(mv, ctx, "blockX", xzScale);
-            generateCoordinate(mv, ctx, "blockY", yScale);
-            generateCoordinate(mv, ctx, "blockZ", xzScale);
-
-            ctx.setCurrentContextVar(oldCtx);
-
-            // Вызов getValue
-            mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.Noise node, PipelineAsmContext ctx, int destArrayVar) {
+//        DensityFunction.NoiseHolder holder = node.noise();
+//
+//        // 1. Грузим поле Holder на стек
+//        ctx.visitCustomLeaf(holder, HOLDER_DESC);
+//
+//        // 2. Сохраняем в локальную переменную (Ref), чтобы не дергать GETFIELD в цикле
+//        int holderVar = ctx.newLocalRef();
+//        mv.visitVarInsn(ASTORE, holderVar);
+//
+//        double xzScale = node.xzScale();
+//        double yScale = node.yScale();
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//
+//            // Грузим holder из локальной переменной
+//            mv.visitVarInsn(ALOAD, holderVar);
+//
+//            // --- Подготовка координат для getValue ---
+//            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
+//            int oldCtx = ctx.getCurrentContextVar();
+//            ctx.setCurrentContextVar(loopCtx);
+//
+//            generateCoordinate(mv, ctx, "blockX", xzScale);
+//            generateCoordinate(mv, ctx, "blockY", yScale);
+//            generateCoordinate(mv, ctx, "blockZ", xzScale);
+//
+//            ctx.setCurrentContextVar(oldCtx);
+//
+//            // Вызов getValue
+//            mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER_INTERNAL, "getValue", "(DDD)D", false);
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 }

@@ -27,7 +27,7 @@ public interface DensityCompilerPipelineGenerator {
     }
 
     default ByteCodeGeneratorStructure getStructure(DensityCompilerPipeline pipeline) {
-        return new ByteCodeGeneratorStructure(5, 1);
+        return new ByteCodeGeneratorStructure(5, -1);
     }
 
     default void generateClassField(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root, String className, String simpleClassName, int id) {}

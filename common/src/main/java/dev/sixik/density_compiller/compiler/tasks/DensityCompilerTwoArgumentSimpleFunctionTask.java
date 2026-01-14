@@ -78,115 +78,115 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         }
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx, int destArrayVar) {
-        DensityFunction arg1 = node.argument1();
-        DensityFunction arg2 = node.argument2();
-        var type = node.type();
-
-        // --- Оптимизация 1: Identity (Ничего не делать) ---
-        // x + 0 или x * 1 -> просто заливаем x
-        if ((type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD && (isConst(arg1, 0.0) || isConst(arg2, 0.0))) ||
-                (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL && (isConst(arg1, 1.0) || isConst(arg2, 1.0)))) {
-
-            DensityFunction nonConstArg = isConst(arg1) ? arg2 : arg1;
-            ctx.visitNodeFill(nonConstArg, destArrayVar);
-            return;
-        }
-
-        // --- Оптимизация 2: Scalar + Vector (Без аллокации буфера) ---
-        // Если один аргумент константа, а второй сложный -> заливаем сложный, потом циклом применяем константу
-        // Для MUL, ADD, MIN, MAX порядок аргументов не важен (коммутативность)
-        if (isConst(arg1) || isConst(arg2)) {
-            double constantValue = isConst(arg1) ? getConst(arg1) : getConst(arg2);
-            DensityFunction vectorArg = isConst(arg1) ? arg2 : arg1;
-
-            // 1. Заливаем векторную часть в dest
-            ctx.visitNodeFill(vectorArg, destArrayVar);
-
-            // 2. Проходим по массиву и применяем операцию с константой
-            ctx.arrayForI(destArrayVar, (iVar) -> {
-                mv.visitVarInsn(ALOAD, destArrayVar); // array ref
-                mv.visitVarInsn(ILOAD, iVar);         // index
-                mv.visitInsn(DUP2);                   // [array, index, array, index]
-                mv.visitInsn(DALOAD);                 // [array, index, value]
-
-                mv.visitLdcInsn(constantValue);       // [array, index, value, const]
-
-                switch (type) {
-                    case ADD -> mv.visitInsn(DADD);
-                    case MUL -> mv.visitInsn(DMUL);
-                    case MIN -> DensityCompilerUtils.min(mv);
-                    case MAX -> DensityCompilerUtils.max(mv);
-                }
-
-                mv.visitInsn(DASTORE);                // Store back
-            });
-            return;
-        }
-
-        // --- Стандартная логика (Vector + Vector) ---
-        // Если оба аргумента сложные, придется использовать временный буфер (или ленивый MUL)
-
-        ctx.visitNodeFill(arg1, destArrayVar);
-
-        // Ленивый MUL (как было у тебя, это хорошая оптимизация)
-        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
-            ctx.arrayForI(destArrayVar, (iVar) -> {
-                Label skip = new Label();
-                mv.visitVarInsn(ALOAD, destArrayVar);
-                mv.visitVarInsn(ILOAD, iVar);
-                mv.visitInsn(DALOAD);
-                mv.visitInsn(DUP2);
-                mv.visitInsn(DCONST_0);
-                mv.visitInsn(DCMPL);
-                mv.visitJumpInsn(IFEQ, skip);
-
-                ctx.compileNodeComputeForIndex(mv, arg2, iVar);
-                mv.visitInsn(DMUL);
-
-                mv.visitVarInsn(ALOAD, destArrayVar);
-                mv.visitVarInsn(ILOAD, iVar);
-                mv.visitInsn(DUP2_X2);
-                mv.visitInsn(POP2);
-                mv.visitInsn(DASTORE);
-
-                mv.visitLabel(skip);
-                mv.visitInsn(POP2);
-            });
-            return;
-        }
-
-        // ADD, MIN, MAX для двух векторов
-        int tempArrayVar = ctx.allocateTempBuffer();
-        ctx.visitNodeFill(arg2, tempArrayVar);
-
-        int opcode = switch (type) {
-            case ADD -> DADD;
-            default -> -1;
-        };
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DUP2);
-            mv.visitInsn(DALOAD);
-
-            mv.visitVarInsn(ALOAD, tempArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DALOAD);
-
-            if (opcode != -1) {
-                mv.visitInsn(opcode);
-            } else if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MIN) {
-                DensityCompilerUtils.min(mv);
-            } else {
-                DensityCompilerUtils.max(mv);
-            }
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx, int destArrayVar) {
+//        DensityFunction arg1 = node.argument1();
+//        DensityFunction arg2 = node.argument2();
+//        var type = node.type();
+//
+//        // --- Оптимизация 1: Identity (Ничего не делать) ---
+//        // x + 0 или x * 1 -> просто заливаем x
+//        if ((type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD && (isConst(arg1, 0.0) || isConst(arg2, 0.0))) ||
+//                (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL && (isConst(arg1, 1.0) || isConst(arg2, 1.0)))) {
+//
+//            DensityFunction nonConstArg = isConst(arg1) ? arg2 : arg1;
+//            ctx.visitNodeFill(nonConstArg, destArrayVar);
+//            return;
+//        }
+//
+//        // --- Оптимизация 2: Scalar + Vector (Без аллокации буфера) ---
+//        // Если один аргумент константа, а второй сложный -> заливаем сложный, потом циклом применяем константу
+//        // Для MUL, ADD, MIN, MAX порядок аргументов не важен (коммутативность)
+//        if (isConst(arg1) || isConst(arg2)) {
+//            double constantValue = isConst(arg1) ? getConst(arg1) : getConst(arg2);
+//            DensityFunction vectorArg = isConst(arg1) ? arg2 : arg1;
+//
+//            // 1. Заливаем векторную часть в dest
+//            ctx.visitNodeFill(vectorArg, destArrayVar);
+//
+//            // 2. Проходим по массиву и применяем операцию с константой
+//            ctx.arrayForI(destArrayVar, (iVar) -> {
+//                mv.visitVarInsn(ALOAD, destArrayVar); // array ref
+//                mv.visitVarInsn(ILOAD, iVar);         // index
+//                mv.visitInsn(DUP2);                   // [array, index, array, index]
+//                mv.visitInsn(DALOAD);                 // [array, index, value]
+//
+//                mv.visitLdcInsn(constantValue);       // [array, index, value, const]
+//
+//                switch (type) {
+//                    case ADD -> mv.visitInsn(DADD);
+//                    case MUL -> mv.visitInsn(DMUL);
+//                    case MIN -> DensityCompilerUtils.min(mv);
+//                    case MAX -> DensityCompilerUtils.max(mv);
+//                }
+//
+//                mv.visitInsn(DASTORE);                // Store back
+//            });
+//            return;
+//        }
+//
+//        // --- Стандартная логика (Vector + Vector) ---
+//        // Если оба аргумента сложные, придется использовать временный буфер (или ленивый MUL)
+//
+//        ctx.visitNodeFill(arg1, destArrayVar);
+//
+//        // Ленивый MUL (как было у тебя, это хорошая оптимизация)
+//        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
+//            ctx.arrayForI(destArrayVar, (iVar) -> {
+//                Label skip = new Label();
+//                mv.visitVarInsn(ALOAD, destArrayVar);
+//                mv.visitVarInsn(ILOAD, iVar);
+//                mv.visitInsn(DALOAD);
+//                mv.visitInsn(DUP2);
+//                mv.visitInsn(DCONST_0);
+//                mv.visitInsn(DCMPL);
+//                mv.visitJumpInsn(IFEQ, skip);
+//
+//                ctx.compileNodeComputeForIndex(mv, arg2, iVar);
+//                mv.visitInsn(DMUL);
+//
+//                mv.visitVarInsn(ALOAD, destArrayVar);
+//                mv.visitVarInsn(ILOAD, iVar);
+//                mv.visitInsn(DUP2_X2);
+//                mv.visitInsn(POP2);
+//                mv.visitInsn(DASTORE);
+//
+//                mv.visitLabel(skip);
+//                mv.visitInsn(POP2);
+//            });
+//            return;
+//        }
+//
+//        // ADD, MIN, MAX для двух векторов
+//        int tempArrayVar = ctx.allocateTempBuffer();
+//        ctx.visitNodeFill(arg2, tempArrayVar);
+//
+//        int opcode = switch (type) {
+//            case ADD -> DADD;
+//            default -> -1;
+//        };
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DUP2);
+//            mv.visitInsn(DALOAD);
+//
+//            mv.visitVarInsn(ALOAD, tempArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DALOAD);
+//
+//            if (opcode != -1) {
+//                mv.visitInsn(opcode);
+//            } else if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MIN) {
+//                DensityCompilerUtils.min(mv);
+//            } else {
+//                DensityCompilerUtils.max(mv);
+//            }
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 
     // --- Helpers ---
 

@@ -19,27 +19,27 @@ public class DensityCompilerFastMinTask extends DensityCompilerTask<DensitySpeci
         DensityCompilerUtils.min(visitor);
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.visitNodeFill(node.a(), destArrayVar);
-
-        int tempArrayVar = ctx.allocateTempBuffer();
-        ctx.visitNodeFill(node.b(), tempArrayVar);
-
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DUP2); // Preparing the stack for DASTORE (Array, Index)
-
-            mv.visitInsn(DALOAD); // Loading a[i]
-
-            mv.visitVarInsn(ALOAD, tempArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-            mv.visitInsn(DALOAD); // Loading b[i]
-
-            DensityCompilerUtils.min(mv); // Min up
-
-            mv.visitInsn(DASTORE); // Saving it in ds[i]
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, PipelineAsmContext ctx, int destArrayVar) {
+//        ctx.visitNodeFill(node.a(), destArrayVar);
+//
+//        int tempArrayVar = ctx.allocateTempBuffer();
+//        ctx.visitNodeFill(node.b(), tempArrayVar);
+//
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DUP2); // Preparing the stack for DASTORE (Array, Index)
+//
+//            mv.visitInsn(DALOAD); // Loading a[i]
+//
+//            mv.visitVarInsn(ALOAD, tempArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//            mv.visitInsn(DALOAD); // Loading b[i]
+//
+//            DensityCompilerUtils.min(mv); // Min up
+//
+//            mv.visitInsn(DASTORE); // Saving it in ds[i]
+//        });
+//    }
 }

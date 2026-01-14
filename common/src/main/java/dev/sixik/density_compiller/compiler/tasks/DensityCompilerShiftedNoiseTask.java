@@ -55,27 +55,27 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
     }
 
-    @Override
-    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx, int destArrayVar) {
-        ctx.arrayForI(destArrayVar, (iVar) -> {
-            mv.visitVarInsn(ALOAD, destArrayVar);
-            mv.visitVarInsn(ILOAD, iVar);
-
-            // Сбрасываем кэш контекста для новой итерации
-            ctx.startLoop();
-
-            // Получаем (или создаем) контекст
-            int currentCtx = ctx.getOrAllocateLoopContext(iVar);
-
-            int oldCtx = ctx.getCurrentContextVar();
-            ctx.setCurrentContextVar(currentCtx);
-
-            // Генерируем вычисления шума (все внутренние compileNodeCompute подхватят наш currentCtx)
-            this.compileCompute(mv, node, ctx);
-
-            ctx.setCurrentContextVar(oldCtx);
-
-            mv.visitInsn(DASTORE);
-        });
-    }
+//    @Override
+//    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx, int destArrayVar) {
+//        ctx.arrayForI(destArrayVar, (iVar) -> {
+//            mv.visitVarInsn(ALOAD, destArrayVar);
+//            mv.visitVarInsn(ILOAD, iVar);
+//
+//            // Сбрасываем кэш контекста для новой итерации
+//            ctx.startLoop();
+//
+//            // Получаем (или создаем) контекст
+//            int currentCtx = ctx.getOrAllocateLoopContext(iVar);
+//
+//            int oldCtx = ctx.getCurrentContextVar();
+//            ctx.setCurrentContextVar(currentCtx);
+//
+//            // Генерируем вычисления шума (все внутренние compileNodeCompute подхватят наш currentCtx)
+//            this.compileCompute(mv, node, ctx);
+//
+//            ctx.setCurrentContextVar(oldCtx);
+//
+//            mv.visitInsn(DASTORE);
+//        });
+//    }
 }
