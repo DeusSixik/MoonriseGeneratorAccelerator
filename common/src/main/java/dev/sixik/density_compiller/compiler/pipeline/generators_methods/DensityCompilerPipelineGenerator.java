@@ -13,6 +13,26 @@ public interface DensityCompilerPipelineGenerator {
         return false;
     }
 
+    default void prepareMethod(
+            DensityCompilerPipeline pipeline,
+            PipelineAsmContext ctx,
+            DensityFunction root,
+            String className,
+            String classSimpleName,
+            int id
+    ) {}
+
+    default void postPrepareMethod(
+            DensityCompilerPipeline pipeline,
+            PipelineAsmContext ctx,
+            DensityFunction root,
+            String className,
+            String classSimpleName,
+            int id
+    ) {
+
+    }
+
     void applyMethod(
             DensityCompilerPipeline pipeline,
             PipelineAsmContext ctx,
@@ -31,5 +51,18 @@ public interface DensityCompilerPipelineGenerator {
     }
 
     default void generateClassField(DensityCompilerPipeline pipeline, ClassWriter cw, DensityFunction root, String className, String simpleClassName, int id) {}
+
+    @FunctionalInterface
+    interface Invoker {
+
+        void handler(
+                DensityCompilerPipeline pipeline,
+                PipelineAsmContext ctx,
+                DensityFunction root,
+                String className,
+                String classSimpleName,
+                int id
+        );
+    }
 
 }

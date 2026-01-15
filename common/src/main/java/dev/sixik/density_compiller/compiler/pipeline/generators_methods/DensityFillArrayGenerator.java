@@ -17,24 +17,24 @@ public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerat
 
         // 1. Кэшируем Blender ЗА ПРЕДЕЛАМИ цикла
         // Вызываем provider.forIndex(0).getBlender() один раз на весь метод
-        ctx.preCacheConstants();
+//        ctx.preCacheConstants();
 
         // 2. Открываем ОДИН цикл
-        ctx.startLoop();
+//        ctx.startLoop();
         ctx.arrayForI(destArrayVar, (iVar) -> {
             // Стек для DASTORE: [Array, Index]
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
-
-            // 3. Получаем контекст для итерации
+//
+//            // 3. Получаем контекст для итерации
             int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-            int oldCtx = ctx.getCurrentContextVar();
-            ctx.setCurrentContextVar(loopCtx);
+//            int oldCtx = ctx.getCurrentContextVar();
+////            ctx.setCurrentContextVar(loopCtx);
 
             // 4. Инлайним всю математику дерева в этот цикл
             ctx.visitNodeCompute(root);
 
-            ctx.setCurrentContextVar(oldCtx);
+//            ctx.setCurrentContextVar(oldCtx);
 
             // 5. Записываем результат: [Array, Index, Result] -> DASTORE
             mv.visitInsn(DASTORE);

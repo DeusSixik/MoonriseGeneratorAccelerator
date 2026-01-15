@@ -1,13 +1,21 @@
 package dev.sixik.asm;
 
+import dev.sixik.asm.handlers.*;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.function.Consumer;
 
-import static org.objectweb.asm.Opcodes.*;
-
-public class AsmCtx {
+public class AsmCtx implements
+        AsmCtxPrimitiveHandler,
+        AsmCtxMethodsHandler,
+        AsmCtxArraysHandler,
+        AsmCtxOperationsHandler,
+        AsmCtxConditionsHandler,
+        AsmCtxIterationsHandler
+{
     protected final MethodVisitor mv;
     protected final String ownerInternalName;
 
@@ -16,6 +24,7 @@ public class AsmCtx {
     public final LocalsCache locals = new LocalsCache();
     public final FieldsCache fields = new FieldsCache();
 
+    protected final VariablesManipulator manipulator = new VariablesManipulator();
 
     // где лежит текущий FunctionContext
     protected int currentContextVar;
@@ -25,6 +34,10 @@ public class AsmCtx {
         this.ownerInternalName = ownerInternalName;
         this.nextLocal = firstFreeLocal;
         this.currentContextVar = currentContextVar;
+    }
+
+    public VariablesManipulator manipulator() {
+        return manipulator;
     }
 
     public MethodVisitor mv() {
@@ -150,5 +163,38 @@ public class AsmCtx {
         mv.visitIincInsn(iVar, 1);
         mv.visitJumpInsn(GOTO, start);
         mv.visitLabel(end);
+    }
+
+    public void mulVariables(int... vars) {
+        if (vars.length == 0) return;
+
+        pushAsDouble(vars[0]); // accumulator on stack
+
+        for (int i = 1; i < vars.length; i++) {
+            pushAsDouble(vars[i]);  // push next operand
+            mv.visitInsn(DMUL);     // acc *= operand
+        }
+    }
+
+    private void pushAsDouble(int varId) {
+        var type = manipulator.getVariableType(varId);
+        if (type == VariablesManipulator.VariableType.REFERENCE)
+            throw new RuntimeException("Can't multiply reference varId=" + varId);
+
+        switch (type) {
+            case INT -> {
+                mv.visitVarInsn(ILOAD, varId);
+                mv.visitInsn(I2D);
+            }
+            case DOUBLE -> mv.visitVarInsn(DLOAD, varId);
+            default -> throw new RuntimeException("Unsupported type: " + type);
+        }
+    }
+
+    private final Deque<LoopLabels> deque = new ArrayDeque<>();
+
+    @Override
+    public Deque<LoopLabels> getLoopStack() {
+        return deque;
     }
 }

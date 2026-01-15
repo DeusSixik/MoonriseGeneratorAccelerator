@@ -16,9 +16,7 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
 
     protected abstract void compileCompute(MethodVisitor mv, T node, PipelineAsmContext ctx);
 
-//    public void compileFill(MethodVisitor mv, T node, PipelineAsmContext ctx, int destArrayVar) {
-//        ctx.emitLeafFill(node, destArrayVar);
-//    }
+    protected void prepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {}
 
     public int buildBits() {
         return ALL;

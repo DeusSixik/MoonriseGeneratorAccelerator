@@ -12,6 +12,10 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -24,6 +28,8 @@ public class PipelineAsmContext extends AsmCtx {
     protected final DensityCompilerPipeline pipeline;
     protected final ContextCache cache = new ContextCache();
 
+    private final Map<DensityFunction, Integer> nodeToLocal = new IdentityHashMap<>();
+
     public PipelineAsmContext(
             DensityCompilerPipeline pipeline,
             MethodVisitor mv,
@@ -33,6 +39,71 @@ public class PipelineAsmContext extends AsmCtx {
     ) {
         super(mv, ownerInternalName, firstFreeLocal, currentContextVar);
         this.pipeline = pipeline;
+    }
+
+    private void discoverNodes(DensityFunction node, Map<DensityFunction, Integer> counts) {
+        counts.merge(node, 1, Integer::sum);
+        // Рекурсивный обход через Visitor или рефлексию для всех дочерних DensityFunction
+        // ...
+    }
+
+    public void analyzeAndBind(DensityFunction root) {
+        // 1. Поиск инвариантов и общих подвыражений (CSE)
+        Map<DensityFunction, Integer> usageCount = new IdentityHashMap<>();
+        discoverNodes(root, usageCount);
+
+        // 2. Генерация Header-блока (выполняется ДО цикла)
+        for (Map.Entry<DensityFunction, Integer> entry : usageCount.entrySet()) {
+            DensityFunction node = entry.getKey();
+            int count = entry.getValue();
+
+            // Выносим если: нода инвариантна для Y ИЛИ используется более одного раза (CSE)
+            if (isYInvariant(node) || count > 1) {
+                if (node instanceof DensityFunctions.Constant) continue;
+
+                // Генерируем вычисление и сохраняем в локалку
+                visitNodeCompute(node);
+                int slot = newLocalDouble();
+                mv.visitVarInsn(DSTORE, slot);
+                nodeToLocal.put(node, slot);
+            }
+        }
+    }
+
+    public static boolean isYInvariant(DensityFunction f) {
+        // Константы — всегда инвариантны
+        if (f instanceof DensityFunctions.Constant) return true;
+
+        // Координаты: X и Z не меняются в рамках одного fillArray (вертикальный столб)
+        // Нода Y — меняется всегда.
+        if (f instanceof DensityFunctions.YClampedGradient) return false;
+
+        // В Minecraft 1.20+ есть внутренние классы для координат
+        String name = f.getClass().getSimpleName();
+        if (name.contains("YCoordinate")) return false;
+        if (name.contains("XCoordinate") || name.contains("ZCoordinate")) return true;
+
+        // Шум по умолчанию зависит от X, Y, Z.
+        // Нода Noise в MC обычно не инвариантна, так как внутри дергает context.blockY()
+        if (f instanceof DensityFunctions.Noise || f instanceof DensityFunctions.ShiftedNoise) return false;
+        if (f instanceof DensityFunctions.WeirdScaledSampler) return false;
+
+        // Рекурсивная проверка для комбинированных функций (Add, Mul, Clamp и т.д.)
+        if (f instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
+            return isYInvariant(ap2.argument1()) && isYInvariant(ap2.argument2());
+        }
+        if (f instanceof DensityFunctions.MulOrAdd ma) {
+            return isYInvariant(ma.input());
+        }
+        if (f instanceof DensityFunctions.Clamp c) {
+            return isYInvariant(c.input());
+        }
+        if (f instanceof DensityFunctions.Mapped m) {
+            return isYInvariant(m.input());
+        }
+
+        // По умолчанию считаем ноду динамической (безопасный вариант)
+        return false;
     }
 
     public void putField(int iVar) {

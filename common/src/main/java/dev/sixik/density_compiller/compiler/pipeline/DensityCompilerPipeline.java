@@ -1,7 +1,9 @@
 package dev.sixik.density_compiller.compiler.pipeline;
 
+import com.mojang.datafixers.util.Function6;
 import dev.sixik.density_compiller.compiler.CompilerInfrastructure;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.DensityCompilerPipelineConfigurator;
+import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.pipeline.generators_methods.*;
 import dev.sixik.density_compiller.compiler.pipeline.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
@@ -116,13 +118,36 @@ public class DensityCompilerPipeline {
         for (int i = 0; i < copy.size(); i++) {
             final DensityCompilerPipelineGenerator element = copy.get(i);
             if(element.ignore(this)) continue;
-
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
+
             mv.visitCode();
 
+            final var context = element.getStructure(this).createContext(this, mv, className);
+
+            // Prepare Stage
+            element.prepareMethod(
+                    this,
+                    context,
+                    root,
+                    className,
+                    simpleClassName,
+                    id
+            );
+
+            // Post Prepare Stage
+            element.postPrepareMethod(
+                    this,
+                    context,
+                    root,
+                    className,
+                    simpleClassName,
+                    id
+            );
+
+            // Apply Method
             element.applyMethod(
                     this,
-                    element.getStructure(this).createContext(this, mv, className),
+                    context,
                     root,
                     className,
                     simpleClassName,
