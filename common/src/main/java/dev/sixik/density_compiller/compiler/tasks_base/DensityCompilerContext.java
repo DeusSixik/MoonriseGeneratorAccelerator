@@ -118,12 +118,12 @@ public final class DensityCompilerContext {
                     We need to attach the Task to the raw type or wildcards to call the method.
                  */
                 final DensityCompilerTask task = taskSupplier.get();
-                if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
-//                    task.compileFill(mv, node, this, destArrayVar);
-
-                    compiledFilesFill.add(nodeName + "_found");
-                    return;
-                }
+//                if((task.buildBits() & DensityCompilerTask.FILL) != 0) {
+////                    task.compileFill(mv, node, this, destArrayVar);
+//
+//                    compiledFilesFill.add(nodeName + "_found");
+//                    return;
+//                }
             }
 
               /*

@@ -49,7 +49,7 @@ public class ASMTest {
 //                 true
 //        ).startCompilation();
 
-        DensityCompilerPipeline.from(new DensityFunctions.Constant(5), true).startCompilation();
+        DensityCompilerPipeline.from(new DensityFunctions.YClampedGradient(5, 1, 2, 1), true).startCompilation();
 
         //        DensityFunctions.Constant constant = new DensityFunctions.Constant(5);
 //

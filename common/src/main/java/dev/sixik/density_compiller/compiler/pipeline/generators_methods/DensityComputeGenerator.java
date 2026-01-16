@@ -3,6 +3,7 @@ package dev.sixik.density_compiller.compiler.pipeline.generators_methods;
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.ByteCodeGeneratorStructure;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
+import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.ClassWriter;
@@ -14,10 +15,18 @@ import static org.objectweb.asm.Opcodes.DRETURN;
 public class DensityComputeGenerator implements DensityCompilerPipelineGenerator{
 
     @Override
+    public void prepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
+        ctx.visitNodeCompute(root, DensityCompilerTask.PREPARE_COMPUTE);
+    }
+
+    @Override
+    public void postPrepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
+        ctx.visitNodeCompute(root, DensityCompilerTask.POST_PREPARE_COMPUTE);
+    }
+
+    @Override
     public void applyMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         final MethodVisitor mv = ctx.mv();
-
-//        ctx.preCacheConstants();
 
         ctx.visitNodeCompute(root);
 

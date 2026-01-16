@@ -6,6 +6,8 @@ import org.objectweb.asm.MethodVisitor;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public class AsmCtx implements
@@ -14,7 +16,8 @@ public class AsmCtx implements
         AsmCtxArraysHandler,
         AsmCtxOperationsHandler,
         AsmCtxConditionsHandler,
-        AsmCtxIterationsHandler
+        AsmCtxIterationsHandler,
+        AsmCtxCachedVariablesHandler
 {
     protected final MethodVisitor mv;
     protected final String ownerInternalName;
@@ -25,6 +28,8 @@ public class AsmCtx implements
     public final FieldsCache fields = new FieldsCache();
 
     protected final VariablesManipulator manipulator = new VariablesManipulator();
+
+    private final Map<String, Integer> cachedVariables = new HashMap<>();
 
     // где лежит текущий FunctionContext
     protected int currentContextVar;
@@ -196,5 +201,10 @@ public class AsmCtx implements
     @Override
     public Deque<LoopLabels> getLoopStack() {
         return deque;
+    }
+
+    @Override
+    public Map<String, Integer> getCachedVariables() {
+        return cachedVariables;
     }
 }

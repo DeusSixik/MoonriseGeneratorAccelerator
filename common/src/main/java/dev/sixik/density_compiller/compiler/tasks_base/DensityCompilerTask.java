@@ -7,8 +7,8 @@ import org.objectweb.asm.MethodVisitor;
 public abstract class DensityCompilerTask<T extends DensityFunction> {
 
     public static final int COMPUTE = 1 << 1;
-    public static final int FILL = 1 << 2;
-    public static final int ALL = COMPUTE | FILL;
+    public static final int PREPARE_COMPUTE = 1 << 2;
+    public static final int POST_PREPARE_COMPUTE = 1 << 3;
 
     public final void compileComputeImpl(MethodVisitor visitor, DensityFunction function, PipelineAsmContext context) {
         compileCompute(visitor, (T) function, context);
@@ -16,9 +16,19 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
 
     protected abstract void compileCompute(MethodVisitor mv, T node, PipelineAsmContext ctx);
 
+    public final void prepareComputeImpl(MethodVisitor mv, DensityFunction node, PipelineAsmContext ctx) {
+        prepareCompute(mv, (T) node, ctx);
+    }
+
     protected void prepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {}
 
+    public final void postPrepareComputeImpl(MethodVisitor mv, DensityFunction node, PipelineAsmContext ctx) {
+        postPrepareCompute(mv, (T) node, ctx);
+    }
+
+    protected void postPrepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {}
+
     public int buildBits() {
-        return ALL;
+        return 0;
     }
 }

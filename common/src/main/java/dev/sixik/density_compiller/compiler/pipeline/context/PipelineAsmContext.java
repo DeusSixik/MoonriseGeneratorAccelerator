@@ -4,6 +4,7 @@ import dev.sixik.asm.AsmCtx;
 import dev.sixik.density_compiller.compiler.DensityCompiler;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
+import dev.sixik.density_compiller.compiler.pipeline.context.hanlders.DensityFunctionsCacheHandler;
 import dev.sixik.density_compiller.compiler.pipeline.locals.DensityCompilerLocals;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
@@ -12,16 +13,14 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import static org.objectweb.asm.Opcodes.*;
-
-public class PipelineAsmContext extends AsmCtx {
+public class PipelineAsmContext extends AsmCtx implements
+        DensityFunctionsCacheHandler
+{
 
     public static final String DEFAULT_LEAF_FUNCTION_NAME = "leaf_function";
 
@@ -39,71 +38,6 @@ public class PipelineAsmContext extends AsmCtx {
     ) {
         super(mv, ownerInternalName, firstFreeLocal, currentContextVar);
         this.pipeline = pipeline;
-    }
-
-    private void discoverNodes(DensityFunction node, Map<DensityFunction, Integer> counts) {
-        counts.merge(node, 1, Integer::sum);
-        // Рекурсивный обход через Visitor или рефлексию для всех дочерних DensityFunction
-        // ...
-    }
-
-    public void analyzeAndBind(DensityFunction root) {
-        // 1. Поиск инвариантов и общих подвыражений (CSE)
-        Map<DensityFunction, Integer> usageCount = new IdentityHashMap<>();
-        discoverNodes(root, usageCount);
-
-        // 2. Генерация Header-блока (выполняется ДО цикла)
-        for (Map.Entry<DensityFunction, Integer> entry : usageCount.entrySet()) {
-            DensityFunction node = entry.getKey();
-            int count = entry.getValue();
-
-            // Выносим если: нода инвариантна для Y ИЛИ используется более одного раза (CSE)
-            if (isYInvariant(node) || count > 1) {
-                if (node instanceof DensityFunctions.Constant) continue;
-
-                // Генерируем вычисление и сохраняем в локалку
-                visitNodeCompute(node);
-                int slot = newLocalDouble();
-                mv.visitVarInsn(DSTORE, slot);
-                nodeToLocal.put(node, slot);
-            }
-        }
-    }
-
-    public static boolean isYInvariant(DensityFunction f) {
-        // Константы — всегда инвариантны
-        if (f instanceof DensityFunctions.Constant) return true;
-
-        // Координаты: X и Z не меняются в рамках одного fillArray (вертикальный столб)
-        // Нода Y — меняется всегда.
-        if (f instanceof DensityFunctions.YClampedGradient) return false;
-
-        // В Minecraft 1.20+ есть внутренние классы для координат
-        String name = f.getClass().getSimpleName();
-        if (name.contains("YCoordinate")) return false;
-        if (name.contains("XCoordinate") || name.contains("ZCoordinate")) return true;
-
-        // Шум по умолчанию зависит от X, Y, Z.
-        // Нода Noise в MC обычно не инвариантна, так как внутри дергает context.blockY()
-        if (f instanceof DensityFunctions.Noise || f instanceof DensityFunctions.ShiftedNoise) return false;
-        if (f instanceof DensityFunctions.WeirdScaledSampler) return false;
-
-        // Рекурсивная проверка для комбинированных функций (Add, Mul, Clamp и т.д.)
-        if (f instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
-            return isYInvariant(ap2.argument1()) && isYInvariant(ap2.argument2());
-        }
-        if (f instanceof DensityFunctions.MulOrAdd ma) {
-            return isYInvariant(ma.input());
-        }
-        if (f instanceof DensityFunctions.Clamp c) {
-            return isYInvariant(c.input());
-        }
-        if (f instanceof DensityFunctions.Mapped m) {
-            return isYInvariant(m.input());
-        }
-
-        // По умолчанию считаем ноду динамической (безопасный вариант)
-        return false;
     }
 
     public void putField(int iVar) {
@@ -287,16 +221,25 @@ public class PipelineAsmContext extends AsmCtx {
     }
 
     public void visitNodeCompute(DensityFunction node) {
+        visitNodeCompute(node, DensityCompilerTask.COMPUTE);
+    }
+
+    public void visitNodeCompute(DensityFunction node, int bits) {
         try {
             final Class<? extends DensityFunction> clz = node.getClass();
             final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
 
             if (taskSupplier != null) {
                 final DensityCompilerTask<?> task = taskSupplier.get();
-                if ((task.buildBits() & DensityCompilerTask.COMPUTE) != 0) {
-                    taskSupplier.get().compileComputeImpl(mv, node, this);
-                    return;
-                }
+
+                if((bits & DensityCompilerTask.COMPUTE) != 0)
+                    task.compileComputeImpl(mv, node, this);
+                if((bits & DensityCompilerTask.PREPARE_COMPUTE) != 0)
+                    task.prepareComputeImpl(mv, node, this);
+                if((bits & DensityCompilerTask.POST_PREPARE_COMPUTE) != 0)
+                    task.postPrepareComputeImpl(mv, node, this);
+
+                return;
             }
 
             visitLeafCall(node);
@@ -467,58 +410,6 @@ public class PipelineAsmContext extends AsmCtx {
         }
     }
 
-    /**
-     * Allocates a new local variable for a temporary double[] array
-     * of the same length as the main array (which is in slot 1).
-     * Generates an array creation code (new double[length]).
-     *
-     * @return index of the new variable
-     */
-    public int allocateTempBuffer() {
-        int varIndex = newLocalInt();
-
-        /*
-            array.length (taking the length from the main array in slot 1)
-         */
-        aload(1);
-        insn(ARRAYLENGTH);
-
-        /*
-            new double[...]
-         */
-        mv.visitIntInsn(NEWARRAY, T_DOUBLE);
-
-        /*
-            ASTORE varIndex
-         */
-        astore(varIndex);
-
-        return varIndex;
-    }
-
-    public void compileNodeComputeForIndex(MethodVisitor mv, DensityFunction node, int iVar) {
-        if (node instanceof DensityFunctions.Constant c) {
-            mv.visitLdcInsn(c.value());
-            return;
-        }
-
-        // FIX: Мы не должны оставлять Context на стеке перед вызовом compileNodeCompute.
-        // Мы должны сохранить его в локальную переменную и передать через механизм ContextVar.
-
-        int tempCtxVar = newLocalInt();
-
-        // 1. Создаем контекст: provider.forIndex(i)
-        mv.visitVarInsn(ALOAD, 2); // Provider (всегда 2 в fillArray)
-        mv.visitVarInsn(ILOAD, iVar);
-        mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
-
-        // 2. Сохраняем в переменную
-        mv.visitVarInsn(ASTORE, tempCtxVar);
-
-        // 3. Компилируем ноду с этим контекстом
-        compileNodeComputeWithContext(node, tempCtxVar);
-    }
-
     public void compileNodeComputeWithContext(DensityFunction node, int contextVarIndex) {
         if (node instanceof DensityFunctions.Constant c) {
             mv.visitLdcInsn(c.value());
@@ -535,4 +426,13 @@ public class PipelineAsmContext extends AsmCtx {
     }
 
 
+    @Override
+    public ContextCache cache() {
+        return cache;
+    }
+
+    @Override
+    public AsmCtx ctx() {
+        return this;
+    }
 }

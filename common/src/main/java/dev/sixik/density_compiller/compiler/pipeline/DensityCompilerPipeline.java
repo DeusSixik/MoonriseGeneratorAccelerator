@@ -134,6 +134,9 @@ public class DensityCompilerPipeline {
                     id
             );
 
+
+            context.createNeedCache();
+
             // Post Prepare Stage
             element.postPrepareMethod(
                     this,

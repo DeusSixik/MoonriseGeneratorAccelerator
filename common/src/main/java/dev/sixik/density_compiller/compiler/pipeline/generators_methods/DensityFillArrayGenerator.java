@@ -2,6 +2,7 @@ package dev.sixik.density_compiller.compiler.pipeline.generators_methods;
 
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
+import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.ClassWriter;
@@ -10,6 +11,17 @@ import org.objectweb.asm.MethodVisitor;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerator {
+
+    @Override
+    public void prepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
+        ctx.visitNodeCompute(root, DensityCompilerTask.PREPARE_COMPUTE);
+    }
+
+    @Override
+    public void postPrepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
+        ctx.visitNodeCompute(root, DensityCompilerTask.POST_PREPARE_COMPUTE);
+    }
+
     @Override
     public void applyMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         final MethodVisitor mv = ctx.mv();
@@ -21,22 +33,14 @@ public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerat
 
         // 2. Открываем ОДИН цикл
 //        ctx.startLoop();
+
         ctx.arrayForI(destArrayVar, (iVar) -> {
             // Стек для DASTORE: [Array, Index]
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
-//
-//            // 3. Получаем контекст для итерации
-            int loopCtx = ctx.getOrAllocateLoopContext(iVar);
-//            int oldCtx = ctx.getCurrentContextVar();
-////            ctx.setCurrentContextVar(loopCtx);
 
-            // 4. Инлайним всю математику дерева в этот цикл
             ctx.visitNodeCompute(root);
 
-//            ctx.setCurrentContextVar(oldCtx);
-
-            // 5. Записываем результат: [Array, Index, Result] -> DASTORE
             mv.visitInsn(DASTORE);
         });
 
