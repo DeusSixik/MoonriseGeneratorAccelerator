@@ -1,4 +1,4 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;

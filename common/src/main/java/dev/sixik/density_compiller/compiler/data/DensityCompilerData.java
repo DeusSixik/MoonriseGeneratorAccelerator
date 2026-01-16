@@ -35,15 +35,14 @@ public class DensityCompilerData {
         register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
         register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
         register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
-        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
+//        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
         register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
         register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
         register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
         register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
-//        register(DensityFunctions.Spline.class, DensityCompilerSplineTask::new);
         register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
         register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
-
+//
         register(NoiseChunk.FlatCache.class, DensityCompilerFlatCacheTask::new);
         register(NoiseChunk.Cache2D.class, DensityCompilerCache2DTask::new);
         register(NoiseChunk.NoiseInterpolator.class, DensityCompilerNoiseInterpolatorTask::new);
@@ -57,6 +56,7 @@ public class DensityCompilerData {
 //        register(DensitySpecializations.FastMax.class, DensityCompilerFastMaxTask::new);
 //        register(DensityFunctionSplineWrapper.class, DensityCompilerDensityFunctionSplineWrapperTask::new);
 
+//        register(DensityFunctions.Spline.class, DensityCompilerSplineTask::new);
 
         isLoaded = true;
     }

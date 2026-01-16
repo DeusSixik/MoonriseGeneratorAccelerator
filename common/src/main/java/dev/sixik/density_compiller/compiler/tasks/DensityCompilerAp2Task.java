@@ -12,6 +12,18 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions.Ap2> {
 
     @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
+    }
+
+    @Override
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
+    }
+
+    @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
         DensityFunction arg1 = node.argument1();
         DensityFunction arg2 = node.argument2();

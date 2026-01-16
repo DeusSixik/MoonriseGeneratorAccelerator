@@ -13,6 +13,7 @@ import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.util.CheckClassAdapter;
 
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -20,6 +21,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerPipeline {
+
+    protected DensityCompilerPipelineGenerator CurrentTask;
 
     protected static final DynamicClassLoader DYNAMIC_CLASS_LOADER = new DynamicClassLoader(DensityCompilerPipeline.class.getClassLoader());
     protected static final AtomicInteger ID_GEN = new AtomicInteger();
@@ -120,10 +123,13 @@ public class DensityCompilerPipeline {
             if(element.ignore(this)) continue;
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
 
+            CurrentTask = element;
+
             mv.visitCode();
 
             final var context = element.getStructure(this).createContext(this, mv, className);
 
+            System.out.println("Prepare");
             // Prepare Stage
             element.prepareMethod(
                     this,
@@ -134,9 +140,11 @@ public class DensityCompilerPipeline {
                     id
             );
 
-
+            System.out.println("Create Variables");
             context.createNeedCache();
 
+
+            System.out.println("Post Prepare");
             // Post Prepare Stage
             element.postPrepareMethod(
                     this,
@@ -146,6 +154,8 @@ public class DensityCompilerPipeline {
                     simpleClassName,
                     id
             );
+
+            System.out.println("Apply Method");
 
             // Apply Method
             element.applyMethod(
@@ -206,5 +216,9 @@ public class DensityCompilerPipeline {
 
     protected MethodVisitor applyVisitorConfiguration(MethodVisitor mv) {
         return new org.objectweb.asm.util.CheckMethodAdapter(mv);
+    }
+
+    public DensityCompilerPipelineGenerator getCurrentTask() {
+        return CurrentTask;
     }
 }

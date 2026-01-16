@@ -8,12 +8,17 @@ import org.objectweb.asm.MethodVisitor;
 public class DensityCompilerMarkerTask extends DensityCompilerTask<DensityFunctions.Marker> {
 
     @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.wrapped(), PREPARE_COMPUTE);
+    }
+
+    @Override
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.wrapped(), POST_PREPARE_COMPUTE);
+    }
+
+    @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx) {
         ctx.visitNodeCompute(node.wrapped());
     }
-
-//    @Override
-//    public void compileFill(MethodVisitor mv, DensityFunctions.Marker node, PipelineAsmContext ctx, int destArrayVar) {
-//        ctx.visitNodeFill(node.wrapped(), destArrayVar);
-//    }
 }

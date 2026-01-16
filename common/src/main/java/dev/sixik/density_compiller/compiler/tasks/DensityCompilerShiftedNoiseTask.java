@@ -1,81 +1,153 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
+import dev.sixik.asm.VariablesManipulator;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
+import dev.sixik.density_compiller.compiler.pipeline.context.hanlders.DensityFunctionsCacheHandler;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
+import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Type;
 
-import static org.objectweb.asm.Opcodes.*;
+import static dev.sixik.density_compiller.compiler.pipeline.context.hanlders.DensityFunctionsCacheHandler.*;
 
 public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<DensityFunctions.ShiftedNoise> {
 
-    private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
-    private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
-    private static final String HOLDER = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
+    @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.shiftX(), PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.shiftY(), PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.shiftZ(), PREPARE_COMPUTE);
+
+        ctx.putNeedCachedVariable(DensityFunctionsCacheHandler.BLOCK_X_BITS, DensityFunctionsCacheHandler.BLOCK_Y_BITS, DensityFunctionsCacheHandler.BLOCK_Z_BITS);
+
+    }
+
+    @Override
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.shiftX(), POST_PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.shiftY(), POST_PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.shiftZ(), POST_PREPARE_COMPUTE);
+
+        compute(mv, node, ctx);
+        int index = ctx.createDoubleVarFromStack();
+        ctx.putCachedVariable(String.valueOf(node.hashCode()), index);
+
+    }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
-        DensityFunction.NoiseHolder holder = node.noise();
-        ctx.visitCustomLeaf(holder, HOLDER_DESC);
-        ctx.loadContext();
-//        ctx.invokeContextInterface("blockX", "()I");
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockX", "()I", true);
-        mv.visitInsn(I2D);
 
-        mv.visitLdcInsn(node.xzScale());
-        mv.visitInsn(DMUL);
+        int variable = ctx.getCachedVariable(String.valueOf(node.hashCode()));
 
-        ctx.visitNodeCompute(node.shiftX());
+        final int context = ctx.getCurrentContextVar();
 
-        mv.visitInsn(DADD);
+        if(context == -1)
+            throw new NullPointerException("Can't load context because variable not loaded! Index: '" + context + "'");
 
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
-        mv.visitInsn(I2D);
+        if(context == 2) {
+            ctx.aload(2);
+            ctx.readIntVarUnSafe(ctx.cache().fillIndex);
+            ctx.invokeMethodStatic(
+                    DensityCompilerShiftedNoiseTask.class,
+                    "updateIndices",
+                    DescriptorBuilder.builder()
+                            .type(DensityFunction.ContextProvider.class)
+                            .i()
+                            .buildMethodVoid()
 
-        mv.visitLdcInsn(node.yScale());
-        mv.visitInsn(DMUL);
+            );
+        }
 
-        ctx.visitNodeCompute(node.shiftY());
-
-        mv.visitInsn(DADD);
-
-        ctx.loadContext();
-        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockZ", "()I", true);
-        mv.visitInsn(I2D);
-
-        mv.visitLdcInsn(node.xzScale());
-        mv.visitInsn(DMUL);
-
-        ctx.visitNodeCompute(node.shiftZ());
-
-        mv.visitInsn(DADD);
-
-        mv.visitMethodInsn(INVOKEVIRTUAL, HOLDER, "getValue", "(DDD)D", false);
+        ctx.readDoubleVar(variable);
     }
 
-//    @Override
-//    public void compileFill(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx, int destArrayVar) {
-//        ctx.arrayForI(destArrayVar, (iVar) -> {
-//            mv.visitVarInsn(ALOAD, destArrayVar);
-//            mv.visitVarInsn(ILOAD, iVar);
-//
-//            // Сбрасываем кэш контекста для новой итерации
-//            ctx.startLoop();
-//
-//            // Получаем (или создаем) контекст
-//            int currentCtx = ctx.getOrAllocateLoopContext(iVar);
-//
-//            int oldCtx = ctx.getCurrentContextVar();
-//            ctx.setCurrentContextVar(currentCtx);
-//
-//            // Генерируем вычисления шума (все внутренние compileNodeCompute подхватят наш currentCtx)
-//            this.compileCompute(mv, node, ctx);
-//
-//            ctx.setCurrentContextVar(oldCtx);
-//
-//            mv.visitInsn(DASTORE);
-//        });
-//    }
+    private static void compute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
+        DensityFunction.NoiseHolder holder = node.noise();
+        ctx.visitCustomLeaf(holder, Type.getDescriptor(DensityFunction.NoiseHolder.class));
+
+        int blockX = ctx.getCachedVariable(BLOCK_X);
+        int blockY = ctx.getCachedVariable(BLOCK_Y);
+        int blockZ = ctx.getCachedVariable(BLOCK_Z);
+
+        double xzScale = node.xzScale();
+        double yScale = node.yScale();
+
+        ctx.readIntVar(blockX);
+        ctx.mv().visitInsn(I2D);
+        ctx.mv().visitLdcInsn(xzScale);
+        ctx.mul(VariablesManipulator.VariableType.DOUBLE);
+
+        ctx.visitNodeCompute(node.shiftX());
+        ctx.add(VariablesManipulator.VariableType.DOUBLE);
+
+        int d = ctx.createDoubleVarFromStack();
+
+        ctx.readIntVar(blockY);
+        ctx.mv().visitInsn(I2D);
+        ctx.mv().visitLdcInsn(yScale);
+        ctx.mul(VariablesManipulator.VariableType.DOUBLE);
+
+        ctx.visitNodeCompute(node.shiftY());
+        ctx.add(VariablesManipulator.VariableType.DOUBLE);
+
+        int e = ctx.createDoubleVarFromStack();
+
+
+        ctx.readIntVar(blockZ);
+        ctx.mv().visitInsn(I2D);
+        ctx.mv().visitLdcInsn(xzScale);
+        ctx.mul(VariablesManipulator.VariableType.DOUBLE);
+
+        ctx.visitNodeCompute(node.shiftZ());
+        ctx.add(VariablesManipulator.VariableType.DOUBLE);
+
+        int f = ctx.createDoubleVarFromStack();
+
+        ctx.readDoubleVar(d);
+        ctx.readDoubleVar(e);
+        ctx.readDoubleVar(f);
+
+        ctx.invokeMethodVirtual(
+                DensityFunction.NoiseHolder.class,
+                "getValue",
+                DescriptorBuilder.builder()
+                        .d()
+                        .d()
+                        .d()
+                        .buildMethod(double.class)
+        );
+    }
+
+    public static void updateIndices(DensityFunction.ContextProvider provider, int index) {
+
+        if(!(provider instanceof NoiseChunk chunk)) return;
+
+        // 1. Получаем размеры (обычно они закэшированы в полях, доступ быстрый)
+        int width = chunk.cellWidth;
+        int height = chunk.cellHeight;
+
+        // 2. Вычисляем константы для битовых операций
+        // Integer.numberOfTrailingZeros компилируется в одну инструкцию CPU (TZCNT/BSF), это очень быстро.
+        // Если width = 4 -> shift = 2. Если width = 8 -> shift = 3.
+        int shift = Integer.numberOfTrailingZeros(width);
+        int mask = width - 1;
+
+        // 3. Обновляем индекс массива (как просил)
+        chunk.arrayIndex = index;
+
+        // 4. Считаем координаты Z и X (самые быстрые, меняются часто)
+        // Z = index % width
+        chunk.inCellZ = index & mask;
+
+        // X = (index / width) % width
+        chunk.inCellX = (index >> shift) & mask;
+
+        // 5. Считаем Y (меняется медленно и инвертирован)
+        // Y = (height - 1) - (index / (width * width))
+        // shift << 1 — это умножение shift на 2 (для площади width * width)
+        chunk.inCellY = (height - 1) - (index >> (shift << 1));
+    }
 }

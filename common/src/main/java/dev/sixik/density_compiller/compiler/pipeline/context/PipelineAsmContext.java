@@ -40,6 +40,10 @@ public class PipelineAsmContext extends AsmCtx implements
         this.pipeline = pipeline;
     }
 
+    public DensityCompilerPipeline pipeline() {
+        return pipeline;
+    }
+
     public void putField(int iVar) {
         mv.visitFieldInsn(PUTFIELD,
                 pipeline.configurator.className(),
@@ -66,7 +70,7 @@ public class PipelineAsmContext extends AsmCtx implements
         if (cache.blenderVar != -1) {
             mv.visitVarInsn(ALOAD, cache.blenderVar);
         } else {
-            loadContext();
+            this.loadFunctionContext();
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
         }
     }
@@ -148,7 +152,7 @@ public class PipelineAsmContext extends AsmCtx implements
             mv.visitVarInsn(DLOAD, cache.xVar);
         } else {
             // Fallback для compute()
-            loadContext();
+            this.loadFunctionContext();
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockX", "()I", true);
             mv.visitInsn(I2D);
         }
@@ -159,7 +163,7 @@ public class PipelineAsmContext extends AsmCtx implements
             mv.visitVarInsn(DLOAD, cache.yVar);
         } else {
             // Fallback для compute()
-            loadContext();
+            this.loadFunctionContext();
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockY", "()I", true);
             mv.visitInsn(I2D);
         }
@@ -169,7 +173,7 @@ public class PipelineAsmContext extends AsmCtx implements
         if (cache.zVar != -1) {
             mv.visitVarInsn(DLOAD, cache.zVar);
         } else {
-            loadContext();
+            this.loadFunctionContext();
             mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockZ", "()I", true);
             mv.visitInsn(I2D);
         }
@@ -436,7 +440,8 @@ public class PipelineAsmContext extends AsmCtx implements
         return this;
     }
 
-    public void readFunctionContext() {
+    @Override
+    public void loadFunctionContext() {
         readRefVar(cache().cachedForIndexVar);
     }
 }

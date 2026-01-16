@@ -8,12 +8,17 @@ import org.objectweb.asm.MethodVisitor;
 public class DensityCompilerHolderHolderTask extends DensityCompilerTask<DensityFunctions.HolderHolder> {
 
     @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.function().value(), PREPARE_COMPUTE);
+    }
+
+    @Override
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.function().value(), POST_PREPARE_COMPUTE);
+    }
+
+    @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx) {
         ctx.visitNodeCompute(node.function().value());
     }
-
-//    @Override
-//    public void compileFill(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx, int destArrayVar) {
-//        ctx.visitNodeFill(node.function().value(), destArrayVar);
-//    }
 }

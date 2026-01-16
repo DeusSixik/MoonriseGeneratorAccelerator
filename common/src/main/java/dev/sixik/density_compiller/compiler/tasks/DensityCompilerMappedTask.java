@@ -12,32 +12,25 @@ import static org.objectweb.asm.Opcodes.*;
 public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFunctions.Mapped> {
 
     @Override
-    protected void compileCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
-        ctx.visitNodeCompute(node.input());
-        generateTransformMath(mv, node.type(), node.input(), ctx);
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.input(), POST_PREPARE_COMPUTE);
     }
 
-//    @Override
-//    public void compileFill(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx, int destArrayVar) {
-//        ctx.visitNodeFill(node.input(), destArrayVar);
-//
-//        // Оптимизация: Если операция ABS и вход уже положительный -> ничего не делаем
-//        if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
-//            return;
-//        }
-//
-//        ctx.arrayForI(destArrayVar, (iVar) -> {
-//            mv.visitVarInsn(ALOAD, destArrayVar);
-//            mv.visitVarInsn(ILOAD, iVar);
-//            mv.visitInsn(DUP2); // Stack: [Arr, I, Arr, I]
-//
-//            mv.visitInsn(DALOAD); // Stack: [Arr, I, Val]
-//
-//            generateTransformMath(mv, node.type(), node.input(), ctx);
-//
-//            mv.visitInsn(DASTORE);
-//        });
-//    }
+    @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.input(), PREPARE_COMPUTE);
+    }
+
+    @Override
+    protected void compileCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.input());
+
+        if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
+            return;
+        }
+
+        generateTransformMath(mv, node.type(), node.input(), ctx);
+    }
 
     private void generateTransformMath(MethodVisitor mv, DensityFunctions.Mapped.Type type, DensityFunction input, PipelineAsmContext ctx) {
         switch (type) {
@@ -58,7 +51,6 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
             case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25);
             case SQUEEZE -> {
                 boolean needsClamp = input.minValue() < -1.0 || input.maxValue() > 1.0;
-                // Теперь передаем ctx
                 DensityCompilerUtils.compileSqueeze(mv, ctx, needsClamp);
             }
         }

@@ -1,12 +1,10 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import org.objectweb.asm.MethodVisitor;
-
-import static org.objectweb.asm.Opcodes.*;
 
 @Deprecated
 public class DensityCompilerFastMaxTask extends DensityCompilerTask<DensitySpecializations.FastMax> {

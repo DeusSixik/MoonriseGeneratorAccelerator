@@ -59,6 +59,9 @@ accessible field net/minecraft/world/level/levelgen/NoiseChunk fillingCell Z
 accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellX I
 accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellY I
 accessible field net/minecraft/world/level/levelgen/NoiseChunk inCellZ I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk arrayIndex I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellWidth I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellHeight I
 
 accessible class net/minecraft/world/level/levelgen/NoiseChunk$CacheOnce
 accessible method net/minecraft/world/level/levelgen/NoiseChunk$CacheOnce <init> (Lnet/minecraft/world/level/levelgen/NoiseChunk;Lnet/minecraft/world/level/levelgen/DensityFunction;)V

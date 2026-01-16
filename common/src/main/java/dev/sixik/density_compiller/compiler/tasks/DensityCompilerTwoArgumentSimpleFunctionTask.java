@@ -14,6 +14,18 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         DensityCompilerTask<DensityFunctions.TwoArgumentSimpleFunction> {
 
     @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
+    }
+
+    @Override
+    protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
+        ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
+        ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
+    }
+
+    @Override
     protected void compileCompute(MethodVisitor mv,
                                   DensityFunctions.TwoArgumentSimpleFunction function,
                                   PipelineAsmContext ctx

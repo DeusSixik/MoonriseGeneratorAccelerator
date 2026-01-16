@@ -1,4 +1,4 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
@@ -10,6 +10,7 @@ import org.objectweb.asm.MethodVisitor;
 import java.util.ArrayList;
 import java.util.List;
 
+@Deprecated
 public class DensityCompilerSplineTask extends DensityCompilerTask<DensityFunctions.Spline> {
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Spline node, PipelineAsmContext ctx) {

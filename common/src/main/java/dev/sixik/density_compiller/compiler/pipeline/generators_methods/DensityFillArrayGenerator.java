@@ -28,18 +28,15 @@ public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerat
         final MethodVisitor mv = ctx.mv();
         int destArrayVar = 1;
 
-        // 1. Кэшируем Blender ЗА ПРЕДЕЛАМИ цикла
-        // Вызываем provider.forIndex(0).getBlender() один раз на весь метод
-//        ctx.preCacheConstants();
-
-        // 2. Открываем ОДИН цикл
-//        ctx.startLoop();
+        ctx.putCachedVariable("destArrayVar", destArrayVar);
 
         ctx.arrayForI(destArrayVar, (iVar) -> {
+            ctx.cache().fillIndex = iVar;
 
             // Стек для DASTORE: [Array, Index]
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
+
 
             if(ctx.cache().needCachedForIndex) {
 

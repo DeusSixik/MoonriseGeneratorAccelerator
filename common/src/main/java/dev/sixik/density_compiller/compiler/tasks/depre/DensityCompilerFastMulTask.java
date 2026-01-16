@@ -1,4 +1,4 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
@@ -8,18 +8,18 @@ import org.objectweb.asm.MethodVisitor;
 import static org.objectweb.asm.Opcodes.*;
 
 @Deprecated
-public class DensityCompilerFastAddTask extends DensityCompilerTask<DensitySpecializations.FastAdd> {
+public class DensityCompilerFastMulTask extends DensityCompilerTask<DensitySpecializations.FastMul> {
 
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastAdd function, PipelineAsmContext context) {
+    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMul function, PipelineAsmContext context) {
         context.visitNodeCompute(function.a());
         context.visitNodeCompute(function.b());
-        visitor.visitInsn(DADD);
+        visitor.visitInsn(DMUL);
     }
 
 //    @Override
-//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastAdd node, PipelineAsmContext ctx, int destArrayVar) {
+//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMul node, PipelineAsmContext ctx, int destArrayVar) {
 //        ctx.visitNodeFill(node.a(), destArrayVar);
 //
 //        int tempArrayVar = ctx.allocateTempBuffer();
@@ -36,7 +36,8 @@ public class DensityCompilerFastAddTask extends DensityCompilerTask<DensitySpeci
 //            mv.visitVarInsn(ILOAD, iVar);
 //            mv.visitInsn(DALOAD); // Loading b[i]
 //
-//            mv.visitInsn(DADD);    // Adding up
+//            mv.visitInsn(DMUL);  // Nul up
+//
 //            mv.visitInsn(DASTORE); // Saving it in ds[i]
 //        });
 //    }

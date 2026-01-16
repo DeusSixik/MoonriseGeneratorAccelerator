@@ -11,8 +11,6 @@ import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<DensityFunctions.YClampedGradient> {
 
-    private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
-
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
 

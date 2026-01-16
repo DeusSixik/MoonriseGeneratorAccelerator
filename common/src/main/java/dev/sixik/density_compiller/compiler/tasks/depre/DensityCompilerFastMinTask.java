@@ -1,26 +1,24 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
+import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
-import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.MethodVisitor;
 
-import static org.objectweb.asm.Opcodes.*;
-
 @Deprecated
-public class DensityCompilerFastMulTask extends DensityCompilerTask<DensitySpecializations.FastMul> {
+public class DensityCompilerFastMinTask extends DensityCompilerTask<DensitySpecializations.FastMin> {
 
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMul function, PipelineAsmContext context) {
+    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMin function, PipelineAsmContext context) {
         context.visitNodeCompute(function.a());
         context.visitNodeCompute(function.b());
-        visitor.visitInsn(DMUL);
+        DensityCompilerUtils.min(visitor);
     }
 
 //    @Override
-//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMul node, PipelineAsmContext ctx, int destArrayVar) {
+//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, PipelineAsmContext ctx, int destArrayVar) {
 //        ctx.visitNodeFill(node.a(), destArrayVar);
 //
 //        int tempArrayVar = ctx.allocateTempBuffer();
@@ -37,7 +35,7 @@ public class DensityCompilerFastMulTask extends DensityCompilerTask<DensitySpeci
 //            mv.visitVarInsn(ILOAD, iVar);
 //            mv.visitInsn(DALOAD); // Loading b[i]
 //
-//            mv.visitInsn(DMUL);  // Nul up
+//            DensityCompilerUtils.min(mv); // Min up
 //
 //            mv.visitInsn(DASTORE); // Saving it in ds[i]
 //        });

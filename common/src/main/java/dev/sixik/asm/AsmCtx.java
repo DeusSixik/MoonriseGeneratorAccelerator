@@ -1,13 +1,13 @@
 package dev.sixik.asm;
 
+import com.google.common.collect.Maps;
 import dev.sixik.asm.handlers.*;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class AsmCtx implements
@@ -29,7 +29,7 @@ public class AsmCtx implements
 
     protected final VariablesManipulator manipulator = new VariablesManipulator();
 
-    private final Map<String, Integer> cachedVariables = new HashMap<>();
+    private final Map<String, Integer> cachedVariables = Collections.synchronizedMap(new HashMap<>());
 
     // где лежит текущий FunctionContext
     protected int currentContextVar;
@@ -73,7 +73,7 @@ public class AsmCtx implements
         return currentContextVar;
     }
 
-    public void loadContext() {
+    public void loadFunctionContext() {
         mv.visitVarInsn(ALOAD, currentContextVar);
     }
 

@@ -1,6 +1,7 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
+import dev.sixik.density_compiller.compiler.pipeline.context.hanlders.DensityFunctionsCacheHandler;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -20,6 +21,12 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
     // Внутренние имена классов (проверьте, соответствуют ли они вашей версии MC/Mapping)
     private static final String SAMPLER_CLASS = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler";
     private static final String RARITY_ENUM = "net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper";
+
+    @Override
+    protected void prepareCompute(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx) {
+        ctx.putNeedCachedVariable(DensityFunctionsCacheHandler.BLOCK_X_BITS, DensityFunctionsCacheHandler.BLOCK_Y_BITS, DensityFunctionsCacheHandler.BLOCK_Z_BITS);
+        ctx.cache().needCachedForIndex = true;
+    }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.WeirdScaledSampler node, PipelineAsmContext ctx) {
@@ -83,7 +90,7 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
     }
 
     private void generateCoord(MethodVisitor mv, PipelineAsmContext ctx, String blockMethod, int varE) {
-        ctx.loadContext();
+        ctx.loadFunctionContext();
         mv.visitMethodInsn(INVOKEINTERFACE, CTX, blockMethod, "()I", true);
         mv.visitInsn(I2D);
         mv.visitVarInsn(DLOAD, varE);

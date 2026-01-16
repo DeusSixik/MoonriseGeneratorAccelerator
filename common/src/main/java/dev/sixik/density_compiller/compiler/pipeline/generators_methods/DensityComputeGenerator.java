@@ -17,11 +17,15 @@ public class DensityComputeGenerator implements DensityCompilerPipelineGenerator
     @Override
     public void prepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         ctx.visitNodeCompute(root, DensityCompilerTask.PREPARE_COMPUTE);
+
+        System.out.println("INVOKE PREPARE");
     }
 
     @Override
     public void postPrepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         ctx.visitNodeCompute(root, DensityCompilerTask.POST_PREPARE_COMPUTE);
+
+        System.out.println("INVOKE POST PREPARE");
     }
 
     @Override

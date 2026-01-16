@@ -1,26 +1,25 @@
-package dev.sixik.density_compiller.compiler.tasks;
+package dev.sixik.density_compiller.compiler.tasks.depre;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
-import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
 
 @Deprecated
-public class DensityCompilerFastMinTask extends DensityCompilerTask<DensitySpecializations.FastMin> {
+public class DensityCompilerFastAddTask extends DensityCompilerTask<DensitySpecializations.FastAdd> {
 
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastMin function, PipelineAsmContext context) {
+    protected void compileCompute(MethodVisitor visitor, DensitySpecializations.FastAdd function, PipelineAsmContext context) {
         context.visitNodeCompute(function.a());
         context.visitNodeCompute(function.b());
-        DensityCompilerUtils.min(visitor);
+        visitor.visitInsn(DADD);
     }
 
 //    @Override
-//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastMin node, PipelineAsmContext ctx, int destArrayVar) {
+//    public void compileFill(MethodVisitor mv, DensitySpecializations.FastAdd node, PipelineAsmContext ctx, int destArrayVar) {
 //        ctx.visitNodeFill(node.a(), destArrayVar);
 //
 //        int tempArrayVar = ctx.allocateTempBuffer();
@@ -37,8 +36,7 @@ public class DensityCompilerFastMinTask extends DensityCompilerTask<DensitySpeci
 //            mv.visitVarInsn(ILOAD, iVar);
 //            mv.visitInsn(DALOAD); // Loading b[i]
 //
-//            DensityCompilerUtils.min(mv); // Min up
-//
+//            mv.visitInsn(DADD);    // Adding up
 //            mv.visitInsn(DASTORE); // Saving it in ds[i]
 //        });
 //    }
