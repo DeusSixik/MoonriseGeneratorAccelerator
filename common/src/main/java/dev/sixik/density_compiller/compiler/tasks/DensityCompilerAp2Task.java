@@ -13,18 +13,34 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Ap2 node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
         DensityFunction arg1 = node.argument1();
         DensityFunction arg2 = node.argument2();
         var type = node.type();
@@ -45,18 +61,38 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
 
         // 2. Identity & Zero checks (Add 0, Mul 1, Mul 0)
         if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD) {
-            if (isConst(arg1, 0.0)) { ctx.visitNodeCompute(arg2); return; }
-            if (isConst(arg2, 0.0)) { ctx.visitNodeCompute(arg1); return; }
+            if (isConst(arg1, 0.0)) {
+                ctx.visitNodeCompute(arg2);
+                return;
+            }
+            if (isConst(arg2, 0.0)) {
+                ctx.visitNodeCompute(arg1);
+                return;
+            }
         }
         if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
-            if (isConst(arg1, 0.0) || isConst(arg2, 0.0)) { mv.visitInsn(DCONST_0); return; }
-            if (isConst(arg1, 1.0)) { ctx.visitNodeCompute(arg2); return; }
-            if (isConst(arg2, 1.0)) { ctx.visitNodeCompute(arg1); return; }
+            if (isConst(arg1, 0.0) || isConst(arg2, 0.0)) {
+                mv.visitInsn(DCONST_0);
+                return;
+            }
+            if (isConst(arg1, 1.0)) {
+                ctx.visitNodeCompute(arg2);
+                return;
+            }
+            if (isConst(arg2, 1.0)) {
+                ctx.visitNodeCompute(arg1);
+                return;
+            }
         }
 
         // 3. Стандартное вычисление
+        machine.pushStack(node.getClass(), arg1.getClass());
         ctx.visitNodeCompute(arg1);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), arg2.getClass());
         ctx.visitNodeCompute(arg2);
+        machine.popStack();
 
         applyOp(mv, type);
     }
@@ -80,6 +116,6 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
     }
 
     private double getConst(DensityFunction f) {
-        return ((DensityFunctions.Constant)f).value();
+        return ((DensityFunctions.Constant) f).value();
     }
 }

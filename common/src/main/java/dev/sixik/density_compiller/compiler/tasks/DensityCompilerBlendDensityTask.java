@@ -15,7 +15,12 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), PREPARE_COMPUTE);
+        machine.popStack();
+
         ctx.putNeedCachedVariable(DensityFunctionsCacheHandler.BLENDER_BITS);
         ctx.cache().needCachedForIndex = true;
 
@@ -23,16 +28,25 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
         int variable = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLENDER);
         ctx.readRefVar(variable);
 
         ctx.loadFunctionContext();          // Function Context
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input()); // input_double
+        machine.popStack();
 
         ctx.invokeMethodVirtual(
                 Blender.class,

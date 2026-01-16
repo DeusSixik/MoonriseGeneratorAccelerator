@@ -15,24 +15,40 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv,
-                                  DensityFunctions.TwoArgumentSimpleFunction function,
+                                  DensityFunctions.TwoArgumentSimpleFunction node,
                                   PipelineAsmContext ctx
     ) {
-        DensityFunction arg1 = function.argument1();
-        DensityFunction arg2 = function.argument2();
-        var type = function.type();
+        var machine = ctx.pipeline().stackMachine();
+
+        DensityFunction arg1 = node.argument1();
+        DensityFunction arg2 = node.argument2();
+        var type = node.type();
 
         // 1. Если оба аргумента константы — считаем на этапе компиляции
         if (isConst(arg1) && isConst(arg2)) {
@@ -52,11 +68,15 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD) {
             // x + 0 = x
             if (isConst(arg1, 0.0)) {
+                machine.pushStack(node.getClass(), arg2.getClass());
                 ctx.visitNodeCompute(arg2);
+                machine.popStack();
                 return;
             }
             if (isConst(arg2, 0.0)) {
+                machine.pushStack(node.getClass(), arg1.getClass());
                 ctx.visitNodeCompute(arg1);
+                machine.popStack();
                 return;
             }
         }
@@ -70,18 +90,26 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
             }
             // x * 1 = x
             if (isConst(arg1, 1.0)) {
+                machine.pushStack(node.getClass(), arg2.getClass());
                 ctx.visitNodeCompute(arg2);
+                machine.popStack();
                 return;
             }
             if (isConst(arg2, 1.0)) {
+                machine.pushStack(node.getClass(), arg1.getClass());
                 ctx.visitNodeCompute(arg1);
+                machine.popStack();
                 return;
             }
         }
 
         // Стандартная генерация
+        machine.pushStack(node.getClass(), arg1.getClass());
         ctx.visitNodeCompute(arg1);
+        machine.popStack();
+        machine.pushStack(node.getClass(), arg2.getClass());
         ctx.visitNodeCompute(arg2);
+        machine.popStack();
         switch (type) {
             case ADD -> mv.visitInsn(DADD);
             case MUL -> mv.visitInsn(DMUL);

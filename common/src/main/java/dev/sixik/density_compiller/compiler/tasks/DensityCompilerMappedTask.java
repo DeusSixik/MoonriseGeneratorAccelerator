@@ -13,17 +13,29 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Mapped node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input());
+        machine.popStack();
 
         if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
             return;

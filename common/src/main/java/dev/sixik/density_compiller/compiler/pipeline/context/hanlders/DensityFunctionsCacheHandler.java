@@ -161,8 +161,6 @@ public interface DensityFunctionsCacheHandler extends PipelineAsmContextHandler 
                 variable = ctx().createIntVarFromStack();
                 ctx().putCachedVariable(BLOCK_Z_DIV_8, variable);
             }
-
-            System.out.println("Create Cached variable: " + variable);
         }
     }
 }

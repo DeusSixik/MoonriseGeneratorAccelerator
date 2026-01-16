@@ -17,9 +17,19 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.shiftX().getClass());
         ctx.visitNodeCompute(node.shiftX(), PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.shiftY().getClass());
         ctx.visitNodeCompute(node.shiftY(), PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.shiftZ().getClass());
         ctx.visitNodeCompute(node.shiftZ(), PREPARE_COMPUTE);
+        machine.popStack();
 
         ctx.putNeedCachedVariable(DensityFunctionsCacheHandler.BLOCK_X_BITS, DensityFunctionsCacheHandler.BLOCK_Y_BITS, DensityFunctionsCacheHandler.BLOCK_Z_BITS);
 
@@ -27,11 +37,25 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.ShiftedNoise node, PipelineAsmContext ctx) {
-        ctx.visitNodeCompute(node.shiftX(), POST_PREPARE_COMPUTE);
-        ctx.visitNodeCompute(node.shiftY(), POST_PREPARE_COMPUTE);
-        ctx.visitNodeCompute(node.shiftZ(), POST_PREPARE_COMPUTE);
+        var machine = ctx.pipeline().stackMachine();
 
+        machine.pushStack(node.getClass(), node.shiftX().getClass());
+        ctx.visitNodeCompute(node.shiftX(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.shiftY().getClass());
+        ctx.visitNodeCompute(node.shiftY(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.shiftZ().getClass());
+        ctx.visitNodeCompute(node.shiftZ(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+
+        machine.pushStack(node.getClass(), "compute");
         compute(mv, node, ctx);
+        machine.popStack();
+
         int index = ctx.createDoubleVarFromStack();
         ctx.putCachedVariable(String.valueOf(node.hashCode()), index);
 
@@ -68,6 +92,8 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         DensityFunction.NoiseHolder holder = node.noise();
         ctx.visitCustomLeaf(holder, Type.getDescriptor(DensityFunction.NoiseHolder.class));
 
+        var machine = ctx.pipeline().stackMachine();
+
         int blockX = ctx.getCachedVariable(BLOCK_X);
         int blockY = ctx.getCachedVariable(BLOCK_Y);
         int blockZ = ctx.getCachedVariable(BLOCK_Z);
@@ -80,7 +106,10 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         ctx.mv().visitLdcInsn(xzScale);
         ctx.mul(VariablesManipulator.VariableType.DOUBLE);
 
+        machine.pushStack("compute", node.shiftX().getClass());
         ctx.visitNodeCompute(node.shiftX());
+        machine.popStack();
+
         ctx.add(VariablesManipulator.VariableType.DOUBLE);
 
         int d = ctx.createDoubleVarFromStack();
@@ -90,7 +119,10 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         ctx.mv().visitLdcInsn(yScale);
         ctx.mul(VariablesManipulator.VariableType.DOUBLE);
 
+        machine.pushStack("compute", node.shiftY().getClass());
         ctx.visitNodeCompute(node.shiftY());
+        machine.popStack();
+
         ctx.add(VariablesManipulator.VariableType.DOUBLE);
 
         int e = ctx.createDoubleVarFromStack();
@@ -101,7 +133,10 @@ public class DensityCompilerShiftedNoiseTask extends DensityCompilerTask<Density
         ctx.mv().visitLdcInsn(xzScale);
         ctx.mul(VariablesManipulator.VariableType.DOUBLE);
 
+        machine.pushStack("compute", node.shiftZ().getClass());
         ctx.visitNodeCompute(node.shiftZ());
+        machine.popStack();
+
         ctx.add(VariablesManipulator.VariableType.DOUBLE);
 
         int f = ctx.createDoubleVarFromStack();

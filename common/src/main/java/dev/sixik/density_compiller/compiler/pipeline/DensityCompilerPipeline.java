@@ -2,12 +2,15 @@ package dev.sixik.density_compiller.compiler.pipeline;
 
 import com.mojang.datafixers.util.Function6;
 import dev.sixik.density_compiller.compiler.CompilerInfrastructure;
+import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.DensityCompilerPipelineConfigurator;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.pipeline.generators_methods.*;
 import dev.sixik.density_compiller.compiler.pipeline.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
 import dev.sixik.density_compiller.compiler.pipeline.locals.DensityCompilerLocals;
+import dev.sixik.density_compiller.compiler.pipeline.stack.SimpleStackMachine;
+import dev.sixik.density_compiller.compiler.pipeline.stack.StackMachine;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
@@ -26,6 +29,8 @@ public class DensityCompilerPipeline {
 
     protected static final DynamicClassLoader DYNAMIC_CLASS_LOADER = new DynamicClassLoader(DensityCompilerPipeline.class.getClassLoader());
     protected static final AtomicInteger ID_GEN = new AtomicInteger();
+
+    protected StackMachine stackMachine = new SimpleStackMachine();
 
     private final DensityFunction root;
     private final int id;
@@ -64,6 +69,7 @@ public class DensityCompilerPipeline {
     }
 
     public DensityCompilerPipeline(DensityCompilerPipelineConfigurator configurator, @Nullable DensityFunction densityFunction, int id, DensityCompilerPipelineGenerator... generators) {
+        DensityCompilerData.boot();
         this.configurator = configurator;
         this.root = densityFunction;
         this.id = id;
@@ -118,19 +124,24 @@ public class DensityCompilerPipeline {
         final String className = configurator.className();
         final String simpleClassName = configurator.classSimpleName();
 
+        final var stateMachine = stackMachine();
+
         for (int i = 0; i < copy.size(); i++) {
             final DensityCompilerPipelineGenerator element = copy.get(i);
             if(element.ignore(this)) continue;
             final MethodVisitor mv = applyVisitorConfiguration(element.generateMethod(this, cw, root));
+
+            stateMachine.pushStack(element.getClass().getName());
 
             CurrentTask = element;
 
             mv.visitCode();
 
             final var context = element.getStructure(this).createContext(this, mv, className);
-
-            System.out.println("Prepare");
             // Prepare Stage
+
+            stateMachine.pushStack("startCompile -> prepare");
+
             element.prepareMethod(
                     this,
                     context,
@@ -140,12 +151,15 @@ public class DensityCompilerPipeline {
                     id
             );
 
-            System.out.println("Create Variables");
+            stateMachine.popStack();
+
+            stateMachine.pushStack("startCompile -> createNeedCache");
             context.createNeedCache();
+            stateMachine.popStack();
 
-
-            System.out.println("Post Prepare");
             // Post Prepare Stage
+            stateMachine.pushStack("startCompile -> postPrepare");
+
             element.postPrepareMethod(
                     this,
                     context,
@@ -154,10 +168,11 @@ public class DensityCompilerPipeline {
                     simpleClassName,
                     id
             );
-
-            System.out.println("Apply Method");
+            stateMachine.popStack();
 
             // Apply Method
+
+            stateMachine.pushStack("startCompile -> applyMethod");
             element.applyMethod(
                     this,
                     context,
@@ -166,6 +181,9 @@ public class DensityCompilerPipeline {
                     simpleClassName,
                     id
             );
+            stateMachine.popStack();
+
+            stateMachine.popStack();
 
             mv.visitEnd();
         }
@@ -220,5 +238,9 @@ public class DensityCompilerPipeline {
 
     public DensityCompilerPipelineGenerator getCurrentTask() {
         return CurrentTask;
+    }
+
+    public StackMachine stackMachine() {
+        return stackMachine;
     }
 }

@@ -236,17 +236,24 @@ public class PipelineAsmContext extends AsmCtx implements
             if (taskSupplier != null) {
                 final DensityCompilerTask<?> task = taskSupplier.get();
 
-                if((bits & DensityCompilerTask.COMPUTE) != 0)
+                if((bits & DensityCompilerTask.COMPUTE) != 0) {
                     task.compileComputeImpl(mv, node, this);
-                if((bits & DensityCompilerTask.PREPARE_COMPUTE) != 0)
+                }
+                if((bits & DensityCompilerTask.PREPARE_COMPUTE) != 0) {
                     task.prepareComputeImpl(mv, node, this);
-                if((bits & DensityCompilerTask.POST_PREPARE_COMPUTE) != 0)
+                }
+                if((bits & DensityCompilerTask.POST_PREPARE_COMPUTE) != 0) {
                     task.postPrepareComputeImpl(mv, node, this);
+                }
 
                 return;
             }
 
-            visitLeafCall(node);
+//            if((bits & DensityCompilerTask.PREPARE_COMPUTE) != 0)
+//                throw new UnsupportedOperationException("visitLeafCall not supported on stage PREPARE_COMPUTE");
+
+            if((bits & DensityCompilerTask.COMPUTE) != 0)
+                visitLeafCall(node);
         } catch (Exception e) {
             e.printStackTrace();
         }

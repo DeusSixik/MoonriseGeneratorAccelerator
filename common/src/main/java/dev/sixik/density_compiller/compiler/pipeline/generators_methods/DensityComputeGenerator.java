@@ -9,6 +9,8 @@ import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
 import static org.objectweb.asm.Opcodes.DRETURN;
 
@@ -18,14 +20,11 @@ public class DensityComputeGenerator implements DensityCompilerPipelineGenerator
     public void prepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         ctx.visitNodeCompute(root, DensityCompilerTask.PREPARE_COMPUTE);
 
-        System.out.println("INVOKE PREPARE");
     }
 
     @Override
     public void postPrepareMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         ctx.visitNodeCompute(root, DensityCompilerTask.POST_PREPARE_COMPUTE);
-
-        System.out.println("INVOKE POST PREPARE");
     }
 
     @Override

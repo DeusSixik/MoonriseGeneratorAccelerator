@@ -21,6 +21,7 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
     }
 
     protected void prepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {
+
     }
 
     public final void postPrepareComputeImpl(MethodVisitor mv, DensityFunction node, PipelineAsmContext ctx) {

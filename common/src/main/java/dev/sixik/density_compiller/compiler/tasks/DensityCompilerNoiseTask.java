@@ -54,14 +54,10 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
         }
 
         if(variable == -1) {
-            ctx.mv().visitLdcInsn(0.0d);
-
-            System.out.println(ctx.pipeline().getCurrentTask() != null ? ctx.pipeline().getCurrentTask().getClass().getName() : "NULL TASK");
-
             System.out.println("Variable not loaded!");
-            return;
+            ctx.pipeline().stackMachine().printDebug();
 
-//            throw new NullPointerException("Variable not loaded!");
+            throw new NullPointerException("Variable not loaded!");
         }
 
         ctx.readIntVar(variable);

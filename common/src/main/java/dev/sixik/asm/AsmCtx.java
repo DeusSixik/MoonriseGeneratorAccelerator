@@ -29,7 +29,7 @@ public class AsmCtx implements
 
     protected final VariablesManipulator manipulator = new VariablesManipulator();
 
-    private final Map<String, Integer> cachedVariables = Collections.synchronizedMap(new HashMap<>());
+    private final Map<String, Integer> cachedVariables = new HashMap<>();
 
     // где лежит текущий FunctionContext
     protected int currentContextVar;

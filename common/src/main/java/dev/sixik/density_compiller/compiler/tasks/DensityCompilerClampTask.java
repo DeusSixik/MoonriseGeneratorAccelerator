@@ -13,16 +13,26 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
         DensityFunction input = node.input();
         double cMin = node.minValue(); // Границы клэмпа
         double cMax = node.maxValue();
@@ -44,12 +54,17 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
 
         // 2. Оптимизация: Clamp не нужен (вход уже внутри границ)
         if (inMin >= cMin && inMax <= cMax) {
+
+            machine.pushStack(node.getClass(), input.getClass());
             ctx.visitNodeCompute(input);
+            machine.popStack();
             return;
         }
 
         // 3. Частичный или полный Clamp
+        machine.pushStack(node.getClass(), input.getClass());
         ctx.visitNodeCompute(input);
+        machine.popStack();
 
         // Нужно ли обрезать сверху? (input может быть > max)
         boolean needMaxCheck = inMax > cMax;

@@ -11,18 +11,34 @@ public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunc
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
+        machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
+        machine.popStack();
+
+        machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
+        machine.popStack();
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.MulOrAdd node, PipelineAsmContext ctx) {
+        var machine = ctx.pipeline().stackMachine();
+
         double arg = node.argument();
         var type = node.specificType();
 
@@ -35,12 +51,17 @@ public class DensityCompilerMulOrAddTask extends DensityCompilerTask<DensityFunc
         // 2. Оптимизация: Identity (+0 или *1 -> просто вычисляем input)
         if ((type == DensityFunctions.MulOrAdd.Type.ADD && arg == 0.0) ||
                 (type == DensityFunctions.MulOrAdd.Type.MUL && arg == 1.0)) {
+
+            machine.pushStack(node.getClass(), node.input().getClass());
             ctx.visitNodeCompute(node.input());
+            machine.popStack();
             return;
         }
 
         // Стандартная логика
+        machine.pushStack(node.getClass(), node.input().getClass());
         ctx.visitNodeCompute(node.input());
+        machine.popStack();
         mv.visitLdcInsn(arg);
 
         if (type == DensityFunctions.MulOrAdd.Type.MUL) {
