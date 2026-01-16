@@ -101,7 +101,7 @@ public class VariablesManipulator {
         if (set.contains(index))
             throw new RuntimeException("Index '" + index + "' for variable with type '" + type.name() + "' already created!");
 
-        if (lastIndex != -1 && lastIndex != index - lastOffset)
+        if (lastIndex != -1 && index != lastIndex + lastOffset)
             throw new RuntimeException("Incorrect variable index '" + index + "' for type '" + type.name() + "' . Need offset '" + (type.offset) + "'");
 
         set.add(index);

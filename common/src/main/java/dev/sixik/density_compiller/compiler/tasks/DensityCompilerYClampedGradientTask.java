@@ -15,11 +15,20 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
+
+        /*
+            This method uses functionContext.blockY() for calculations, so we will request the data.
+         */
         ctx.putNeedCachedVariable(DensityFunctionsCacheHandler.BLOCK_Y_BITS);
     }
 
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
+
+        /*
+            After our request, the data should already exist, and we can
+            retrieve the variable where functionContext.blockY() is stored.
+         */
         int variable = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLOCK_Y);
         ctx.readIntVar(variable);
         mv.visitInsn(I2D);
@@ -31,31 +40,26 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
 
         DensityCompilerUtils.clampedMap(mv);
 
+        /*
+            We store the result in a variable before calculating it.
+            Since the values are static, we don't need to calculate them every time.
+         */
         int varId = ctx.createDoubleVarFromStack();
-        ctx.putCachedVariable(String.valueOf(computeHash(node.fromY(), node.toY(),node.fromValue(), node.toValue())), varId);
+        ctx.putCachedVariable(String.valueOf(computeHash(node.fromY(), node.toY(), node.fromValue(), node.toValue())), varId);
     }
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
-//        // (double) functionContext.blockY()
-////        ctx.loadContext();
-//
-//        ctx.loadBlockY();
-////        mv.visitMethodInsn(INVOKEINTERFACE, CTX, "blockY", "()I", true);
-////        mv.visitInsn(I2D);
-//
-//        // Параметры градиента
-//        mv.visitLdcInsn((double) node.fromY());
-//        mv.visitLdcInsn((double) node.toY());
-//        mv.visitLdcInsn(node.fromValue());
-//        mv.visitLdcInsn(node.toValue());
-//
-//        // Используем инлайновую версию для скорости
-//        DensityCompilerUtils.clampedMap(mv);
 
-        ctx.readDoubleVar(ctx.getCachedVariable(String.valueOf(computeHash(node.fromY(), node.toY(),node.fromValue(), node.toValue()))));
+        /*
+            Reading values from our variable
+         */
+        ctx.readDoubleVar(ctx.getCachedVariable(String.valueOf(computeHash(node.fromY(), node.toY(), node.fromValue(), node.toValue()))));
     }
 
+    /**
+     * Considers the cache key for writing to the registry of variables
+     */
     protected static int computeHash(int fromY, int toY, double fromValue, double toValue) {
         long v1 = Double.doubleToRawLongBits(fromValue);
         long v2 = Double.doubleToRawLongBits(toValue);

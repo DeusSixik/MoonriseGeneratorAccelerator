@@ -66,11 +66,17 @@ public interface DensityFunctionsCacheHandler extends PipelineAsmContextHandler 
         for (String ncv : list) {
 
             if(ncv.equals(BLENDER))  {
-
+                mv.visitInsn(DUP);
+                mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
+                int variable = ctx().createRefVarFromStack();
+                ctx().putCachedVariable(BLENDER, variable);
             }
 
             if(ncv.equals(BLOCK_X)) {
-
+                mv.visitInsn(DUP);
+                mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockX", "()I", true);
+                int variable = ctx().createIntVarFromStack();
+                ctx().putCachedVariable(BLOCK_X, variable);
             }
 
             if(ncv.equals(BLOCK_Y)) {
@@ -82,7 +88,10 @@ public interface DensityFunctionsCacheHandler extends PipelineAsmContextHandler 
             }
 
             if(ncv.equals(BLOCK_Z)) {
-
+                mv.visitInsn(DUP);
+                mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext", "blockZ", "()I", true);
+                int variable = ctx().createIntVarFromStack();
+                ctx().putCachedVariable(BLOCK_Z, variable);
             }
 
         }

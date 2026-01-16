@@ -49,7 +49,10 @@ public class ASMTest {
 //                 true
 //        ).startCompilation();
 
-        DensityCompilerPipeline.from(new DensityFunctions.YClampedGradient(5, 1, 2, 1), true).startCompilation();
+//        final var dens = new DensityFunctions.BlendDensity(new DensityFunctions.YClampedGradient(5, 1, 2, 1));
+        final var dens = new DensityFunctions.BlendDensity(new DensityFunctions.Constant(1));
+
+        DensityCompilerPipeline.from(dens, true).startCompilation();
 
         //        DensityFunctions.Constant constant = new DensityFunctions.Constant(5);
 //

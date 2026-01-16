@@ -159,7 +159,7 @@ public interface AsmCtxPrimitiveHandler extends AsmCtxHandler {
      */
     default int allocRefVar() {
         int variable = newLocalRef();
-        manipulator().registerReference(variable);
+//        manipulator().registerReference(variable);
         return variable;
     }
 
@@ -168,7 +168,7 @@ public interface AsmCtxPrimitiveHandler extends AsmCtxHandler {
      * @param varId ID переменной
      */
     default void writeRefVar(int varId) {
-        manipulator().hasReference(varId);
+//        manipulator().hasReference(varId);
         mv().visitVarInsn(ASTORE, varId);
     }
 
@@ -218,7 +218,7 @@ public interface AsmCtxPrimitiveHandler extends AsmCtxHandler {
      * @param varId ID переменной
      */
     default void readRefVar(int varId) {
-        manipulator().hasReference(varId);
+//        manipulator().hasReference(varId);
         mv().visitVarInsn(ALOAD, varId);
     }
 

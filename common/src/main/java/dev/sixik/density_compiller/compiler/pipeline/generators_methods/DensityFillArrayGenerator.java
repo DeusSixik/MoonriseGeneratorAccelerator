@@ -1,6 +1,7 @@
 package dev.sixik.density_compiller.compiler.pipeline.generators_methods;
 
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
+import dev.sixik.density_compiller.compiler.pipeline.configuration.ByteCodeGeneratorStructure;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
@@ -35,9 +36,18 @@ public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerat
 //        ctx.startLoop();
 
         ctx.arrayForI(destArrayVar, (iVar) -> {
+
             // Стек для DASTORE: [Array, Index]
             mv.visitVarInsn(ALOAD, destArrayVar);
             mv.visitVarInsn(ILOAD, iVar);
+
+            if(ctx.cache().needCachedForIndex) {
+
+                ctx.aload(2);
+                ctx.readIntVarUnSafe(iVar);
+                mv.visitMethodInsn(INVOKEINTERFACE, "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider", "forIndex", "(I)Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;", true);
+                ctx.cache().cachedForIndexVar = ctx.createRefVarFromStack();
+            }
 
             ctx.visitNodeCompute(root);
 
@@ -60,5 +70,10 @@ public class DensityFillArrayGenerator implements DensityCompilerPipelineGenerat
                         .buildMethodVoid(),
                 null,
                 null);
+    }
+
+    @Override
+    public ByteCodeGeneratorStructure getStructure(DensityCompilerPipeline pipeline) {
+        return new ByteCodeGeneratorStructure(5, 2);
     }
 }

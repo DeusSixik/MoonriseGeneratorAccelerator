@@ -1,6 +1,5 @@
 package dev.sixik.density_compiller.compiler.pipeline.context;
 
-import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
@@ -23,4 +22,8 @@ public class ContextCache {
     public Set<String> needCachedVariables = new HashSet<>();
 
     public Map<DensityFunction, Integer> cachedFunctions = new Reference2ObjectOpenHashMap<>();
+
+    public boolean needCachedForIndex = false;
+
+    public int cachedForIndexVar = -1;
 }

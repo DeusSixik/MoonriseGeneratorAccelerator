@@ -435,4 +435,8 @@ public class PipelineAsmContext extends AsmCtx implements
     public AsmCtx ctx() {
         return this;
     }
+
+    public void readFunctionContext() {
+        readRefVar(cache().cachedForIndexVar);
+    }
 }

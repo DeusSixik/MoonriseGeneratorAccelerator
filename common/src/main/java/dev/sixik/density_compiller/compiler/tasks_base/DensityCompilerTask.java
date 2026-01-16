@@ -20,14 +20,27 @@ public abstract class DensityCompilerTask<T extends DensityFunction> {
         prepareCompute(mv, (T) node, ctx);
     }
 
-    protected void prepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {}
+    protected void prepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {
+    }
 
     public final void postPrepareComputeImpl(MethodVisitor mv, DensityFunction node, PipelineAsmContext ctx) {
         postPrepareCompute(mv, (T) node, ctx);
     }
 
-    protected void postPrepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {}
+    protected void postPrepareCompute(MethodVisitor mv, T node, PipelineAsmContext ctx) {
+    }
 
+    @Deprecated
+    protected double inlineValueImpl(MethodVisitor mv, DensityFunction node, PipelineAsmContext ctx) {
+        return inlineValue(mv, (T) node, ctx);
+    }
+
+    @Deprecated
+    protected double inlineValue(MethodVisitor mv, T node, PipelineAsmContext ctx) {
+        return Double.MIN_VALUE;
+    }
+
+    @Deprecated(forRemoval = true)
     public int buildBits() {
         return 0;
     }

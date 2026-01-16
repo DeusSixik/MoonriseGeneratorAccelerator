@@ -28,6 +28,9 @@ public class DensityComputeGenerator implements DensityCompilerPipelineGenerator
     public void applyMethod(DensityCompilerPipeline pipeline, PipelineAsmContext ctx, DensityFunction root, String className, String classSimpleName, int id) {
         final MethodVisitor mv = ctx.mv();
 
+        if(ctx.cache().needCachedForIndex)
+            ctx.cache().cachedForIndexVar = 1;
+
         ctx.visitNodeCompute(root);
 
         mv.visitInsn(DRETURN);                // Return result (double)
