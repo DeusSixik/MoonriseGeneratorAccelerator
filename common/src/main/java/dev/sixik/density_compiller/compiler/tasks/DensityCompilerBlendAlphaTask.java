@@ -8,7 +8,7 @@ import org.objectweb.asm.MethodVisitor;
 public class DensityCompilerBlendAlphaTask extends DensityCompilerTask<DensityFunctions.BlendAlpha> {
 
     @Override
-    protected void compileCompute(MethodVisitor visitor, DensityFunctions.BlendAlpha function, PipelineAsmContext context) {
-        context.ldc(1.0);
+    protected void compileCompute(MethodVisitor visitor, DensityFunctions.BlendAlpha function, PipelineAsmContext ctx) {
+        ctx.ldc(1.0);
     }
 }

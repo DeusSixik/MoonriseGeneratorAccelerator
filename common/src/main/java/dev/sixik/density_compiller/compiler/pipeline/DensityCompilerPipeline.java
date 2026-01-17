@@ -1,10 +1,8 @@
 package dev.sixik.density_compiller.compiler.pipeline;
 
-import com.mojang.datafixers.util.Function6;
 import dev.sixik.density_compiller.compiler.CompilerInfrastructure;
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.pipeline.configuration.DensityCompilerPipelineConfigurator;
-import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.pipeline.generators_methods.*;
 import dev.sixik.density_compiller.compiler.pipeline.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiller.compiler.pipeline.loaders.DynamicClassLoader;
@@ -16,7 +14,6 @@ import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.util.CheckClassAdapter;
 
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;

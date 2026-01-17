@@ -1,6 +1,7 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
+import dev.sixik.density_compiller.compiler.pipeline.stack.StackMachine;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -9,6 +10,7 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
 import static org.objectweb.asm.Opcodes.*;
+import static dev.sixik.density_compiller.compiler.utils.DensityCompilerUtils.*;
 
 public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         DensityCompilerTask<DensityFunctions.TwoArgumentSimpleFunction> {
@@ -16,11 +18,9 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
         var machine = ctx.pipeline().stackMachine();
-
         machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), PREPARE_COMPUTE);
         machine.popStack();
-
         machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), PREPARE_COMPUTE);
         machine.popStack();
@@ -29,11 +29,9 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx) {
         var machine = ctx.pipeline().stackMachine();
-
         machine.pushStack(node.getClass(), node.argument1().getClass());
         ctx.visitNodeCompute(node.argument1(), POST_PREPARE_COMPUTE);
         machine.popStack();
-
         machine.pushStack(node.getClass(), node.argument2().getClass());
         ctx.visitNodeCompute(node.argument2(), POST_PREPARE_COMPUTE);
         machine.popStack();
@@ -50,7 +48,7 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         DensityFunction arg2 = node.argument2();
         var type = node.type();
 
-        // 1. Если оба аргумента константы — считаем на этапе компиляции
+        // 1. Constant Folding
         if (isConst(arg1) && isConst(arg2)) {
             double v1 = getConst(arg1);
             double v2 = getConst(arg2);
@@ -64,52 +62,46 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
             return;
         }
 
-        // 2. Оптимизации для ADD
+        // 2. Identity & Zero Logic
         if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD) {
-            // x + 0 = x
-            if (isConst(arg1, 0.0)) {
-                machine.pushStack(node.getClass(), arg2.getClass());
-                ctx.visitNodeCompute(arg2);
-                machine.popStack();
-                return;
-            }
-            if (isConst(arg2, 0.0)) {
-                machine.pushStack(node.getClass(), arg1.getClass());
-                ctx.visitNodeCompute(arg1);
-                machine.popStack();
+            if (isConst(arg1, 0.0)) { generate(ctx, node, arg2, machine); return; }
+            if (isConst(arg2, 0.0)) { generate(ctx, node, arg1, machine); return; }
+        }
+        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
+            if (isConst(arg1, 0.0) || isConst(arg2, 0.0)) { mv.visitInsn(DCONST_0); return; }
+            if (isConst(arg1, 1.0)) { generate(ctx, node, arg2, machine); return; }
+            if (isConst(arg2, 1.0)) { generate(ctx, node, arg1, machine); return; }
+
+            // --- ОПТИМИЗАЦИЯ 3: SQUARING (x * x) ---
+            // Самая важная оптимизация для производительности шума.
+            // Если мы умножаем функцию саму на себя, вычисляем её ОДИН раз и дублируем на стеке.
+            if (arg1 == arg2 || arg1.equals(arg2)) {
+                generate(ctx, node, arg1, machine); // Stack: [val]
+                mv.visitInsn(DUP2);                 // Stack: [val, val]
+                mv.visitInsn(DMUL);                 // Stack: [val * val]
                 return;
             }
         }
 
-        // 3. Оптимизации для MUL
-        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
-            // x * 0 = 0
-            if (isConst(arg1, 0.0) || isConst(arg2, 0.0)) {
-                mv.visitInsn(DCONST_0);
-                return;
-            }
-            // x * 1 = x
-            if (isConst(arg1, 1.0)) {
-                machine.pushStack(node.getClass(), arg2.getClass());
-                ctx.visitNodeCompute(arg2);
-                machine.popStack();
-                return;
-            }
-            if (isConst(arg2, 1.0)) {
-                machine.pushStack(node.getClass(), arg1.getClass());
-                ctx.visitNodeCompute(arg1);
-                machine.popStack();
-                return;
-            }
+        // --- ОПТИМИЗАЦИЯ 4: RANGE PRUNING (MIN/MAX) ---
+        // Статическое удаление веток, если диапазоны не пересекаются
+        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MAX) {
+            // Если min(A) >= max(B), то результат всегда A
+            if (arg1.minValue() >= arg2.maxValue()) { generate(ctx, node, arg1, machine); return; }
+            // Если min(B) >= max(A), то результат всегда B
+            if (arg2.minValue() >= arg1.maxValue()) { generate(ctx, node, arg2, machine); return; }
+        }
+        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MIN) {
+            // Если max(A) <= min(B), то результат всегда A
+            if (arg1.maxValue() <= arg2.minValue()) { generate(ctx, node, arg1, machine); return; }
+            // Если max(B) <= min(A), то результат всегда B
+            if (arg2.maxValue() <= arg1.minValue()) { generate(ctx, node, arg2, machine); return; }
         }
 
         // Стандартная генерация
-        machine.pushStack(node.getClass(), arg1.getClass());
-        ctx.visitNodeCompute(arg1);
-        machine.popStack();
-        machine.pushStack(node.getClass(), arg2.getClass());
-        ctx.visitNodeCompute(arg2);
-        machine.popStack();
+        generate(ctx, node, arg1, machine);
+        generate(ctx, node, arg2, machine);
+
         switch (type) {
             case ADD -> mv.visitInsn(DADD);
             case MUL -> mv.visitInsn(DMUL);
@@ -118,127 +110,10 @@ public class DensityCompilerTwoArgumentSimpleFunctionTask extends
         }
     }
 
-//    @Override
-//    public void compileFill(MethodVisitor mv, DensityFunctions.TwoArgumentSimpleFunction node, PipelineAsmContext ctx, int destArrayVar) {
-//        DensityFunction arg1 = node.argument1();
-//        DensityFunction arg2 = node.argument2();
-//        var type = node.type();
-//
-//        // --- Оптимизация 1: Identity (Ничего не делать) ---
-//        // x + 0 или x * 1 -> просто заливаем x
-//        if ((type == DensityFunctions.TwoArgumentSimpleFunction.Type.ADD && (isConst(arg1, 0.0) || isConst(arg2, 0.0))) ||
-//                (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL && (isConst(arg1, 1.0) || isConst(arg2, 1.0)))) {
-//
-//            DensityFunction nonConstArg = isConst(arg1) ? arg2 : arg1;
-//            ctx.visitNodeFill(nonConstArg, destArrayVar);
-//            return;
-//        }
-//
-//        // --- Оптимизация 2: Scalar + Vector (Без аллокации буфера) ---
-//        // Если один аргумент константа, а второй сложный -> заливаем сложный, потом циклом применяем константу
-//        // Для MUL, ADD, MIN, MAX порядок аргументов не важен (коммутативность)
-//        if (isConst(arg1) || isConst(arg2)) {
-//            double constantValue = isConst(arg1) ? getConst(arg1) : getConst(arg2);
-//            DensityFunction vectorArg = isConst(arg1) ? arg2 : arg1;
-//
-//            // 1. Заливаем векторную часть в dest
-//            ctx.visitNodeFill(vectorArg, destArrayVar);
-//
-//            // 2. Проходим по массиву и применяем операцию с константой
-//            ctx.arrayForI(destArrayVar, (iVar) -> {
-//                mv.visitVarInsn(ALOAD, destArrayVar); // array ref
-//                mv.visitVarInsn(ILOAD, iVar);         // index
-//                mv.visitInsn(DUP2);                   // [array, index, array, index]
-//                mv.visitInsn(DALOAD);                 // [array, index, value]
-//
-//                mv.visitLdcInsn(constantValue);       // [array, index, value, const]
-//
-//                switch (type) {
-//                    case ADD -> mv.visitInsn(DADD);
-//                    case MUL -> mv.visitInsn(DMUL);
-//                    case MIN -> DensityCompilerUtils.min(mv);
-//                    case MAX -> DensityCompilerUtils.max(mv);
-//                }
-//
-//                mv.visitInsn(DASTORE);                // Store back
-//            });
-//            return;
-//        }
-//
-//        // --- Стандартная логика (Vector + Vector) ---
-//        // Если оба аргумента сложные, придется использовать временный буфер (или ленивый MUL)
-//
-//        ctx.visitNodeFill(arg1, destArrayVar);
-//
-//        // Ленивый MUL (как было у тебя, это хорошая оптимизация)
-//        if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MUL) {
-//            ctx.arrayForI(destArrayVar, (iVar) -> {
-//                Label skip = new Label();
-//                mv.visitVarInsn(ALOAD, destArrayVar);
-//                mv.visitVarInsn(ILOAD, iVar);
-//                mv.visitInsn(DALOAD);
-//                mv.visitInsn(DUP2);
-//                mv.visitInsn(DCONST_0);
-//                mv.visitInsn(DCMPL);
-//                mv.visitJumpInsn(IFEQ, skip);
-//
-//                ctx.compileNodeComputeForIndex(mv, arg2, iVar);
-//                mv.visitInsn(DMUL);
-//
-//                mv.visitVarInsn(ALOAD, destArrayVar);
-//                mv.visitVarInsn(ILOAD, iVar);
-//                mv.visitInsn(DUP2_X2);
-//                mv.visitInsn(POP2);
-//                mv.visitInsn(DASTORE);
-//
-//                mv.visitLabel(skip);
-//                mv.visitInsn(POP2);
-//            });
-//            return;
-//        }
-//
-//        // ADD, MIN, MAX для двух векторов
-//        int tempArrayVar = ctx.allocateTempBuffer();
-//        ctx.visitNodeFill(arg2, tempArrayVar);
-//
-//        int opcode = switch (type) {
-//            case ADD -> DADD;
-//            default -> -1;
-//        };
-//
-//        ctx.arrayForI(destArrayVar, (iVar) -> {
-//            mv.visitVarInsn(ALOAD, destArrayVar);
-//            mv.visitVarInsn(ILOAD, iVar);
-//            mv.visitInsn(DUP2);
-//            mv.visitInsn(DALOAD);
-//
-//            mv.visitVarInsn(ALOAD, tempArrayVar);
-//            mv.visitVarInsn(ILOAD, iVar);
-//            mv.visitInsn(DALOAD);
-//
-//            if (opcode != -1) {
-//                mv.visitInsn(opcode);
-//            } else if (type == DensityFunctions.TwoArgumentSimpleFunction.Type.MIN) {
-//                DensityCompilerUtils.min(mv);
-//            } else {
-//                DensityCompilerUtils.max(mv);
-//            }
-//
-//            mv.visitInsn(DASTORE);
-//        });
-//    }
-
-    // --- Helpers ---
-
-    private boolean isConst(DensityFunction f) {
-        return f instanceof DensityFunctions.Constant;
-    }
-
-    private boolean isConst(DensityFunction f, double val) {
-        return f instanceof DensityFunctions.Constant c && c.value() == val;
-    }
-
-    private double getConst(DensityFunction f) {
-        return ((DensityFunctions.Constant)f).value();
+    // Хелпер, чтобы уменьшить дублирование кода пуша в стек-машину
+    private void generate(PipelineAsmContext ctx, DensityFunction owner, DensityFunction child, StackMachine machine) {
+        machine.pushStack(owner.getClass(), child.getClass());
+        ctx.visitNodeCompute(child);
+        machine.popStack();
     }
 }

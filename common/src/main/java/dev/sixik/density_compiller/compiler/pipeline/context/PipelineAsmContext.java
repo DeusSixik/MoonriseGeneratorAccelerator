@@ -16,13 +16,14 @@ import org.objectweb.asm.MethodVisitor;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class PipelineAsmContext extends AsmCtx implements
         DensityFunctionsCacheHandler
 {
 
-    public static final String DEFAULT_LEAF_FUNCTION_NAME = "leaf_function";
+    public static final Function<Object, String> DEFAULT_LEAF_FUNCTION_NAME = (leaf) -> leaf.getClass().getSimpleName();
 
     protected final DensityCompilerPipeline pipeline;
     protected final ContextCache cache = new ContextCache();
@@ -44,12 +45,12 @@ public class PipelineAsmContext extends AsmCtx implements
         return pipeline;
     }
 
-    public void putField(int iVar) {
-        mv.visitFieldInsn(PUTFIELD,
-                pipeline.configurator.className(),
-                DEFAULT_LEAF_FUNCTION_NAME + "_" + iVar,
-                DescriptorBuilder.builder().type(DensityFunction.class).build());
-    }
+//    public void putField(int iVar) {
+//        mv.visitFieldInsn(PUTFIELD,
+//                pipeline.configurator.className(),
+//                DEFAULT_LEAF_FUNCTION_NAME + "_" + iVar,
+//                DescriptorBuilder.builder().type(DensityFunction.class).build());
+//    }
 
     public int getOrCreateLeafIndex(DensityFunction leaf) {
         final DensityCompilerLocals locals = pipeline.locals;
@@ -217,7 +218,7 @@ public class PipelineAsmContext extends AsmCtx implements
     public void visitLeaf(DensityFunction leaf) {
         final int variable = getOrCreateLeafIndex(leaf);
 
-        String fieldName = DEFAULT_LEAF_FUNCTION_NAME + "_" + variable;
+        String fieldName = DEFAULT_LEAF_FUNCTION_NAME.apply(leaf) + "_" + variable;
         String fieldDescriptor = DescriptorBuilder.builder().type(DensityFunction.class).build();
 
         loadThis();
@@ -279,7 +280,7 @@ public class PipelineAsmContext extends AsmCtx implements
         // Чтобы это исправить, нужно хранить Map<Integer, String> fieldDescriptors в Locals.
         locals.leafTypes.put(index, descriptor);
 
-        String fieldName = DEFAULT_LEAF_FUNCTION_NAME + "_" + index;
+        String fieldName = DEFAULT_LEAF_FUNCTION_NAME.apply(leaf) + "_" + index;
 
         loadThis();
         getField(fieldName, descriptor);
@@ -450,5 +451,12 @@ public class PipelineAsmContext extends AsmCtx implements
     @Override
     public void loadFunctionContext() {
         readRefVar(cache().cachedForIndexVar);
+    }
+
+    public void comment(String text) {
+        if (false) {
+            mv.visitLdcInsn("// " + text);
+            mv.visitInsn(POP);
+        }
     }
 }

@@ -49,7 +49,7 @@ public class DensityMapAllGenerator implements DensityCompilerPipelineGenerator 
                 // Загружаем поле (с его реальным типом!)
                 String fieldDesc = pipeline.locals.leafTypes.getOrDefault(index, descDensity);
                 ctx.loadThis();
-                ctx.getField(PipelineAsmContext.DEFAULT_LEAF_FUNCTION_NAME + "_" + index, fieldDesc);
+                ctx.getField(PipelineAsmContext.DEFAULT_LEAF_FUNCTION_NAME.apply(entry.getKey()) + "_" + index, fieldDesc);
 
                 // В зависимости от типа объекта выбираем метод визитора
                 if (leafObj instanceof DensityFunction) {

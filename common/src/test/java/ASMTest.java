@@ -1,6 +1,6 @@
 import dev.sixik.density_compiller.compiler.data.DensityCompilerData;
 import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
-import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerContext;
+import dev.sixik.density_compiller.visitor.DensityTreeBuilder;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.SharedConstants;
@@ -9,7 +9,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
-import net.minecraft.world.level.levelgen.NoiseChunk;
+import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -18,8 +18,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import static org.objectweb.asm.Opcodes.ARRAYLENGTH;
-
 public class ASMTest {
 
     @BeforeAll
@@ -27,6 +25,29 @@ public class ASMTest {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         DensityCompilerData.boot();
+    }
+
+    @Test
+    public void analyzeTest() {
+        final ObjectArrayList<Beardifier.Rigid> objects = new ObjectArrayList<>();
+        final ObjectArrayList<JigsawJunction> objects2 = new ObjectArrayList<>();
+
+        DensityFunction c1 = new DensityFunctions.Constant(404);
+        DensityFunction c2 = new DensityFunctions.Constant(-804);
+
+        DensityFunction max = new DensitySpecializations.FastMax(c1, c2);
+
+        DensityFunction c10 = new Beardifier(objects.listIterator(), objects2.listIterator());
+
+        DensityFunctions.ShiftedNoise mig = new DensityFunctions.ShiftedNoise(c10, max, c10, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
+
+        DensityFunction c20 = new DensityFunctions.Constant(20.0);
+        DensityFunction sh1 = new DensityFunctions.ShiftedNoise(c20, mig, c20, 10, 20, new DensityFunction.NoiseHolder(Holder.direct(new NormalNoise.NoiseParameters(10, new ArrayList<>())), null));
+
+        DensityFunction root1 = new DensityFunctions.RangeChoice(sh1, 0, 1, c10, c1);
+        DensityFunction root2 = new DensityFunctions.RangeChoice(root1, 0, 1, c10, c1);
+        DensityFunction root = new DensityFunctions.RangeChoice(root1, 0, 1, root2, c1);
+
     }
 
     @Test()

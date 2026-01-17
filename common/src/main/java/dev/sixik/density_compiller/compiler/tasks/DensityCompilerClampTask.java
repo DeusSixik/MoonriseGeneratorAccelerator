@@ -33,6 +33,8 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
     protected void compileCompute(MethodVisitor mv, DensityFunctions.Clamp node, PipelineAsmContext ctx) {
         var machine = ctx.pipeline().stackMachine();
 
+        ctx.comment("Owner: DensityCompilerClampTask");
+
         DensityFunction input = node.input();
         double cMin = node.minValue(); // Границы клэмпа
         double cMax = node.maxValue();

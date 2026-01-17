@@ -1,6 +1,5 @@
 package dev.sixik.density_compiller.compiler.tasks;
 
-import dev.sixik.density_compiller.compiler.pipeline.DensityCompilerPipeline;
 import dev.sixik.density_compiller.compiler.pipeline.context.PipelineAsmContext;
 import dev.sixik.density_compiller.compiler.tasks_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -12,7 +11,6 @@ import static dev.sixik.density_compiller.compiler.pipeline.context.hanlders.Den
 
 public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctions.Noise> {
 
-    private static final String CTX = "net/minecraft/world/level/levelgen/DensityFunction$FunctionContext";
     private static final String HOLDER_DESC = "Lnet/minecraft/world/level/levelgen/DensityFunction$NoiseHolder;";
     private static final String HOLDER_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction$NoiseHolder";
 

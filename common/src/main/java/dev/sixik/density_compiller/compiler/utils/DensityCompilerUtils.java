@@ -96,64 +96,82 @@ public class DensityCompilerUtils {
         visitor.visitMethodInsn(INVOKESTATIC, "net/minecraft/util/Mth", "clampedMap", "(DDDDD)D", false);
     }
 
-    public static void compileNegativeFactor(MethodVisitor mv, double factor) {
-        Label labelEnd = new Label();
+    /**
+     * Генерирует: val > 0 ? val : val * factor
+     * Оптимизирует случай, если мы точно знаем, что число всегда отрицательное.
+     */
+    public static void compileNegativeFactor(MethodVisitor mv, double factor, DensityFunction input) {
+        // Если вход всегда отрицательный (или 0), ветвление не нужно — всегда умножаем.
+        if (input.maxValue() <= 0.0) {
+            mv.visitLdcInsn(factor);
+            mv.visitInsn(DMUL);
+            return;
+        }
 
-        mv.visitInsn(DUP2);          // [d, d]
-        mv.visitInsn(DCONST_0);      // [d, d, 0.0]
-        mv.visitInsn(DCMPL);         // [d, res_int]
+        // Стандартное ветвление
+        Label end = new Label();
+        Label isNegative = new Label();
 
-        mv.visitJumpInsn(IFGT, labelEnd); // d > 0
+        mv.visitInsn(DUP2);      // [val, val]
+        mv.visitInsn(DCONST_0);  // [val, val, 0.0]
+        mv.visitInsn(DCMPG);     // Сравниваем
+        mv.visitJumpInsn(IFLT, isNegative); // val < 0 ? goto isNegative
 
-        // Если d <= 0
-        mv.visitLdcInsn(factor);     // [d, factor]
-        mv.visitInsn(DMUL);          // [d * factor]
+        // Positive: skip
+        mv.visitJumpInsn(GOTO, end);
 
-        mv.visitLabel(labelEnd);
+        mv.visitLabel(isNegative);
+        // [val] -> [val * factor]
+        mv.visitLdcInsn(factor);
+        mv.visitInsn(DMUL);
+
+        mv.visitLabel(end);
     }
 
+    /**
+     * Реализует функцию Squeeze:
+     * double e = clamp(val, -1.0, 1.0);
+     * return e / 2.0 - e * e * e / 24.0;
+     */
     public static void compileSqueeze(MethodVisitor mv, PipelineAsmContext ctx, boolean needsClamp) {
-    /*
-        e = clamp(d, -1, 1)
-        Stack input: [d]
-    */
+        // 1. Применяем Clamp, если диапазон входа выходит за [-1, 1]
         if (needsClamp) {
-            mv.visitLdcInsn(-1.0);
             mv.visitLdcInsn(1.0);
             mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+            mv.visitLdcInsn(-1.0);
             mv.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
         }
+
         // Stack: [e]
+        // Формула: e * 0.5 - (e^3) * 0.041666...
 
-    /*
-        Сохраняем 'e' в переменную, чтобы использовать дважды.
-        Это избавляет от DUP2_X2 ада.
-    */
-        int varE = ctx.newLocalDouble();
-        mv.visitInsn(DUP2);          // [e, e]
-        mv.visitVarInsn(DSTORE, varE); // [e] -> varE = e
+        // Чтобы не жонглировать стеком (для куба нужно 3 копии, для первой части еще одна),
+        // проще и БЫСТРЕЕ сохранить 'e' в локальную переменную.
+        // ASM позволяет выделить переменную "на лету".
 
-    /*
-        1. Считаем e / 2.0
-    */
-        mv.visitLdcInsn(2.0);
-        mv.visitInsn(DDIV);          // [e / 2.0]
+        int eVar = ctx.newLocalDouble();
+        mv.visitVarInsn(DSTORE, eVar); // Stack: []
 
-    /*
-        2. Считаем e^3 / 24.0
-    */
-        mv.visitVarInsn(DLOAD, varE); // [e/2.0, e]
-        mv.visitInsn(DUP2);           // [e/2.0, e, e]
-        mv.visitInsn(DUP2);           // [e/2.0, e, e, e]
-        mv.visitInsn(DMUL);           // [e/2.0, e, e^2]
-        mv.visitInsn(DMUL);           // [e/2.0, e^3]
-        mv.visitLdcInsn(24.0);        // [e/2.0, e^3, 24.0]
-        mv.visitInsn(DDIV);           // [e/2.0, e^3/24.0]
+        // Term 1: e * 0.5
+        mv.visitVarInsn(DLOAD, eVar);
+        mv.visitLdcInsn(0.5);
+        mv.visitInsn(DMUL); // Stack: [term1]
 
-    /*
-        3. Вычитаем: (e/2) - (e^3/24)
-    */
-        mv.visitInsn(DSUB);           // [result]
+        // Term 2: e * e * e * (1/24)
+        mv.visitVarInsn(DLOAD, eVar);
+        mv.visitVarInsn(DLOAD, eVar);
+        mv.visitInsn(DMUL); // e^2
+        mv.visitVarInsn(DLOAD, eVar);
+        mv.visitInsn(DMUL); // e^3
+
+        mv.visitLdcInsn(1.0 / 24.0);
+        mv.visitInsn(DMUL); // Stack: [term1, term2]
+
+        // Result: term1 - term2
+        mv.visitInsn(DSUB); // Stack: [result]
+
+        // Освобождаем слот (виртуально, если у тебя есть менеджер переменных)
+        // ctx.freeLocal(eVar);
     }
 
     public boolean isYInvariant(DensityFunction f) {
@@ -173,5 +191,39 @@ public class DensityCompilerUtils {
         }
 
         return false;
+    }
+
+    public static boolean isConst(DensityFunction f) {
+        return f instanceof DensityFunctions.Constant || f instanceof DensityFunctions.BlendAlpha || f instanceof DensityFunctions.BlendOffset || f instanceof DensityFunctions.BeardifierMarker;
+    }
+
+    public static boolean isConst(DensityFunction f, double val) {
+        if(f instanceof DensityFunctions.Constant c && c.value() == val)
+            return true;
+
+        if(f instanceof DensityFunctions.BlendAlpha c && c.minValue() == val)
+            return true;
+
+        if(f instanceof DensityFunctions.BeardifierMarker marker && marker.maxValue() == val)
+            return true;
+
+        return f instanceof DensityFunctions.BlendOffset c && c.minValue() == val;
+    }
+
+    public static double getConst(DensityFunction f) {
+
+        if(f instanceof DensityFunctions.Constant constant)
+            return constant.value();
+
+        if(f instanceof DensityFunctions.BlendOffset blendAlpha)
+            return blendAlpha.minValue();
+
+        if(f instanceof DensityFunctions.BlendAlpha blendAlpha)
+            return blendAlpha.minValue();
+
+        if(f instanceof DensityFunctions.BeardifierMarker marker)
+            return marker.maxValue();
+
+        throw new NullPointerException("Can't get constant from " + f.getClass().getName() + " !");
     }
 }

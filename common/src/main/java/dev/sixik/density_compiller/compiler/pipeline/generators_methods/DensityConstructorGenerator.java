@@ -48,7 +48,7 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
             // ВАЖНО: Кастим Object к конкретному типу поля (NoiseHolder, Spline...)
             mv.visitTypeInsn(CHECKCAST, internalName);
 
-            mv.visitFieldInsn(PUTFIELD, className, DEFAULT_LEAF_FUNCTION_NAME + "_" + index, desc);
+            mv.visitFieldInsn(PUTFIELD, className, DEFAULT_LEAF_FUNCTION_NAME.apply(entry.getKey()) + "_" + index, desc);
         }
 
         mv.visitInsn(RETURN);
@@ -84,7 +84,7 @@ public class DensityConstructorGenerator implements DensityCompilerPipelineGener
             String desc = pipeline.locals.leafTypes.getOrDefault(index, "Lnet/minecraft/world/level/levelgen/DensityFunction;");
 
             cw.visitField(ACC_PRIVATE | ACC_FINAL,
-                    DEFAULT_LEAF_FUNCTION_NAME + "_" + index,
+                    DEFAULT_LEAF_FUNCTION_NAME.apply(entry.getKey()) + "_" + index,
                     desc, null, null).visitEnd();
         }
     }

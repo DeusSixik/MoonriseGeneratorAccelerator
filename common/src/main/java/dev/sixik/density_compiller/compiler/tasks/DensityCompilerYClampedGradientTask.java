@@ -23,6 +23,11 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
     @Override
     protected void postPrepareCompute(MethodVisitor mv, DensityFunctions.YClampedGradient node, PipelineAsmContext ctx) {
 
+        final String key = String.valueOf(computeHash(node.fromY(), node.toY(), node.fromValue(), node.toValue()));
+        if(ctx.containsCachedVariable(key)) return;
+
+        ctx.comment("Owner: DensityCompilerYClampedGradientTask");
+
         /*
             After our request, the data should already exist, and we can
             retrieve the variable where functionContext.blockY() is stored.
@@ -43,7 +48,7 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
             Since the values are static, we don't need to calculate them every time.
          */
         int varId = ctx.createDoubleVarFromStack();
-        ctx.putCachedVariable(String.valueOf(computeHash(node.fromY(), node.toY(), node.fromValue(), node.toValue())), varId);
+        ctx.putCachedVariable(key, varId);
     }
 
     @Override

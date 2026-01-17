@@ -27,6 +27,8 @@ public class DensityCompilerHolderHolderTask extends DensityCompilerTask<Density
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.HolderHolder node, PipelineAsmContext ctx) {
+        ctx.comment("Owner: DensityCompilerHolderHolderTask");
+
         var machine = ctx.pipeline().stackMachine();
 
         machine.pushStack(node.getClass(), node.function().value().getClass());

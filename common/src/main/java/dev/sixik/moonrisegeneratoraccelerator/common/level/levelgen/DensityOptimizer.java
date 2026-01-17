@@ -77,14 +77,6 @@ public class DensityOptimizer {
             return mapped;
         }
 
-//        if (cache2.containsKey(original)) {
-//            return cache2.get(original);
-//        }
-//
-//        // Компилируем и возвращаем новый объект
-//
-//        final DensityFunction newDensity = COMPILER.compile(mapped);
-//        cache2.put(original, newDensity);
         return DensityCompilerPipeline.from(mapped, true).startCompilation();
     }
 

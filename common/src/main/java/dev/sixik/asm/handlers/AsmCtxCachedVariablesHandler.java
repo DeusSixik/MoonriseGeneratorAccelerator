@@ -14,6 +14,10 @@ public interface AsmCtxCachedVariablesHandler extends AsmCtxHandler {
         return getCachedVariables().getOrDefault(key, -1);
     }
 
+    default boolean containsCachedVariable(String key) {
+        return getCachedVariables().containsKey(key);
+    }
+
     default int getOrCreateCachedVariable(String key, int iVar) {
         return getCachedVariables().computeIfAbsent(key, s -> iVar);
     }

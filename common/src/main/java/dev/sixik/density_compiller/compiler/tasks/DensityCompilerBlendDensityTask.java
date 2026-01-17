@@ -7,11 +7,12 @@ import dev.sixik.density_compiller.compiler.utils.DescriptorBuilder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.blending.Blender;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
-public class DensityCompilerBlendDensityTask extends DensityCompilerTask<DensityFunctions.BlendDensity> {
+import static org.objectweb.asm.Opcodes.*;
 
-    private static final String BLENDER = "net/minecraft/world/level/levelgen/blending/Blender";
+public class DensityCompilerBlendDensityTask extends DensityCompilerTask<DensityFunctions.BlendDensity> {
 
     @Override
     protected void prepareCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
@@ -37,15 +38,46 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
 
     @Override
     protected void compileCompute(MethodVisitor mv, DensityFunctions.BlendDensity node, PipelineAsmContext ctx) {
+        ctx.comment("Owner: DensityCompilerBlendDensityTask");
+
         var machine = ctx.pipeline().stackMachine();
+        int blenderVar = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLENDER);
 
-        int variable = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLENDER);
-        ctx.readRefVar(variable);
+        // --- FAST PATH CHECK ---
+        // Проверяем, не является ли блендер пустым.
+        // Это оптимизация ветвления: JIT очень хорошо предсказывает этот переход,
+        // так как в пределах одного чанка блендер либо всегда пустой, либо всегда нет.
 
-        ctx.loadFunctionContext();          // Function Context
+        Label doBlend = new Label();
+        Label end = new Label();
+
+        // 1. Грузим Blender
+        ctx.readRefVar(blenderVar);
+
+        // 2. Грузим Blender.empty() (константу)
+        ctx.invokeMethodStatic(
+                Blender.class,
+                "empty",
+                DescriptorBuilder.builder().buildMethod(Blender.class)
+        );
+
+        // 3. Сравниваем ссылки (IF_ACMPNE - if references are NOT equal)
+        mv.visitJumpInsn(IF_ACMPNE, doBlend);
+
+        // --- CASE: EMPTY BLENDER ---
+        // Просто считаем input и выходим. Никаких invoke context.
+        ctx.visitNodeCompute(node.input());
+        mv.visitJumpInsn(GOTO, end);
+
+        // --- CASE: ACTIVE BLENDER ---
+        mv.visitLabel(doBlend);
+
+        // Грузим Blender снова (или можно было сделать DUP перед сравнением, но так чище для стека)
+        ctx.readRefVar(blenderVar);
+        ctx.loadFunctionContext();
 
         machine.pushStack(node.getClass(), node.input().getClass());
-        ctx.visitNodeCompute(node.input()); // input_double
+        ctx.visitNodeCompute(node.input());
         machine.popStack();
 
         ctx.invokeMethodVirtual(
@@ -57,6 +89,6 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
                         .buildMethod(double.class)
         );
 
-        // blendDensity(functionContext, double)
+        mv.visitLabel(end);
     }
 }

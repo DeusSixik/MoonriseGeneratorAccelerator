@@ -37,10 +37,18 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
         ctx.visitNodeCompute(node.input());
         machine.popStack();
 
+        // ОПТИМИЗАЦИЯ 1: ABS не нужен, если мин. значение >= 0
         if (node.type() == DensityFunctions.Mapped.Type.ABS && node.input().minValue() >= 0.0) {
             return;
         }
 
+        // ОПТИМИЗАЦИЯ 2: HALF/QUARTER не нужны, если мин. значение >= 0 (всегда положительно)
+        if ((node.type() == DensityFunctions.Mapped.Type.HALF_NEGATIVE || node.type() == DensityFunctions.Mapped.Type.QUARTER_NEGATIVE)
+                && node.input().minValue() >= 0.0) {
+            return;
+        }
+
+        ctx.comment("Mapped: " + node.type().name());
         generateTransformMath(mv, node.type(), node.input(), ctx);
     }
 
@@ -59,8 +67,8 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
                 mv.visitInsn(DMUL);
                 mv.visitInsn(DMUL);
             }
-            case HALF_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.5);
-            case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25);
+            case HALF_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.5, input);
+            case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25, input);
             case SQUEEZE -> {
                 boolean needsClamp = input.minValue() < -1.0 || input.maxValue() > 1.0;
                 DensityCompilerUtils.compileSqueeze(mv, ctx, needsClamp);
