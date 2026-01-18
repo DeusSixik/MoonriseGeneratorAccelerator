@@ -5,8 +5,6 @@ import net.minecraft.world.level.levelgen.DensityFunction;
 
 public class CachedPointContext implements DensityFunction.FunctionContext {
 
-//    public static final ThreadLocal<CachedPointContext> CACHE = ThreadLocal.withInitial(CachedPointContext::new);
-
     protected int x, y, z;
 
     public CachedPointContext() { }

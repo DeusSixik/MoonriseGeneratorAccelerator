@@ -20,6 +20,9 @@
     "level.levelgen.MixinNoiseBasedChunkGenerator$optimize_density_functions",
     "level.levelgen.MixinNoiseChunk",
     "level.levelgen.MixinNoiseChunk$Cache2D",
+    "level.levelgen.MixinNoiseChunk$cacheSurfaceRules",
+    "level.levelgen.MixinNoiseChunk$FlatCache$OptimizeFlatArray",
+    "level.levelgen.MixinNoiseChunk$OptimizeFlatArray",
     "level.levelgen.MixinNoiseInterpolator",
     "level.levelgen.MixinNoiseRouter$add_custom_optimizer",
     "level.levelgen.MixinSurfaceRules",
@@ -46,7 +49,8 @@
     "level.strucutres.pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",
     "level.strucutres.pools.MixinJigsawPlacement$use_cached_jigsaws",
     "level.strucutres.pools.MixinSinglePoolElement$cache_jigsawBlocks",
-    "level.strucutres.pools.MixinStructurePoolElement$cache_jigsawBlocks"
+    "level.strucutres.pools.MixinStructurePoolElement$cache_jigsawBlocks",
+    "util.MixinMultipoint"
   ],
   "injectors": {
     "defaultRequire": 1

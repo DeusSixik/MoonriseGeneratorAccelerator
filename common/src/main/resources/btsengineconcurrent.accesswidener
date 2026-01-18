@@ -195,3 +195,7 @@ accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_AMPLIF
 accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_LARGE Lnet/minecraft/resources/ResourceKey;
 
 accessible method net/minecraft/world/level/levelgen/synth/PerlinNoise maxValue ()D
+
+accessible field net/minecraft/world/level/levelgen/NoiseChunk noiseSizeXZ I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk firstNoiseX I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk firstNoiseZ I

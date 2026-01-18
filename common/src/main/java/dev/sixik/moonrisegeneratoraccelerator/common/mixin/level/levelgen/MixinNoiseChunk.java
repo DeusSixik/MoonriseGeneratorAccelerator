@@ -1,19 +1,20 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.CachedPointContext;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseChunkPatch;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.NoiseChunk;
-import net.minecraft.world.level.levelgen.NoiseSettings;
+import net.minecraft.world.level.levelgen.*;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(NoiseChunk.class)
 public abstract class MixinNoiseChunk implements NoiseChunkPatch {
@@ -95,7 +96,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
 
     @Inject(method = "<init>", at = @At("TAIL"))
     private void bts$initOptimizationFields(CallbackInfo ci) {
-
         /*
             Converting lists to arrays for quick access
          */

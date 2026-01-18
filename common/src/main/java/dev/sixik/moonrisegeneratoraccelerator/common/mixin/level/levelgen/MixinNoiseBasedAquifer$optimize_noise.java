@@ -155,7 +155,6 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      */
     @Overwrite
     public BlockState computeSubstance(DensityFunction.FunctionContext context, double substance) {
-
         final int i = context.blockX();
         final int j = context.blockY();
         final int k = context.blockZ();
@@ -206,8 +205,6 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      */
     @Overwrite
     private Aquifer.FluidStatus getAquiferStatus(long pos) {
-
-
         final int i = BlockPos.getX(pos);
         final int j = BlockPos.getY(pos);
         final int k = BlockPos.getZ(pos);
