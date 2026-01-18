@@ -1,15 +1,13 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseChunk$FlatCache$FlatArray;
-import net.minecraft.core.QuartPos;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.objectweb.asm.Opcodes;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.*;
+
+import java.util.List;
 
 @Mixin(NoiseChunk.class)
 public class MixinNoiseChunk$OptimizeFlatArray {

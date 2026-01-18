@@ -199,3 +199,12 @@ accessible method net/minecraft/world/level/levelgen/synth/PerlinNoise maxValue 
 accessible field net/minecraft/world/level/levelgen/NoiseChunk noiseSizeXZ I
 accessible field net/minecraft/world/level/levelgen/NoiseChunk firstNoiseX I
 accessible field net/minecraft/world/level/levelgen/NoiseChunk firstNoiseZ I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellCountXZ I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellCountY I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellNoiseMinY I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk firstCellX I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk firstCellZ I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellWidth I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellHeight I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk cellStartBlockY I
+accessible field net/minecraft/world/level/levelgen/NoiseChunk arrayIndex I
