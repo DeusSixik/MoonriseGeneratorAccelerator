@@ -1,11 +1,17 @@
-package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
+package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density;
 
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density.wrappers.ConstantShiftedNoise;
+import net.minecraft.util.CubicSpline;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Optimizes density function expressions by applying constant folding and branch pruning.
@@ -87,22 +93,22 @@ public class DensityOptimizer {
      * simplifications. The function is first unwrapped to remove any
      * HolderHolder or MarkerOrMarked wrappers before analysis.</p>
      *
-     * @param f The density function node to rewrite
+     * @param function The density function node to rewrite
      * @return A potentially simplified version of the input function
      */
-    private DensityFunction rewriteLocal(DensityFunction f) {
+    private DensityFunction rewriteLocal(DensityFunction function) {
         /*
             The most important step is to remove the wrappers to see the real data.
          */
-        DensityFunction unwrapped = unwrap(f);
+        DensityFunction unwrapped = unwrap(function);
 
-        if (unwrapped instanceof DensityFunctions.Constant) {
+        if (DensityOptimizerUtils.isConst(unwrapped)) {
             return unwrapped;
         }
 
-        if (f instanceof DensityFunctions.MarkerOrMarked marker) {
+        if (unwrapped instanceof DensityFunctions.MarkerOrMarked marker) {
             DensityFunction inner = unwrap(marker.wrapped());
-            if (inner instanceof DensityFunctions.Constant) {
+            if (DensityOptimizerUtils.isConst(inner)) {
                 return inner;
             }
         }
@@ -110,17 +116,23 @@ public class DensityOptimizer {
         /*
             Constant Folding (Mapped & Clamp)
          */
-        if (f instanceof DensityFunctions.Mapped mapped) {
+        if (unwrapped instanceof DensityFunctions.Mapped mapped) {
             DensityFunction inner = unwrap(mapped.input());
-            if (inner instanceof DensityFunctions.Constant c) {
-                return DensityFunctions.constant(transformMapped(mapped.type(), c.value()));
+
+            var opt = DensityOptimizerUtils.getValueIfConstant(inner);
+            if(opt.isPresent()) {
+                return DensityFunctions.constant(transformMapped(mapped.type(), opt.get()));
             }
+
+           return DensitySpecializations.create(mapped.type(), inner);
         }
 
-        if (f instanceof DensityFunctions.Clamp clamp) {
+        if (unwrapped instanceof DensityFunctions.Clamp clamp) {
             DensityFunction inner = unwrap(clamp.input());
-            if (inner instanceof DensityFunctions.Constant c) {
-                return DensityFunctions.constant(Mth.clamp(c.value(), clamp.minValue(), clamp.maxValue()));
+            var opt = DensityOptimizerUtils.getValueIfConstant(inner);
+
+            if(opt.isPresent()) {
+                return DensityFunctions.constant(Mth.clamp(opt.get(), clamp.minValue(), clamp.maxValue()));
             }
 
             /*
@@ -134,7 +146,7 @@ public class DensityOptimizer {
         /*
             Arithmetic Folding (Add, Mul, Min, Max)
          */
-        if (f instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
+        if (unwrapped instanceof DensityFunctions.TwoArgumentSimpleFunction ap2) {
             DensityFunction a = ap2.argument1();
             DensityFunction b = ap2.argument2();
 
@@ -149,12 +161,16 @@ public class DensityOptimizer {
             /*
                 Constant + Constant
              */
-            if (aUnwrapped instanceof DensityFunctions.Constant ca && bUnwrapped instanceof DensityFunctions.Constant cb) {
+
+            var opt1 = DensityOptimizerUtils.getValueIfConstant(aUnwrapped);
+            var opt2 = DensityOptimizerUtils.getValueIfConstant(bUnwrapped);
+
+            if (opt1.isPresent() && opt2.isPresent()) {
                 return switch (type) {
-                    case ADD -> DensityFunctions.constant(ca.value() + cb.value());
-                    case MUL -> DensityFunctions.constant(ca.value() * cb.value());
-                    case MIN -> DensityFunctions.constant(Math.min(ca.value(), cb.value()));
-                    case MAX -> DensityFunctions.constant(Math.max(ca.value(), cb.value()));
+                    case ADD -> DensityFunctions.constant(opt1.get() + opt2.get());
+                    case MUL -> DensityFunctions.constant(opt1.get() * opt2.get());
+                    case MIN -> DensityFunctions.constant(Math.min(opt1.get(), opt2.get()));
+                    case MAX -> DensityFunctions.constant(Math.max(opt1.get(), opt2.get()));
                 };
             }
 
@@ -184,40 +200,42 @@ public class DensityOptimizer {
                 if (bUnwrapped.minValue() >= aUnwrapped.maxValue()) return b;
             }
 
-//            /*
-//                We pass the Ms to the constructor "a" and "b" (possibly wrapped in a Holder),
-//                or the expanded "aU"/"bU" — preferably expanded to remove the extra call stack.
-//             */
-//            return switch (type) {
-//                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
-//                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
-//                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
-//                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
-//            };
+            /*
+                We pass the Ms to the constructor "a" and "b" (possibly wrapped in a Holder),
+                or the expanded "aU"/"bU" — preferably expanded to remove the extra call stack.
+             */
+            return switch (type) {
+                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
+                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
+                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
+                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
+            };
         }
 
         /*
             MulOrAdd Folding
          */
-        if (f instanceof DensityFunctions.MulOrAdd ma) {
+        if (unwrapped instanceof DensityFunctions.MulOrAdd ma) {
             DensityFunction inputU = unwrap(ma.input());
-            if (inputU instanceof DensityFunctions.Constant c) {
+            Optional<Double> opt = DensityOptimizerUtils.getValueIfConstant(inputU);
+
+            if(opt.isPresent()) {
                 return switch (ma.specificType()) {
-                    case ADD -> DensityFunctions.constant(c.value() + ma.argument());
-                    case MUL -> DensityFunctions.constant(c.value() * ma.argument());
+                    case ADD -> DensityFunctions.constant(opt.get() + ma.argument());
+                    case MUL -> DensityFunctions.constant(opt.get() * ma.argument());
                 };
             }
 
-//            return switch (ma.specificType()) {
-//                case ADD -> new DensitySpecializations.FastLinearAdd(inputU, ma.argument());
-//                case MUL -> new DensitySpecializations.FastLinearMul(inputU, ma.argument());
-//            };
+            return switch (ma.specificType()) {
+                case ADD -> new DensitySpecializations.FastAddConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+                case MUL -> new DensitySpecializations.FastMulConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+            };
         }
 
         /*
             Branch Pruning (RangeChoice)
          */
-        if (f instanceof DensityFunctions.RangeChoice rc) {
+        if (unwrapped instanceof DensityFunctions.RangeChoice rc) {
             DensityFunction input = unwrap(rc.input());
             double min = input.minValue();
             double max = input.maxValue();
@@ -247,13 +265,13 @@ public class DensityOptimizer {
         /*
             Spline Folding
          */
-        if (f instanceof DensityFunctions.Spline spline) {
+        if (unwrapped instanceof DensityFunctions.Spline spline) {
             if (spline.minValue() == spline.maxValue()) {
                 return DensityFunctions.constant(spline.minValue());
             }
         }
 
-        if (f instanceof DensityFunctions.ShiftedNoise sn) {
+        if (unwrapped instanceof DensityFunctions.ShiftedNoise sn) {
             DensityFunction sx = unwrap(sn.shiftX());
             DensityFunction sy = unwrap(sn.shiftY());
             DensityFunction sz = unwrap(sn.shiftZ());
@@ -261,9 +279,21 @@ public class DensityOptimizer {
             if (isZero(sx) && isZero(sy) && isZero(sz)) {
                 return new DensityFunctions.Noise(sn.noise(), sn.xzScale(), sn.yScale());
             }
+
+            var optsx = DensityOptimizerUtils.getValueIfConstant(sx);
+            var optsy = DensityOptimizerUtils.getValueIfConstant(sy);
+            var optsz = DensityOptimizerUtils.getValueIfConstant(sz);
+
+            if(optsx.isPresent() && optsy.isPresent() && optsz.isPresent()) {
+                return new ConstantShiftedNoise(optsx.get(), optsy.get(), optsz.get(), sn.xzScale(), sn.yScale(), sn.noise());
+            }
         }
 
-        return f;
+//        if(f instanceof DensityFunctions.Spline spline) {
+//            return convertInner(spline.spline());
+//        }
+
+        return unwrapped;
     }
 
     /**
@@ -280,13 +310,7 @@ public class DensityOptimizer {
      * @return The innermost function after removing wrapper layers
      */
     private DensityFunction unwrap(DensityFunction f) {
-        if (f instanceof DensityFunctions.HolderHolder holder) {
-            return holder.function().isBound() ? holder.function().value() : f;
-        }
-        if (f instanceof DensityFunctions.MarkerOrMarked marker) {
-            return marker.wrapped();
-        }
-        return f;
+        return DensityOptimizerUtils.deepUnwrap(f);
     }
 
     /**
@@ -297,17 +321,7 @@ public class DensityOptimizer {
      * @return The transformed value according to the mapping type
      */
     private double transformMapped(DensityFunctions.Mapped.Type type, double val) {
-        return switch (type) {
-            case ABS -> Math.abs(val);
-            case SQUARE -> val * val;
-            case CUBE -> val * val * val;
-            case HALF_NEGATIVE -> val > 0 ? val : val * 0.5;
-            case QUARTER_NEGATIVE -> val > 0 ? val : val * 0.25;
-            case SQUEEZE -> {
-                double e = Mth.clamp(val, -1.0, 1.0);
-                yield e / 2.0 - e * e * e / 24.0;
-            }
-        };
+        return DensityOptimizerUtils.transformMapped(type, val);
     }
 
     /**
@@ -317,7 +331,7 @@ public class DensityOptimizer {
      * @return {@code true} if the function is a constant with value 0.0
      */
     private static boolean isZero(DensityFunction f) {
-        return f instanceof DensityFunctions.Constant c && c.value() == 0.0;
+        return DensityOptimizerUtils.isZero(f);
     }
 
     /**
@@ -327,7 +341,7 @@ public class DensityOptimizer {
      * @return {@code true} if the function is a constant with value 1.0
      */
     private static boolean isOne(DensityFunction f) {
-        return f instanceof DensityFunctions.Constant c && c.value() == 1.0;
+        return DensityOptimizerUtils.isOne(f);
     }
 }
 

@@ -16,7 +16,7 @@ public class AsyncWorldSnapshot {
     protected long LastUpdate;
     protected LevelLightEngine LevelLightEngine;
     protected RegistryAccess registryAccess;
-    protected  StructurePieceSerializationContext structureSerializerContext;
+    protected StructurePieceSerializationContext structureSerializerContext;
 
 
     public AsyncWorldSnapshot(ServerLevel level) {

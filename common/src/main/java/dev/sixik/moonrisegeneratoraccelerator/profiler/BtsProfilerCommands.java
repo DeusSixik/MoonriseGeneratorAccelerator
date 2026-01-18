@@ -3,7 +3,6 @@ package dev.sixik.moonrisegeneratoraccelerator.profiler;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensityOptimizer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;

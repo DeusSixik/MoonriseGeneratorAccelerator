@@ -3,9 +3,11 @@ package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.NotNull;
 
-@Deprecated
+import java.util.Arrays;
+
 public class DensitySpecializations {
 
     public record FastAdd(DensityFunction a, DensityFunction b) implements DensityFunction {
@@ -159,69 +161,306 @@ public class DensitySpecializations {
         }
     }
 
-    public record FastLinearAdd(DensityFunction input, double offset) implements DensityFunction {
+    public record FastAddConstant(DensityFunction input, double argument, double minValue, double maxValue) implements DensityFunction {
         @Override
         public double compute(FunctionContext ctx) {
-            return input.compute(ctx) + offset;
+            return input.compute(ctx) + argument;
         }
 
         @Override
         public void fillArray(double[] ds, ContextProvider ptr) {
             input.fillArray(ds, ptr);
-            for (int i = 0; i < ds.length; i++) ds[i] += offset;
+            final int l = ds.length;
+            final double arg = this.argument;
+            for (int i = 0; i < l; i++) ds[i] += arg;
         }
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastLinearAdd(input.mapAll(visitor), offset));
+            DensityFunction newInput = input.mapAll(visitor);
+            return visitor.apply(new FastAddConstant(newInput, argument, newInput.minValue() + argument, newInput.maxValue() + argument));
+        }
+
+        @Override public double minValue() { return minValue; }
+        @Override public double maxValue() { return maxValue; }
+        @Override public KeyDispatchDataCodec<? extends DensityFunction> codec() { return DensityFunctions.TwoArgumentSimpleFunction.Type.ADD.codec; }
+    }
+
+    public record FastMulConstant(DensityFunction input, double argument, double minValue, double maxValue) implements DensityFunction {
+        @Override
+        public double compute(FunctionContext ctx) {
+            if (argument == 0.0) return 0.0;
+            return input.compute(ctx) * argument;
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            if (argument == 0.0) {
+                Arrays.fill(ds, 0.0);
+                return;
+            }
+            input.fillArray(ds, ptr);
+            final int l = ds.length;
+            final double arg = this.argument;
+            for (int i = 0; i < l; i++) ds[i] *= arg;
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            DensityFunction ni = input.mapAll(visitor);
+            double d = ni.minValue(), e = ni.maxValue();
+            double f = argument >= 0.0 ? d * argument : e * argument;
+            double g = argument >= 0.0 ? e * argument : d * argument;
+            return visitor.apply(new FastMulConstant(ni, argument, f, g));
+        }
+
+        @Override public double minValue() { return minValue; }
+        @Override public double maxValue() { return maxValue; }
+        @Override public KeyDispatchDataCodec<? extends DensityFunction> codec() { return DensityFunctions.TwoArgumentSimpleFunction.Type.MUL.codec; }
+    }
+
+    public record FastAbs(DensityFunction input) implements DensityFunction {
+        @Override
+        public double compute(FunctionContext ctx) {
+            return Math.abs(input.compute(ctx));
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            input.fillArray(ds, ptr);
+            for (int i = 0; i < ds.length; i++) {
+                ds[i] = Math.abs(ds[i]);
+            }
         }
 
         @Override
         public double minValue() {
-            return input.minValue() + offset;
+            return Math.max(0.0, input.minValue());
         }
 
         @Override
         public double maxValue() {
-            return input.maxValue() + offset;
+            return Math.max(Math.abs(input.minValue()), Math.abs(input.maxValue()));
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastAbs(input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
-            return DensityFunctions.TwoArgumentSimpleFunction.Type.ADD.codec;
+            throw new NotImplementedException("Not needed on runtime!");
         }
     }
 
-    public record FastLinearMul(DensityFunction input, double factor) implements DensityFunction {
+    public record FastSquare(DensityFunction input) implements DensityFunction {
         @Override
         public double compute(FunctionContext ctx) {
-            return input.compute(ctx) * factor;
+            double d = input.compute(ctx);
+            return d * d;
         }
 
         @Override
         public void fillArray(double[] ds, ContextProvider ptr) {
             input.fillArray(ds, ptr);
-            for (int i = 0; i < ds.length; i++) ds[i] *= factor;
-        }
-
-        @Override
-        public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastLinearMul(input.mapAll(visitor), factor));
+            for (int i = 0; i < ds.length; i++) {
+                double d = ds[i];
+                ds[i] = d * d;
+            }
         }
 
         @Override
         public double minValue() {
-            return Double.NEGATIVE_INFINITY;
+            double min = input.minValue();
+            double max = input.maxValue();
+            return (min <= 0.0 && max >= 0.0) ? 0.0 : Math.min(min * min, max * max);
         }
 
         @Override
         public double maxValue() {
-            return Double.POSITIVE_INFINITY;
+            double min = input.minValue();
+            double max = input.maxValue();
+            return Math.max(min * min, max * max);
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastSquare(input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
-            return DensityFunctions.TwoArgumentSimpleFunction.Type.MUL.codec;
+            throw new NotImplementedException("Not needed on runtime!");
         }
+    }
+
+    public record FastCube(DensityFunction input) implements DensityFunction {
+        @Override
+        public double compute(FunctionContext ctx) {
+            double d = input.compute(ctx);
+            return d * d * d;
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            input.fillArray(ds, ptr);
+            for (int i = 0; i < ds.length; i++) {
+                double d = ds[i];
+                ds[i] = d * d * d;
+            }
+        }
+
+        @Override
+        public double minValue() {
+            double min = input.minValue();
+            return min * min * min;
+        }
+
+        @Override
+        public double maxValue() {
+            double max = input.maxValue();
+            return max * max * max;
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastCube(input.mapAll(visitor)));
+        }
+
+        @Override
+        public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            throw new NotImplementedException("Not needed on runtime!");
+        }
+    }
+
+    public record FastHalfNegative(DensityFunction input) implements DensityFunction {
+        @Override
+        public double compute(FunctionContext ctx) {
+            double d = input.compute(ctx);
+            return d > 0.0 ? d : d * 0.5;
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            input.fillArray(ds, ptr);
+            for (int i = 0; i < ds.length; i++) {
+                double d = ds[i];
+                ds[i] = d > 0.0 ? d : d * 0.5;
+            }
+        }
+
+        @Override
+        public double minValue() {
+            double min = input.minValue();
+            return min > 0.0 ? min : min * 0.5;
+        }
+
+        @Override
+        public double maxValue() {
+            double max = input.maxValue();
+            return max > 0.0 ? max : max * 0.5;
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastHalfNegative(input.mapAll(visitor)));
+        }
+
+        @Override
+        public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            throw new NotImplementedException("Not needed on runtime!");
+        }
+    }
+
+    public record FastQuarterNegative(DensityFunction input) implements DensityFunction {
+        @Override
+        public double compute(FunctionContext ctx) {
+            double d = input.compute(ctx);
+            return d > 0.0 ? d : d * 0.25;
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            input.fillArray(ds, ptr);
+            for (int i = 0; i < ds.length; i++) {
+                double d = ds[i];
+                ds[i] = d > 0.0 ? d : d * 0.25;
+            }
+        }
+
+        @Override
+        public double minValue() {
+            double min = input.minValue();
+            return min > 0.0 ? min : min * 0.25;
+        }
+
+        @Override
+        public double maxValue() {
+            double max = input.maxValue();
+            return max > 0.0 ? max : max * 0.25;
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastQuarterNegative(input.mapAll(visitor)));
+        }
+
+        @Override
+        public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            throw new NotImplementedException("Not needed on runtime!");
+        }
+    }
+
+    public record FastSqueeze(DensityFunction input) implements DensityFunction {
+        private static final double INV_24 = 1.0 / 24.0;
+
+        @Override
+        public double compute(FunctionContext ctx) {
+            double d = input.compute(ctx);
+            double clamped = d < -1.0 ? -1.0 : (d > 1.0 ? 1.0 : d);
+            return clamped * 0.5 - clamped * clamped * clamped * INV_24;
+        }
+
+        @Override
+        public void fillArray(double[] ds, ContextProvider ptr) {
+            input.fillArray(ds, ptr);
+            for (int i = 0; i < ds.length; i++) {
+                double d = ds[i];
+                double clamped = d < -1.0 ? -1.0 : (d > 1.0 ? 1.0 : d);
+                ds[i] = clamped * 0.5 - clamped * clamped * clamped * INV_24;
+            }
+        }
+
+        @Override
+        public double minValue() {
+            return -0.4583333333333333;
+        }
+
+        @Override
+        public double maxValue() {
+            return 0.4583333333333333;
+        }
+
+        @Override
+        public DensityFunction mapAll(Visitor visitor) {
+            return visitor.apply(new FastSqueeze(input.mapAll(visitor)));
+        }
+
+        @Override
+        public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            throw new NotImplementedException("Not needed on runtime!");
+        }
+    }
+
+    public static DensityFunction create(DensityFunctions.Mapped.Type type, DensityFunction input) {
+        return switch (type) {
+            case ABS -> new FastAbs(input);
+            case SQUARE -> new FastSquare(input);
+            case CUBE -> new FastCube(input);
+            case HALF_NEGATIVE -> new FastHalfNegative(input);
+            case QUARTER_NEGATIVE -> new FastQuarterNegative(input);
+            case SQUEEZE -> new FastSqueeze(input);
+        };
     }
 }

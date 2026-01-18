@@ -100,6 +100,10 @@ public abstract class MixinImprovedNoise {
      */
     @Overwrite
     private double sampleAndLerp(int gridX, int gridY, int gridZ, double deltaX, double weirdDeltaY, double deltaZ, double deltaY) {
+        /*
+            JIT will require fewer instructions to read data than if you access a field in a class
+         */
+        final double[] local_FLAT_SIMPLEX_GRAD = FLAT_SIMPLEX_GRAD;
 
         final byte[] p = this.p;
 
@@ -134,14 +138,14 @@ public abstract class MixinImprovedNoise {
         final double var60 = deltaX - 1.0;
         final double var61 = weirdDeltaY - 1.0;
         final double var62 = deltaZ - 1.0;
-        final double var87 = FLAT_SIMPLEX_GRAD[(var20) | 0] * deltaX + FLAT_SIMPLEX_GRAD[(var20) | 1] * weirdDeltaY + FLAT_SIMPLEX_GRAD[(var20) | 2] * deltaZ;
-        final double var88 = FLAT_SIMPLEX_GRAD[(var21) | 0] * var60 + FLAT_SIMPLEX_GRAD[(var21) | 1] * weirdDeltaY + FLAT_SIMPLEX_GRAD[(var21) | 2] * deltaZ;
-        final double var89 = FLAT_SIMPLEX_GRAD[(var22) | 0] * deltaX + FLAT_SIMPLEX_GRAD[(var22) | 1] * var61 + FLAT_SIMPLEX_GRAD[(var22) | 2] * deltaZ;
-        final double var90 = FLAT_SIMPLEX_GRAD[(var23) | 0] * var60 + FLAT_SIMPLEX_GRAD[(var23) | 1] * var61 + FLAT_SIMPLEX_GRAD[(var23) | 2] * deltaZ;
-        final double var91 = FLAT_SIMPLEX_GRAD[(var24) | 0] * deltaX + FLAT_SIMPLEX_GRAD[(var24) | 1] * weirdDeltaY + FLAT_SIMPLEX_GRAD[(var24) | 2] * var62;
-        final double var92 = FLAT_SIMPLEX_GRAD[(var25) | 0] * var60 + FLAT_SIMPLEX_GRAD[(var25) | 1] * weirdDeltaY + FLAT_SIMPLEX_GRAD[(var25) | 2] * var62;
-        final double var93 = FLAT_SIMPLEX_GRAD[(var26) | 0] * deltaX + FLAT_SIMPLEX_GRAD[(var26) | 1] * var61 + FLAT_SIMPLEX_GRAD[(var26) | 2] * var62;
-        final double var94 = FLAT_SIMPLEX_GRAD[(var27) | 0] * var60 + FLAT_SIMPLEX_GRAD[(var27) | 1] * var61 + FLAT_SIMPLEX_GRAD[(var27) | 2] * var62;
+        final double var87 = local_FLAT_SIMPLEX_GRAD[(var20)] * deltaX + local_FLAT_SIMPLEX_GRAD[(var20) | 1] * weirdDeltaY + local_FLAT_SIMPLEX_GRAD[(var20) | 2] * deltaZ;
+        final double var88 = local_FLAT_SIMPLEX_GRAD[(var21)] * var60 + local_FLAT_SIMPLEX_GRAD[(var21) | 1] * weirdDeltaY + local_FLAT_SIMPLEX_GRAD[(var21) | 2] * deltaZ;
+        final double var89 = local_FLAT_SIMPLEX_GRAD[(var22)] * deltaX + local_FLAT_SIMPLEX_GRAD[(var22) | 1] * var61 + local_FLAT_SIMPLEX_GRAD[(var22) | 2] * deltaZ;
+        final double var90 = local_FLAT_SIMPLEX_GRAD[(var23)] * var60 + local_FLAT_SIMPLEX_GRAD[(var23) | 1] * var61 + local_FLAT_SIMPLEX_GRAD[(var23) | 2] * deltaZ;
+        final double var91 = local_FLAT_SIMPLEX_GRAD[(var24)] * deltaX + local_FLAT_SIMPLEX_GRAD[(var24) | 1] * weirdDeltaY + local_FLAT_SIMPLEX_GRAD[(var24) | 2] * var62;
+        final double var92 = local_FLAT_SIMPLEX_GRAD[(var25)] * var60 + local_FLAT_SIMPLEX_GRAD[(var25) | 1] * weirdDeltaY + local_FLAT_SIMPLEX_GRAD[(var25) | 2] * var62;
+        final double var93 = local_FLAT_SIMPLEX_GRAD[(var26)] * deltaX + local_FLAT_SIMPLEX_GRAD[(var26) | 1] * var61 + local_FLAT_SIMPLEX_GRAD[(var26) | 2] * var62;
+        final double var94 = local_FLAT_SIMPLEX_GRAD[(var27)] * var60 + local_FLAT_SIMPLEX_GRAD[(var27) | 1] * var61 + local_FLAT_SIMPLEX_GRAD[(var27) | 2] * var62;
         final double var95 = deltaX * 6.0 - 15.0;
         final double var96 = deltaY * 6.0 - 15.0;
         final double var97 = deltaZ * 6.0 - 15.0;
@@ -169,6 +173,10 @@ public abstract class MixinImprovedNoise {
      */
     @Unique
     private double bts$sampleAndLerp(int gridX, int gridY, int gridZ, double x, double wy, double z, double y) {
+        /*
+            JIT will require fewer instructions to read data than if you access a field in a class
+         */
+        final double[] local_FLAT_SIMPLEX_GRAD = FLAT_SIMPLEX_GRAD;
         final byte[] p = this.p;
 
         final int X = gridX & 0xFF;
@@ -199,26 +207,26 @@ public abstract class MixinImprovedNoise {
         final double z1 = z - 1.0;
 
         // N000
-        final double n000 = FLAT_SIMPLEX_GRAD[gi000] * x +
-                FLAT_SIMPLEX_GRAD[gi000 | 1] * wy +
-                FLAT_SIMPLEX_GRAD[gi000 | 2] * z;
+        final double n000 = local_FLAT_SIMPLEX_GRAD[gi000] * x +
+                local_FLAT_SIMPLEX_GRAD[gi000 | 1] * wy +
+                local_FLAT_SIMPLEX_GRAD[gi000 | 2] * z;
         // N100
-        final double n100 = FLAT_SIMPLEX_GRAD[gi100] * x1 +
-                FLAT_SIMPLEX_GRAD[gi100 | 1] * wy +
-                FLAT_SIMPLEX_GRAD[gi100 | 2] * z;
+        final double n100 = local_FLAT_SIMPLEX_GRAD[gi100] * x1 +
+                local_FLAT_SIMPLEX_GRAD[gi100 | 1] * wy +
+                local_FLAT_SIMPLEX_GRAD[gi100 | 2] * z;
         // N010
-//        final double n010 = FLAT_SIMPLEX_GRAD[gi010] * x +
-//                FLAT_SIMPLEX_GRAD[gi010 | 1] * (wy - 1.0) +
-//                FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
+//        final double n010 = local_FLAT_SIMPLEX_GRAD[gi010] * x +
+//                local_FLAT_SIMPLEX_GRAD[gi010 | 1] * (wy - 1.0) +
+//                local_FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
 
-        final double n001 = FLAT_SIMPLEX_GRAD[gi001] * x + FLAT_SIMPLEX_GRAD[gi001 | 1] * wy + FLAT_SIMPLEX_GRAD[gi001 | 2] * z1;
-        final double n101 = FLAT_SIMPLEX_GRAD[gi101] * x1 + FLAT_SIMPLEX_GRAD[gi101 | 1] * wy + FLAT_SIMPLEX_GRAD[gi101 | 2] * z1;
+        final double n001 = local_FLAT_SIMPLEX_GRAD[gi001] * x + local_FLAT_SIMPLEX_GRAD[gi001 | 1] * wy + local_FLAT_SIMPLEX_GRAD[gi001 | 2] * z1;
+        final double n101 = local_FLAT_SIMPLEX_GRAD[gi101] * x1 + local_FLAT_SIMPLEX_GRAD[gi101 | 1] * wy + local_FLAT_SIMPLEX_GRAD[gi101 | 2] * z1;
 
-        final double n011 = FLAT_SIMPLEX_GRAD[gi011] * x + FLAT_SIMPLEX_GRAD[gi011 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi011 | 2] * z1;
-        final double n111 = FLAT_SIMPLEX_GRAD[gi111] * x1 + FLAT_SIMPLEX_GRAD[gi111 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi111 | 2] * z1;
+        final double n011 = local_FLAT_SIMPLEX_GRAD[gi011] * x + local_FLAT_SIMPLEX_GRAD[gi011 | 1] * wy1 + local_FLAT_SIMPLEX_GRAD[gi011 | 2] * z1;
+        final double n111 = local_FLAT_SIMPLEX_GRAD[gi111] * x1 + local_FLAT_SIMPLEX_GRAD[gi111 | 1] * wy1 + local_FLAT_SIMPLEX_GRAD[gi111 | 2] * z1;
 
-        final double n010_ = FLAT_SIMPLEX_GRAD[gi010] * x + FLAT_SIMPLEX_GRAD[gi010 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
-        final double n110_ = FLAT_SIMPLEX_GRAD[gi110] * x1 + FLAT_SIMPLEX_GRAD[gi110 | 1] * wy1 + FLAT_SIMPLEX_GRAD[gi110 | 2] * z;
+        final double n010_ = local_FLAT_SIMPLEX_GRAD[gi010] * x + local_FLAT_SIMPLEX_GRAD[gi010 | 1] * wy1 + local_FLAT_SIMPLEX_GRAD[gi010 | 2] * z;
+        final double n110_ = local_FLAT_SIMPLEX_GRAD[gi110] * x1 + local_FLAT_SIMPLEX_GRAD[gi110 | 1] * wy1 + local_FLAT_SIMPLEX_GRAD[gi110 | 2] * z;
 
         final double u = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
         final double v = y * y * y * (y * (y * 6.0 - 15.0) + 10.0);

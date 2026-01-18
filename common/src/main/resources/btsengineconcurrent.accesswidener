@@ -165,3 +165,33 @@ accessible method net/minecraft/world/level/levelgen/blending/BlendingData getDe
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateXZ (II)V
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context updateY (IIIIII)V
 accessible method net/minecraft/world/level/levelgen/SurfaceRules$Context getMinSurfaceLevel ()I
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendAlpha
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendOffset
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BeardifierMarker
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftNoise
+
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftA
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$ShiftB
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Shift
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$BlendDensity
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$YClampedGradient
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Marker
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$Marker$Type
+accessible class net/minecraft/world/level/levelgen/DensityFunctions$EndIslandDensityFunction
+
+accessible method net/minecraft/world/level/levelgen/DensityFunctions makeCodec (Lcom/mojang/serialization/MapCodec;)Lnet/minecraft/util/KeyDispatchDataCodec;
+accessible class net/minecraft/world/level/levelgen/NoiseChunk$Cache2D
+
+accessible field net/minecraft/world/level/levelgen/DensityFunctions$WeirdScaledSampler$RarityValueMapper mapper Lit/unimi/dsi/fastutil/doubles/Double2DoubleFunction;
+
+accessible method net/minecraft/world/level/levelgen/DensityFunctions$EndIslandDensityFunction getHeightValue (Lnet/minecraft/world/level/levelgen/synth/SimplexNoise;II)F
+accessible field net/minecraft/world/level/levelgen/DensityFunctions$EndIslandDensityFunction islandNoise Lnet/minecraft/world/level/levelgen/synth/SimplexNoise;
+
+accessible method net/minecraft/world/level/levelgen/NoiseRouterData getFunction (Lnet/minecraft/core/HolderGetter;Lnet/minecraft/resources/ResourceKey;)Lnet/minecraft/world/level/levelgen/DensityFunction;
+
+accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_AMPLIFIED Lnet/minecraft/resources/ResourceKey;
+accessible field net/minecraft/world/level/levelgen/NoiseRouterData DEPTH_LARGE Lnet/minecraft/resources/ResourceKey;
+
+accessible method net/minecraft/world/level/levelgen/synth/PerlinNoise maxValue ()D
