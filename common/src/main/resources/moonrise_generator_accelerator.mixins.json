@@ -6,6 +6,7 @@
   "client": [
   ],
   "mixins": [
+    "FrontAndTopCrashFix",
     "level.biome.MixinBiomeManager",
     "level.biome.MixinBiomeSource",
     "level.biome.MixinClimate$ParameterList$change_search",
