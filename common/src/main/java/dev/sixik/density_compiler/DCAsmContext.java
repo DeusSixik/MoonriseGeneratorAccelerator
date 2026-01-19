@@ -2,11 +2,14 @@ package dev.sixik.density_compiler;
 
 import dev.sixik.asm.BasicAsmContext;
 import dev.sixik.asm.utils.DescriptorBuilder;
+import dev.sixik.density_compiler.data.DensityCompilerData;
 import dev.sixik.density_compiler.data.DensityCompilerLocals;
+import dev.sixik.density_compiler.task_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 public class DCAsmContext extends BasicAsmContext {
 
@@ -30,6 +33,22 @@ public class DCAsmContext extends BasicAsmContext {
         mv.visitFieldInsn(GETFIELD, compiler.configuration.className(), fieldName, fieldDescriptor);
     }
 
+    public void readNode(DensityFunction node, DensityCompilerTask.Step step) {
+        try {
+            final Class<? extends DensityFunction> clz = node.getClass();
+            final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
+
+            if (taskSupplier != null) {
+                taskSupplier.get().applyStepImpl(this, node, step);
+                return;
+            }
+
+            invokeLeafCompute(node);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public void readLeaf(DensityFunction leaf) {
         final int variable = getOrCreateLeafIndex(leaf);
 
@@ -49,9 +68,9 @@ public class DCAsmContext extends BasicAsmContext {
                 DescriptorBuilder.builder().type(DensityFunction.FunctionContext.class).buildMethod(double.class)
         );
     }
-    
+
     public void readContext() {
-        if(variableContextIndex == -1)
+        if (variableContextIndex == -1)
             throw new IllegalStateException("Context no exist on this visitor!");
         mv.visitVarInsn(ALOAD, variableContextIndex);
     }
@@ -63,4 +82,6 @@ public class DCAsmContext extends BasicAsmContext {
             return locals.leaves.size() - 1;
         });
     }
+
+
 }

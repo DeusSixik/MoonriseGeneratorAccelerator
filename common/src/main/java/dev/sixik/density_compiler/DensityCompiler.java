@@ -1,10 +1,12 @@
 package dev.sixik.density_compiler;
 
+import dev.sixik.density_compiler.data.DensityCompilerData;
 import dev.sixik.density_compiler.data.DensityCompilerLocals;
 import dev.sixik.density_compiler.data.DensityComplierConfiguration;
 import dev.sixik.density_compiler.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiler.loaders.DynamicClassLoader;
 import dev.sixik.density_compiler.pipeline.CompilerPipeline;
+import dev.sixik.density_compiler.pipeline.DensityComputePipeline;
 import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import dev.sixik.density_compiler.utils.stack.StackMachine;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -45,7 +47,7 @@ public class DensityCompiler {
 
     public static DensityCompiler from(DensityFunction densityFunction, boolean dump) {
         final int id = ClassID.getAndIncrement();
-        final String className = "dev/sixik/generated/OptimizedDensity_" + densityFunction.getClass().getSimpleName() + "_" + id;
+        final String className = DEFAULT_CLASS_PATH + "OptimizedDensityFunction_" + densityFunction.getClass().getSimpleName() + "_" + id;
 
         return new DensityCompiler(new DensityComplierConfiguration(
                 className,
@@ -61,7 +63,9 @@ public class DensityCompiler {
             int id,
             DensityFunction root,
             StackMachine stackMachine) {
-        this(configuration, id, root, stackMachine, new CompilerPipeline[0]);
+        this(configuration, id, root, stackMachine,
+                new DensityComputePipeline()
+        );
     }
 
     public DensityCompiler(
@@ -71,6 +75,7 @@ public class DensityCompiler {
             StackMachine stackMachine,
             CompilerPipeline... pipelines
     ) {
+        DensityCompilerData.bootImpl();
         this.configuration = configuration;
         this.stackMachine = stackMachine;
         this.root = root;
