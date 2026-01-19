@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "dev.sixik.moonrisegeneratoraccelerator.profiler.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "client": [
+  ],
+  "mixins": [
+    "init.MixinCommands$add_profiler_commands",
+    "init.MixinMinecraftServer$profiler_mark_frame",
+    "moonrise.MixinNewChunkHolder$profiler",
+    "vanilla.generation.MixinChunkStatusTasks$add_profiler"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

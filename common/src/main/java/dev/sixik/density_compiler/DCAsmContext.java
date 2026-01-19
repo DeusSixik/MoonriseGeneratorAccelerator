@@ -39,7 +39,11 @@ public class DCAsmContext extends BasicAsmContext {
             final Supplier<DensityCompilerTask<?>> taskSupplier = DensityCompilerData.getTask(clz);
 
             if (taskSupplier != null) {
+                compiler.stackMachine.pushStack(node.getClass().getSimpleName() + " | " + step.name());
+
                 taskSupplier.get().applyStepImpl(this, node, step);
+
+                compiler.stackMachine.popStack();
                 return;
             }
 
@@ -83,5 +87,15 @@ public class DCAsmContext extends BasicAsmContext {
         });
     }
 
+    public void push(double value) {
+        mv.push(value);
+    }
 
+    public void push(int value) {
+        mv.push(value);
+    }
+
+    public void push(boolean value) {
+        mv.push(value);
+    }
 }

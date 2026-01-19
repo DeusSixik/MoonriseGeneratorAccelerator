@@ -1,13 +1,9 @@
 import dev.sixik.density_compiler.DensityCompiler;
-import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import java.io.IOException;
-import java.nio.file.Path;
 
 public class SomeTest {
 
@@ -19,6 +15,17 @@ public class SomeTest {
 
     @Test
     void testFobos() {
-        DensityCompiler.from(new DensityFunctions.Constant(5), true).compile();
+        final var density = new DensityFunctions.Ap2(
+                DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
+                new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
+                        new DensityFunctions.Constant(5),
+                        new DensityFunctions.Constant(1),
+                5,1
+                ),
+                new DensityFunctions.Constant(1),
+                5,1
+        );
+
+        DensityCompiler.from(density, true).compile();
     }
 }
