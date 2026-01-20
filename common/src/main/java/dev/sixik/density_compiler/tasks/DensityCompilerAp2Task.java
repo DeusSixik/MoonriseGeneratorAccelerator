@@ -69,7 +69,6 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
 
             if (arg1 == arg2 || arg1.equals(arg2)) {
                 ctx.readNode(arg1, Step.Compute);
-
                 ctx.mv().visitInsn(DUP2);
                 ctx.mv().visitInsn(DMUL);
                 return;
