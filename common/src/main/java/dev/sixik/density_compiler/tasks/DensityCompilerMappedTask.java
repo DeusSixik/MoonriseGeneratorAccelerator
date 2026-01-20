@@ -2,12 +2,17 @@ package dev.sixik.density_compiler.tasks;
 
 import dev.sixik.density_compiler.DCAsmContext;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
+import dev.sixik.density_compiler.utils.DensityCompilerUtils;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 import org.objectweb.asm.commons.Method;
+
+import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFunctions.Mapped> {
 
@@ -30,7 +35,33 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
         }
 
         GeneratorAdapter ga = ctx.mv();
-        generateTransformMath(ga, node.type());
+        generateTransformMath(ga, node.type(), node.input(), ctx);
+    }
+
+    private void generateTransformMath(MethodVisitor mv, DensityFunctions.Mapped.Type type, DensityFunction input, DCAsmContext ctx) {
+        switch (type) {
+            case ABS -> {
+                DensityCompilerUtils.abs(mv);
+            }
+            case SQUARE -> {
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DMUL);
+            }
+            case CUBE -> {
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DUP2);
+                mv.visitInsn(DMUL);
+                mv.visitInsn(DMUL);
+            }
+            case HALF_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.5, input);
+            case QUARTER_NEGATIVE -> DensityCompilerUtils.compileNegativeFactor(mv, 0.25, input);
+            case SQUEEZE -> {
+                boolean needsClamp = input.minValue() < -1.0 || input.maxValue() > 1.0;
+                DensityCompilerUtils.compileSqueeze(mv, ctx, needsClamp);
+            }
+        }
+
+//        ctx.compiler.stackMachine.printDebug();
     }
 
     private void generateTransformMath(GeneratorAdapter ga, DensityFunctions.Mapped.Type type) {
@@ -138,4 +169,6 @@ public class DensityCompilerMappedTask extends DensityCompilerTask<DensityFuncti
         // Финал: term1 - term2
         ga.math(GeneratorAdapter.SUB, Type.DOUBLE_TYPE);
     }
+
+//    public static void
 }

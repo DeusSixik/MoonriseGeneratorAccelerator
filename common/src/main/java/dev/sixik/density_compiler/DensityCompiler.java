@@ -6,9 +6,11 @@ import dev.sixik.density_compiler.data.DensityComplierConfiguration;
 import dev.sixik.density_compiler.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiler.loaders.DynamicClassLoader;
 import dev.sixik.density_compiler.pipeline.*;
+import dev.sixik.density_compiler.utils.DensityCompilerUtils;
 import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import dev.sixik.density_compiler.utils.stack.StackMachine;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
@@ -17,13 +19,17 @@ import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityCompiler {
+
+    private static HashSet<DensityFunction> COMPILED = new HashSet<>();
 
     public static final String DEFAULT_CLASS_PATH = "dev/sixik/generated/";
 
@@ -63,13 +69,13 @@ public class DensityCompiler {
             DensityFunction root,
             StackMachine stackMachine) {
         this(configuration, id, root, stackMachine,
-                new DensityTreeOptimizerPipeline()
-//                new DensityComputePipeline(),
-//                new DensityFillArrayPipeline(),
-//                new DensityConstructorPipeline(),
-//                new DensityMapAllPipeline(),
-//                new DensityMaxValuePipeline(),
-//                new DensityMinValuePipeline()
+                new DensityTreeOptimizerPipeline(),
+                new DensityComputePipeline(),
+                new DensityFillArrayPipeline(),
+                new DensityConstructorPipeline(),
+                new DensityMapAllPipeline(),
+                new DensityMaxValuePipeline(),
+                new DensityMinValuePipeline()
         );
     }
 
@@ -90,14 +96,32 @@ public class DensityCompiler {
         }
     }
 
+    public static boolean needCompile(DensityFunction root) {
+        /*
+            If it's just Constant, compiling to a separate class is an overhead.
+         */
+        if (DensityCompilerUtils.isConst(root)) {
+            return false;
+        }
+
+        if (COMPILED.contains(root)) {
+            return false;
+        }
+
+        return DensityCompilerData.getTask(root.getClass()) != null;
+    }
+
     public DensityFunction compile() {
         return compile(null);
     }
 
     public DensityFunction compile(@Nullable DensityFunction inRoot) {
         final DensityFunction root = inRoot != null ? inRoot : this.root;
-        if(root == null) throw new NullPointerException("DensityFunction can't be NULL !");
 
+        if(!needCompile(root))
+            return root;
+
+        if (root == null) throw new NullPointerException("DensityFunction can't be NULL !");
         locals.clear();
 
         final String className = DEFAULT_CLASS_PATH + "OptimizedDensityFunction_" + configuration.classSimpleName() + "_" + id;
@@ -116,9 +140,11 @@ public class DensityCompiler {
 
         final String formatedClassName = className.replace('/', '.');
 
-        Object[] constructorArgs = locals.leaves.isEmpty() ? new Object[0] : new Object[] { locals.leaves.toArray(new Object[0]) };
+        Object[] constructorArgs = locals.leaves.isEmpty() ? new Object[0] : new Object[]{locals.leaves.toArray(new Object[0])};
 
-        return configuration.instantiate()
+        COMPILED.add(root);
+
+        final var instance = configuration.instantiate()
                 .newInstance(
                         this,
                         DynamicClassLoader,
@@ -127,6 +153,9 @@ public class DensityCompiler {
                         bytes,
                         constructorArgs
                 );
+        COMPILED.add(instance);
+
+        return instance;
     }
 
     protected void applyCodeGenerator(
@@ -151,7 +180,7 @@ public class DensityCompiler {
         for (int i = 0; i < copy.size(); i++) {
             final CompilerPipeline element = copy.get(i);
 
-            if(element.ignore(this)) continue;
+            if (element.ignore(this)) continue;
 
             this.currentPipeline = element;
 
@@ -195,7 +224,7 @@ public class DensityCompiler {
         for (int i = 0; i < copy.size(); i++) {
             final CompilerPipeline element = copy.get(i);
 
-            if(element.ignore(this)) continue;
+            if (element.ignore(this)) continue;
 
             stackMachine.pushStack(element.getClass().getSimpleName() + " Generate Class Field");
 
@@ -225,7 +254,8 @@ public class DensityCompiler {
         cw.visit(V17, ACC_PUBLIC | ACC_FINAL, configuration.className(), null, "java/lang/Object", configuration.interfaces_names());
     }
 
-    protected void applyClassWriterConfiguration(ClassWriter cw) { }
+    protected void applyClassWriterConfiguration(ClassWriter cw) {
+    }
 
     public static void debugWriteClass(String filename, byte[] bytes) {
         try (FileOutputStream fos = new FileOutputStream("compiler/" + filename)) {

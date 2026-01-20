@@ -1,6 +1,7 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density;
 
 import dev.sixik.density_compiler.DensityCompiler;
+import dev.sixik.density_compiler.pipeline.DensityTreeOptimizerPipeline;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density.wrappers.ConstantShiftedNoise;
 import net.minecraft.util.CubicSpline;
@@ -91,7 +92,9 @@ public class DensityOptimizer {
             return mapped;
         }
 
-        return DensityCompiler.from(mapped, true).compile();
+        if(DensityCompiler.needCompile(mapped))
+            return DensityCompiler.from(mapped, true).compile();
+        return mapped;
     }
 
     /**
@@ -133,7 +136,7 @@ public class DensityOptimizer {
                 return DensityFunctions.constant(transformMapped(mapped.type(), opt.get()));
             }
 
-           return DensitySpecializations.create(mapped.type(), inner);
+//           return DensitySpecializations.create(mapped.type(), inner);
         }
 
         if (unwrapped instanceof DensityFunctions.Clamp clamp) {
@@ -213,12 +216,12 @@ public class DensityOptimizer {
                 We pass the Ms to the constructor "a" and "b" (possibly wrapped in a Holder),
                 or the expanded "aU"/"bU" — preferably expanded to remove the extra call stack.
              */
-            return switch (type) {
-                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
-                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
-                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
-                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
-            };
+//            return switch (type) {
+//                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
+//                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
+//                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
+//                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
+//            };
         }
 
         /*
@@ -235,10 +238,10 @@ public class DensityOptimizer {
                 };
             }
 
-            return switch (ma.specificType()) {
-                case ADD -> new DensitySpecializations.FastAddConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
-                case MUL -> new DensitySpecializations.FastMulConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
-            };
+//            return switch (ma.specificType()) {
+//                case ADD -> new DensitySpecializations.FastAddConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+//                case MUL -> new DensitySpecializations.FastMulConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+//            };
         }
 
         /*

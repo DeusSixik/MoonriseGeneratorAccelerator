@@ -74,7 +74,7 @@ public class HtmlTreeStackMachine implements StackMachine {
 
     @Override public void printDebug() {
         try {
-            exportToHtml(Path.of("Crash.html"));
+            exportToHtml(Path.of("Crash_ " + System.currentTimeMillis() + ".html"));
         } catch (IOException e) {
             e.printStackTrace();
         }
