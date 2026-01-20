@@ -34,15 +34,15 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
         final GeneratorAdapter mv = ctx.mv();
         int destArrayArgIndex = 0;
 
-        ctx.readNode(root, DensityCompilerTask.Step.Prepare);
-
         ctx.putCachedVariable("destArrayVar", destArrayArgIndex);
 
-        ctx.createNeedCache();
 
-        ctx.readNode(root, DensityCompilerTask.Step.PostPrepare);
 
         ctx.arrayForI(destArrayArgIndex, (iVar) -> {
+            ctx.readNode(root, DensityCompilerTask.Step.Prepare);
+            ctx.createNeedCache();
+            ctx.readNode(root, DensityCompilerTask.Step.PostPrepare);
+
             mv.loadArg(destArrayArgIndex);
             mv.loadLocal(iVar);
 

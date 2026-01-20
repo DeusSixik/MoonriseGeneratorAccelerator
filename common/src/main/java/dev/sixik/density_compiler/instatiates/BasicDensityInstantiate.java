@@ -28,6 +28,8 @@ public class BasicDensityInstantiate implements DensityInstantiate {
                 return (DensityFunction) constructor.newInstance(args);
             }
         } catch (Exception e) {
+
+            compiler.stackMachine.printDebug();
             throw new RuntimeException("Failed to instantiate compiled density function: " + className, e);
         }
     }

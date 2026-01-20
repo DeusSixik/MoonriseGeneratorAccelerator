@@ -63,13 +63,13 @@ public class DensityCompiler {
             DensityFunction root,
             StackMachine stackMachine) {
         this(configuration, id, root, stackMachine,
-                new DensityTreeOptimizerPipeline(),
-                new DensityComputePipeline(),
-                new DensityFillArrayPipeline(),
-                new DensityConstructorPipeline(),
-                new DensityMapAllPipeline(),
-                new DensityMaxValuePipeline(),
-                new DensityMinValuePipeline()
+                new DensityTreeOptimizerPipeline()
+//                new DensityComputePipeline(),
+//                new DensityFillArrayPipeline(),
+//                new DensityConstructorPipeline(),
+//                new DensityMapAllPipeline(),
+//                new DensityMaxValuePipeline(),
+//                new DensityMinValuePipeline()
         );
     }
 

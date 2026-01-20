@@ -65,7 +65,8 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
                 return;
             }
 
-            invokeLeafCompute(node);
+            if(step == DensityCompilerTask.Step.Compute)
+                invokeLeafCompute(node);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -79,6 +80,21 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
 
         mv.loadThis();
         getField(fieldName, fieldDescriptor);
+    }
+
+    public void readLeaf(Object leaf, String descriptor) {
+        final DensityCompilerLocals locals = compiler.locals;
+
+        int index = locals.leafToId.computeIfAbsent(leaf, (k) -> {
+            locals.leaves.add(k); // Добавляем в общий список для конструктора
+            return locals.leaves.size() - 1;
+        });
+
+        locals.leafTypes.put(index, descriptor);
+
+        String fieldName = DEFAULT_LEAF_FUNCTION_NAME.apply(leaf) + "_" + index;
+        mv.loadThis();
+        getField(fieldName, descriptor);
     }
 
     public void invokeLeafCompute(DensityFunction leaf) {

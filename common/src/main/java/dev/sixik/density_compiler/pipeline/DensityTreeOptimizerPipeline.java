@@ -96,13 +96,13 @@ public class DensityTreeOptimizerPipeline implements CompilerPipeline {
             return wrapped;
         }
 
-//        // 4. Удаление кешей (Опционально, но рекомендуется для простых деревьев)
-//        // Если ты Senior-разработчик и уверен в производительности своего байт-кода:
-//        // Мы убираем маркер, чтобы заинлайнить вычисления прямо в цикл fillArray.
-//        if (isCacheMarker(marker.type())) {
-//            this.hasChanged = true;
-//            return wrapped;
-//        }
+        // 4. Удаление кешей (Опционально, но рекомендуется для простых деревьев)
+        // Если ты Senior-разработчик и уверен в производительности своего байт-кода:
+        // Мы убираем маркер, чтобы заинлайнить вычисления прямо в цикл fillArray.
+        if (isCacheMarker(marker.type())) {
+            this.hasChanged = true;
+            return wrapped;
+        }
 
         if (wrapped != marker.wrapped()) {
             this.hasChanged = true;
@@ -264,9 +264,20 @@ public class DensityTreeOptimizerPipeline implements CompilerPipeline {
             return new DensityFunctions.Constant(result);
         }
 
+        if (arg1.minValue() >= 0.0) {
+            var type = mapped.type();
+            if (type == DensityFunctions.Mapped.Type.ABS ||
+                    type == DensityFunctions.Mapped.Type.HALF_NEGATIVE ||
+                    type == DensityFunctions.Mapped.Type.QUARTER_NEGATIVE) {
+
+                this.hasChanged = true;
+                return arg1;
+            }
+        }
+
         if(arg1 != mapped.input()) {
             this.hasChanged = true;
-            return new DensityFunctions.Mapped(mapped.type(), arg1, mapped.minValue(), mapped.maxValue());
+            return DensityFunctions.Mapped.create(mapped.type(), arg1);
         }
 
         return mapped;
@@ -325,30 +336,36 @@ public class DensityTreeOptimizerPipeline implements CompilerPipeline {
     }
 
     private DensityFunction optimizeMulOrAdd(DensityFunctions.MulOrAdd node) {
-        // MulOrAdd - это уже оптимизированная нода (input * arg + 0) или (input + arg).
-        // Но input мог измениться.
         DensityFunction input = optimizeRecursive(node.input());
 
-        // Пример: (Constant(5) * 2) -> Constant(10)
+        // 1. Constant Folding
         if (isConst(input)) {
             double val = getConst(input);
             double arg = node.argument();
-            double result;
-
-            if (node.specificType() == DensityFunctions.MulOrAdd.Type.MUL) {
-                result = val * arg;
-            } else {
-                result = val + arg;
-            }
+            // Логику умножения/сложения можно не дублировать, фабрика create сама это сделает,
+            // но для скорости компиляции можно оставить ручной фолдинг.
+            double result = (node.specificType() == DensityFunctions.MulOrAdd.Type.MUL)
+                    ? val * arg
+                    : val + arg;
 
             this.hasChanged = true;
             return new DensityFunctions.Constant(result);
         }
 
-        // Если input изменился, пересобираем ноду
+        // 2. Reconstruct через фабрику (чтобы пересчитать Bounds)
         if (input != node.input()) {
             this.hasChanged = true;
-            return new DensityFunctions.MulOrAdd(node.specificType(), input, node.minValue(), node.maxValue(), node.argument());
+
+            // Превращаем MulOrAdd обратно в (Input OP Constant), чтобы фабрика сама все посчитала
+            var type = (node.specificType() == DensityFunctions.MulOrAdd.Type.MUL)
+                    ? DensityFunctions.TwoArgumentSimpleFunction.Type.MUL
+                    : DensityFunctions.TwoArgumentSimpleFunction.Type.ADD;
+
+            return DensityFunctions.TwoArgumentSimpleFunction.create(
+                    type,
+                    input,
+                    new DensityFunctions.Constant(node.argument())
+            );
         }
 
         return node;

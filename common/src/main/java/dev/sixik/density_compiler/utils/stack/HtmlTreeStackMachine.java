@@ -72,5 +72,11 @@ public class HtmlTreeStackMachine implements StackMachine {
         sb.append("</li>");
     }
 
-    @Override public void printDebug() { /* Можно вызвать exportToHtml в темп-файл и открыть его */ }
+    @Override public void printDebug() {
+        try {
+            exportToHtml(Path.of("Crash.html"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
