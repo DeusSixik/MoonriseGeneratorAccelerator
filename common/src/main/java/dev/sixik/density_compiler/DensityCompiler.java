@@ -8,6 +8,7 @@ import dev.sixik.density_compiler.loaders.DynamicClassLoader;
 import dev.sixik.density_compiler.pipeline.CompilerPipeline;
 import dev.sixik.density_compiler.pipeline.DensityComputePipeline;
 import dev.sixik.density_compiler.pipeline.DensityConstructorPipeline;
+import dev.sixik.density_compiler.pipeline.DensityFillArrayPipeline;
 import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import dev.sixik.density_compiler.utils.stack.StackMachine;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -66,6 +67,7 @@ public class DensityCompiler {
             StackMachine stackMachine) {
         this(configuration, id, root, stackMachine,
                 new DensityComputePipeline(),
+                new DensityFillArrayPipeline(),
                 new DensityConstructorPipeline()
         );
     }

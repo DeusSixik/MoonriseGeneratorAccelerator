@@ -6,8 +6,11 @@ import dev.sixik.density_compiler.data.DensityCompilerData;
 import dev.sixik.density_compiler.data.DensityCompilerLocals;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import org.objectweb.asm.Label;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -17,6 +20,11 @@ public class DCAsmContext extends BasicAsmContext {
 
     public final DensityCompiler compiler;
     public final int variableContextIndex;
+
+    public int arrayLengthVar = -1;
+    public int arrayFillVar = -1;
+    public boolean needCachedForIndex = false;
+    public int arrayForIndexVar = -1;
 
     public DCAsmContext(
             DensityCompiler compiler,
@@ -74,8 +82,10 @@ public class DCAsmContext extends BasicAsmContext {
     }
 
     public void readContext() {
-        if (variableContextIndex == -1)
+        if (variableContextIndex == -1) {
+            compiler.stackMachine.printDebug();
             throw new IllegalStateException("Context no exist on this visitor!");
+        }
         mv.visitVarInsn(ALOAD, variableContextIndex);
     }
 
@@ -97,5 +107,57 @@ public class DCAsmContext extends BasicAsmContext {
 
     public void push(boolean value) {
         mv.push(value);
+    }
+
+    public int getOrComputeLength(int destArrayArgIndex) {
+        int len = this.arrayLengthVar;
+
+        if (len == -1) {
+            GeneratorAdapter ga = mv();
+            len = ga.newLocal(Type.INT_TYPE);
+
+            ga.loadArg(destArrayArgIndex);
+
+            ga.arrayLength();
+            ga.storeLocal(len);
+
+            this.arrayLengthVar = len;
+        }
+        return len;
+    }
+
+    public void arrayForI(int destArrayVar, Consumer<Integer> iteration) {
+        /*
+            We get the same length variable for the entire method.
+         */
+        int lenVar = getOrComputeLength(destArrayVar);
+
+        /*
+            The i counter must still be unique for each loop
+            so that there are no nesting conflicts, but the JIT often collapses them on its own.
+         */
+        int iVar = mv.newLocal(Type.INT_TYPE);
+
+        // int i = 0;
+        mv.visitInsn(ICONST_0);
+        mv.storeLocal(iVar);
+
+        Label startLoop = new Label();
+        Label endLoop = new Label();
+
+        mv.visitLabel(startLoop);
+
+        // if (i >= len) break
+        mv.loadLocal(iVar);
+        mv.loadLocal(lenVar);
+        mv.visitJumpInsn(IF_ICMPGE, endLoop);
+
+        iteration.accept(iVar);
+
+        mv.iinc(iVar, 1);
+
+        mv.visitJumpInsn(GOTO, startLoop);
+
+        mv.visitLabel(endLoop);
     }
 }
