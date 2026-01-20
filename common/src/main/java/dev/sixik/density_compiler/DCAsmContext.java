@@ -32,6 +32,7 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
 
     public int arrayLengthVar = -1;
     public int arrayFillVar = -1;
+    public boolean needInvokeNoiseChunk = false;
     public boolean needCachedForIndex = false;
     public int arrayForIndexVar = -1;
 

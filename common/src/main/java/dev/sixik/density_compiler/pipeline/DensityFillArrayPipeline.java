@@ -34,26 +34,30 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
         final GeneratorAdapter mv = ctx.mv();
         int destArrayArgIndex = 0;
 
+        ctx.readNode(root, DensityCompilerTask.Step.Prepare);
+
         ctx.putCachedVariable("destArrayVar", destArrayArgIndex);
 
         ctx.createNeedCache();
+
+        ctx.readNode(root, DensityCompilerTask.Step.PostPrepare);
 
         ctx.arrayForI(destArrayArgIndex, (iVar) -> {
             mv.loadArg(destArrayArgIndex);
             mv.loadLocal(iVar);
 
-            if (ctx.needCachedForIndex) {
+            if(ctx.needInvokeNoiseChunk) {
                 mv.loadArg(1);                  // Provider
                 mv.loadLocal(iVar);             // Index
-
-                // Дублируем пару (Provider, Index), чтобы не грузить их заново для forIndex
-                mv.dup2();
-
-                // 1. Вызов invokeNoiseChunk(provider, index)
                 mv.invokeStatic(
                         Type.getType(DensityFillArrayPipeline.class),
                         new Method("invokeNoiseChunk", "(Lnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;I)V")
                 );
+            }
+
+            if (ctx.needCachedForIndex) {
+                mv.loadArg(1);                  // Provider
+                mv.loadLocal(iVar);             // Index
 
                 // 2. Вызов forIndex(index) -> на стеке уже лежат Provider и Index после dup2
                 mv.invokeInterface(

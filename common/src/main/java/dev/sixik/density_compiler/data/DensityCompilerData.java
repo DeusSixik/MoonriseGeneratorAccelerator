@@ -1,8 +1,7 @@
 package dev.sixik.density_compiler.data;
 
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
-import dev.sixik.density_compiler.tasks.DensityCompilerAp2Task;
-import dev.sixik.density_compiler.tasks.DensityCompilerConstantTask;
+import dev.sixik.density_compiler.tasks.*;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -24,8 +23,11 @@ public class DensityCompilerData {
     }
 
     protected static void boot() {
-        register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
         register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
+        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
+        register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
+        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
+        register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
     }
 
     public static void register(Class<? extends DensityFunction> clz, Supplier<DensityCompilerTask<?>> supplier) {

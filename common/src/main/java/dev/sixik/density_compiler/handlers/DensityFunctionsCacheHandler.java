@@ -7,6 +7,8 @@ import org.objectweb.asm.commons.Method;
 
 import java.util.Set;
 
+import static org.objectweb.asm.Opcodes.ALOAD;
+
 public interface DensityFunctionsCacheHandler extends DCAsmHandler {
 
     String BLENDER = "blender";
@@ -78,7 +80,8 @@ public interface DensityFunctionsCacheHandler extends DCAsmHandler {
                     if it hasn't been created yet.
                  */
                 if (dctx().getCachedVariable(BLENDER) == -1) {
-                    ga.loadLocal(contextVar);
+
+                    ga.visitVarInsn(ALOAD, contextVar);
                     ga.invokeInterface(CONTEXT_TYPE, Method.getMethod("net.minecraft.world.level.levelgen.blending.Blender getBlender()"));
 
                     int varIndex = ga.newLocal(BLENDER_TYPE);
@@ -115,7 +118,7 @@ public interface DensityFunctionsCacheHandler extends DCAsmHandler {
     private void createCoordinateCache(GeneratorAdapter ga, int contextVar, String name) {
         if (dctx().getCachedVariable(name) != -1) return; // Already exists
 
-        ga.loadLocal(contextVar);
+        ga.visitVarInsn(ALOAD, contextVar);
         /*
             The method name matches the variable name (blockX, blockY...)
          */

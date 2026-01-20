@@ -29,7 +29,9 @@ public class DensityComputePipeline implements CompilerPipeline {
     @Override
     public void generateMethodBody(DensityCompiler compiler, DCAsmContext ctx, DensityFunction root, String className, String simpleClassName, int id) {
 
+        ctx.readNode(root, DensityCompilerTask.Step.Prepare);
         ctx.createNeedCache();
+        ctx.readNode(root, DensityCompilerTask.Step.PostPrepare);
 
         ctx.readNode(root, DensityCompilerTask.Step.Compute);
         ctx.mv().visitInsn(DRETURN);
