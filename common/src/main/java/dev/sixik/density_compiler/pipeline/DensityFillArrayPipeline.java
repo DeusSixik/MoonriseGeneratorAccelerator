@@ -6,6 +6,7 @@ import dev.sixik.density_compiler.DensityCompiler;
 import dev.sixik.density_compiler.data.ByteCodeGeneratorStructure;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
@@ -40,9 +41,19 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
             mv.loadLocal(iVar);
 
             if (ctx.needCachedForIndex) {
-                mv.loadArg(1);
-                mv.loadLocal(iVar);
+                mv.loadArg(1);                  // Provider
+                mv.loadLocal(iVar);             // Index
 
+                // Дублируем пару (Provider, Index), чтобы не грузить их заново для forIndex
+                mv.dup2();
+
+                // 1. Вызов invokeNoiseChunk(provider, index)
+                mv.invokeStatic(
+                        Type.getType(DensityFillArrayPipeline.class),
+                        new Method("invokeNoiseChunk", "(Lnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;I)V")
+                );
+
+                // 2. Вызов forIndex(index) -> на стеке уже лежат Provider и Index после dup2
                 mv.invokeInterface(
                         Type.getType("Lnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;"),
                         Method.getMethod("net.minecraft.world.level.levelgen.DensityFunction$FunctionContext forIndex(int)")
@@ -50,9 +61,7 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
 
                 Type contextType = Type.getType("Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;");
                 int cachedVar = mv.newLocal(contextType);
-
                 mv.storeLocal(cachedVar);
-
                 ctx.arrayForIndexVar = cachedVar;
             }
 
@@ -67,5 +76,16 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
     @Override
     public ByteCodeGeneratorStructure getByteCodeStructure(DensityCompiler compiler) {
         return new ByteCodeGeneratorStructure(5, 2);
+    }
+
+    public static void invokeNoiseChunk(DensityFunction.ContextProvider provider, int index) {
+        if(provider instanceof NoiseChunk chunk) invokeNoiseChunk(chunk, index);
+    }
+
+    private static void invokeNoiseChunk(NoiseChunk chunk, int index) {
+        chunk.arrayIndex = index;
+        chunk.inCellZ = index & 15;
+        chunk.inCellX = (index >> 4) & 15;
+        chunk.inCellY = (chunk.cellHeight - 1) - (index >> 8);
     }
 }

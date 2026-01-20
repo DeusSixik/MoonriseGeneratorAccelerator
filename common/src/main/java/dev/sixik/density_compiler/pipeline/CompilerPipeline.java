@@ -64,6 +64,16 @@ public interface CompilerPipeline {
         return new ByteCodeGeneratorStructure(5, -1);
     }
 
+    default DensityFunction manageFunction(
+            DensityCompiler compiler,
+            DensityFunction node,
+            String className,
+            String simpleClassName,
+            int id
+    ) {
+        return node;
+    }
+
     @FunctionalInterface
     interface Invoker {
 

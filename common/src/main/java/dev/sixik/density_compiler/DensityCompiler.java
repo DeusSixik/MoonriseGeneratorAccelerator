@@ -63,6 +63,7 @@ public class DensityCompiler {
             DensityFunction root,
             StackMachine stackMachine) {
         this(configuration, id, root, stackMachine,
+                new DensityTreeOptimizerPipeline(),
                 new DensityComputePipeline(),
                 new DensityFillArrayPipeline(),
                 new DensityConstructorPipeline(),
@@ -140,6 +141,12 @@ public class DensityCompiler {
         final StackMachine stackMachine = this.stackMachine;
 
         stackMachine.pushStack("ApplyCodeGenerator");
+
+
+        for (int i = 0; i < copy.size(); i++) {
+            root = copy.get(i).manageFunction(
+                    this, root, className, simpleClassName, id);
+        }
 
         for (int i = 0; i < copy.size(); i++) {
             final CompilerPipeline element = copy.get(i);

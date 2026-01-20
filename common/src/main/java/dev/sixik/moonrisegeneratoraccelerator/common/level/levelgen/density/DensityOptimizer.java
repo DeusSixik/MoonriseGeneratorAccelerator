@@ -1,5 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density;
 
+import dev.sixik.density_compiler.DensityCompiler;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density.wrappers.ConstantShiftedNoise;
 import net.minecraft.util.CubicSpline;
@@ -79,10 +80,18 @@ public class DensityOptimizer {
         /*
             Applying the simplification rules to the current node
          */
-        final DensityFunction result = rewriteLocal(optimizedChildren);
-
+        DensityFunction result = rewriteLocal(optimizedChildren);
+        result = optimizeByASM(function, result);
         cache.put(function, result);
         return result;
+    }
+
+    public DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
+        if (mapped.getClass().getName().startsWith("dev.sixik.generated.")) {
+            return mapped;
+        }
+
+        return DensityCompiler.from(mapped, true).compile();
     }
 
     /**

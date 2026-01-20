@@ -74,6 +74,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Shadow
     @Final
     private Blender blender;
+    @Shadow
+    public int arrayIndex;
     @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
@@ -238,5 +240,13 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
             this.lastBlendingOutput = result;
             return result;
         }
+    }
+
+    @Override
+    public void bts$fillAllDirectlyAtIndex(int index) {
+        this.arrayIndex = index;
+        this.inCellZ = index & 15;
+        this.inCellX = (index >> 4) & 15;
+        this.inCellY = (this.cellHeight - 1) - (index >> 8);
     }
 }
