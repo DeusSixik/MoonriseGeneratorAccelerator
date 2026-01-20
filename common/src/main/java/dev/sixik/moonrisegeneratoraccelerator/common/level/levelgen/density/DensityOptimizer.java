@@ -92,9 +92,7 @@ public class DensityOptimizer {
             return mapped;
         }
 
-        if(DensityCompiler.needCompile(mapped))
-            return DensityCompiler.from(mapped, true).compile();
-        return mapped;
+        return DensityCompiler.from(mapped, true).compile();
     }
 
     /**

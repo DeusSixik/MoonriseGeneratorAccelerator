@@ -118,8 +118,10 @@ public class DensityCompiler {
     public DensityFunction compile(@Nullable DensityFunction inRoot) {
         final DensityFunction root = inRoot != null ? inRoot : this.root;
 
-        if(!needCompile(root))
+        if(!needCompile(root)) {
+            System.out.println("Compile not needed for: " + root.getClass().getName());
             return root;
+        }
 
         if (root == null) throw new NullPointerException("DensityFunction can't be NULL !");
         locals.clear();

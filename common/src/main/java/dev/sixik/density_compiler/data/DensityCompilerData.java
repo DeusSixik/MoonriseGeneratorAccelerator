@@ -23,27 +23,27 @@ public class DensityCompilerData {
     }
 
     protected static void boot() {
-//        register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
-//        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
-//        register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
-//        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
-//        register(DensityFunctions.BlendOffset.class, DensityCompilerBlendOffsetTask::new);
-//        register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
+        register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
+        register(DensityFunctions.BeardifierMarker.class, DensityCompilerBeardifierMarkerTask::new);
+        register(DensityFunctions.BlendAlpha.class, DensityCompilerBlendAlphaTask::new);
+        register(DensityFunctions.BlendDensity.class, DensityCompilerBlendDensityTask::new);
+        register(DensityFunctions.BlendOffset.class, DensityCompilerBlendOffsetTask::new);
+        register(DensityFunctions.Clamp.class, DensityCompilerClampTask::new);
         register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
 //        register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
-//        register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
+        register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
 //        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
-//        register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
-//        register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
-//        register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
-//        register(DensityFunctions.RangeChoice.class, DensityCompilerRangeChoiceTask::new);
-//        register(DensityFunctions.ShiftA.class, DensityCompilerShiftATask::new);
-//        register(DensityFunctions.ShiftB.class, DensityCompilerShiftBTask::new);
-//        register(DensityFunctions.ShiftedNoise.class, DensityCompilerShiftedNoiseTask::new);
-//        register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
-//        register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
-//        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
-//        register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
+        register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
+        register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
+        register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);
+        register(DensityFunctions.RangeChoice.class, DensityCompilerRangeChoiceTask::new);
+        register(DensityFunctions.ShiftA.class, DensityCompilerShiftATask::new);
+        register(DensityFunctions.ShiftB.class, DensityCompilerShiftBTask::new);
+        register(DensityFunctions.ShiftedNoise.class, DensityCompilerShiftedNoiseTask::new);
+        register(DensityFunctions.Shift.class, DensityCompilerShiftTask::new);
+        register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
+        register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
+        register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
     }
 
     public static void register(Class<? extends DensityFunction> clz, Supplier<DensityCompilerTask<?>> supplier) {
