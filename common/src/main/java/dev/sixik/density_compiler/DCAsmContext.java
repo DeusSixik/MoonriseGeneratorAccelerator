@@ -4,22 +4,31 @@ import dev.sixik.asm.BasicAsmContext;
 import dev.sixik.asm.utils.DescriptorBuilder;
 import dev.sixik.density_compiler.data.DensityCompilerData;
 import dev.sixik.density_compiler.data.DensityCompilerLocals;
+import dev.sixik.density_compiler.handlers.DensityFunctionsCacheHandler;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public class DCAsmContext extends BasicAsmContext {
+public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCacheHandler {
 
     public static final Function<Object, String> DEFAULT_LEAF_FUNCTION_NAME = (leaf) -> leaf.getClass().getSimpleName();
 
     public final DensityCompiler compiler;
     public final int variableContextIndex;
+
+    public Set<String> needCachedVariables = new HashSet<>();
+    public int cachedFunctionsNumber = 8000;
+    public Map<DensityFunction, Integer> cachedFunctions = new Reference2ObjectOpenHashMap<>();
 
     public int arrayLengthVar = -1;
     public int arrayFillVar = -1;
@@ -164,5 +173,10 @@ public class DCAsmContext extends BasicAsmContext {
         mv.visitJumpInsn(GOTO, startLoop);
 
         mv.visitLabel(endLoop);
+    }
+
+    @Override
+    public DCAsmContext dctx() {
+        return this;
     }
 }

@@ -36,6 +36,8 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
 
         ctx.putCachedVariable("destArrayVar", destArrayArgIndex);
 
+        ctx.createNeedCache();
+
         ctx.arrayForI(destArrayArgIndex, (iVar) -> {
             mv.loadArg(destArrayArgIndex);
             mv.loadLocal(iVar);

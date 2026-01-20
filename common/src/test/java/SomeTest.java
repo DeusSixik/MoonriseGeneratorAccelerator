@@ -16,7 +16,7 @@ public class SomeTest {
     @Test
     void testFobos() {
         final var density = new DensityFunctions.Ap2(
-                DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
+                DensityFunctions.TwoArgumentSimpleFunction.Type.MIN,
                 new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
                         new DensityFunctions.Constant(5),
                         new DensityFunctions.Constant(3),
