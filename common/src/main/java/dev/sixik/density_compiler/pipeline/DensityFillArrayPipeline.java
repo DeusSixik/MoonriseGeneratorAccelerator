@@ -12,8 +12,6 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 import org.objectweb.asm.commons.Method;
 
-import java.util.Map;
-
 import static org.objectweb.asm.Opcodes.*;
 
 public class DensityFillArrayPipeline implements CompilerPipeline{
@@ -32,22 +30,35 @@ public class DensityFillArrayPipeline implements CompilerPipeline{
 
     @Override
     public void generateMethodBody(DensityCompiler compiler, DCAsmContext ctx, DensityFunction root, String className, String simpleClassName, int id) {
-        final MethodVisitor mv = ctx.mv();
+        final GeneratorAdapter mv = ctx.mv();
         int destArrayArgIndex = 0;
 
         ctx.putCachedVariable("destArrayVar", destArrayArgIndex);
 
         ctx.arrayForI(destArrayArgIndex, (iVar) -> {
-            // ... внутри лямбды ...
-            GeneratorAdapter ga = (GeneratorAdapter) ctx.mv();
+            mv.loadArg(destArrayArgIndex);
+            mv.loadLocal(iVar);
 
-            // Правильная загрузка аргументов через адаптер
-            ga.loadArg(destArrayArgIndex); // Загрузит ALOAD 1 (так как Arg 0 = Slot 1)
-            ga.loadLocal(iVar);            // Загрузит ILOAD X (где X - слот счетчика)
+            if (ctx.needCachedForIndex) {
+                mv.loadArg(1);
+                mv.loadLocal(iVar);
+
+                mv.invokeInterface(
+                        Type.getType("Lnet/minecraft/world/level/levelgen/DensityFunction$ContextProvider;"),
+                        Method.getMethod("net.minecraft.world.level.levelgen.DensityFunction$FunctionContext forIndex(int)")
+                );
+
+                Type contextType = Type.getType("Lnet/minecraft/world/level/levelgen/DensityFunction$FunctionContext;");
+                int cachedVar = mv.newLocal(contextType);
+
+                mv.storeLocal(cachedVar);
+
+                ctx.arrayForIndexVar = cachedVar;
+            }
 
             ctx.readNode(root, DensityCompilerTask.Step.Compute);
 
-            ga.arrayStore(Type.DOUBLE_TYPE);
+            mv.arrayStore(Type.DOUBLE_TYPE);
         });
 
         ctx.mv().visitInsn(RETURN);

@@ -19,11 +19,11 @@ public class SomeTest {
                 DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
                 new DensityFunctions.Ap2(DensityFunctions.TwoArgumentSimpleFunction.Type.MAX,
                         new DensityFunctions.Constant(5),
-                        new DensityFunctions.Constant(1),
-                5,1
+                        new DensityFunctions.Constant(3),
+                1,5
                 ),
-                new DensityFunctions.Constant(1),
-                5,1
+                new DensityFunctions.Constant(4),
+                1,5
         );
 
         DensityCompiler.from(density, true).compile();

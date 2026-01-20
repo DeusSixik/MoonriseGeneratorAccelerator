@@ -24,7 +24,7 @@ public class DensityCompilerData {
     }
 
     protected static void boot() {
-//        register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
+        register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
         register(DensityFunctions.Ap2.class, DensityCompilerAp2Task::new);
     }
 

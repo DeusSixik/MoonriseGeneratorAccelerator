@@ -5,10 +5,7 @@ import dev.sixik.density_compiler.data.DensityCompilerLocals;
 import dev.sixik.density_compiler.data.DensityComplierConfiguration;
 import dev.sixik.density_compiler.instatiates.BasicDensityInstantiate;
 import dev.sixik.density_compiler.loaders.DynamicClassLoader;
-import dev.sixik.density_compiler.pipeline.CompilerPipeline;
-import dev.sixik.density_compiler.pipeline.DensityComputePipeline;
-import dev.sixik.density_compiler.pipeline.DensityConstructorPipeline;
-import dev.sixik.density_compiler.pipeline.DensityFillArrayPipeline;
+import dev.sixik.density_compiler.pipeline.*;
 import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import dev.sixik.density_compiler.utils.stack.StackMachine;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -68,7 +65,10 @@ public class DensityCompiler {
         this(configuration, id, root, stackMachine,
                 new DensityComputePipeline(),
                 new DensityFillArrayPipeline(),
-                new DensityConstructorPipeline()
+                new DensityConstructorPipeline(),
+                new DensityMapAllPipeline(),
+                new DensityMaxValuePipeline(),
+                new DensityMinValuePipeline()
         );
     }
 

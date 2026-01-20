@@ -208,4 +208,10 @@ public class BasicAsmContext implements
     public void getArrayLength(int arrayVarIndex) {
         AsmFunctionsWrapper.getArrayLength(mv, arrayVarIndex);
     }
+
+    public void iconst(int v) {
+        if (v >= -1 && v <= 5) mv.visitInsn(ICONST_0 + v);
+        else if (v >= Byte.MIN_VALUE && v <= Byte.MAX_VALUE) mv.visitIntInsn(BIPUSH, v);
+        else mv.visitIntInsn(SIPUSH, v);
+    }
 }

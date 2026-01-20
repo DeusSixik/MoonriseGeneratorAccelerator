@@ -86,7 +86,12 @@ public class DCAsmContext extends BasicAsmContext {
             compiler.stackMachine.printDebug();
             throw new IllegalStateException("Context no exist on this visitor!");
         }
-        mv.visitVarInsn(ALOAD, variableContextIndex);
+
+        if(arrayForIndexVar != -1) {
+            mv.loadLocal(arrayForIndexVar);
+        } else {
+            mv.visitVarInsn(ALOAD, variableContextIndex);
+        }
     }
 
     protected int getOrCreateLeafIndex(DensityFunction leaf) {
