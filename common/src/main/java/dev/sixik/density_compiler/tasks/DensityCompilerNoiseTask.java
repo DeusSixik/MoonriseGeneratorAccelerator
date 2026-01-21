@@ -26,18 +26,27 @@ public class DensityCompilerNoiseTask extends DensityCompilerTask<DensityFunctio
 
         if (step != Step.Compute) return;
 
-        final GeneratorAdapter ga = ctx.mv();
+        int id = ctx.getVariable(node);
+        if(id != -1) {
+            ctx.mv().loadLocal(id);
+        } else {
+            final GeneratorAdapter ga = ctx.mv();
 
-        // 1. Загружаем объект NoiseHolder (через твой механизм констант/листьев)
-        ctx.readLeaf(node.noise(), HOLDER_DESC);
+// 1. Сначала вычисляем значение, чтобы оно лежало на стеке
+            ctx.readLeaf(node.noise(), HOLDER_DESC);
+            generateScaledCoord(ga, ctx, BLOCK_X, node.xzScale());
+            generateScaledCoord(ga, ctx, BLOCK_Y, node.yScale());
+            generateScaledCoord(ga, ctx, BLOCK_Z, node.xzScale());
+            ga.invokeVirtual(NOISE_HOLDER_TYPE, GET_VALUE);
 
-        // 2. Генерируем аргументы (X, Y, Z)
-        generateScaledCoord(ga, ctx, BLOCK_X, node.xzScale());
-        generateScaledCoord(ga, ctx, BLOCK_Y, node.yScale());
-        generateScaledCoord(ga, ctx, BLOCK_Z, node.xzScale());
+// 2. Дублируем double на стеке (занимает 2 слота на стеке)
+            ga.dup2();
 
-        // 3. Вызов getValue(D, D, D)D
-        ga.invokeVirtual(NOISE_HOLDER_TYPE, GET_VALUE);
+// 3. Сохраняем одну копию в локальную переменную, вторая остается для следующей ноды
+            id = ga.newLocal(Type.DOUBLE_TYPE);
+            ga.storeLocal(id);
+            ctx.setVariable(node, id);
+        }
     }
 
     private void generateScaledCoord(GeneratorAdapter ga, DCAsmContext ctx, String name, double scale) {

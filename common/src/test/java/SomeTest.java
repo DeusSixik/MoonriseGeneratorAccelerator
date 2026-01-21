@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class SomeTest {
 
@@ -16,6 +17,60 @@ public class SomeTest {
     static void onStart() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @Test
+    void testTheGreatSmasher() {
+        // 1. Создаем базовый шум для тестов
+        final DensityFunction.NoiseHolder noise = new DensityFunction.NoiseHolder(
+                Holder.direct(new NormalNoise.NoiseParameters(33, List.of(1.0, 0.5))), null);
+
+        // 2. Генерируем "Алмазное дерево" (Diamond Graph)
+        // Глубина 15 при переиспользовании веток создаст безумное количество связей
+        // и заставит Optimizer/Pipeline работать на пределе.
+        DensityFunction hugeTree = generateDiamondTree(15, noise);
+
+        // 3. Добавляем финальный "замес" из RangeChoice и Mapped
+        final DensityFunction finalBoss = new DensityFunctions.RangeChoice(
+                hugeTree,
+                -0.5, 0.5,
+                new DensityFunctions.Mapped(DensityFunctions.Mapped.Type.ABS, hugeTree, -1.0, 1.0),
+                new DensityFunctions.MulOrAdd(DensityFunctions.MulOrAdd.Type.ADD, hugeTree, 0.5, 2.0, 2)
+        );
+
+        System.out.println("Starting compilation of the Great Smasher...");
+        long start = System.currentTimeMillis();
+
+        // Если здесь не вылетит VerifyError или MethodTooLarge — компилятор готов к продакшену
+        var compiled = DensityCompiler.from(finalBoss, true).compile();
+
+        System.out.println("Compiled successfully in " + (System.currentTimeMillis() - start) + "ms");
+    }
+
+    /**
+     * Генерирует дерево, где каждая нода ссылается на одну и ту же подноду дважды.
+     * Это гарантирует, что кэширование (CSE) будет нагружено максимально.
+     */
+    private DensityFunction generateDiamondTree(int depth, DensityFunction.NoiseHolder noise) {
+        DensityFunction current = new DensityFunctions.Noise(noise, 1.0, 1.0);
+
+        for (int i = 0; i < depth; i++) {
+            // Чередуем типы для разнообразия инструкций
+            if (i % 3 == 0) {
+                current = new DensityFunctions.Ap2(
+                        DensityFunctions.TwoArgumentSimpleFunction.Type.MUL,
+                        current, current, -100.0, 100.0
+                );
+            } else if (i % 3 == 1) {
+                current = new DensityFunctions.Ap2(
+                        DensityFunctions.TwoArgumentSimpleFunction.Type.ADD,
+                        current, current, -100.0, 100.0
+                );
+            } else {
+                current = new DensityFunctions.Clamp(current, -50.0, 50.0);
+            }
+        }
+        return current;
     }
 
     @Test

@@ -44,6 +44,9 @@ public class DensityCompilerData {
         register(DensityFunctions.TwoArgumentSimpleFunction.class, DensityCompilerTwoArgumentSimpleFunctionTask::new);
         register(DensityFunctions.WeirdScaledSampler.class, DensityCompilerWeirdScaledSamplerTask::new);
         register(DensityFunctions.YClampedGradient.class, DensityCompilerYClampedGradientTask::new);
+
+
+//        register(DensityFunctions.Spline.class, DensityCompilerSplineTask::new);
     }
 
     public static void register(Class<? extends DensityFunction> clz, Supplier<DensityCompilerTask<?>> supplier) {

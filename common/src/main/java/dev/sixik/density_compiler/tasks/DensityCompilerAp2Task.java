@@ -13,12 +13,11 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
 
     @Override
     protected void applyStep(DCAsmContext ctx, DensityFunctions.Ap2 node, Step step) {
-        switch (step) {
-            case Prepare -> this.prepare(ctx, node);
-            case PostPrepare -> this.postPrepare(ctx, node);
-            case CalculateSize -> this.calculateSize(ctx, node);
-            case Compute -> this.compute(ctx, node);
-        }
+
+
+        if(step != Step.Compute) {
+            ctx.readNode(node, step);
+        } else compute(ctx, node);
     }
 
     private void compute(DCAsmContext ctx, DensityFunctions.Ap2 node) {
@@ -109,20 +108,5 @@ public class DensityCompilerAp2Task extends DensityCompilerTask<DensityFunctions
             case MIN -> ctx.mv().visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
             case MAX -> ctx.mv().visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
         }
-    }
-
-    private void calculateSize(DCAsmContext ctx, DensityFunctions.Ap2 node) {
-        ctx.readNode(node.argument1(), Step.CalculateSize);
-        ctx.readNode(node.argument2(), Step.CalculateSize);
-    }
-
-    private void postPrepare(DCAsmContext ctx, DensityFunctions.Ap2 node) {
-        ctx.readNode(node.argument1(), Step.PostPrepare);
-        ctx.readNode(node.argument2(), Step.PostPrepare);
-    }
-
-    private void prepare(DCAsmContext ctx, DensityFunctions.Ap2 node) {
-        ctx.readNode(node.argument1(), Step.Prepare);
-        ctx.readNode(node.argument2(), Step.Prepare);
     }
 }

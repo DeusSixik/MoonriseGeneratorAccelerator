@@ -12,19 +12,14 @@ import dev.sixik.density_compiler.utils.stack.StackMachine;
 import dev.sixik.density_compiler.utils.wrappers.DensityCompilerFunction;
 import dev.sixik.density_compiler.utils.wrappers.DensityFunctionSerializerWrapper;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -41,6 +36,8 @@ public class DensityCompiler {
     public final DensityCompilerLocals locals = new DensityCompilerLocals();
     public final DensityComplierConfiguration configuration;
     public final StackMachine stackMachine;
+
+    private ClassWriter currentClassWriter;
 
     protected CompilerPipeline currentPipeline;
 
@@ -136,6 +133,7 @@ public class DensityCompiler {
         final String className = DEFAULT_CLASS_PATH + "OptimizedDensityFunction_" + configuration.classSimpleName() + "_" + id;
 
         final ClassWriter cw = createClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        currentClassWriter = cw;
         applyCodeGenerator(cw, root, id);
         applyFields(cw, root, id);
 
@@ -180,7 +178,6 @@ public class DensityCompiler {
 
         stackMachine.pushStack("ApplyCodeGenerator");
 
-
         for (int i = 0; i < copy.size(); i++) {
             root = copy.get(i).manageFunction(
                     this, root, className, simpleClassName, id);
@@ -198,7 +195,7 @@ public class DensityCompiler {
 
             mv.visitCode();
 
-            final var context = element.getByteCodeStructure(this)
+            final DCAsmContext context = element.getByteCodeStructure(this)
                     .createContext(this, mv);
 
             stackMachine.pushStack(element.getClass().getSimpleName() + " Prepare Generate Method Body");
@@ -277,5 +274,9 @@ public class DensityCompiler {
 
     public DensityFunction getCurrentNode() {
         return currentNode;
+    }
+
+    public ClassWriter getClassWriter() {
+        return currentClassWriter;
     }
 }

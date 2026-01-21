@@ -6,6 +6,8 @@ import dev.sixik.density_compiler.data.DensityCompilerData;
 import dev.sixik.density_compiler.data.DensityCompilerLocals;
 import dev.sixik.density_compiler.handlers.DensityFunctionsCacheHandler;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
+import it.unimi.dsi.fastutil.objects.Reference2IntMap;
+import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.objectweb.asm.Label;
@@ -29,6 +31,8 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
     public Set<String> needCachedVariables = new HashSet<>();
     public int cachedFunctionsNumber = 8000;
     public Map<DensityFunction, Integer> cachedFunctions = new Reference2ObjectOpenHashMap<>();
+
+    private Scope currentScope = new Scope(null);
 
     public int arrayLengthVar = -1;
     public int arrayFillVar = -1;
@@ -192,8 +196,42 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
         mv.visitLabel(endLoop);
     }
 
+    /**
+     * Получить переменную для ноды, проверяя текущий и все родительские скоупы
+     */
+    public int getVariable(Object node) {
+        return currentScope.find(node);
+    }
+
+    public boolean hasVariable(Object node) {
+        return getVariable(node) != -1;
+    }
+
+    /**
+     * Запомнить переменную в текущем скоупе
+     */
+    public void setVariable(Object node, int varIndex) {
+        currentScope.locals.put(node, varIndex);
+    }
+
     @Override
     public DCAsmContext dctx() {
         return this;
+    }
+
+    private static class Scope {
+        private final Scope parent;
+        private final Reference2IntMap<Object> locals = new Reference2IntOpenHashMap<>();
+
+        Scope(Scope parent) {
+            this.parent = parent;
+            this.locals.defaultReturnValue(-1);
+        }
+
+        int find(Object node) {
+            int index = locals.getInt(node);
+            if (index != -1) return index;
+            return (parent != null) ? parent.find(node) : -1;
+        }
     }
 }

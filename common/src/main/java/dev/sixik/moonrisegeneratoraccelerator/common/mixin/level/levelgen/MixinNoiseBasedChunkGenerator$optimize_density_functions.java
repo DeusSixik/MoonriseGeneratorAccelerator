@@ -60,12 +60,6 @@ public class MixinNoiseBasedChunkGenerator$optimize_density_functions implements
             }
 
             customDensity.bts$setDensity(array);
-
-            System.out.println("---------------");
-            System.out.println(this.settings.value().noiseRouter().initialDensityWithoutJaggedness().getClass());
-            this.settings = Holder.direct(settings);
-            System.out.println(this.settings.value().noiseRouter().initialDensityWithoutJaggedness().getClass());
-            System.out.println("---------------");
         }
     }
 }
