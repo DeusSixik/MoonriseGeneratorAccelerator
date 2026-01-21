@@ -82,12 +82,12 @@ public class DensityOptimizer {
             Applying the simplification rules to the current node
          */
         DensityFunction result = rewriteLocal(optimizedChildren);
-        result = optimizeByASM(function, result);
+//        result = optimizeByASM(function, result);
         cache.put(function, result);
         return result;
     }
 
-    public DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
+    public static DensityFunction optimizeByASM(DensityFunction original, DensityFunction mapped) {
         if (mapped.getClass().getName().startsWith("dev.sixik.generated.")) {
             return mapped;
         }

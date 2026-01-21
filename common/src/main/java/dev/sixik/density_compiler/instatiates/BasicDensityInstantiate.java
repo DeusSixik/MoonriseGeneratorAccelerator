@@ -20,6 +20,12 @@ public class BasicDensityInstantiate implements DensityInstantiate {
         try {
             Class<?> clazz = loader.define(formatedClassName, bytes);
 
+            try {
+                clazz.getField("ORIGINAL_ROOT").set(null, compiler.getCurrentNode());
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to inject codec into generated class", e);
+            }
+
             if (args.length == 0) {
                 Constructor<?> constructor = clazz.getConstructor();
                 return (DensityFunction) constructor.newInstance();

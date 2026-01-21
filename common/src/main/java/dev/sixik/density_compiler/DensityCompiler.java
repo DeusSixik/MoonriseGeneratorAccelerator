@@ -9,6 +9,8 @@ import dev.sixik.density_compiler.pipeline.*;
 import dev.sixik.density_compiler.utils.DensityCompilerUtils;
 import dev.sixik.density_compiler.utils.stack.HtmlTreeStackMachine;
 import dev.sixik.density_compiler.utils.stack.StackMachine;
+import dev.sixik.density_compiler.utils.wrappers.DensityCompilerFunction;
+import dev.sixik.density_compiler.utils.wrappers.DensityFunctionSerializerWrapper;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +48,8 @@ public class DensityCompiler {
     protected final DensityFunction root;
     protected final int id;
 
+    protected DensityFunction currentNode;
+
     public static DensityCompiler from(DensityFunction densityFunction) {
         return from(densityFunction, false);
     }
@@ -59,7 +63,7 @@ public class DensityCompiler {
                 densityFunction.getClass().getSimpleName(),
                 dump,
                 new BasicDensityInstantiate(),
-                Type.getInternalName(DensityFunction.class)
+                Type.getInternalName(DensityFunction.class), Type.getInternalName(DensityCompilerFunction.class)
         ), id, densityFunction, new HtmlTreeStackMachine());
     }
 
@@ -75,7 +79,8 @@ public class DensityCompiler {
                 new DensityConstructorPipeline(),
                 new DensityMapAllPipeline(),
                 new DensityMaxValuePipeline(),
-                new DensityMinValuePipeline()
+                new DensityMinValuePipeline(),
+                new DensityWrapperPipeline()
         );
     }
 
@@ -126,6 +131,8 @@ public class DensityCompiler {
         if (root == null) throw new NullPointerException("DensityFunction can't be NULL !");
         locals.clear();
 
+        currentNode = root;
+
         final String className = DEFAULT_CLASS_PATH + "OptimizedDensityFunction_" + configuration.classSimpleName() + "_" + id;
 
         final ClassWriter cw = createClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
@@ -157,7 +164,7 @@ public class DensityCompiler {
                 );
         COMPILED.add(instance);
 
-        return instance;
+        return new DensityFunctionSerializerWrapper(instance);
     }
 
     protected void applyCodeGenerator(
@@ -266,5 +273,9 @@ public class DensityCompiler {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public DensityFunction getCurrentNode() {
+        return currentNode;
     }
 }

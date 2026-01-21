@@ -32,7 +32,7 @@ public class DensityCompilerData {
         register(DensityFunctions.Constant.class, DensityCompilerConstantTask::new);
 //        register(DensityFunctions.EndIslandDensityFunction.class, DensityCompilerEndIslandTask::new);
         register(DensityFunctions.HolderHolder.class, DensityCompilerHolderHolderTask::new);
-//        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
+        register(DensityFunctions.Mapped.class, DensityCompilerMappedTask::new);
         register(DensityFunctions.Marker.class, DensityCompilerMarkerTask::new);
         register(DensityFunctions.MulOrAdd.class, DensityCompilerMulOrAddTask::new);
         register(DensityFunctions.Noise.class, DensityCompilerNoiseTask::new);

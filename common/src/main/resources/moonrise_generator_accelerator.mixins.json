@@ -7,6 +7,9 @@
   ],
   "mixins": [
     "FrontAndTopCrashFix",
+    "MinecraftServerMixin",
+    "MixinNoiseRoute",
+    "ServerLevelMixin",
     "level.biome.MixinBiomeManager",
     "level.biome.MixinBiomeSource",
     "level.biome.MixinClimate$ParameterList$change_search",

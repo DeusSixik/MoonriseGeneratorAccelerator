@@ -88,21 +88,21 @@ public abstract class MixinNoiseRouter$add_custom_optimizer implements NoiseRout
 
     @Override
     public void bts$setDensity(DensityFunction[] array) {
-        barrierNoise =                      array[0];
-        fluidLevelFloodednessNoise =        array[1];
-        fluidLevelSpreadNoise =             array[2];
-        lavaNoise =                         array[3];
-        temperature =                       array[4];
-        vegetation =                        array[5];
-        continents =                        array[6];
-        erosion =                           array[7];
-        depth =                             array[8];
-        ridges =                            array[9];
+//        barrierNoise =                      array[0];
+//        fluidLevelFloodednessNoise =        array[1];
+//        fluidLevelSpreadNoise =             array[2];
+//        lavaNoise =                         array[3];
+//        temperature =                       array[4];
+//        vegetation =                        array[5];
+//        continents =                        array[6];
+//        erosion =                           array[7];
+//        depth =                             array[8];
+//        ridges =                            array[9];
         initialDensityWithoutJaggedness =   array[10];
-        finalDensity =                      array[11];
-        veinToggle =                        array[12];
-        veinRidged =                        array[13];
-        veinGap =                           array[14];
+//        finalDensity =                      array[11];
+//        veinToggle =                        array[12];
+//        veinRidged =                        array[13];
+//        veinGap =                           array[14];
     }
 
     @Override
