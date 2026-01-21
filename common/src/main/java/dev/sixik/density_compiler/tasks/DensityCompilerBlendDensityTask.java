@@ -24,26 +24,37 @@ public class DensityCompilerBlendDensityTask extends DensityCompilerTask<Density
             return;
         }
 
-        GeneratorAdapter ga = ctx.mv();
+        int id = ctx.getVariable(node);
+        if(id != -1) {
+            ctx.mv().loadLocal(id);
+        } else {
 
-        int blenderVar = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLENDER);
+            GeneratorAdapter ga = ctx.mv();
 
-        // Типы и Методы для ASM Commons
-        Type blenderType = Type.getType("Lnet/minecraft/world/level/levelgen/blending/Blender;");
+            int blenderVar = ctx.getCachedVariable(DensityFunctionsCacheHandler.BLENDER);
 
-        // 1. Грузим 'this' (объект Blender)
-        ga.loadLocal(blenderVar);
+            // Типы и Методы для ASM Commons
+            Type blenderType = Type.getType("Lnet/minecraft/world/level/levelgen/blending/Blender;");
 
-        // 2. Грузим 1-й аргумент (FunctionContext)
-        ctx.readContext();
+            // 1. Грузим 'this' (объект Blender)
+            ga.loadLocal(blenderVar);
 
-        // 3. Грузим 2-й аргумент (Результат вычисления input)
-        ctx.readNode(node.input(), Step.Compute);
+            // 2. Грузим 1-й аргумент (FunctionContext)
+            ctx.readContext();
 
-        // 4. Вызываем метод
-        ga.invokeVirtual(
-                blenderType,
-                Method.getMethod("double blendDensity(net.minecraft.world.level.levelgen.DensityFunction$FunctionContext, double)")
-        );
+            // 3. Грузим 2-й аргумент (Результат вычисления input)
+            ctx.readNode(node.input(), Step.Compute);
+
+            // 4. Вызываем метод
+            ga.invokeVirtual(
+                    blenderType,
+                    Method.getMethod("double blendDensity(net.minecraft.world.level.levelgen.DensityFunction$FunctionContext, double)")
+            );
+
+            id = ctx.mv().newLocal(Type.DOUBLE_TYPE);
+            ctx.mv().dup2(); // Дублируем double для сохранения
+            ctx.mv().storeLocal(id);
+            ctx.setVariable(node, id);
+        }
     }
 }

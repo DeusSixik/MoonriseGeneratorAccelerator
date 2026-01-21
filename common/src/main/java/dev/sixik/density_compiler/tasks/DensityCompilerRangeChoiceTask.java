@@ -11,11 +11,17 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
 
     @Override
     protected void applyStep(DCAsmContext ctx, DensityFunctions.RangeChoice node, Step step) {
-
-        if(step != Step.Compute) {
+        if (step != Step.Compute) {
             ctx.readNode(node.input(), step);
             ctx.readNode(node.whenInRange(), step);
             ctx.readNode(node.whenOutOfRange(), step);
+            return;
+        }
+
+        // 1. Проверка кеша
+        final int cachedId = ctx.getVariable(node);
+        if (cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
             return;
         }
 
@@ -24,7 +30,7 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
         double inMin = node.input().minValue();
         double inMax = node.input().maxValue();
 
-        // 2. Статический прунинг (Dead Code Elimination)
+        // 2. Статический прунинг
         if (inMin >= min && inMax < max) {
             ctx.readNode(node.whenInRange(), Step.Compute);
             return;
@@ -34,34 +40,44 @@ public class DensityCompilerRangeChoiceTask extends DensityCompilerTask<DensityF
             return;
         }
 
-        // 3. Динамическая логика через GeneratorAdapter
+        // 3. Динамическая логика
         final GeneratorAdapter ga = ctx.mv();
         Label runOutOfRange = ga.newLabel();
         Label end = ga.newLabel();
 
-        // Вычисляем input и сохраняем в локальную переменную
+        // Вычисляем input один раз и сохраняем
         ctx.readNode(node.input(), Step.Compute);
         int inputVar = ga.newLocal(Type.DOUBLE_TYPE);
         ga.storeLocal(inputVar);
 
-        // Проверка: input < min
+        // Условие: (input < min || input >= max) -> jump to OutOfRange
         ga.loadLocal(inputVar);
         ga.push(min);
         ga.ifCmp(Type.DOUBLE_TYPE, GeneratorAdapter.LT, runOutOfRange);
 
-        // Проверка: input >= max
         ga.loadLocal(inputVar);
         ga.push(max);
         ga.ifCmp(Type.DOUBLE_TYPE, GeneratorAdapter.GE, runOutOfRange);
 
         // --- Ветка IN_RANGE ---
-        ctx.readNode(node.whenInRange(), Step.Compute);
+        // Используем scope, чтобы переменные внутри ветки не "утекали" наружу
+        ctx.scope(() -> {
+            ctx.readNode(node.whenInRange(), Step.Compute);
+        });
         ga.goTo(end);
 
         // --- Ветка OUT_OF_RANGE ---
         ga.mark(runOutOfRange);
-        ctx.readNode(node.whenOutOfRange(), Step.Compute);
+        ctx.scope(() -> {
+            ctx.readNode(node.whenOutOfRange(), Step.Compute);
+        });
 
         ga.mark(end);
+
+        // 4. Кешируем результат RangeChoice
+        int id = ga.newLocal(Type.DOUBLE_TYPE);
+        ga.dup2();
+        ga.storeLocal(id);
+        ctx.setVariable(node, id);
     }
 }

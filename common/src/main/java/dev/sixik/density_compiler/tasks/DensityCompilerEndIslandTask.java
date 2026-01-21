@@ -6,6 +6,7 @@ import dev.sixik.density_compiler.task_base.DensityCompilerTask;
 import dev.sixik.density_compiler.utils.helpers.EndIslandHelper;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import org.objectweb.asm.Type;
 
 public class DensityCompilerEndIslandTask extends DensityCompilerTask<DensityFunctions.EndIslandDensityFunction> {
     @Override
@@ -18,6 +19,12 @@ public class DensityCompilerEndIslandTask extends DensityCompilerTask<DensityFun
 
         if(step != Step.Compute) return;
 
+        final var cachedId = ctx.getVariable(node);
+        if(cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
+            return;
+        }
+
         ctx.readLeaf(node);
         ctx.readContext();
         ctx.invokeMethodStatic(
@@ -28,5 +35,10 @@ public class DensityCompilerEndIslandTask extends DensityCompilerTask<DensityFun
                         .type(DensityFunction.FunctionContext.class)
                         .buildMethod(double.class)
         );
+
+        int id = ctx.mv().newLocal(Type.DOUBLE_TYPE);
+        ctx.mv().dup2();
+        ctx.mv().storeLocal(id);
+        ctx.setVariable(node, id);
     }
 }

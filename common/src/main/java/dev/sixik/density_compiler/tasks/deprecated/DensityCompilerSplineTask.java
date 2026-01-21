@@ -1,4 +1,4 @@
-package dev.sixik.density_compiler.tasks;
+package dev.sixik.density_compiler.tasks.deprecated;
 
 import dev.sixik.density_compiler.DCAsmContext;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;

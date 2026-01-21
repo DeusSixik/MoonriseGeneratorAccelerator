@@ -19,40 +19,43 @@ public class DensityCompilerYClampedGradientTask extends DensityCompilerTask<Den
 
     @Override
     protected void applyStep(DCAsmContext ctx, DensityFunctions.YClampedGradient node, Step step) {
-        // 1. Prepare: Запрашиваем переменную Y
         if (step == Step.Prepare) {
             ctx.putNeedCachedVariable(BLOCK_Y_BITS);
             return;
         }
 
-        // 2. PostPrepare: Убираем кэширование результата!
-        // Результат зависит от Y, который меняется в цикле. Мы не можем предрассчитать его здесь.
-
         if (step != Step.Compute) return;
+
+        // 1. ПРОВЕРКА КЭША
+        // Если в рамках текущей точки [x,y,z] мы уже считали этот градиент — берем из слота
+        final int cachedId = ctx.getVariable(node);
+        if (cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
+            return;
+        }
 
         final GeneratorAdapter ga = ctx.mv();
 
-        // --- ГЕНЕРАЦИЯ ВЫЧИСЛЕНИЯ ---
-        // Формула: Mth.clampedMap(blockY, fromY, toY, fromValue, toValue)
-
-        // 1. Загружаем blockY (double value)
+        // --- ВЫЧИСЛЕНИЕ ---
+        // 1. Загружаем blockY
         int yVarIndex = ctx.getCachedVariable(BLOCK_Y);
         ga.loadLocal(yVarIndex);
-        ga.cast(Type.INT_TYPE, Type.DOUBLE_TYPE); // I2D
+        ga.cast(Type.INT_TYPE, Type.DOUBLE_TYPE);
 
-        // 2. Загружаем fromY (double minInput)
+        // 2. Загружаем параметры (константы)
         ga.push((double) node.fromY());
-
-        // 3. Загружаем toY (double maxInput)
         ga.push((double) node.toY());
-
-        // 4. Загружаем fromValue (double minOutput)
         ga.push(node.fromValue());
-
-        // 5. Загружаем toValue (double maxOutput)
         ga.push(node.toValue());
 
-        // 6. Вызов Mth.clampedMap
+        // 3. Вызов Mth.clampedMap(DDDDD)D
         ga.invokeStatic(MTH_TYPE, CLAMPED_MAP);
+
+        // 4. СОХРАНЕНИЕ В КЭШ
+        // На "горячем пути" это экономит 4 PUSH и 1 INVOKESTATIC при повторном обращении
+        int id = ga.newLocal(Type.DOUBLE_TYPE);
+        ga.dup2();
+        ga.storeLocal(id);
+        ctx.setVariable(node, id);
     }
 }

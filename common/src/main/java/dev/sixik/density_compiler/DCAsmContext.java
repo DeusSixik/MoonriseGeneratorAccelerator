@@ -196,6 +196,16 @@ public class DCAsmContext extends BasicAsmContext implements DensityFunctionsCac
         mv.visitLabel(endLoop);
     }
 
+    public void scope(Runnable action) {
+        Scope parent = this.currentScope;
+        this.currentScope = new Scope(parent);
+        try {
+            action.run();
+        } finally {
+            this.currentScope = parent;
+        }
+    }
+
     /**
      * Получить переменную для ноды, проверяя текущий и все родительские скоупы
      */

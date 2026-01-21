@@ -28,71 +28,72 @@ public class DensityCompilerWeirdScaledSamplerTask extends DensityCompilerTask<D
 
     @Override
     protected void applyStep(DCAsmContext ctx, DensityFunctions.WeirdScaledSampler node, Step step) {
-        // 1. Prepare: кэшируем координаты и спускаемся в input
         if (step == Step.Prepare) {
             ctx.putNeedCachedVariable(BLOCK_X_BITS | BLOCK_Y_BITS | BLOCK_Z_BITS);
             ctx.readNode(node.input(), Step.Prepare);
             return;
         }
 
-        // 2. PostPrepare: рекурсия
-        if (step == Step.PostPrepare) {
-            ctx.readNode(node.input(), Step.PostPrepare);
+        if (step != Step.Compute) {
+            ctx.readNode(node.input(), step);
             return;
         }
 
-        if (step != Step.Compute) return;
+        // 1. ПРОВЕРКА КЭША
+        final int cachedId = ctx.getVariable(node);
+        if (cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
+            return;
+        }
 
         final GeneratorAdapter ga = ctx.mv();
 
-        // --- ШАГ 1: Загрузка Mapper и вычисление Rarity (e) ---
+        // 2. ИЗОЛЯЦИЯ В SCOPE
+        // Используем scope, чтобы временные переменные (varRarity, varScale)
+        // не конфликтовали с другими частями дерева.
+        ctx.scope(() -> {
+            // --- ВЫЧИСЛЕНИЕ RARITY (e) ---
+            ctx.readLeaf(node);
+            ga.checkCast(SAMPLER_TYPE);
+            ga.invokeVirtual(SAMPLER_TYPE, GET_RARITY_MAPPER);
+            ga.getField(RARITY_TYPE, "mapper", MAPPER_INTERFACE_TYPE);
 
-        // Грузим объект WeirdScaledSampler (node)
-        ctx.readLeaf(node);
-        ga.checkCast(SAMPLER_TYPE);
+            ctx.readNode(node.input(), Step.Compute);
+            ga.invokeInterface(MAPPER_INTERFACE_TYPE, GET_MAPPER_VALUE);
 
-        // Вызываем rarityValueMapper() -> RarityValueMapper Enum
-        ga.invokeVirtual(SAMPLER_TYPE, GET_RARITY_MAPPER);
+            int varRarity = ga.newLocal(Type.DOUBLE_TYPE);
+            ga.storeLocal(varRarity);
 
-        // Читаем поле mapper -> Double2DoubleFunction
-        ga.getField(RARITY_TYPE, "mapper", MAPPER_INTERFACE_TYPE);
+            // --- ВЫЧИСЛЕНИЕ NOISE ---
+            ctx.readLeaf(node.noise(), HOLDER_DESC);
 
-        // Вычисляем input
-        ctx.readNode(node.input(), Step.Compute);
+            // Координаты масштабируются как coord / rarity
+            // Вместо вычисления 1.0/e и умножения, в "горячем пути"
+            // иногда быстрее просто делить, но если JIT увидит 1/e, он сам оптимизирует.
+            // Оставим твой вариант с scale = 1.0 / e.
+            ga.push(1.0);
+            ga.loadLocal(varRarity);
+            ga.math(GeneratorAdapter.DIV, Type.DOUBLE_TYPE);
+            int varScale = ga.newLocal(Type.DOUBLE_TYPE);
+            ga.storeLocal(varScale);
 
-        // Вызываем mapper.get(input)
-        ga.invokeInterface(MAPPER_INTERFACE_TYPE, GET_MAPPER_VALUE);
+            generateScaledCoord(ga, ctx, BLOCK_X, varScale);
+            generateScaledCoord(ga, ctx, BLOCK_Y, varScale);
+            generateScaledCoord(ga, ctx, BLOCK_Z, varScale);
 
-        // Сохраняем 'rarity' (e) в локальную переменную
-        int varRarity = ga.newLocal(Type.DOUBLE_TYPE);
-        ga.storeLocal(varRarity);
+            ga.invokeVirtual(NOISE_HOLDER_TYPE, GET_NOISE_VALUE);
 
-        // --- ШАГ 2: Вычисление Scale (1.0 / e) ---
-        // Оптимизация: деление дорогое, лучше поделить 1 раз и потом умножать
-        ga.push(1.0);
-        ga.loadLocal(varRarity);
-        ga.math(GeneratorAdapter.DIV, Type.DOUBLE_TYPE);
+            // --- ФИНАЛЬНЫЙ РЕЗУЛЬТАТ (noise * abs(rarity)) ---
+            ga.loadLocal(varRarity);
+            ga.invokeStatic(MATH_TYPE, ABS);
+            ga.math(GeneratorAdapter.MUL, Type.DOUBLE_TYPE);
 
-        int varScale = ga.newLocal(Type.DOUBLE_TYPE);
-        ga.storeLocal(varScale);
-
-        // --- ШАГ 3: Вычисление Noise ---
-
-        // Грузим NoiseHolder
-        ctx.readLeaf(node.noise(), HOLDER_DESC);
-
-        // Генерируем аргументы: coord * scale
-        generateScaledCoord(ga, ctx, BLOCK_X, varScale);
-        generateScaledCoord(ga, ctx, BLOCK_Y, varScale);
-        generateScaledCoord(ga, ctx, BLOCK_Z, varScale);
-
-        // Вызываем NoiseHolder.getValue(x, y, z)
-        ga.invokeVirtual(NOISE_HOLDER_TYPE, GET_NOISE_VALUE);
-
-        // --- ШАГ 4: Финальный результат (noise * abs(rarity)) ---
-        ga.loadLocal(varRarity);
-        ga.invokeStatic(MATH_TYPE, ABS);
-        ga.math(GeneratorAdapter.MUL, Type.DOUBLE_TYPE);
+            // 3. СОХРАНЕНИЕ В КЭШ НОДЫ
+            int id = ga.newLocal(Type.DOUBLE_TYPE);
+            ga.dup2();
+            ga.storeLocal(id);
+            ctx.setVariable(node, id);
+        });
     }
 
     private void generateScaledCoord(GeneratorAdapter ga, DCAsmContext ctx, String blockVar, int scaleVarIndex) {

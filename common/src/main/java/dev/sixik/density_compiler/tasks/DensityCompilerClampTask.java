@@ -4,6 +4,7 @@ import dev.sixik.density_compiler.DCAsmContext;
 import dev.sixik.density_compiler.task_base.DensityCompilerTask;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import org.objectweb.asm.Type;
 
 public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctions.Clamp> {
 
@@ -12,6 +13,12 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
 
         if(step != Step.Compute) {
             ctx.readNode(node.input(), step);
+            return;
+        }
+
+        final int cachedId = ctx.getVariable(node);
+        if (cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
             return;
         }
 
@@ -54,5 +61,10 @@ public class DensityCompilerClampTask extends DensityCompilerTask<DensityFunctio
             ctx.push(cMin);
             ctx.invokeMethodStatic(Math.class, "max", "(DD)D");
         }
+
+        int id = ctx.mv().newLocal(Type.DOUBLE_TYPE);
+        ctx.mv().dup2();
+        ctx.mv().storeLocal(id);
+        ctx.setVariable(node, id);
     }
 }

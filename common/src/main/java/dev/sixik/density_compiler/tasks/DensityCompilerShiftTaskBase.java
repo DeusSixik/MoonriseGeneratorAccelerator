@@ -21,29 +21,38 @@ public abstract class DensityCompilerShiftTaskBase<T extends DensityFunction> ex
     @Override
     protected void applyStep(DCAsmContext ctx, T node, Step step) {
         if (step == Step.Prepare) {
-            // Обычно Shift требует все три координаты, но конкретный набор
-            // зависит от реализации (ShiftA, ShiftB, Shift).
             ctx.putNeedCachedVariable(BLOCK_X_BITS | BLOCK_Y_BITS | BLOCK_Z_BITS);
             return;
         }
 
         if (step != Step.Compute) return;
 
+        // 1. Проверка кеша (чтобы не считать шум дважды)
+        final int cachedId = ctx.getVariable(node);
+        if (cachedId != -1) {
+            ctx.mv().loadLocal(cachedId);
+            return;
+        }
+
         final GeneratorAdapter ga = ctx.mv();
         final DensityFunction.NoiseHolder holder = getHolder(node);
 
-        // 1. Загружаем NoiseHolder
+        // 2. Вычисление
         ctx.readLeaf(holder, HOLDER_DESC);
-
-        // 2. Генерируем аргументы (X, Y, Z) через абстрактный метод
         generateCoordinates(ga, ctx);
-
-        // 3. Вызов getValue(D, D, D)D
         ga.invokeVirtual(NOISE_HOLDER_TYPE, GET_VALUE);
 
-        // 4. Масштабируем результат: результат * 4.0
-        ga.push(4.0D);
-        ga.math(GeneratorAdapter.MUL, Type.DOUBLE_TYPE);
+        // Масштабирование (специфика Shift-функций в MC)
+        if (shouldScale()) {
+            ga.push(4.0D);
+            ga.math(GeneratorAdapter.MUL, Type.DOUBLE_TYPE);
+        }
+
+        // 3. Сохранение и дублирование на стеке
+        int id = ga.newLocal(Type.DOUBLE_TYPE);
+        ga.dup2();
+        ga.storeLocal(id);
+        ctx.setVariable(node, id);
     }
 
     /**
@@ -61,5 +70,9 @@ public abstract class DensityCompilerShiftTaskBase<T extends DensityFunction> ex
         ga.cast(Type.INT_TYPE, Type.DOUBLE_TYPE);
         ga.push(0.25D);
         ga.math(GeneratorAdapter.MUL, Type.DOUBLE_TYPE);
+    }
+
+    protected boolean shouldScale() {
+        return true;
     }
 }
