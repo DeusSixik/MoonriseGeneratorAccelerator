@@ -1,6 +1,7 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.synth;
 
 import com.llamalad7.mixinextras.sugar.Local;
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.noise.ColumnNoiseFiller;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
@@ -11,7 +12,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(NormalNoise.class)
-public abstract class MixinNormalNoise {
+public abstract class MixinNormalNoise implements ColumnNoiseFiller {
+
+    private static final ThreadLocal<double[]> SECOND_BUFFER = ThreadLocal.withInitial(() -> new double[128]);
 
     @Shadow
     @Final
@@ -25,6 +28,8 @@ public abstract class MixinNormalNoise {
     @Final
     @Mutable
     private double valueFactor;
+
+    private static final double INPUT_FACTOR = 1.0181268882175227;
 
 //    @Inject(method = "<init>", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/doubles/DoubleList;iterator()Lit/unimi/dsi/fastutil/doubles/DoubleListIterator;"), cancellable = true)
 //    public void bts$init(RandomSource randomSource, NormalNoise.NoiseParameters noiseParameters, boolean bl, CallbackInfo ci, @Local(name = "doubleList") DoubleList amplitudes, @Local(name = "j") int maxIndex, @Local(name = "k") int minIndex) {
@@ -61,5 +66,23 @@ public abstract class MixinNormalNoise {
                 z * 1.0181268882175227
         );
         return (v1 + v2) * valueFactor;
+    }
+
+    @Override
+    public void fillColumn(double[] values, int x, int z, int yStart, int yCount, double scaleX, double scaleY, double scaleZ, double additionalScale) {
+        ((ColumnNoiseFiller) this.first).fillColumn(values, x, z, yStart, yCount, scaleX, scaleY, scaleZ, 0.0);
+
+        double[] secondValues = SECOND_BUFFER.get();
+        if(secondValues.length != yCount) {
+            secondValues = new double[yCount];
+            SECOND_BUFFER.set(secondValues);
+        }
+
+        ((ColumnNoiseFiller) this.second).fillColumnWithFactor(secondValues, x, z, yStart, yCount,
+                scaleX * INPUT_FACTOR,
+                scaleY * INPUT_FACTOR,
+                scaleZ * INPUT_FACTOR,
+                this.valueFactor + additionalScale
+        );
     }
 }

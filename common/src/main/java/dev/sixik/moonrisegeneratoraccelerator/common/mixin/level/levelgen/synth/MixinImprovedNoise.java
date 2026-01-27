@@ -1,10 +1,11 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.synth;
 
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.noise.ColumnNoiseFiller;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import org.spongepowered.asm.mixin.*;
 
 @Mixin(ImprovedNoise.class)
-public abstract class MixinImprovedNoise {
+public abstract class MixinImprovedNoise implements ColumnNoiseFiller {
 
     @Shadow
     @Final
@@ -241,5 +242,168 @@ public abstract class MixinImprovedNoise {
         final double lerpY2 = lerpX3 + v * (lerpX4 - lerpX3);
 
         return lerpY1 + w * (lerpY2 - lerpY1);
+    }
+
+    @Override
+    public void fillNoiseColumn(double[] buffer, int x, int z, int yStart, int count,
+                                double scaleX, double scaleY, double scaleZ, double amplitude) {
+
+        double inputX = (x * scaleX) + this.xo;
+        double inputZ = (z * scaleZ) + this.zo;
+
+        int gridX = (int) inputX;
+        if (inputX < gridX) gridX--;
+        int gridZ = (int) inputZ;
+        if (inputZ < gridZ) gridZ--;
+
+        double deltaX = inputX - gridX;
+        double deltaZ = inputZ - gridZ;
+
+        double u = deltaX * deltaX * deltaX * (deltaX * (deltaX * 6.0 - 15.0) + 10.0);
+        double w = deltaZ * deltaZ * deltaZ * (deltaZ * (deltaZ * 6.0 - 15.0) + 10.0);
+
+        byte[] p = this.p;
+        int X = gridX & 0xFF;
+        int Z = gridZ & 0xFF;
+
+        int pX0 = p[X] & 0xFF;
+        int pX1 = p[(X + 1) & 0xFF] & 0xFF;
+
+        double[] grads = FLAT_SIMPLEX_GRAD;
+
+        for (int i = 0; i < count; i++) {
+            double inputY = ((yStart + i) * scaleY) + this.yo;
+
+            int gridY = (int) inputY;
+            if (inputY < gridY) gridY--;
+
+            double deltaY = inputY - gridY;
+
+            int Y = gridY & 0xFF;
+            int A = pX0 + Y;
+            int B = pX1 + Y;
+            int AA = (p[A & 0xFF] & 0xFF) + Z;
+            int AB = (p[(A + 1) & 0xFF] & 0xFF) + Z;
+            int BA = (p[B & 0xFF] & 0xFF) + Z;
+            int BB = (p[(B + 1) & 0xFF] & 0xFF) + Z;
+
+            int gi000 = (p[AA & 0xFF] & 15) << 2;
+            int gi001 = (p[(AA + 1) & 0xFF] & 15) << 2;
+            int gi010 = (p[AB & 0xFF] & 15) << 2;
+            int gi011 = (p[(AB + 1) & 0xFF] & 15) << 2;
+            int gi100 = (p[BA & 0xFF] & 15) << 2;
+            int gi101 = (p[(BA + 1) & 0xFF] & 15) << 2;
+            int gi110 = (p[BB & 0xFF] & 15) << 2;
+            int gi111 = (p[(BB + 1) & 0xFF] & 15) << 2;
+
+            double x1 = deltaX - 1.0;
+            double y1 = deltaY - 1.0;
+            double z1 = deltaZ - 1.0;
+
+            double n000 = grads[gi000] * deltaX + grads[gi000 | 1] * deltaY + grads[gi000 | 2] * deltaZ;
+            double n100 = grads[gi100] * x1 + grads[gi100 | 1] * deltaY + grads[gi100 | 2] * deltaZ;
+            double n010 = grads[gi010] * deltaX + grads[gi010 | 1] * y1 + grads[gi010 | 2] * deltaZ;
+            double n110 = grads[gi110] * x1 + grads[gi110 | 1] * y1 + grads[gi110 | 2] * deltaZ;
+
+            double n001 = grads[gi001] * deltaX + grads[gi001 | 1] * deltaY + grads[gi001 | 2] * z1;
+            double n101 = grads[gi101] * x1 + grads[gi101 | 1] * deltaY + grads[gi101 | 2] * z1;
+            double n011 = grads[gi011] * deltaX + grads[gi011 | 1] * y1 + grads[gi011 | 2] * z1;
+            double n111 = grads[gi111] * x1 + grads[gi111 | 1] * y1 + grads[gi111 | 2] * z1;
+
+            double v = deltaY * deltaY * deltaY * (deltaY * (deltaY * 6.0 - 15.0) + 10.0);
+
+            double lerpX1 = n000 + u * (n100 - n000);
+            double lerpX2 = n010 + u * (n110 - n010);
+            double lerpX3 = n001 + u * (n101 - n001);
+            double lerpX4 = n011 + u * (n111 - n011);
+
+            double lerpY1 = lerpX1 + v * (lerpX2 - lerpX1);
+            double lerpY2 = lerpX3 + v * (lerpX4 - lerpX3);
+
+            buffer[i] += (lerpY1 + w * (lerpY2 - lerpY1)) * amplitude;
+        }
+    }
+
+    @Override
+    public void fillNoiseColumnWithFactor(double[] buffer, int x, int z, int yStart, int count, double scaleX, double scaleY, double scaleZ, double amplitude, double valueFactor) {
+        double inputX = (x * scaleX) + this.xo;
+        double inputZ = (z * scaleZ) + this.zo;
+
+        int gridX = (int) inputX;
+        if (inputX < gridX) gridX--;
+        int gridZ = (int) inputZ;
+        if (inputZ < gridZ) gridZ--;
+
+        double deltaX = inputX - gridX;
+        double deltaZ = inputZ - gridZ;
+
+        double u = deltaX * deltaX * deltaX * (deltaX * (deltaX * 6.0 - 15.0) + 10.0);
+        double w = deltaZ * deltaZ * deltaZ * (deltaZ * (deltaZ * 6.0 - 15.0) + 10.0);
+
+        byte[] p = this.p;
+        int X = gridX & 0xFF;
+        int Z = gridZ & 0xFF;
+
+        int pX0 = p[X] & 0xFF;
+        int pX1 = p[(X + 1) & 0xFF] & 0xFF;
+
+        double[] grads = FLAT_SIMPLEX_GRAD;
+
+        for (int i = 0; i < count; i++) {
+            double inputY = ((yStart + i) * scaleY) + this.yo;
+
+            int gridY = (int) inputY;
+            if (inputY < gridY) gridY--;
+
+            double deltaY = inputY - gridY;
+
+            int Y = gridY & 0xFF;
+            int A = pX0 + Y;
+            int B = pX1 + Y;
+            int AA = (p[A & 0xFF] & 0xFF) + Z;
+            int AB = (p[(A + 1) & 0xFF] & 0xFF) + Z;
+            int BA = (p[B & 0xFF] & 0xFF) + Z;
+            int BB = (p[(B + 1) & 0xFF] & 0xFF) + Z;
+
+            int gi000 = (p[AA & 0xFF] & 15) << 2;
+            int gi001 = (p[(AA + 1) & 0xFF] & 15) << 2;
+            int gi010 = (p[AB & 0xFF] & 15) << 2;
+            int gi011 = (p[(AB + 1) & 0xFF] & 15) << 2;
+            int gi100 = (p[BA & 0xFF] & 15) << 2;
+            int gi101 = (p[(BA + 1) & 0xFF] & 15) << 2;
+            int gi110 = (p[BB & 0xFF] & 15) << 2;
+            int gi111 = (p[(BB + 1) & 0xFF] & 15) << 2;
+
+            double x1 = deltaX - 1.0;
+            double y1 = deltaY - 1.0;
+            double z1 = deltaZ - 1.0;
+
+            double n000 = grads[gi000] * deltaX + grads[gi000 | 1] * deltaY + grads[gi000 | 2] * deltaZ;
+            double n100 = grads[gi100] * x1 + grads[gi100 | 1] * deltaY + grads[gi100 | 2] * deltaZ;
+            double n010 = grads[gi010] * deltaX + grads[gi010 | 1] * y1 + grads[gi010 | 2] * deltaZ;
+            double n110 = grads[gi110] * x1 + grads[gi110 | 1] * y1 + grads[gi110 | 2] * deltaZ;
+
+            double n001 = grads[gi001] * deltaX + grads[gi001 | 1] * deltaY + grads[gi001 | 2] * z1;
+            double n101 = grads[gi101] * x1 + grads[gi101 | 1] * deltaY + grads[gi101 | 2] * z1;
+            double n011 = grads[gi011] * deltaX + grads[gi011 | 1] * y1 + grads[gi011 | 2] * z1;
+            double n111 = grads[gi111] * x1 + grads[gi111 | 1] * y1 + grads[gi111 | 2] * z1;
+
+            double v = deltaY * deltaY * deltaY * (deltaY * (deltaY * 6.0 - 15.0) + 10.0);
+
+            double lerpX1 = n000 + u * (n100 - n000);
+            double lerpX2 = n010 + u * (n110 - n010);
+            double lerpX3 = n001 + u * (n101 - n001);
+            double lerpX4 = n011 + u * (n111 - n011);
+
+            double lerpY1 = lerpX1 + v * (lerpX2 - lerpX1);
+            double lerpY2 = lerpX3 + v * (lerpX4 - lerpX3);
+
+            buffer[i] += ((lerpY1 + w * (lerpY2 - lerpY1)) * amplitude) * valueFactor;
+        }
+    }
+
+    @Override
+    public void fillColumn(double[] values, int x, int z, int yStart, int yCount, double scaleX, double scaleY, double scaleZ, double additionalScale) {
+        throw new UnsupportedOperationException();
     }
 }
