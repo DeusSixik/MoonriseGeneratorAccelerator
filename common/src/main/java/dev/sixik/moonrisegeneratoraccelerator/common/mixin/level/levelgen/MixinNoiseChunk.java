@@ -5,9 +5,7 @@ import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseChunkPa
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.noise.NoiseChunkSliceProvider;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import net.minecraft.core.QuartPos;
-import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.NoiseChunk;
-import net.minecraft.world.level.levelgen.NoiseSettings;
+import net.minecraft.world.level.levelgen.*;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
@@ -251,8 +249,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
      */
     @Overwrite
     public int preliminarySurfaceLevel(int i, int j) {
-        final int quartX = QuartPos.fromBlock(i);
-        final int quartZ = QuartPos.fromBlock(j);
+        final int quartX = i >> 2;
+        final int quartZ = j >> 2;
 
         final int localX = quartX - this.firstNoiseX;
         final int localZ = quartZ - this.firstNoiseZ;
@@ -266,14 +264,14 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
                 return cachedValue;
             }
 
-            final int blockX = QuartPos.toBlock(quartX);
-            final int blockZ = QuartPos.toBlock(quartZ);
+            final int blockX = quartX << 2;
+            final int blockZ = quartZ << 2;
             final int result = bts$computeSurface(blockX, blockZ);
             this.surfaceCache[cacheIndex] = result;
             return result;
         }
 
-        return bts$computeSurface(QuartPos.toBlock(quartX), QuartPos.toBlock(quartZ));
+        return bts$computeSurface(quartX << 2, quartZ << 2);
     }
 
     @Unique

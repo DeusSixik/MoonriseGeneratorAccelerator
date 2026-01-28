@@ -3,10 +3,7 @@ package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.*;
 
 @Mixin(NoiseChunk.NoiseInterpolator.class)
 public abstract class MixinNoiseChunk$NoiseInterpolator$optimizeLogic

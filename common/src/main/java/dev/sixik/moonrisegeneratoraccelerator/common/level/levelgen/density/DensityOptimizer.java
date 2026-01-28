@@ -1,5 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density;
 
+import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density.wrappers.ConstantShiftedNoise;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;

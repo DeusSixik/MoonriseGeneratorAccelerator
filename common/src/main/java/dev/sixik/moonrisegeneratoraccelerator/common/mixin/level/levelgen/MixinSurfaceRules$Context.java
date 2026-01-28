@@ -1,9 +1,8 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
-import net.minecraft.world.level.levelgen.NoiseChunk;
-import net.minecraft.world.level.levelgen.SurfaceRules;
-import net.minecraft.world.level.levelgen.WorldGenerationContext;
+import net.minecraft.world.level.levelgen.*;
 import org.apache.commons.lang3.NotImplementedException;
 import org.spongepowered.asm.mixin.*;
 

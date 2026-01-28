@@ -1,5 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.density_functions;
 
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.jetbrains.annotations.Nullable;
