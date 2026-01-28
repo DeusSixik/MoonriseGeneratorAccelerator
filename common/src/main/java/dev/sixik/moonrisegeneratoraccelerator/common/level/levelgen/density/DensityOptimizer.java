@@ -1,15 +1,11 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density;
 
-import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.DensitySpecializations;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.density.wrappers.ConstantShiftedNoise;
-import net.minecraft.util.CubicSpline;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
-import net.minecraft.world.level.levelgen.NoiseChunk;
 
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -124,7 +120,7 @@ public class DensityOptimizer {
                 return DensityFunctions.constant(transformMapped(mapped.type(), opt.get()));
             }
 
-           return DensitySpecializations.create(mapped.type(), inner);
+//           return DensitySpecializations.create(mapped.type(), function, inner);
         }
 
         if (unwrapped instanceof DensityFunctions.Clamp clamp) {
@@ -204,12 +200,12 @@ public class DensityOptimizer {
                 We pass the Ms to the constructor "a" and "b" (possibly wrapped in a Holder),
                 or the expanded "aU"/"bU" — preferably expanded to remove the extra call stack.
              */
-            return switch (type) {
-                case ADD -> new DensitySpecializations.FastAdd(aUnwrapped, bUnwrapped);
-                case MUL -> new DensitySpecializations.FastMul(aUnwrapped, bUnwrapped);
-                case MIN -> new DensitySpecializations.FastMin(aUnwrapped, bUnwrapped);
-                case MAX -> new DensitySpecializations.FastMax(aUnwrapped, bUnwrapped);
-            };
+//            return switch (type) {
+//                case ADD -> new DensitySpecializations.FastAdd(function, aUnwrapped, bUnwrapped);
+//                case MUL -> new DensitySpecializations.FastMul(function, aUnwrapped, bUnwrapped);
+//                case MIN -> new DensitySpecializations.FastMin(function, aUnwrapped, bUnwrapped);
+//                case MAX -> new DensitySpecializations.FastMax(function, aUnwrapped, bUnwrapped);
+//            };
         }
 
         /*
@@ -226,10 +222,10 @@ public class DensityOptimizer {
                 };
             }
 
-            return switch (ma.specificType()) {
-                case ADD -> new DensitySpecializations.FastAddConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
-                case MUL -> new DensitySpecializations.FastMulConstant(ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
-            };
+//            return switch (ma.specificType()) {
+//                case ADD -> new DensitySpecializations.FastAddConstant(function, ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+//                case MUL -> new DensitySpecializations.FastMulConstant(function, ma.input(), ma.argument(), ma.minValue(), ma.maxValue());
+//            };
         }
 
         /*
@@ -280,13 +276,13 @@ public class DensityOptimizer {
                 return new DensityFunctions.Noise(sn.noise(), sn.xzScale(), sn.yScale());
             }
 
-            var optsx = DensityOptimizerUtils.getValueIfConstant(sx);
-            var optsy = DensityOptimizerUtils.getValueIfConstant(sy);
-            var optsz = DensityOptimizerUtils.getValueIfConstant(sz);
-
-            if(optsx.isPresent() && optsy.isPresent() && optsz.isPresent()) {
-                return new ConstantShiftedNoise(optsx.get(), optsy.get(), optsz.get(), sn.xzScale(), sn.yScale(), sn.noise());
-            }
+//            var optsx = DensityOptimizerUtils.getValueIfConstant(sx);
+//            var optsy = DensityOptimizerUtils.getValueIfConstant(sy);
+//            var optsz = DensityOptimizerUtils.getValueIfConstant(sz);
+//
+//            if(optsx.isPresent() && optsy.isPresent() && optsz.isPresent()) {
+//                return new ConstantShiftedNoise(optsx.get(), optsy.get(), optsz.get(), sn.xzScale(), sn.yScale(), sn.noise());
+//            }
         }
 
 //        if(f instanceof DensityFunctions.Spline spline) {

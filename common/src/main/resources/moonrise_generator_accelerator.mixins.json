@@ -7,6 +7,7 @@
   ],
   "mixins": [
     "FrontAndTopCrashFix",
+    "level.MixinServerLevel$optimize_density",
     "level.biome.MixinBiomeManager",
     "level.biome.MixinBiomeSource",
     "level.biome.MixinClimate$ParameterList$change_search",

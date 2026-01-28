@@ -1,5 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen;
 
+import dev.sixik.moonrisegeneratoraccelerator.common.utils.wrappers.DensityCompilerFunction;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -10,7 +11,8 @@ import java.util.Arrays;
 
 public class DensitySpecializations {
 
-    public record FastAdd(DensityFunction a, DensityFunction b) implements DensityFunction {
+    public record FastAdd(DensityFunction original, DensityFunction a, DensityFunction b)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             return a.compute(ctx) + b.compute(ctx);
@@ -27,7 +29,7 @@ public class DensitySpecializations {
 
         @Override
         public @NotNull DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastAdd(a.mapAll(visitor), b.mapAll(visitor)));
+            return visitor.apply(new FastAdd(original, a.mapAll(visitor), b.mapAll(visitor)));
         }
 
         @Override
@@ -44,9 +46,15 @@ public class DensitySpecializations {
         public @NotNull KeyDispatchDataCodec<? extends DensityFunction> codec() {
             return DensityFunctions.TwoArgumentSimpleFunction.Type.ADD.codec;
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastMul(DensityFunction a, DensityFunction b) implements DensityFunction {
+    public record FastMul(DensityFunction original, DensityFunction a, DensityFunction b)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             double v1 = a.compute(ctx);
@@ -66,7 +74,7 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastMul(a.mapAll(visitor), b.mapAll(visitor)));
+            return visitor.apply(new FastMul(original, a.mapAll(visitor), b.mapAll(visitor)));
         }
 
         @Override
@@ -83,9 +91,15 @@ public class DensitySpecializations {
         public @NotNull KeyDispatchDataCodec<? extends DensityFunction> codec() {
             return DensityFunctions.TwoArgumentSimpleFunction.Type.MUL.codec;
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastMin(DensityFunction a, DensityFunction b) implements DensityFunction {
+    public record FastMin(DensityFunction original, DensityFunction a, DensityFunction b)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             final double v1 = a.compute(ctx);
@@ -104,7 +118,7 @@ public class DensitySpecializations {
 
         @Override
         public @NotNull DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastMin(a.mapAll(visitor), b.mapAll(visitor)));
+            return visitor.apply(new FastMin(original, a.mapAll(visitor), b.mapAll(visitor)));
         }
 
         @Override
@@ -121,9 +135,15 @@ public class DensitySpecializations {
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             return DensityFunctions.TwoArgumentSimpleFunction.Type.MIN.codec;
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastMax(DensityFunction a, DensityFunction b) implements DensityFunction {
+    public record FastMax(DensityFunction original, DensityFunction a, DensityFunction b)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             final double v1 = a.compute(ctx);
@@ -142,7 +162,7 @@ public class DensitySpecializations {
 
         @Override
         public @NotNull DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastMax(a.mapAll(visitor), b.mapAll(visitor)));
+            return visitor.apply(new FastMax(original, a.mapAll(visitor), b.mapAll(visitor)));
         }
 
         @Override
@@ -159,9 +179,15 @@ public class DensitySpecializations {
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             return DensityFunctions.TwoArgumentSimpleFunction.Type.MAX.codec;
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastAddConstant(DensityFunction input, double argument, double minValue, double maxValue) implements DensityFunction {
+    public record FastAddConstant(DensityFunction original, DensityFunction input, double argument, double minValue, double maxValue)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             return input.compute(ctx) + argument;
@@ -178,15 +204,21 @@ public class DensitySpecializations {
         @Override
         public DensityFunction mapAll(Visitor visitor) {
             DensityFunction newInput = input.mapAll(visitor);
-            return visitor.apply(new FastAddConstant(newInput, argument, newInput.minValue() + argument, newInput.maxValue() + argument));
+            return visitor.apply(new FastAddConstant(original, newInput, argument, newInput.minValue() + argument, newInput.maxValue() + argument));
         }
 
         @Override public double minValue() { return minValue; }
         @Override public double maxValue() { return maxValue; }
         @Override public KeyDispatchDataCodec<? extends DensityFunction> codec() { return DensityFunctions.TwoArgumentSimpleFunction.Type.ADD.codec; }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastMulConstant(DensityFunction input, double argument, double minValue, double maxValue) implements DensityFunction {
+    public record FastMulConstant(DensityFunction original, DensityFunction input, double argument, double minValue, double maxValue)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             if (argument == 0.0) return 0.0;
@@ -211,15 +243,21 @@ public class DensitySpecializations {
             double d = ni.minValue(), e = ni.maxValue();
             double f = argument >= 0.0 ? d * argument : e * argument;
             double g = argument >= 0.0 ? e * argument : d * argument;
-            return visitor.apply(new FastMulConstant(ni, argument, f, g));
+            return visitor.apply(new FastMulConstant(original, ni, argument, f, g));
         }
 
         @Override public double minValue() { return minValue; }
         @Override public double maxValue() { return maxValue; }
         @Override public KeyDispatchDataCodec<? extends DensityFunction> codec() { return DensityFunctions.TwoArgumentSimpleFunction.Type.MUL.codec; }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastAbs(DensityFunction input) implements DensityFunction {
+    public record FastAbs(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             return Math.abs(input.compute(ctx));
@@ -245,16 +283,22 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastAbs(input.mapAll(visitor)));
+            return visitor.apply(new FastAbs(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastSquare(DensityFunction input) implements DensityFunction {
+    public record FastSquare(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             double d = input.compute(ctx);
@@ -286,16 +330,22 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastSquare(input.mapAll(visitor)));
+            return visitor.apply(new FastSquare(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastCube(DensityFunction input) implements DensityFunction {
+    public record FastCube(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             double d = input.compute(ctx);
@@ -325,16 +375,22 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastCube(input.mapAll(visitor)));
+            return visitor.apply(new FastCube(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastHalfNegative(DensityFunction input) implements DensityFunction {
+    public record FastHalfNegative(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             double d = input.compute(ctx);
@@ -364,16 +420,22 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastHalfNegative(input.mapAll(visitor)));
+            return visitor.apply(new FastHalfNegative(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastQuarterNegative(DensityFunction input) implements DensityFunction {
+    public record FastQuarterNegative(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         @Override
         public double compute(FunctionContext ctx) {
             double d = input.compute(ctx);
@@ -403,16 +465,22 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastQuarterNegative(input.mapAll(visitor)));
+            return visitor.apply(new FastQuarterNegative(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public record FastSqueeze(DensityFunction input) implements DensityFunction {
+    public record FastSqueeze(DensityFunction original, DensityFunction input)
+            implements DensityFunction, DensityCompilerFunction {
         private static final double INV_24 = 1.0 / 24.0;
 
         @Override
@@ -444,23 +512,28 @@ public class DensitySpecializations {
 
         @Override
         public DensityFunction mapAll(Visitor visitor) {
-            return visitor.apply(new FastSqueeze(input.mapAll(visitor)));
+            return visitor.apply(new FastSqueeze(original, input.mapAll(visitor)));
         }
 
         @Override
         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
             throw new NotImplementedException("Not needed on runtime!");
         }
+
+        @Override
+        public DensityFunction getRootFunction() {
+            return original;
+        }
     }
 
-    public static DensityFunction create(DensityFunctions.Mapped.Type type, DensityFunction input) {
+    public static DensityFunction create(DensityFunctions.Mapped.Type type, DensityFunction original, DensityFunction input) {
         return switch (type) {
-            case ABS -> new FastAbs(input);
-            case SQUARE -> new FastSquare(input);
-            case CUBE -> new FastCube(input);
-            case HALF_NEGATIVE -> new FastHalfNegative(input);
-            case QUARTER_NEGATIVE -> new FastQuarterNegative(input);
-            case SQUEEZE -> new FastSqueeze(input);
+            case ABS -> new FastAbs(original, input);
+            case SQUARE -> new FastSquare(original, input);
+            case CUBE -> new FastCube(original, input);
+            case HALF_NEGATIVE -> new FastHalfNegative(original, input);
+            case QUARTER_NEGATIVE -> new FastQuarterNegative(original, input);
+            case SQUEEZE -> new FastSqueeze(original, input);
         };
     }
 }
