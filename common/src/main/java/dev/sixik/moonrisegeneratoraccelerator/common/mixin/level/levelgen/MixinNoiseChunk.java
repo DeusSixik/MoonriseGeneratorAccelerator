@@ -80,6 +80,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Shadow
     @Final
     private DensityFunction.ContextProvider sliceFillingContextProvider;
+    @Shadow
+    public int arrayIndex;
     @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
@@ -115,6 +117,9 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
          */
         this.bts$inverseCellWidth = 1.0D / (double) this.cellWidth;
         this.bts$inverseCellHeight = 1.0D / (double) this.cellHeight;
+
+        this.cellWidthMask = this.cellWidth - 1;
+        this.cellWidthShift = Integer.numberOfTrailingZeros(this.cellWidth);
     }
 
     /**
@@ -246,5 +251,34 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
             this.lastBlendingOutput = result;
             return result;
         }
+    }
+
+    @Unique private int cellWidthMask;
+    @Unique private int cellWidthShift;
+
+    /**
+     * @author Sixik
+     * @reason Faster floor operation
+     */
+    @Overwrite
+    public NoiseChunk forIndex(int i) {
+        // floorMod (i % 4 -> i & 3)
+        int j = i & this.cellWidthMask; // z
+
+        // floorDiv (i / 4 -> i >> 2)
+        int k = i >> this.cellWidthShift;
+
+        // l = k % cellWidth
+        int l = k & this.cellWidthMask; // x
+
+        // m = (H-1) - (k / cellWidth)
+        int m = (this.cellHeight - 1) - (k >> this.cellWidthShift); // y
+
+        this.inCellZ = j;
+        this.inCellX = l;
+        this.inCellY = m;
+        this.arrayIndex = i;
+
+        return (NoiseChunk)(Object) this;
     }
 }
