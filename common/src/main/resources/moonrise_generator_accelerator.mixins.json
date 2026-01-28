@@ -23,7 +23,6 @@
     "level.levelgen.MixinNoiseBasedChunkGenerator$optimize_density_functions",
     "level.levelgen.MixinNoiseChunk",
     "level.levelgen.MixinNoiseChunk$Cache2D",
-    "level.levelgen.MixinNoiseChunk$cacheSurfaceRules",
     "level.levelgen.MixinNoiseChunk$FlatCache$OptimizeFlatArray",
     "level.levelgen.MixinNoiseChunk$NoiseInterpolator$optimizeLogic",
     "level.levelgen.MixinNoiseChunk$OptimizeFlatArray",

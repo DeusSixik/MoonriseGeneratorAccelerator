@@ -1,22 +1,21 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen;
 
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.CachedPointContext;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.NoiseChunkPatch;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.noise.NoiseChunkSliceProvider;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import net.minecraft.world.level.levelgen.*;
+import net.minecraft.core.QuartPos;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.NoiseChunk;
+import net.minecraft.world.level.levelgen.NoiseSettings;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(NoiseChunk.class)
 public abstract class MixinNoiseChunk implements NoiseChunkPatch {
@@ -82,6 +81,15 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     private DensityFunction.ContextProvider sliceFillingContextProvider;
     @Shadow
     public int arrayIndex;
+    @Shadow
+    @Final
+    public int noiseSizeXZ;
+    @Shadow
+    @Final
+    public int firstNoiseX;
+    @Shadow
+    @Final
+    public int firstNoiseZ;
     @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
@@ -92,6 +100,10 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Unique
     public double bts$inverseCellHeight;
 
+    @Unique private int[] surfaceCache;
+
+    @Unique private CachedPointContext reusableContext;
+
     @Override
     public double bts$getInverseCellHeight() {
         return bts$inverseCellHeight;
@@ -101,6 +113,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     public double bts$getInverseCellWidth() {
         return bts$inverseCellWidth;
     }
+
 
     @Inject(method = "<init>", at = @At("TAIL"))
     private void bts$initOptimizationFields(CallbackInfo ci) {
@@ -120,6 +133,11 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
 
         this.cellWidthMask = this.cellWidth - 1;
         this.cellWidthShift = Integer.numberOfTrailingZeros(this.cellWidth);
+
+        int size = this.noiseSizeXZ + 1;
+        this.surfaceCache = new int[size * size];
+        Arrays.fill(this.surfaceCache, Integer.MIN_VALUE);
+        this.reusableContext = new CachedPointContext();
     }
 
     /**
@@ -210,12 +228,13 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     private int computePreliminarySurfaceLevel(long l) {
         final int i = (int) (l & 4294967295L);
         final int j = (int) (l >>> 32 & 4294967295L);
+
         final int k = this.noiseSettings.minY();
         final int h = this.noiseSettings.height();
         final int cH = this.cellHeight;
 
         final DensityFunction el = this.initialDensityNoJaggedness;
-        final CachedPointContext cachedContext = new CachedPointContext();
+        final CachedPointContext cachedContext = this.reusableContext;
 
         for(int m = k + h; m >= k; m -= cH) {
             if (el.compute(cachedContext.update(i, m, j)) > 0.390625D) {
@@ -228,11 +247,52 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
 
     /**
      * @author Sixik
-     * @reason Unnecessary operations have been removed
+     * @reason Redirect to primitive array
      */
     @Overwrite
     public int preliminarySurfaceLevel(int i, int j) {
-        return this.preliminarySurfaceLevel.computeIfAbsent(i & 4294967295L | ((long)j & 4294967295L) << 32, this::computePreliminarySurfaceLevel);
+        final int quartX = QuartPos.fromBlock(i);
+        final int quartZ = QuartPos.fromBlock(j);
+
+        final int localX = quartX - this.firstNoiseX;
+        final int localZ = quartZ - this.firstNoiseZ;
+
+        final int size = this.noiseSizeXZ + 1;
+        if (localX >= 0 && localZ >= 0 && localX < size && localZ < size) {
+            final int cacheIndex = localX * size + localZ;
+            final int cachedValue = this.surfaceCache[cacheIndex];
+
+            if (cachedValue != Integer.MIN_VALUE) {
+                return cachedValue;
+            }
+
+            final int blockX = QuartPos.toBlock(quartX);
+            final int blockZ = QuartPos.toBlock(quartZ);
+            final int result = bts$computeSurface(blockX, blockZ);
+            this.surfaceCache[cacheIndex] = result;
+            return result;
+        }
+
+        return bts$computeSurface(QuartPos.toBlock(quartX), QuartPos.toBlock(quartZ));
+    }
+
+    @Unique
+    private int bts$computeSurface(int x, int z) {
+        final int minY = this.noiseSettings.minY();
+        final int maxY = minY + this.noiseSettings.height();
+
+        final var density = this.initialDensityNoJaggedness;
+        final CachedPointContext ctx = this.reusableContext;
+
+        final int cH = this.cellHeight;
+        for (int currentY = maxY; currentY >= minY; currentY -= cH) {
+            ctx.update(x, currentY, z);
+
+            if (density.compute(ctx) > 0.390625) {
+                return currentY;
+            }
+        }
+        return Integer.MAX_VALUE;
     }
 
     /**

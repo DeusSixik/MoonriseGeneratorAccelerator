@@ -1,15 +1,9 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.level.levelgen.synth;
 
-import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.moonrisegeneratoraccelerator.common.level.levelgen.noise.ColumnNoiseFiller;
-import it.unimi.dsi.fastutil.doubles.DoubleList;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.spongepowered.asm.mixin.*;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(NormalNoise.class)
 public abstract class MixinNormalNoise implements ColumnNoiseFiller {
