@@ -45,9 +45,7 @@
     "level.levelgen.feature.MixinOreFeature",
     "level.levelgen.material.MixinMaterialRuleList",
     "level.levelgen.synth.MixinBlendedNoise$flat_data",
-    "level.levelgen.synth.MixinImprovedNoise",
     "level.levelgen.synth.MixinNormalNoise",
-    "level.levelgen.synth.MixinPerlinNoise",
     "level.strucutres.MixinChunkAccess$SynchronizeStructureData",
     "level.strucutres.pools.MixinEmptyPoolElement$default_empty_list",
     "level.strucutres.pools.MixinFeaturePoolElement$cached",
@@ -55,6 +53,8 @@
     "level.strucutres.pools.MixinJigsawPlacement$use_cached_jigsaws",
     "level.strucutres.pools.MixinSinglePoolElement$cache_jigsawBlocks",
     "level.strucutres.pools.MixinStructurePoolElement$cache_jigsawBlocks",
+    "tests.ImprovedNoiseMixinTest",
+    "tests.PerlinNoiseMixinTest",
     "util.MixinMultipoint"
   ],
   "injectors": {

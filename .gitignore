@@ -13,3 +13,7 @@
 /fabric/run/
 /.idea/
 /.architectury-transformer
+/common/logs/
+*.log
+DensityOperation/.idea/
+DensityOperation/dist/

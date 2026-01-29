@@ -25,7 +25,11 @@ else()
     include_directories(${JNI_INCLUDE_DIRS})
 endif()
 
-add_library(DensityOperation SHARED library.cpp)
+add_library(DensityOperation SHARED library.cpp
+        src/structs/GenerationStructs.h
+        src/NoiseGenerator.cpp
+        src/NoiseGenerator.h
+        src/structs/noise/Noises.h)
 
 target_compile_options(DensityOperation PRIVATE
         $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-O3 -march=native -ffast-math -fno-plt>

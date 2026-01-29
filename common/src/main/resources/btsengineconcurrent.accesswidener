@@ -213,3 +213,22 @@ accessible field net/minecraft/world/level/levelgen/NoiseChunk interpolationCoun
 accessible field net/minecraft/world/level/levelgen/NoiseChunk arrayIndex I
 
 accessible method net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator doFill (Lnet/minecraft/world/level/levelgen/blending/Blender;Lnet/minecraft/world/level/StructureManager;Lnet/minecraft/world/level/levelgen/RandomState;Lnet/minecraft/world/level/chunk/ChunkAccess;II)Lnet/minecraft/world/level/chunk/ChunkAccess;
+
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise valueFactor D
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise INPUT_FACTOR D
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise TARGET_DEVIATION D
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise maxValue D
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise first Lnet/minecraft/world/level/levelgen/synth/PerlinNoise;
+accessible field net/minecraft/world/level/levelgen/synth/NormalNoise second Lnet/minecraft/world/level/levelgen/synth/PerlinNoise;
+
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise noiseLevels [Lnet/minecraft/world/level/levelgen/synth/ImprovedNoise;
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise firstOctave I
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise ROUND_OFF I
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise lowestFreqValueFactor D
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise lowestFreqInputFactor D
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise maxValue D
+accessible field net/minecraft/world/level/levelgen/synth/PerlinNoise amplitudes Lit/unimi/dsi/fastutil/doubles/DoubleList;
+
+accessible field net/minecraft/world/level/levelgen/synth/ImprovedNoise p [B
+
+accessible field net/minecraft/world/level/levelgen/synth/SimplexNoise p [I
