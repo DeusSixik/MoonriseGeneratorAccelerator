@@ -1,5 +1,6 @@
 package dev.sixik.moonrisegeneratoraccelerator.common.mixin.tests;
 
+import dev.sixik.density_interpreter.tests.SimpleContext;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -132,8 +133,6 @@ public abstract class NoiseBasedChunkGeneratorMixinTest extends ChunkGenerator {
                                     state = this.settings.value().defaultBlock(); // Камень/Глубинный сланец по умолчанию
                                 }
 
-
-
                                 // Отладочная проверка или проверка на воздух
                                 state = this.debugPreliminarySurfaceLevel(noiseChunk, blockX, blockY, blockZ, state);
                                 if (state == AIR || SharedConstants.debugVoidTerrain(chunk.getPos())) {
@@ -161,5 +160,22 @@ public abstract class NoiseBasedChunkGeneratorMixinTest extends ChunkGenerator {
         }
         noiseChunk.stopInterpolation();
         return chunk;
+    }
+
+    private void newDoFill(
+            Blender blender, StructureManager structureManager,
+            RandomState randomState, ChunkAccess chunk,
+            int minCellY, int cellCountY
+    ) {
+        NoiseChunk noiseChunk = chunk.getOrCreateNoiseChunk(c -> this.createNoiseChunk(c, structureManager, blender, randomState));
+
+        int cellWidth = noiseChunk.cellWidth();
+        int cellHeight = noiseChunk.cellHeight();
+
+        int cellSize = 16;
+
+        SimpleContext ctx = new SimpleContext();
+
+
     }
 }
