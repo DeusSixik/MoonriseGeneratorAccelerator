@@ -34,25 +34,35 @@ That’s where Moonrise Generator Accelerator comes in.
 - Requires **Moonrise**.
 - Minecraft + loader compatibility depends on the release you download (see the version/file name and changelog).
 
-## Supported Moonrise versions
+## How to use?
 
-Moonrise Compats follows the **same base version as Moonrise**.
+### For Players and Modpack Developers
+
+Moonrise Generator Accelerator follows the **same base version as Moonrise**.
 
 Example:
 
-- `Moonrise-NeoForge 0.1.0-beta.15+2eae1b1`
-- `MoonriseGeneratorAccelerator 0.1.0-beta.15+2eae1b1.1`
+*   `Moonrise-NeoForge 0.1.0-beta.15+2eae1b1`
+*   `MoonriseGeneratorAccelerator 0.1.0-beta.15+2eae1b1.1`
 
 The trailing suffix:
 
-- `.1 ... .x`
+*   `.1 ... .x`
 
-means **Moonrise Compats patch revisions** (compatibility fixes / updates) for that exact Moonrise build.
+means **Moonrise Generator Accelerator patch revisions** (compatibility fixes / updates) for that exact Moonrise build.
 
 So:
 
-- `...+2eae1b1.1` = first Compats patch for Moonrise build `+2eae1b1`
-- `...+2eae1b1.2` = second patch, etc.
+*   `...+2eae1b1.1` = first Compats patch for Moonrise build `+2eae1b1`
+*   `...+2eae1b1.2` = second patch, etc.
+
+Find the version of Moonrise you're using and use the proper version of Moonrise Generator Accelerator that supports it. Download the respective `moonrise-generator-accelerator.<moonrise-version>.<patch-revision>.jar` and put into the  `mods` folder respectively.
+
+### For Mod Developers
+
+The project as of 31/01/26 is now open-source and licensed under GPLv3 license. You can contribute to the project and help improving the MGA project by creating PR. We're still learning and there can be mistakes by us, so don't hestitate to contact us through Issues or PRs.  
+  
+If your mod conflicts in MGA or the Moonrise, then the patch should come to the Moonrise Compats mod and it's respective repository, **not the MGA's one**!
 
 ## License
 
@@ -63,9 +73,11 @@ Because CanvasMC is distributed under **GNU GPL v3**, this project is also distr
 
 ## Credits
 
-- **Moonrise** — for the chunk system foundation this project builds upon
-- **CanvasMC** — source of reused GPLv3 code portions
-- **C2ME** — original source of some of the concepts/implementations used upstream
+If you believe that we forgot something for attribution, please raise up an Issue so we could fix it immediately, thank you.
+
+*   [Moonrise](https://www.curseforge.com/minecraft/mc-mods/moonrise) for their chunk system foundation this project builds upon. Licensed and used under MIT License.
+*   [CanvasMC](https://github.com/CraftCanvasMC/Canvas) by Dueris for their some noise-related optimization ideas this project builds upon. Licensed and used under GPLv3 License.
+*   [C2ME](https://www.curseforge.com/minecraft/mc-mods/c2me) for their few mixins, such as `MixinConfiguredFeature` and `MixinOreFeature`. Also `MixinNoiseBasedAquifer$optimize_noise` and `MixinBeardifier` were used as part of the CanvasMC project logic, which is originally from C2ME too. These mixins were used under MIT License.
 
 ## Reporting issues
 
