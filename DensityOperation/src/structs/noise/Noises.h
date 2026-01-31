@@ -119,7 +119,7 @@ namespace Density {
         int pM(int i) {
              return static_cast<uint8_t>(p[i & 255]) & 255;
         }
-        
+
          double gradDot(int i, double d, double e, double f) {
              return dot(GRADIENT[i & 15], d, e, f);
          }

@@ -43,153 +43,156 @@ public abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
     @Final
     private static BlockState AIR;
 
+    @Shadow
+    public abstract ChunkAccess doFill(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunkAccess, int i, int j);
+
     private MixinNoiseBasedChunkGenerator(BiomeSource biomeSource) {
         super(biomeSource);
     }
 
-    /**
-     * @author Sixik
-     * @reason
-     */
-    @Overwrite
-    public ChunkAccess doFill(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunk, int minCellY, int cellCountY) {
-        final NoiseChunk noiseChunk = chunk.getOrCreateNoiseChunk((c) -> this.createNoiseChunk(c, structureManager, blender, randomState));
-
-        final Heightmap oceanFloorHeightmap = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
-        final Heightmap surfaceHeightmap = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
-
-        final ChunkPos chunkPos = chunk.getPos();
-        final int minChunkX = chunkPos.getMinBlockX();
-        final int minChunkZ = chunkPos.getMinBlockZ();
-        final Aquifer aquifer = noiseChunk.aquifer();
-
-        noiseChunk.initializeForFirstCellX();
-        final BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-
-        final int cellWidth = noiseChunk.cellWidth();
-        final int cellHeight = noiseChunk.cellHeight();
-        final int cellsX = 16 / cellWidth;
-        final int cellsZ = 16 / cellWidth;
-
-        final int[] oceanFloorCache = new int[256];
-        final int[] worldSurfaceCache = new int[256];
-        Arrays.fill(oceanFloorCache, Integer.MIN_VALUE);
-        Arrays.fill(worldSurfaceCache, Integer.MIN_VALUE);
-
-        final Predicate<BlockState> isOceanOpaque = Heightmap.Types.OCEAN_FLOOR_WG.isOpaque();
-        final Predicate<BlockState> isSurfaceOpaque = Heightmap.Types.WORLD_SURFACE_WG.isOpaque();
-
-        final BlockState AIR = Blocks.AIR.defaultBlockState();
-        final boolean debugVoid = SharedConstants.debugVoidTerrain(chunkPos);
-        final int MIN = Integer.MIN_VALUE;
-
-        for (int cellX = 0; cellX < cellsX; ++cellX) {
-            noiseChunk.advanceCellX(cellX);
-
-            for (int cellZ = 0; cellZ < cellsZ; ++cellZ) {
-                int currentSectionIndex = chunk.getSectionsCount() - 1;
-                LevelChunkSection section = chunk.getSection(currentSectionIndex);
-
-                for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
-                    noiseChunk.selectCellYZ(cellY, cellZ);
-
-                    for (int localYInCell = cellHeight - 1; localYInCell >= 0; --localYInCell) {
-                        final int absoluteY = (minCellY + cellY) * cellHeight + localYInCell;
-                        final int localYInSection = absoluteY & 15;
-
-                        final int sectionIndex = chunk.getSectionIndex(absoluteY);
-                        if (currentSectionIndex != sectionIndex) {
-                            currentSectionIndex = sectionIndex;
-                            section = chunk.getSection(sectionIndex);
-                        }
-
-                        final double deltaY = (double) localYInCell / (double) cellHeight;
-                        noiseChunk.updateForY(absoluteY, deltaY);
-
-                        for (int localXInCell = 0; localXInCell < cellWidth; ++localXInCell) {
-                            final int absoluteX = minChunkX + cellX * cellWidth + localXInCell;
-                            final int localX = absoluteX & 15;
-                            final double deltaX = (double) localXInCell / (double) cellWidth;
-                            noiseChunk.updateForX(absoluteX, deltaX);
-
-                            for (int localZInCell = 0; localZInCell < cellWidth; ++localZInCell) {
-                                final int absoluteZ = minChunkZ + cellZ * cellWidth + localZInCell;
-                                final int localZ = absoluteZ & 15;
-                                final double deltaZ = (double) localZInCell / (double) cellWidth;
-
-                                noiseChunk.updateForZ(absoluteZ, deltaZ);
-
-                                BlockState state = noiseChunk.getInterpolatedState();
-                                if (state == null) {
-                                    state = this.settings.value().defaultBlock();
-                                }
-
-                                state = this.debugPreliminarySurfaceLevel(noiseChunk, absoluteX, absoluteY, absoluteZ, state);
-
-                                if (state != AIR && !debugVoid) {
-                                    bts$optimizedBlockSetOp(section, localX, localYInSection, localZ, state, false);
-
-                                    /*
-                                        Maybe its better ?
-
-                                    int colIndex = localX | (localZ << 4);
-
-                                    if (worldSurfaceCache[colIndex] == MIN) {
-                                        if (isSurfaceOpaque.test(state)) {
-                                            worldSurfaceCache[colIndex] = absoluteY;
-                                        }
-                                    }
-
-                                    if (oceanFloorCache[colIndex] == MIN) {
-                                        if (isOceanOpaque.test(state)) {
-                                            oceanFloorCache[colIndex] = absoluteY;
-                                        }
-                                    }
-                                    */
-
-                                    final int idx = localX | (localZ << 4);
-                                    if (worldSurfaceCache[idx] == MIN || oceanFloorCache[idx] == MIN) {
-                                        if (worldSurfaceCache[idx] == MIN && isSurfaceOpaque.test(state))
-                                            worldSurfaceCache[idx] = absoluteY;
-                                        if (oceanFloorCache[idx] == MIN && isOceanOpaque.test(state))
-                                            oceanFloorCache[idx] = absoluteY;
-                                    }
-
-                                    if (aquifer.shouldScheduleFluidUpdate() && !state.getFluidState().isEmpty()) {
-                                        mutablePos.set(absoluteX, absoluteY, absoluteZ);
-                                        chunk.markPosForPostprocessing(mutablePos);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            noiseChunk.swapSlices();
-        }
-
-        noiseChunk.stopInterpolation();
-
-        final BlockState opaqueState = Blocks.STONE.defaultBlockState();
-
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                final int idx = x | (z << 4);
-
-                final int surfaceY = worldSurfaceCache[idx];
-                if (surfaceY > Integer.MIN_VALUE) {
-                    surfaceHeightmap.update(x, surfaceY, z, opaqueState);
-                }
-
-                final int oceanY = oceanFloorCache[idx];
-                if (oceanY > Integer.MIN_VALUE) {
-                    oceanFloorHeightmap.update(x, oceanY, z, opaqueState);
-                }
-            }
-        }
-
-        return chunk;
-    }
+//    /**
+//     * @author Sixik
+//     * @reason
+//     */
+//    @Overwrite
+//    public ChunkAccess doFill(Blender blender, StructureManager structureManager, RandomState randomState, ChunkAccess chunk, int minCellY, int cellCountY) {
+//        final NoiseChunk noiseChunk = chunk.getOrCreateNoiseChunk((c) -> this.createNoiseChunk(c, structureManager, blender, randomState));
+//
+//        final Heightmap oceanFloorHeightmap = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
+//        final Heightmap surfaceHeightmap = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
+//
+//        final ChunkPos chunkPos = chunk.getPos();
+//        final int minChunkX = chunkPos.getMinBlockX();
+//        final int minChunkZ = chunkPos.getMinBlockZ();
+//        final Aquifer aquifer = noiseChunk.aquifer();
+//
+//        noiseChunk.initializeForFirstCellX();
+//        final BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
+//
+//        final int cellWidth = noiseChunk.cellWidth();
+//        final int cellHeight = noiseChunk.cellHeight();
+//        final int cellsX = 16 / cellWidth;
+//        final int cellsZ = 16 / cellWidth;
+//
+//        final int[] oceanFloorCache = new int[256];
+//        final int[] worldSurfaceCache = new int[256];
+//        Arrays.fill(oceanFloorCache, Integer.MIN_VALUE);
+//        Arrays.fill(worldSurfaceCache, Integer.MIN_VALUE);
+//
+//        final Predicate<BlockState> isOceanOpaque = Heightmap.Types.OCEAN_FLOOR_WG.isOpaque();
+//        final Predicate<BlockState> isSurfaceOpaque = Heightmap.Types.WORLD_SURFACE_WG.isOpaque();
+//
+//        final BlockState AIR = Blocks.AIR.defaultBlockState();
+//        final boolean debugVoid = SharedConstants.debugVoidTerrain(chunkPos);
+//        final int MIN = Integer.MIN_VALUE;
+//
+//        for (int cellX = 0; cellX < cellsX; ++cellX) {
+//            noiseChunk.advanceCellX(cellX);
+//
+//            for (int cellZ = 0; cellZ < cellsZ; ++cellZ) {
+//                int currentSectionIndex = chunk.getSectionsCount() - 1;
+//                LevelChunkSection section = chunk.getSection(currentSectionIndex);
+//
+//                for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
+//                    noiseChunk.selectCellYZ(cellY, cellZ);
+//
+//                    for (int localYInCell = cellHeight - 1; localYInCell >= 0; --localYInCell) {
+//                        final int absoluteY = (minCellY + cellY) * cellHeight + localYInCell;
+//                        final int localYInSection = absoluteY & 15;
+//
+//                        final int sectionIndex = chunk.getSectionIndex(absoluteY);
+//                        if (currentSectionIndex != sectionIndex) {
+//                            currentSectionIndex = sectionIndex;
+//                            section = chunk.getSection(sectionIndex);
+//                        }
+//
+//                        final double deltaY = (double) localYInCell / (double) cellHeight;
+//                        noiseChunk.updateForY(absoluteY, deltaY);
+//
+//                        for (int localXInCell = 0; localXInCell < cellWidth; ++localXInCell) {
+//                            final int absoluteX = minChunkX + cellX * cellWidth + localXInCell;
+//                            final int localX = absoluteX & 15;
+//                            final double deltaX = (double) localXInCell / (double) cellWidth;
+//                            noiseChunk.updateForX(absoluteX, deltaX);
+//
+//                            for (int localZInCell = 0; localZInCell < cellWidth; ++localZInCell) {
+//                                final int absoluteZ = minChunkZ + cellZ * cellWidth + localZInCell;
+//                                final int localZ = absoluteZ & 15;
+//                                final double deltaZ = (double) localZInCell / (double) cellWidth;
+//
+//                                noiseChunk.updateForZ(absoluteZ, deltaZ);
+//
+//                                BlockState state = noiseChunk.getInterpolatedState();
+//                                if (state == null) {
+//                                    state = this.settings.value().defaultBlock();
+//                                }
+//
+//                                state = this.debugPreliminarySurfaceLevel(noiseChunk, absoluteX, absoluteY, absoluteZ, state);
+//
+//                                if (state != AIR && !debugVoid) {
+//                                    bts$optimizedBlockSetOp(section, localX, localYInSection, localZ, state, false);
+//
+//                                    /*
+//                                        Maybe its better ?
+//
+//                                    int colIndex = localX | (localZ << 4);
+//
+//                                    if (worldSurfaceCache[colIndex] == MIN) {
+//                                        if (isSurfaceOpaque.test(state)) {
+//                                            worldSurfaceCache[colIndex] = absoluteY;
+//                                        }
+//                                    }
+//
+//                                    if (oceanFloorCache[colIndex] == MIN) {
+//                                        if (isOceanOpaque.test(state)) {
+//                                            oceanFloorCache[colIndex] = absoluteY;
+//                                        }
+//                                    }
+//                                    */
+//
+//                                    final int idx = localX | (localZ << 4);
+//                                    if (worldSurfaceCache[idx] == MIN || oceanFloorCache[idx] == MIN) {
+//                                        if (worldSurfaceCache[idx] == MIN && isSurfaceOpaque.test(state))
+//                                            worldSurfaceCache[idx] = absoluteY;
+//                                        if (oceanFloorCache[idx] == MIN && isOceanOpaque.test(state))
+//                                            oceanFloorCache[idx] = absoluteY;
+//                                    }
+//
+//                                    if (aquifer.shouldScheduleFluidUpdate() && !state.getFluidState().isEmpty()) {
+//                                        mutablePos.set(absoluteX, absoluteY, absoluteZ);
+//                                        chunk.markPosForPostprocessing(mutablePos);
+//                                    }
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//            noiseChunk.swapSlices();
+//        }
+//
+//        noiseChunk.stopInterpolation();
+//
+//        final BlockState opaqueState = Blocks.STONE.defaultBlockState();
+//
+//        for (int x = 0; x < 16; x++) {
+//            for (int z = 0; z < 16; z++) {
+//                final int idx = x | (z << 4);
+//
+//                final int surfaceY = worldSurfaceCache[idx];
+//                if (surfaceY > Integer.MIN_VALUE) {
+//                    surfaceHeightmap.update(x, surfaceY, z, opaqueState);
+//                }
+//
+//                final int oceanY = oceanFloorCache[idx];
+//                if (oceanY > Integer.MIN_VALUE) {
+//                    oceanFloorHeightmap.update(x, oceanY, z, opaqueState);
+//                }
+//            }
+//        }
+//
+//        return chunk;
+//    }
 
     /**
      * @author Sixik

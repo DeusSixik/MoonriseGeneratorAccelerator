@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 
 public class DensityVM {
 
@@ -95,6 +96,26 @@ public class DensityVM {
     private static native long createPerlinNoise(
             int firstOctave, double lowestFreqValueFactor, double lowestFreqInputFactor, double maxValue,
             double[] amplitudes, double[] noiseLevels_xo, double[] noiseLevels_yo, double[] noiseLevels_zo, byte[] noiseLevels_p);
+
+    public static long createVMContext(DensityCompiler.Data data) {
+        final int[] commands = new int[data.program.size()];
+        for (int i = 0; i < commands.length; i++) {
+            commands[i] = data.program.get(i);
+        }
+
+        final double[] constants = new double[data.constants.size()];
+        for (int i = 0; i < constants.length; i++) {
+            constants[i] = data.constants.get(i);
+        }
+
+        return createVMContext(commands, constants);
+    }
+
+    private static native long createVMContext(int[] commands, double[] constants);
+
+    public static native void deleteVMContext(long ptr);
+
+    public static native double densityInvoke(long vmPtr);
 
     static {
         Initialize();

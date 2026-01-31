@@ -29,7 +29,8 @@ add_library(DensityOperation SHARED library.cpp
         src/structs/GenerationStructs.h
         src/NoiseGenerator.cpp
         src/NoiseGenerator.h
-        src/structs/noise/Noises.h)
+        src/structs/noise/Noises.h
+        src/DensityVM.h)
 
 target_compile_options(DensityOperation PRIVATE
         $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:-O3 -march=native -ffast-math -fno-plt>

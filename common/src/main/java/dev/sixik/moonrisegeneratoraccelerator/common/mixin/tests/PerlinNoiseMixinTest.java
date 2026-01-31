@@ -13,11 +13,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PerlinNoise.class)
 public class PerlinNoiseMixinTest {
 
-    @Unique
-    private long bts$ptr;
-
-    @Inject(method = "<init>", at = @At("RETURN"))
-    public void bts$init(RandomSource randomSource, Pair pair, boolean bl, CallbackInfo ci) {
-        this.bts$ptr = DensityVM.createPerlinNoise((PerlinNoise)(Object) this);
-    }
+//    @Unique
+//    private long bts$ptr;
+//
+//    @Inject(method = "<init>", at = @At("RETURN"))
+//    public void bts$init(RandomSource randomSource, Pair pair, boolean bl, CallbackInfo ci) {
+//        this.bts$ptr = DensityVM.createPerlinNoise((PerlinNoise)(Object) this);
+//    }
 }

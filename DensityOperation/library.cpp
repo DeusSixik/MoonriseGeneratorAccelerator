@@ -3,22 +3,80 @@
 #include <cstring>
 
 #include "jni.h"
+#include "src/DensityVM.h"
 #include "src/structs/noise/Noises.h"
 
 extern "C" {
 
+    JNIEXPORT void JNICALL Java_dev_sixik_density_1interpreter_DensityVM_doFill(
+        JNIEnv *env,
+        jclass clazz,
+        const jint cellWidth,
+        const jint cellHeight,
+        const jint cellCountXZ,
+        const jint cellCountY,
+        const jint cellNoiseMinY,
+        const jint firstCellX,
+        const jint firstCellZ,
+        const jint firstNoiseX,
+        const jint firstNoiseZ,
+        const jint noiseSizeXZ,
+
+        const jdoubleArray 
+    ) {
+
+    }
+
+    JNIEXPORT jdouble JNICALL Java_dev_sixik_density_1interpreter_DensityVM_densityInvoke(
+        JNIEnv *env,
+        jclass clazz,
+        jlong vmContextPtr
+    ) {
+        auto* context = reinterpret_cast<VMContext *>(vmContextPtr);
+        return DensityVM::run_vm(context, 0, 0, 0);
+    }
+
+    JNIEXPORT jlong JNICALL Java_dev_sixik_density_1interpreter_DensityVM_createVMContext(
+        JNIEnv *env,
+        jclass clazz,
+        jintArray program,
+        jdoubleArray constants
+    ) {
+        auto* context = new VMContext();
+
+        jsize programLen = env->GetArrayLength(program);
+        jint *programData = env->GetIntArrayElements(program, nullptr);
+        context->program.assign(programData, programData + programLen);
+        env->ReleaseIntArrayElements(program, programData, JNI_ABORT);
+
+        jsize constantsLen = env->GetArrayLength(program);
+        jdouble *constantsData = env->GetDoubleArrayElements(constants, nullptr);
+        context->constants.assign(constantsData, constantsData + constantsLen);
+        env->ReleaseDoubleArrayElements(constants, constantsData, JNI_ABORT);
+
+        return reinterpret_cast<jlong>(context);
+    }
+
+    JNIEXPORT void JNICALL Java_dev_sixik_density_1interpreter_DensityVM_deleteVMContext(
+        JNIEnv *env,
+        jclass clazz,
+        jlong ptr
+    ) {
+        delete reinterpret_cast<VMContext*>(ptr);
+    }
+
     JNIEXPORT jlong JNICALL Java_dev_sixik_density_1interpreter_DensityVM_createPerlinNoise(
-    JNIEnv *env,
-    jclass clazz,
-    jint firstOctave,
-    jdouble lowestFreqValueFactor,
-    jdouble lowestFreqInputFactor,
-    jdouble maxValue,
-    jdoubleArray amplitudes,
-    jdoubleArray noiseLevels_xo,
-    jdoubleArray noiseLevels_yo,
-    jdoubleArray noiseLevels_zo,
-    jbyteArray noiseLevels_p
+        JNIEnv *env,
+        jclass clazz,
+        jint firstOctave,
+        jdouble lowestFreqValueFactor,
+        jdouble lowestFreqInputFactor,
+        jdouble maxValue,
+        jdoubleArray amplitudes,
+        jdoubleArray noiseLevels_xo,
+        jdoubleArray noiseLevels_yo,
+        jdoubleArray noiseLevels_zo,
+        jbyteArray noiseLevels_p
     ) {
         Density::PerlinNoise* noise = new Density::PerlinNoise();
 

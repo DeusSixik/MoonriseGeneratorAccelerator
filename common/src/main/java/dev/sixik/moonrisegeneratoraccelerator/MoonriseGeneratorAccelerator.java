@@ -13,8 +13,5 @@ public final class MoonriseGeneratorAccelerator {
     public static void init() {
         // Write common init code here.
         TcpClient.MessageConsumer = LOGGER::info;
-        ImmutableList.Builder<NoiseChunk.BlockStateFiller> builder = new ImmutableList.Builder<>();
-        builder.add(st -> null);
-
     }
 }

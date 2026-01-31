@@ -82,7 +82,5 @@ public enum DensityOpcode {
      * [OFFSET_END] <br>
      * PC += OFFSET_END
      */
-    OP_JUMP,
-
-
+    OP_JUMP
 }
