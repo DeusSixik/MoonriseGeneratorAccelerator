@@ -18,7 +18,7 @@ However, on:
 That’s where Moonrise Generator Accelerator comes in.
 
 
-## Features (high level)
+## Features
 
 - Focus on **chunk generation acceleration** on top of Moonrise’s ChunkSystem work
 - Integrates concurrency/throughput ideas originally developed in **BTS Concurrent**
@@ -26,12 +26,12 @@ That’s where Moonrise Generator Accelerator comes in.
 
 > [!NOTE]
 > - Exact gains depend heavily on modpack composition, CPU, and server settings.
-> - This README intentionally stays high-level; implementation details may evolve quickly.
 
 
 ## Requirements / Compatibility
 
 - Requires **Moonrise**.
+- Requires **Moonrise Compats**, if you play with other mods.
 - Minecraft + loader compatibility depends on the release you download (see the version/file name and changelog).
 
 ## How to use?
@@ -62,7 +62,7 @@ Find the version of Moonrise you're using and use the proper version of Moonrise
 
 The project as of 31/01/26 is now open-source and licensed under GPLv3 license. You can contribute to the project and help improving the MGA project by creating PR. We're still learning and there can be mistakes by us, so don't hestitate to contact us through Issues or PRs.  
   
-If your mod conflicts in MGA or the Moonrise, then the patch should come to the Moonrise Compats mod and it's respective repository, **not the MGA's one**!
+If your mod conflicts in MGA or the Moonrise, then the patch should come to the [Moonrise Compats](https://github.com/DeusSixik/Moonrise-Compats) mod and it's respective repository, **not the MGA's one**!
 
 ## License
 
