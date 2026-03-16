@@ -6,8 +6,6 @@ public class MainBenchmark {
 
     public static String STOP_COMMANd = "/spark profiler stop --save-to-file";
 
-    public static boolean ACTIVATE = false;
-
     public static void log(String message) {
         MGABenchmarkPlugin.LOGGER.info("[Auto Test] {}", message);
     }

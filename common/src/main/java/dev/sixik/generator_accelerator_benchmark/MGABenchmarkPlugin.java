@@ -14,40 +14,67 @@ public class MGABenchmarkPlugin implements IMixinConfigPlugin {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     private boolean isDev;
+    private boolean isServer;
 
     @Override
-    public void onLoad(String s) {
-        isDev = Boolean.getBoolean("fabric.development") || Boolean.getBoolean("fml.deobfuscatedEnvironment");
-        LOGGER.info("Is Developer Environment: {}", isDev);
+    public void onLoad(String mixinPackage) {
+        this.isDev = Boolean.getBoolean("fabric.development") || Boolean.getBoolean("fml.deobfuscatedEnvironment");
+        this.isServer = checkIsServer();
+
+        LOGGER.info("MGABenchmarkPlugin | Is Developer Environment: {}", isDev);
+        LOGGER.info("MGABenchmarkPlugin | Is Server Environment: {}", isServer);
     }
 
     @Override
-    public String getRefMapperConfig() {
-        return null;
+    public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        return isDev && isServer;
+    }
+
+    private boolean checkIsServer() {
+        try {
+            Class<?> fabricLoaderClass = Class.forName("net.fabricmc.loader.api.FabricLoader");
+            Object loaderInstance = fabricLoaderClass.getMethod("getInstance").invoke(null);
+            Object envType = loaderInstance.getClass().getMethod("getEnvironmentType").invoke(loaderInstance);
+            return "SERVER".equals(envType.toString());
+        } catch (Throwable ignored) {}
+
+        try {
+            Class<?> fmlEnvClass = Class.forName("net.minecraftforge.fml.loading.FMLEnvironment");
+            Object dist = fmlEnvClass.getField("dist").get(null);
+            return "DEDICATED_SERVER".equals(dist.toString());
+        } catch (Throwable ignored) {}
+
+        try {
+            Class<?> neoEnvClass = Class.forName("net.neoforged.fml.loading.FMLEnvironment");
+            Object dist = neoEnvClass.getField("dist").get(null);
+            return "DEDICATED_SERVER".equals(dist.toString());
+        } catch (Throwable ignored) {}
+
+        String fabricSide = System.getProperty("fabric.side");
+        if (fabricSide != null) {
+            return "server".equalsIgnoreCase(fabricSide);
+        }
+
+        String dliEnv = System.getProperty("fabric.dli.env");
+        if (dliEnv != null) {
+            return "server".equalsIgnoreCase(dliEnv);
+        }
+
+        return false;
     }
 
     @Override
-    public boolean shouldApplyMixin(String s, String s1) {
-        return isDev && MainBenchmark.ACTIVATE;
-    }
+    public String getRefMapperConfig() { return null; }
 
     @Override
-    public void acceptTargets(Set<String> set, Set<String> set1) {
-
-    }
+    public void acceptTargets(Set<String> myTargets, Set<String> otherTargets) {}
 
     @Override
-    public List<String> getMixins() {
-        return null;
-    }
+    public List<String> getMixins() { return null; }
 
     @Override
-    public void preApply(String s, ClassNode classNode, String s1, IMixinInfo iMixinInfo) {
-
-    }
+    public void preApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {}
 
     @Override
-    public void postApply(String s, ClassNode classNode, String s1, IMixinInfo iMixinInfo) {
-
-    }
+    public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {}
 }
