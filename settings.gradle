@@ -7,7 +7,7 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'moonrise_generator_accelerator'
+rootProject.name = 'generator_accelerator'
 
 include 'common'
 include 'fabric'

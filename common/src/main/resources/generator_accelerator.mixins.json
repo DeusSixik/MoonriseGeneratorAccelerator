@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator_benchmark.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "client": [
+  ],
+  "mixins": [
+    "MinecraftServerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

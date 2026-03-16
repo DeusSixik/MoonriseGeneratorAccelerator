@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.mixins.common_mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin",
+  "client": [
+  ],
+  "mixins": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

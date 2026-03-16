@@ -1,26 +1,26 @@
 modLoader = "javafml"
 loaderVersion = "[2,)"
 #issueTrackerURL = ""
-license = "GNU GPL 3.0"
+license = "Unlicense"
 
 [[mods]]
-modId = "moonrise_generator_accelerator"
+modId = "generator_accelerator"
 version = "${version}"
-displayName = "Moonrise Generator Accelerator"
-authors = ""
+displayName = "Generator Accelerator"
+authors = "Sixik"
 description = '''
 
 '''
 #logoFile = ""
 
-[[dependencies.moonrise_generator_accelerator]]
+[[dependencies.generator_accelerator]]
 modId = "neoforge"
 type = "required"
 versionRange = "[21,)"
 ordering = "NONE"
 side = "BOTH"
 
-[[dependencies.moonrise_generator_accelerator]]
+[[dependencies.generator_accelerator]]
 modId = "minecraft"
 type = "required"
 versionRange = "[1.21.1,)"
@@ -29,10 +29,13 @@ side = "BOTH"
 
 
 [[mixins]]
-config = "moonrise_generator_accelerator.mixins.json"
+config = "generator_accelerator.mixins.json"
 
 [[mixins]]
-config = "moonrise_generator_accelerator_profiler.mixins.json"
+config = "generator_accelerator_density.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_benchmark.mixins.json"
 
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"
