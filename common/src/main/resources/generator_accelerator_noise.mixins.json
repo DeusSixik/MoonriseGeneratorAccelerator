@@ -7,8 +7,14 @@
     "MixinBlendedNoise$flat_data",
     "MixinImprovedNoise",
     "MixinNoise",
+    "MixinNoiseChunk",
+    "MixinNoiseChunk$Cache2D",
+    "MixinNoiseChunk$FlatCache$OptimizeFlatArray",
+    "MixinNoiseChunk$OptimizeFlatArray",
+    "MixinNoiseInterpolator",
     "MixinNormalNoise",
-    "MixinPerlinNoise"
+    "MixinPerlinNoise",
+    "MixinShiftNoise"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -26,7 +26,9 @@
     "generator_accelerator_blender.mixins.json",
     "generator_accelerator_noise.mixins.json",
     "generator_accelerator_aquifer.mixins.json",
-    "generator_accelerator_heightmap.mixins.json"
+    "generator_accelerator_heightmap.mixins.json",
+    "generator_accelerator_beardifier.mixins.json",
+    "generator_accelerator_surface.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

@@ -52,5 +52,11 @@ config = "generator_accelerator_aquifer.mixins.json"
 [[mixins]]
 config = "generator_accelerator_heightmap.mixins.json"
 
+[[mixins]]
+config = "generator_accelerator_beardifier.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_surface.mixins.json"
+
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"

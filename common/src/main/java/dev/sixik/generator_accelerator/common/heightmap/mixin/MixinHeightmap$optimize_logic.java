@@ -25,7 +25,7 @@ public abstract class MixinHeightmap$optimize_logic {
 
     @Shadow protected abstract void setHeight(int x, int z, int y);
     @Shadow protected abstract int getFirstAvailable(int index);
-    @Shadow private static int getIndex(int x, int z) { return 0; } 
+    @Shadow private static int getIndex(int x, int z) { return 0; }
 
     /**
      * @author Sixik
