@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.noise.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinBlendedNoise$flat_data",
+    "MixinImprovedNoise",
+    "MixinNoise",
+    "MixinNormalNoise",
+    "MixinPerlinNoise"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

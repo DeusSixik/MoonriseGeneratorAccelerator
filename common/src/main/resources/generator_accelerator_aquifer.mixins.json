@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.aquifer.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinNoiseBasedAquifer$optimize_noise"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

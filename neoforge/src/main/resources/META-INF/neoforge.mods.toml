@@ -40,5 +40,17 @@ config = "generator_accelerator_benchmark.mixins.json"
 [[mixins]]
 config = "generator_accelerator_biome.mixins.json"
 
+[[mixins]]
+config = "generator_accelerator_blender.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_noise.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_aquifer.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_heightmap.mixins.json"
+
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"
