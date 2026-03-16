@@ -12,18 +12,18 @@ import static dev.sixik.generator_accelerator.common.density.density_custom.Dens
 
 public record FastRangeChoice(DensityFunction input, double minInclusive, double maxExclusive, DensityFunction whenInRange, DensityFunction whenOutOfRange) implements DensityFunction {
 
-    public static final MapCodec<FastRangeChoice> DATA_CODEC = 
-            RecordCodecBuilder.mapCodec(instance -> 
+    public static final MapCodec<FastRangeChoice> DATA_CODEC =
+            RecordCodecBuilder.mapCodec(instance ->
                     instance.group((DensityFunction.HOLDER_HELPER_CODEC
-                            .fieldOf("input")).forGetter(FastRangeChoice::input), 
-                            (NOISE_VALUE_CODEC.fieldOf("min_inclusive"))
-                                    .forGetter(FastRangeChoice::minInclusive),
-                            (NOISE_VALUE_CODEC.fieldOf("max_exclusive"))
-                                    .forGetter(FastRangeChoice::maxExclusive), 
-                            (DensityFunction.HOLDER_HELPER_CODEC.fieldOf("when_in_range"))
-                                    .forGetter(FastRangeChoice::whenInRange), 
-                            (DensityFunction.HOLDER_HELPER_CODEC.fieldOf("when_out_of_range"))
-                                    .forGetter(FastRangeChoice::whenOutOfRange))
+                                            .fieldOf("input")).forGetter(FastRangeChoice::input),
+                                    (NOISE_VALUE_CODEC.fieldOf("min_inclusive"))
+                                            .forGetter(FastRangeChoice::minInclusive),
+                                    (NOISE_VALUE_CODEC.fieldOf("max_exclusive"))
+                                            .forGetter(FastRangeChoice::maxExclusive),
+                                    (DensityFunction.HOLDER_HELPER_CODEC.fieldOf("when_in_range"))
+                                            .forGetter(FastRangeChoice::whenInRange),
+                                    (DensityFunction.HOLDER_HELPER_CODEC.fieldOf("when_out_of_range"))
+                                            .forGetter(FastRangeChoice::whenOutOfRange))
                             .apply(instance, FastRangeChoice::new));
 
     public static final KeyDispatchDataCodec<FastRangeChoice> CODEC =
@@ -46,9 +46,13 @@ public record FastRangeChoice(DensityFunction input, double minInclusive, double
         boolean anyFalse = false;
 
         for (int i = 0; i < ds.length; i++) {
-            boolean inRange = ds[i] >= minInclusive && ds[i] < maxExclusive;
-            anyTrue |= inRange;
-            anyFalse |= !inRange;
+            double v = ds[i];
+            boolean inRange = v >= this.minInclusive && v < this.maxExclusive;
+            if (inRange) {
+                anyTrue = true;
+            } else {
+                anyFalse = true;
+            }
             if (anyTrue && anyFalse) break;
         }
 
@@ -57,27 +61,20 @@ public record FastRangeChoice(DensityFunction input, double minInclusive, double
         } else if (anyFalse && !anyTrue) {
             this.whenOutOfRange.fillArray(ds, provider);
         } else {
-            double[] trueArr = DensityThreadLocalData.acquire(ds.length);
-            double[] falseArr = DensityThreadLocalData.acquire(ds.length);
-
-            try {
-                this.whenInRange.fillArray(trueArr, provider);
-                this.whenOutOfRange.fillArray(falseArr, provider);
-
-                for (int i = 0; i < ds.length; i++) {
-                    double v = ds[i];
-                    ds[i] = (v >= this.minInclusive && v < this.maxExclusive) ? trueArr[i] : falseArr[i];
+            for (int i = 0; i < ds.length; i++) {
+                double v = ds[i];
+                if (v >= this.minInclusive && v < this.maxExclusive) {
+                    ds[i] = this.whenInRange.compute(provider.forIndex(i));
+                } else {
+                    ds[i] = this.whenOutOfRange.compute(provider.forIndex(i));
                 }
-            } finally {
-                DensityThreadLocalData.release();
-                DensityThreadLocalData.release();
             }
         }
     }
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastRangeChoice(this.input.mapAll(visitor), this.minInclusive, this.maxExclusive, this.whenInRange.mapAll(visitor), this.whenOutOfRange.mapAll(visitor));
+        return visitor.apply(new FastRangeChoice(this.input.mapAll(visitor), this.minInclusive, this.maxExclusive, this.whenInRange.mapAll(visitor), this.whenOutOfRange.mapAll(visitor)));
     }
 
     @Override

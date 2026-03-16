@@ -37,7 +37,7 @@ public record FastClampDensityFunction(DensityFunction input, double minValue, d
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastClampDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastClampDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

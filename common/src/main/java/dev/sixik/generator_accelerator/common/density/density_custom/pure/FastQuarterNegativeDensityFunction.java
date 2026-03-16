@@ -31,7 +31,7 @@ public record FastQuarterNegativeDensityFunction(DensityFunction input, double m
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastQuarterNegativeDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastQuarterNegativeDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

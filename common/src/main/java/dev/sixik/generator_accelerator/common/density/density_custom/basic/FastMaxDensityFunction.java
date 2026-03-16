@@ -38,7 +38,7 @@ public record FastMaxDensityFunction(DensityFunction argument1, DensityFunction 
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastMaxDensityFunction(argument1.mapAll(visitor), argument2.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastMaxDensityFunction(argument1.mapAll(visitor), argument2.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

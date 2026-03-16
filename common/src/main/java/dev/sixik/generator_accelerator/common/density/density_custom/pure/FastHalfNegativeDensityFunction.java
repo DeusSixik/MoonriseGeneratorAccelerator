@@ -32,7 +32,7 @@ public record FastHalfNegativeDensityFunction(DensityFunction input, double minV
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastHalfNegativeDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastHalfNegativeDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

@@ -29,7 +29,7 @@ public record FastCubeDensityFunction(DensityFunction input, double minValue, do
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastCubeDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastCubeDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

@@ -75,13 +75,13 @@ public record FastShiftedNoiseDensityFunction(
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastShiftedNoiseDensityFunction(
+        return visitor.apply(new FastShiftedNoiseDensityFunction(
                 this.shiftX.mapAll(visitor),
                 this.shiftY.mapAll(visitor),
                 this.shiftZ.mapAll(visitor),
                 this.xzScale, this.yScale,
                 visitor.visitNoise(this.noise)
-        );
+        ));
     }
 
     @Override

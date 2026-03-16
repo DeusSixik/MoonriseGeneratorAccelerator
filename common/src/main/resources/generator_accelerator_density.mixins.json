@@ -4,7 +4,9 @@
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
   "mixins": [
+    "MixinCubicSplineBuilder",
     "MixinDensityFunctions$redirect_basic_functions_to_fast_versions",
+    "MixinNoiseBasedChunkGenerator$optimize_density_functions",
     "MixinNoiseRouter$add_custom_optimizer"
   ],
   "injectors": {

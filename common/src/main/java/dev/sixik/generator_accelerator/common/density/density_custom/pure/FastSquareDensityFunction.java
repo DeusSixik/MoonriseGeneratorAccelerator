@@ -28,7 +28,7 @@ public record FastSquareDensityFunction(DensityFunction input, double minValue, 
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastSquareDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastSquareDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override

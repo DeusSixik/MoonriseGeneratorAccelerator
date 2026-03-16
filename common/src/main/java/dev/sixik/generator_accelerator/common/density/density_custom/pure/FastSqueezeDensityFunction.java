@@ -30,7 +30,7 @@ public record FastSqueezeDensityFunction(DensityFunction input, double minValue,
 
     @Override
     public DensityFunction mapAll(Visitor visitor) {
-        return new FastSqueezeDensityFunction(input.mapAll(visitor), minValue, maxValue);
+        return visitor.apply(new FastSqueezeDensityFunction(input.mapAll(visitor), minValue, maxValue));
     }
 
     @Override
