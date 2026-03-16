@@ -133,7 +133,7 @@ subprojects {
 
 tasks.register("runBenchmarks") {
     group = "benchmark"
-    description = "Runs Vanilla and Moonrise benchmarks 5 times each sequentially."
+    description = "Runs Vanilla and Moonrise benchmarks 2 times each sequentially."
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
@@ -144,7 +144,7 @@ tasks.register("runBenchmarks") {
 
         def runTest = { String name, String extraArgs, int count ->
             println "======================================="
-            println "  НАЧИНАЕМ ТЕСТЫ: $name"
+            println "  START TESTING: $name"
             println "======================================="
 
             for (int i = 1; i <= count; i++) {
@@ -169,9 +169,9 @@ tasks.register("runBenchmarks") {
             }
         }
 
-        runTest("Vanilla", "", 5)
-        runTest("Moonrise", "-PwithMoonrise", 5)
+        runTest("Vanilla", "", 2)
+        runTest("Moonrise", "-PwithMoonrise", 2)
 
-        println "\n✅ Все бенчмарки успешно завершены!"
+        println "\nBenchmarks end!"
     }
 }

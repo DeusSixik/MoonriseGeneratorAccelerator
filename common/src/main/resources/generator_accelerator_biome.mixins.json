@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.biome.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinBiomeManager$optimize_biome_getter",
+    "MixinBiomeSource$optimize_biome_getter",
+    "MixinClimate$ParameterList$redirect_vanilla_climate_container_to_custom_implement",
+    "MixinClimate$TargetPoint$optimize_allocation",
+    "MixinLevelChunkSection$optimize_biome_iteration"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

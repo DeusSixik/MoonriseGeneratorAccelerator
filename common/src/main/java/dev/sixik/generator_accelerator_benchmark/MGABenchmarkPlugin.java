@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator_benchmark;
 
 import com.mojang.logging.LogUtils;
-import com.sun.jna.Platform;
 import org.objectweb.asm.tree.ClassNode;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
@@ -29,7 +28,7 @@ public class MGABenchmarkPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String s, String s1) {
-        return isDev;
+        return isDev && MainBenchmark.ACTIVATE;
     }
 
     @Override

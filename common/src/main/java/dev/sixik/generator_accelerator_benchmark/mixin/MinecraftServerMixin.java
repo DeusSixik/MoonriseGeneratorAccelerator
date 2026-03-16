@@ -43,6 +43,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     @Unique private ServerPlayer fakePlayer;
     @Unique private boolean isProfilerStart = false;
     @Unique private int tickCounter = 0;
+
     private MinecraftServerMixin(String string) {
         super(string);
     }
@@ -61,7 +62,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
         if (!isProfilerStart && tickCounter == 30) {
             var commandSource = server.createCommandSourceStack().withPermission(4);
-            server.getCommands().performPrefixedCommand(commandSource, "/spark profiler start --thread *");
+            server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
 
             this.fakePlayer = this.sdm$makePlayer();
             fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
@@ -94,7 +95,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
         if(tickCounter == 1500) {
             var commandSource = server.createCommandSourceStack().withPermission(4);
-            server.getCommands().performPrefixedCommand(commandSource, "/spark profiler stop --save-to-file");
+            server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMANd);
             isProfilerStart = false;
             server.getPlayerList().removeAll();
         }

@@ -1,10 +1,8 @@
 {
   "required": true,
-  "package": "dev.sixik.generator_accelerator.mixins.density_mixin",
+  "package": "dev.sixik.generator_accelerator.common.density.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
-  "client": [
-  ],
   "mixins": [
     "MixinDensityFunctions$redirect_basic_functions_to_fast_versions"
   ],

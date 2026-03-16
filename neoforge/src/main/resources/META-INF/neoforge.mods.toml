@@ -37,5 +37,8 @@ config = "generator_accelerator_density.mixins.json"
 [[mixins]]
 config = "generator_accelerator_benchmark.mixins.json"
 
+[[mixins]]
+config = "generator_accelerator_biome.mixins.json"
+
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"

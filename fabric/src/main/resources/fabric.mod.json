@@ -21,7 +21,8 @@
   "mixins": [
     "generator_accelerator.mixins.json",
     "generator_accelerator_density.mixins.json",
-    "generator_accelerator_benchmark.mixins.json"
+    "generator_accelerator_benchmark.mixins.json",
+    "generator_accelerator_biome.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",
