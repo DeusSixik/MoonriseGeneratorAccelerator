@@ -27,6 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Predicate;
 
 @Mixin(NoiseBasedChunkGenerator.class)
@@ -208,7 +209,7 @@ public abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
                     sections[i].release();
                 }
             }
-        }), ChunkGenerationExecutor.getInstance()));
+        }), ForkJoinPool.commonPool()));
     }
 
     @Unique
