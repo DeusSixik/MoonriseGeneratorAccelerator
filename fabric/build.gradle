@@ -34,6 +34,7 @@ dependencies {
 
     modImplementation "net.fabricmc.fabric-api:fabric-api:$rootProject.fabric_api_version"
 
+    include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
     modRuntimeOnly 'me.lucko:fabric-permissions-api:0.3.3'
     modRuntimeOnly "curse.maven:spark-361579:5759670"

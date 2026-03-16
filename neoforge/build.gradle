@@ -39,6 +39,7 @@ dependencies {
     shadowBundle project(path: ':common', configuration: 'transformProductionNeoForge')
 
     include(implementation(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-neoforge:0.3.7-beta.1")))
+    include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
     modRuntimeOnly "curse.maven:spark-361579:6225208"
 

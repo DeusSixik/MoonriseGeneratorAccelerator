@@ -29,7 +29,8 @@
     "generator_accelerator_heightmap.mixins.json",
     "generator_accelerator_beardifier.mixins.json",
     "generator_accelerator_surface.mixins.json",
-    "generator_accelerator_structures.mixins.json"
+    "generator_accelerator_structures.mixins.json",
+    "generator_accelerator_executor.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",
