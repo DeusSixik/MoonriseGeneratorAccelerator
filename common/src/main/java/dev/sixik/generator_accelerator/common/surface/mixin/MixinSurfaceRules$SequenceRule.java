@@ -34,18 +34,12 @@ public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(List<SurfaceRules.SurfaceRule> list, CallbackInfo ci) {
-        final int size = list.size();
-        if(size == 0) return;
-
-        bts$primitiveArray = new SurfaceRules.SurfaceRule[size];
-        for (int i = 0; i < size; i++) {
-            bts$primitiveArray[i] = list.get(i);
-        }
+        this.bts$primitiveArray = list.toArray(new SurfaceRules.SurfaceRule[0]);
     }
 
     @Inject(method = "rules", at = @At("HEAD"), cancellable = true)
     public void bts$rules(CallbackInfoReturnable<List<SurfaceRules.SurfaceRule>> cir) {
-        cir.setReturnValue(Arrays.asList(bts$primitiveArray));
+        cir.setReturnValue(List.of(this.bts$primitiveArray));
     }
 
     /**

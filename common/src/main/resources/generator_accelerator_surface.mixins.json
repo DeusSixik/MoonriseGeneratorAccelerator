@@ -10,7 +10,8 @@
     "MixinSurfaceRules$Context$clear_supplier",
     "MixinSurfaceRules$Context$TemperatureHelperCondition",
     "MixinSurfaceRules$SequenceRule",
-    "MixinSurfaceRules$SequenceRuleSource"
+    "MixinSurfaceRules$SequenceRuleSource",
+    "MixinSurfaceSystem$fast_set_block"
   ],
   "injectors": {
     "defaultRequire": 1
