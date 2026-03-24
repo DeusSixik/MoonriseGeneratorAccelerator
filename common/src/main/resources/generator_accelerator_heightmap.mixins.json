@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.heightmap.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinHeightmap$optimize_logic"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

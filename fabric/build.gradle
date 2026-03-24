@@ -27,17 +27,25 @@ configurations {
 dependencies {
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
-    modImplementation "curse.maven:moonrise-1096335:7089176"
+    common(project(path: ':common', configuration: 'namedElements')) { transitive false }
+    shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
+
     include(implementation(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.7-beta.1")))
 
     modImplementation "net.fabricmc.fabric-api:fabric-api:$rootProject.fabric_api_version"
 
-//    modImplementation "curse.maven:spark-361579:5759670"
+    include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
-    include(minecraftClientRuntimeLibraries("dev.sdm:TracySocketClient:0.12.2-1"))
+    modRuntimeOnly 'me.lucko:fabric-permissions-api:0.3.3'
+    modRuntimeOnly "curse.maven:spark-361579:5759670"
 
-    common(project(path: ':common', configuration: 'namedElements')) { transitive false }
-    shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
+    if (project.hasProperty('withMoonrise')) {
+        modRuntimeOnly "curse.maven:moonrise-1096335:7089176"
+    }
+
+    if (project.hasProperty('withC2ME')) {
+        modImplementation "curse.maven:c2me-533097:7176425"
+    }
 }
 
 processResources {

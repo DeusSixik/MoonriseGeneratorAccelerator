@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.mixins.common_mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "FrontAndTopCrashFix",
+    "MixinNoiseBasedChunkGenerator"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

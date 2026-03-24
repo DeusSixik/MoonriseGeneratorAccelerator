@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.surface.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinSurfaceRules",
+    "MixinSurfaceRules$BiomeConditionSource",
+    "MixinSurfaceRules$Context",
+    "MixinSurfaceRules$Context$clear_supplier",
+    "MixinSurfaceRules$Context$TemperatureHelperCondition",
+    "MixinSurfaceRules$SequenceRule",
+    "MixinSurfaceRules$SequenceRuleSource"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
