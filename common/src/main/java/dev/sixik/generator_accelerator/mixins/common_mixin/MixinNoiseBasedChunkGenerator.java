@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import dev.sixik.generator_accelerator.common.executors.ChunkGenerationExecutor;
 import net.minecraft.SharedConstants;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;

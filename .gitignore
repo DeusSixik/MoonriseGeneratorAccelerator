@@ -13,3 +13,5 @@
 /fabric/run/
 /.idea/
 /.architectury-transformer
+*.log
+*.gz

@@ -1,6 +1,10 @@
 
 # Developers
 
+## Tests
+
+- Vanilla `./gradlew :common:test`
+
 ## Fabric
 
 ### Client

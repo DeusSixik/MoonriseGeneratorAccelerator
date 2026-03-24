@@ -24,7 +24,7 @@
     "generator_accelerator_benchmark.mixins.json",
     "generator_accelerator_biome.mixins.json",
     "generator_accelerator_blender.mixins.json",
-    "generator_accelerator_noise.mixins.json",
+    "generator_accelerator_noise_native.mixins.json",
     "generator_accelerator_aquifer.mixins.json",
     "generator_accelerator_heightmap.mixins.json",
     "generator_accelerator_beardifier.mixins.json",

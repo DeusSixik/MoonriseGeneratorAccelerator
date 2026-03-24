@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.noise_native.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinNormalNoise$redirect_to_native",
+    "MixinRandomSupport",
+    "random.MixinLegacyRandomSource",
+    "random.MixinSimpleRandom",
+    "random.MixinSingleThreadedRandomSource",
+    "random.MixinXoroshiroRandomSource"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -7,12 +7,15 @@ public final class GeneratorAccelerator {
     public static final String MOD_ID = "generator_accelerator";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
+
+
     public static void init() {
 
     }
 
-    public void method1() {
-
+    public static void tryLoadNatives() {
+        if(GeneratorAcceleratorNatives.isLoaded()) return;
+        GeneratorAcceleratorNatives.initialize();
     }
 
 }
