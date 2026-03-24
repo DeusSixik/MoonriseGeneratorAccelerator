@@ -4,8 +4,8 @@
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
   "mixins": [
+    "MixinNoiseDensityFunction",
     "MixinNormalNoise$redirect_to_native",
-    "MixinRandomSupport",
     "random.MixinLegacyRandomSource",
     "random.MixinSimpleRandom",
     "random.MixinSingleThreadedRandomSource",

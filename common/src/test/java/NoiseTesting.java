@@ -30,26 +30,56 @@ public class NoiseTesting
 
     @Test
     void testNatives() {
-
-
-
         XoroshiroRandomSource xoroshiroRandomSource = new XoroshiroRandomSource(32);
-//
-        System.out.println("S1: " + xoroshiroRandomSource.randomNumberGenerator.seedLo);
-        System.out.println("S2: " + xoroshiroRandomSource.randomNumberGenerator.seedHi);
+
+        NormalNoise testNoise = NormalNoise.create(xoroshiroRandomSource, 2, 2d, 1d, 0.3d, 0.4d);
 
         NormalNoise normalNoise = NormalNoise.create(xoroshiroRandomSource, 2, 2d, 1d, 0.3d, 0.4d);
-        System.out.println(normalNoise.maxValue());
-        System.out.println(normalNoise.getValue(2, 1, 3));
-
         long xoroshiroPtr = NativeRandom.createXoroshiro(32);
         NativeRandom.printSeed(xoroshiroPtr);
 
-        long normalNoisePtr = NativeNormalNoise.create(xoroshiroPtr, 2, new double[] { 2d, 1d, 0.3d, 0.4d });
+        final long normalNoisePtr = NativeNormalNoise.create(xoroshiroPtr, 2, new double[] { 2d, 1d, 0.3d, 0.4d });
 
-        System.out.println(NativeNormalNoise.getMax(normalNoisePtr));
-        System.out.println(NativeNormalNoise.getValue(normalNoisePtr, 2, 1, 3));
+        // ==================== Замер Java ====================
+        long startJava = System.nanoTime();
+        double java = getSum(normalNoise::getValue);
+        long timeJavaNs = System.nanoTime() - startJava;
 
+        // ==================== Замер C3 (нативный) ====================
+        long startC3 = System.nanoTime();
+        double c3 = getSum((x, y, z) -> NativeNormalNoise.getValue(normalNoisePtr, x, y, z));
+        long timeC3Ns = System.nanoTime() - startC3;
 
+        // ==================== Вывод результатов ====================
+        double timeJavaMs = timeJavaNs / 1_000_000.0;
+        double timeC3Ms = timeC3Ns / 1_000_000.0;
+        double speedup = (double) timeJavaNs / timeC3Ns;
+
+        System.out.println("Java:  " + java + "  |  время = " + timeJavaMs + " мс");
+        System.out.println("C3:    " + c3 + "  |  время = " + timeC3Ms + " мс");
+        System.out.println("Ускорение C3 по сравнению с Java: " + String.format("%.2f", speedup) + "x");
+
+        // Проверка корректности (на всякий случай)
+        System.out.println("Результаты совпадают? " + (Math.abs(java - c3) < 1e-9));
+    }
+
+    private static double getSum(Func func) {
+        double sum = 0;
+
+        for (int x = 0; x < 16; x++) {
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    sum += func.handle(x, y, z);
+                }
+            }
+        }
+
+        return sum;
+    }
+
+    @FunctionalInterface
+    private interface Func {
+
+        double handle(int x, int y, int z);
     }
 }

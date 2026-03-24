@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.noise_native.mixin;
 
+import dev.sixik.generator_accelerator.common.noise_native.NativePtrGetter;
 import dev.sixik.generator_accelerator.common.noise_native.RandomSeedGetter;
 import dev.sixik.generator_accelerator.math.c3.NativeNormalNoise;
 import dev.sixik.generator_accelerator.math.c3.NativeRandom;
@@ -15,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.lang.ref.Cleaner;
 
 @Mixin(NormalNoise.class)
-public class MixinNormalNoise$redirect_to_native {
+public class MixinNormalNoise$redirect_to_native implements NativePtrGetter {
 
     @Unique
     private static final Cleaner BTS$CLEANER = Cleaner.create();
@@ -28,6 +29,7 @@ public class MixinNormalNoise$redirect_to_native {
 
         final boolean horo = randomSource instanceof XoroshiroRandomSource;
 
+        // Get original seed from random
         final long bts$seed_1;
         long bts$seed_2 = 0;
         if(horo) {
@@ -38,24 +40,32 @@ public class MixinNormalNoise$redirect_to_native {
             bts$seed_1 = ((RandomSeedGetter)randomSource).bts$getSeed();
         }
 
+        // Create Native Random version
         final long randomPtr = horo
                 ? NativeRandom.createXoroshiro(bts$seed_1, bts$seed_2)
                 : NativeRandom.create(bts$seed_1);
 
+        // Create Native NormalNoise version
         this.bts$ptr = NativeNormalNoise.create(randomPtr, noiseParameters.firstOctave(), noiseParameters.amplitudes().toDoubleArray());
 
 
         if (this.bts$ptr != 0) {
+            // Register cleaner for unload allocated structure from memory
             BTS$CLEANER.register(this, new NativeObjectCleaner.NativeState(this.bts$ptr));
         }
     }
 
     /**
      * @author Sixik
-     * @reason
+     * @reason Redirect to native method
      */
     @Overwrite
     public double getValue(double d, double e, double f) {
         return NativeNormalNoise.getValue(bts$ptr, d, e, f);
+    }
+
+    @Override
+    public long bts$getPtr() {
+        return bts$ptr;
     }
 }
