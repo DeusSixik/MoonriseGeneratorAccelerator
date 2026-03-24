@@ -60,8 +60,12 @@ public class MixinNormalNoise$redirect_to_native implements NativePtrGetter {
      * @reason Redirect to native method
      */
     @Overwrite
-    public double getValue(double d, double e, double f) {
-        return NativeNormalNoise.getValue(bts$ptr, d, e, f);
+    public double getValue(double x, double y, double z) {
+        if(y == 0) {
+            return NativeNormalNoise.getValue2D(bts$ptr, x, z);
+        }
+
+        return NativeNormalNoise.getValue(bts$ptr, x, y, z);
     }
 
     @Override

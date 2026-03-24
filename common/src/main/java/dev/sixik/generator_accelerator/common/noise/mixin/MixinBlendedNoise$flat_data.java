@@ -109,7 +109,7 @@ public class MixinBlendedNoise$flat_data {
                 amps[idx] = 1.0 / o;
                 idx++;
             }
-            o /= 2.0;
+            o *= 0.5;
         }
 
         if (source == this.mainNoise) {
@@ -160,7 +160,7 @@ public class MixinBlendedNoise$flat_data {
             n += this.bts$mainNoises[idx].noise(inX, inY, inZ, k * freq, h * freq) * bts$mainAmps[idx];
         }
 
-        double q = (n / 10.0 + 1.0) / 2.0;
+        double q = (n / 10.0 + 1.0) * 0.5;
 
         boolean skipMin = q >= 1.0;
         boolean skipMax = q <= 0.0;

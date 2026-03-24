@@ -6,15 +6,12 @@
   "mixins": [
     "MixinBlendedNoise$flat_data",
     "MixinImprovedNoise",
-    "MixinNoise",
     "MixinNoiseChunk",
     "MixinNoiseChunk$Cache2D",
     "MixinNoiseChunk$FlatCache$OptimizeFlatArray",
     "MixinNoiseChunk$OptimizeFlatArray",
     "MixinNoiseInterpolator",
-    "MixinNormalNoise",
-    "MixinPerlinNoise",
-    "MixinShiftNoise"
+    "MixinPerlinNoise"
   ],
   "injectors": {
     "defaultRequire": 1

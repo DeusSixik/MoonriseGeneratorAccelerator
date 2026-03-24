@@ -6,6 +6,7 @@
   "mixins": [
     "MixinNoiseDensityFunction",
     "MixinNormalNoise$redirect_to_native",
+    "MixinShiftNoise",
     "random.MixinLegacyRandomSource",
     "random.MixinSimpleRandom",
     "random.MixinSingleThreadedRandomSource",

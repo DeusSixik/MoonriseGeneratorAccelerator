@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.noise_native.mixin;
 
+import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
 import dev.sixik.generator_accelerator.common.noise_native.NativePtrGetter;
 import dev.sixik.generator_accelerator.math.c3.NativeNoiseChunk;
@@ -7,34 +8,23 @@ import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(DensityFunctions.Noise.class)
-public class MixinNoiseDensityFunction {
+@Mixin(DensityFunctions.ShiftNoise.class)
+public interface MixinShiftNoise {
 
     @Shadow
-    @Final
-    private DensityFunction.NoiseHolder noise;
-
-    @Shadow
-    @Final
-    @Deprecated
-    private double xzScale;
-
-    @Shadow
-    @Final
-    private double yScale;
+    DensityFunction.NoiseHolder offsetNoise();
 
     /**
      * @author Sixik
      * @reason Redirect to batch native method
      */
     @Overwrite
-    public void fillArray(double[] ds, DensityFunction.ContextProvider contextProvider) {
-        final NormalNoise normalNoise = noise.noise();
+    default void fillArray(double[] ds, DensityFunction.ContextProvider contextProvider) {
+        final NormalNoise normalNoise = offsetNoise().noise();
 
         if(normalNoise != null) {
 
@@ -47,7 +37,7 @@ public class MixinNoiseDensityFunction {
                         chunk.cellNoiseMinY,
                         chunk.cellHeight,
                         chunk.cellCountY,
-                        this.xzScale, this.yScale
+                        0.25, 0.25
                 );
                 return;
             } else if(contextProvider instanceof NoiseChunk chunk) {
@@ -56,13 +46,12 @@ public class MixinNoiseDensityFunction {
                         ds,
                         chunk.cellStartBlockX, chunk.cellStartBlockY, chunk.cellStartBlockZ,
                         chunk.cellWidth, chunk.cellHeight,
-                        this.xzScale, this.yScale
+                        0.25, 0.25
                 );
                 return;
             }
         }
 
-        contextProvider.fillAllDirectly(ds, (DensityFunctions.Noise)(Object)this);
+        contextProvider.fillAllDirectly(ds, (DensityFunctions.ShiftNoise)(Object)this);
     }
-
 }

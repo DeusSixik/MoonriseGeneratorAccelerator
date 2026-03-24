@@ -68,7 +68,7 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
                 d += amplitudesArray[i] * g * f;
             }
             e *= 2.0;
-            f /= 2.0;
+            f *= 0.5;
         }
         return d;
     }

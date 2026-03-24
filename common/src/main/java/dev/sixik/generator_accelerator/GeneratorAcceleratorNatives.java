@@ -7,45 +7,50 @@ import java.nio.file.StandardCopyOption;
 
 public class GeneratorAcceleratorNatives {
 
-    private static String[] NATIVES_NAME = {
-        "c3_minecraft.dll"
-    };
-
+    private static final String LIB_NAME = "c3_minecraft";
     private static boolean loaded = false;
 
     public static boolean isLoaded() {
         return loaded;
     }
 
-    static void initialize() {
-        if(loaded) return;
+    public static void initialize() {
+        if (loaded) return;
 
         try {
-            Path tempDir = Files.createTempDirectory("generator_accelerator_native_");
+            String os = System.getProperty("os.name").toLowerCase();
+            String fileName;
+
+            if (os.contains("win")) {
+                fileName = LIB_NAME + ".dll";
+            } else if (os.contains("nix") || os.contains("nux") || os.contains("aix")) {
+                fileName = "lib" + LIB_NAME + ".so";
+            } else {
+                throw new RuntimeException("Unsupported OS: " + os);
+            }
+
+            Path tempDir = Files.createTempDirectory("generator_accelerator_");
             tempDir.toFile().deleteOnExit();
+            Path tempFile = tempDir.resolve(fileName);
 
-            for (String lib : NATIVES_NAME) {
-                extractLib("/natives/" + lib, tempDir.resolve(lib));
+            String resourcePath = "/natives/" + fileName;
+
+            try (InputStream in = GeneratorAcceleratorNatives.class.getResourceAsStream(resourcePath)) {
+                if (in == null) {
+                    throw new RuntimeException("Native resource not found: " + resourcePath);
+                }
+                Files.copy(in, tempFile, StandardCopyOption.REPLACE_EXISTING);
             }
 
-            for (String s : NATIVES_NAME) {
-                System.load(tempDir.resolve(s).toString());
-            }
+            tempFile.toFile().setExecutable(true);
+            tempFile.toFile().deleteOnExit();
+
+            System.load(tempFile.toAbsolutePath().toString());
             loaded = true;
 
-            System.out.println("Loaded NATIVE DLL");
+            GeneratorAccelerator.LOGGER.info("[C3 Native] Successfully loaded: {}", fileName);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load GeneratorAccelerator(C3) native libs", e);
-        }
-    }
-
-    private static void extractLib(String resourcePath, Path dst) throws Exception {
-        try (InputStream in = GeneratorAcceleratorNatives.class.getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                throw new RuntimeException("Native resource not found: " + resourcePath);
-            }
-            Files.copy(in, dst, StandardCopyOption.REPLACE_EXISTING);
-            dst.toFile().deleteOnExit();
         }
     }
 }

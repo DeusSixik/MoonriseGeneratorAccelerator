@@ -44,6 +44,9 @@ config = "generator_accelerator_biome.mixins.json"
 config = "generator_accelerator_blender.mixins.json"
 
 [[mixins]]
+config = "generator_accelerator_noise.mixins.json"
+
+[[mixins]]
 config = "generator_accelerator_noise_native.mixins.json"
 
 [[mixins]]

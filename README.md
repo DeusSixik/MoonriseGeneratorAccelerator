@@ -3,7 +3,7 @@
 
 ## Tests
 
-- Vanilla `./gradlew :common:test`
+- Vanilla `./gradlew runBenchmarks`
 
 ## Fabric
 

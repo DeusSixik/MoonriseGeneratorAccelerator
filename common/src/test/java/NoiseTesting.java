@@ -1,21 +1,12 @@
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.math.c3.NativeNormalNoise;
 import dev.sixik.generator_accelerator.math.c3.NativeRandom;
-import dev.sixik.generator_accelerator.math.c3.NativeTests;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
-import net.minecraft.util.RandomSource;
-import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
-import net.minecraft.world.level.levelgen.synth.BlendedNoise;
-import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
-import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import java.util.stream.IntStream;
 
 public class NoiseTesting
 {

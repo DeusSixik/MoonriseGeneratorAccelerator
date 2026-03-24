@@ -6,6 +6,8 @@ public class NativeNormalNoise {
 
     public static native double getValue(long normal_noise_ptr, double x, double y, double z);
 
+    public static native double getValue2D(long normal_noise_ptr, double x, double z);
+
     public static native void deleteNoise(long bts$ptr);
 
     public static long getFirst(long normalNoise_ptr) {
