@@ -87,6 +87,15 @@ public class FlatClimateIndex<T> {
         this.values = storage.values.toArray();
     }
 
+    public FlatClimateIndex(Climate.RTree<T> vanillaTree) {
+        final TempStorage storage = new TempStorage(1024);
+        this.rootIndex = flatten(vanillaTree.root, storage);
+
+        this.bounds = Arrays.copyOf(storage.bounds, storage.cursor * BYTES_PER_NODE);
+        this.structure = Arrays.copyOf(storage.structure, storage.cursor * 2);
+        this.values = storage.values.toArray();
+    }
+
     public T search(final long[] array) {
         return search(array[0], array[1], array[2], array[3], array[4], array[5]);
     }

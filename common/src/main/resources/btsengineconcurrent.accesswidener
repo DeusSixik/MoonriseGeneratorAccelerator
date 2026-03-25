@@ -215,3 +215,5 @@ accessible field net/minecraft/world/level/levelgen/NoiseChunk arrayIndex I
 accessible method net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator doFill (Lnet/minecraft/world/level/levelgen/blending/Blender;Lnet/minecraft/world/level/StructureManager;Lnet/minecraft/world/level/levelgen/RandomState;Lnet/minecraft/world/level/chunk/ChunkAccess;II)Lnet/minecraft/world/level/chunk/ChunkAccess;
 
 accessible field net/minecraft/world/level/levelgen/synth/ImprovedNoise p [B
+
+accessible method net/minecraft/world/level/levelgen/placement/PlacedFeature placeWithContext (Lnet/minecraft/world/level/levelgen/placement/PlacementContext;Lnet/minecraft/util/RandomSource;Lnet/minecraft/core/BlockPos;)Z

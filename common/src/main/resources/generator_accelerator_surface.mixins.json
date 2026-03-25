@@ -4,6 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
   "mixins": [
+    "FastSurfaceSystemCarvingMixin",
     "MixinSurfaceRules",
     "MixinSurfaceRules$BiomeConditionSource",
     "MixinSurfaceRules$Context",

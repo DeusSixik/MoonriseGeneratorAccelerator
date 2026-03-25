@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.features.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator.common.features.GAFeaturesMixinPlugin",
+  "mixins": [
+    "FastHolderSetMixin",
+    "FastPlacedFeatureMixin",
+    "MixinOreFeature",
+    "compats.confluence.Confluence$PlacedFeatureMixin$fix"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
