@@ -24,7 +24,7 @@ public class GeneratorAcceleratorNatives {
             if (os.contains("win")) {
                 fileName = LIB_NAME + ".dll";
             } else if (os.contains("nix") || os.contains("nux") || os.contains("aix")) {
-                fileName = "lib" + LIB_NAME + ".so";
+                fileName = LIB_NAME + ".so";
             } else {
                 throw new RuntimeException("Unsupported OS: " + os);
             }
