@@ -57,7 +57,6 @@ public abstract class MixinSurfaceRules$Context$clear_supplier implements Surfac
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(SurfaceSystem surfaceSystem, RandomState randomState, ChunkAccess chunkAccess, NoiseChunk noiseChunk, Function function, Registry registry, WorldGenerationContext worldGenerationContext, CallbackInfo ci) {
-        this.biomeGetter = pos -> chunkAccess.getNoiseBiome(pos.getX() >> 2, pos.getY() >> 2, pos.getZ() >> 2);
         this.biome = this::bts$getBiomeHolderCached;
     }
 
