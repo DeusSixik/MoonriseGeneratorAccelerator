@@ -5,7 +5,9 @@
   "minVersion": "0.8",
   "mixins": [
     "FrontAndTopCrashFix",
-    "MixinNoiseBasedChunkGenerator"
+    "MixinNoiseBasedChunkGenerator",
+    "MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column",
+    "MixinProtoChunk$fast_get_block"
   ],
   "injectors": {
     "defaultRequire": 1

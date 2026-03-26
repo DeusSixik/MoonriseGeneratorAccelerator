@@ -12,7 +12,10 @@
     "MixinSurfaceRules$Context$TemperatureHelperCondition",
     "MixinSurfaceRules$SequenceRule",
     "MixinSurfaceRules$SequenceRuleSource",
-    "MixinSurfaceSystem$fast_set_block"
+    "MixinSurfaceSystem$fast_set_block",
+    "blockpredicates.MixinAllOfPredicate$primitive_array",
+    "blockpredicates.MixinAnyOfPredicate$primitive_array",
+    "blockpredicates.MixinCombiningPredicate$convert_to_primitive_array"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -18,6 +18,10 @@ public class NoiseTesting
         GeneratorAccelerator.tryLoadNatives();
     }
 
+    @Test
+    void testStream() {
+
+    }
 
     @Test
     void testNatives() {
