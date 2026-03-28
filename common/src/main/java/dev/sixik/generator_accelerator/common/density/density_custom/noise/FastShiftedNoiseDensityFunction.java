@@ -33,7 +33,7 @@ public record FastShiftedNoiseDensityFunction(
                                     .forGetter(FastShiftedNoiseDensityFunction::noise))
                             .apply(instance, FastShiftedNoiseDensityFunction::new));
 
-    public static final KeyDispatchDataCodec<FastShiftedNoiseDensityFunction> CODEC = DensityFunctions.makeCodec(DATA_CODEC);
+    public static final KeyDispatchDataCodec<FastShiftedNoiseDensityFunction> CODEC = KeyDispatchDataCodec.of(DATA_CODEC);
 
 
     @Override

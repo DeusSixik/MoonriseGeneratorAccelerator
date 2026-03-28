@@ -41,6 +41,9 @@ dependencies {
     include(implementation(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-neoforge:0.3.7-beta.1")))
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
+    modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
+    compileOnlyApi "curse.maven:confluence-1209464:7677430"
+
     modRuntimeOnly "curse.maven:spark-361579:6225208"
 
     if (project.hasProperty('withMoonrise')) {

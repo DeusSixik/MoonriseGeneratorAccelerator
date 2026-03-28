@@ -18,6 +18,7 @@
       "dev.sixik.generator_accelerator.fabric.GeneratorAcceleratorFabric"
     ]
   },
+  "accessWidener": "btsengineconcurrent.accesswidener",
   "mixins": [
     "generator_accelerator.mixins.json",
     "generator_accelerator_density.mixins.json",

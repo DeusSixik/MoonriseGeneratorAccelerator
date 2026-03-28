@@ -34,7 +34,7 @@ public abstract class MixinProtoChunk$fast_get_block extends ChunkAccess {
         super(chunkPos, upgradeData, levelHeightAccessor, registry, l, levelChunkSections, blendingData);
     }
 
-    @Inject(method = "<init>*", at = @At("RETURN"))
+    @Inject(method = "<init>(Lnet/minecraft/world/level/ChunkPos;Lnet/minecraft/world/level/chunk/UpgradeData;[Lnet/minecraft/world/level/chunk/LevelChunkSection;Lnet/minecraft/world/ticks/ProtoChunkTicks;Lnet/minecraft/world/ticks/ProtoChunkTicks;Lnet/minecraft/world/level/LevelHeightAccessor;Lnet/minecraft/core/Registry;Lnet/minecraft/world/level/levelgen/blending/BlendingData;)V", at = @At("TAIL"))
     public void bts$init(CallbackInfo ci) {
         this.bts$maxY = getMaxBuildHeight();
         this.bts$minY = getMinBuildHeight();

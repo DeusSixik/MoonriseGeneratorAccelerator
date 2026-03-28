@@ -27,7 +27,7 @@ public record FastRangeChoice(DensityFunction input, double minInclusive, double
                             .apply(instance, FastRangeChoice::new));
 
     public static final KeyDispatchDataCodec<FastRangeChoice> CODEC =
-            DensityFunctions.makeCodec(DATA_CODEC);
+            KeyDispatchDataCodec.of(DATA_CODEC);
 
     @Override
     public double compute(FunctionContext context) {

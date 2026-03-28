@@ -20,7 +20,8 @@ public record FastClampDensityFunction(DensityFunction input, double minValue, d
                                     .forGetter(FastClampDensityFunction::maxValue))
                             .apply(instance, FastClampDensityFunction::new));
 
-    public static final KeyDispatchDataCodec<FastClampDensityFunction> CODEC = DensityFunctions.makeCodec(DATA_CODEC);
+    public static final KeyDispatchDataCodec<FastClampDensityFunction> CODEC =
+            KeyDispatchDataCodec.of(DATA_CODEC);
 
     @Override
     public double compute(FunctionContext functionContext) {
