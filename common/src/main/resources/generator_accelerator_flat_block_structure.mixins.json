@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.common.flat_block_structure.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinChunkStatusTasks$inject_flat_block_structure",
+    "MixinLevelChunkSection$flat_block_array"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

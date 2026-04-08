@@ -5,6 +5,8 @@
   "minVersion": "0.8",
   "mixins": [
     "MixinChunkAccess$SynchronizeStructureData",
+    "optimization.MixinPiecesContainer",
+    "optimization.MixinStructurePiece",
     "pools.MixinEmptyPoolElement$default_empty_list",
     "pools.MixinFeaturePoolElement$cached",
     "pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",

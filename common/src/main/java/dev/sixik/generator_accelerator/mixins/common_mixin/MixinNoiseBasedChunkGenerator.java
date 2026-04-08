@@ -130,7 +130,7 @@ public abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
                                 state = this.debugPreliminarySurfaceLevel(noiseChunk, absoluteX, absoluteY, absoluteZ, state);
 
                                 if (state != AIR && !debugVoid) {
-                                    bts$optimizedBlockSetOp(section, localX, localYInSection, localZ, state, false);
+                                    section.setBlockState(localX, localYInSection, localZ, state, false);
 
                                     final int idx = localX | (localZ << 4);
                                     if (worldSurfaceCache[idx] == MIN || oceanFloorCache[idx] == MIN) {
@@ -209,27 +209,6 @@ public abstract class MixinNoiseBasedChunkGenerator extends ChunkGenerator {
                 }
             }
         }), ForkJoinPool.commonPool()));
-    }
-
-    @Unique
-    private void bts$optimizedBlockSetOp(@NotNull LevelChunkSection chunkSection, int chunkSectionBlockPosX, int chunkSectionBlockPosY, int chunkSectionBlockPosZ, @NotNull BlockState blockState, boolean lock) {
-        chunkSection.nonEmptyBlockCount += 1;
-        if (!blockState.getFluidState().isEmpty()) {
-            chunkSection.tickingFluidCount += 1;
-        }
-        if (blockState.isRandomlyTicking()) {
-            chunkSection.tickingBlockCount += 1;
-        }
-
-        final PalettedContainer<BlockState> states = chunkSection.states;
-        final int blockStateId = states.data.palette.idFor(blockState);
-        states.data.storage().set(
-                states.strategy.getIndex(
-                        chunkSectionBlockPosX, chunkSectionBlockPosY,
-                        chunkSectionBlockPosZ
-                ),
-                blockStateId
-        );
     }
 
     /**

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
@@ -89,6 +90,12 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Shadow
     @Final
     public int firstNoiseZ;
+    @Shadow
+    @Final
+    public int cellCountY;
+    @Shadow
+    @Final
+    public int cellCountXZ;
     @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
@@ -113,6 +120,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         return bts$inverseCellWidth;
     }
 
+    @Unique
+    private double[] sliceBuffer;
 
     @Inject(method = "<init>", at = @At("TAIL"))
     private void bts$initOptimizationFields(CallbackInfo ci) {
@@ -137,6 +146,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         this.surfaceCache = new int[size * size];
         Arrays.fill(this.surfaceCache, Integer.MIN_VALUE);
         this.reusableContext = new CachedPointContext();
+
+        this.sliceBuffer = new double[this.cellCountY + 1];
     }
 
     /**
@@ -339,5 +350,38 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         this.arrayIndex = i;
 
         return (NoiseChunk)(Object) this;
+    }
+
+    /**
+     * @author Sixik
+     * @reason Redirect to flat iterator
+     */
+    @Overwrite
+    private void fillSlice(boolean pIsSlice0, int pStart) {
+        this.cellStartBlockX = pStart * this.cellWidth;
+        this.inCellX = 0;
+
+        int sizeY = this.cellCountY + 1;
+
+        for (int i = 0; i < this.cellCountXZ + 1; i++) {
+            int j = this.firstCellZ + i;
+            this.cellStartBlockZ = j * this.cellWidth;
+            this.inCellZ = 0;
+            this.arrayInterpolationCounter++;
+
+            for (NoiseChunk.NoiseInterpolator noisechunk$noiseinterpolator : this.interpolators) {
+
+                noisechunk$noiseinterpolator.fillArray(this.sliceBuffer, this.sliceFillingContextProvider);
+                ((NoiseChunk$NoiseInterpolatorPatch)noisechunk$noiseinterpolator).bts$copyData(
+                        this.sliceBuffer,
+                        pIsSlice0,
+                        i * sizeY,
+                        sizeY
+                );
+
+            }
+        }
+
+        this.arrayInterpolationCounter++;
     }
 }

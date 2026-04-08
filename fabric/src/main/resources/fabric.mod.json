@@ -29,6 +29,7 @@
     "generator_accelerator_noise_native.mixins.json",
     "generator_accelerator_aquifer.mixins.json",
     "generator_accelerator_features.mixins.json",
+    "generator_accelerator_flat_block_structure.mixins.json",
     "generator_accelerator_heightmap.mixins.json",
     "generator_accelerator_beardifier.mixins.json",
     "generator_accelerator_surface.mixins.json",

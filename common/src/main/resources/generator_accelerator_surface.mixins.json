@@ -13,6 +13,7 @@
     "MixinSurfaceRules$SequenceRule",
     "MixinSurfaceRules$SequenceRuleSource",
     "MixinSurfaceSystem$fast_set_block",
+    "SurfaceSystem$new_build_surface",
     "blockpredicates.MixinAllOfPredicate$primitive_array",
     "blockpredicates.MixinAnyOfPredicate$primitive_array",
     "blockpredicates.MixinCombiningPredicate$convert_to_primitive_array"

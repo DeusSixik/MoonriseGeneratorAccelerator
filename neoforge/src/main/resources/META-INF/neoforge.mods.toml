@@ -53,6 +53,9 @@ config = "generator_accelerator_noise_native.mixins.json"
 config = "generator_accelerator_aquifer.mixins.json"
 
 [[mixins]]
+config = "generator_accelerator_flat_block_structure.mixins.json"
+
+[[mixins]]
 config = "generator_accelerator_heightmap.mixins.json"
 
 [[mixins]]
