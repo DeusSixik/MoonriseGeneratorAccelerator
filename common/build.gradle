@@ -20,4 +20,7 @@ dependencies {
     compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
 
     compileOnlyApi "curse.maven:terrablender-neoforge-940057:6054947"
+
+    modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962791"
+    modCompileOnlyApi "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 }

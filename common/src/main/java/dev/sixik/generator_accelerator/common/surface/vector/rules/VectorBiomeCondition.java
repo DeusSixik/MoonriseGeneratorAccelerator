@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules;
 
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
+import net.minecraft.core.Holder;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.biome.Biome;
 
@@ -17,29 +18,21 @@ public class VectorBiomeCondition implements VectorCondition {
 
     @Override
     public void filter(BitSet activeMask, VectorChunkContext ctx) {
-        /*
-            (Fast Path)
-            If a rule only specifies 1 biome (90% of cases), we don't make any extra allocations.
-         */
-        if (this.targetBiomes.size() == 1) {
-            BitSet biomeMask = ctx.getBiomeMask(this.targetBiomes.get(0));
-            activeMask.and(biomeMask);
-            return;
+        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
+
+            Holder<Biome> biome = ctx.getBiome(i);
+
+            boolean matches = false;
+            for (int j = 0; j < targetBiomes.size(); j++) {
+                if (biome.is(targetBiomes.get(j))) {
+                    matches = true;
+                    break;
+                }
+            }
+
+            if (!matches) {
+                activeMask.clear(i);
+            }
         }
-
-        // (OR)
-        BitSet combinedBiomeMask = new BitSet(4096);
-
-        List<ResourceKey<Biome>> biomes = this.targetBiomes;
-        for (int i = 0; i < biomes.size(); i++) {
-            // We take a mask of a separate biome (instantly from the context cache)
-            BitSet singleBiomeMask = ctx.getBiomeMask(biomes.get(i));
-
-            // If a block was '1' in at least one of the biomes, it will become '1' in combinedBiomeMask
-            combinedBiomeMask.or(singleBiomeMask);
-        }
-
-        // Cutting off the leftovers
-        activeMask.and(combinedBiomeMask);
     }
 }

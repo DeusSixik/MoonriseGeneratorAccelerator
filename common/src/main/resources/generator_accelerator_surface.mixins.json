@@ -3,6 +3,7 @@
   "package": "dev.sixik.generator_accelerator.common.surface.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator.common.surface.GASurfaceMixinPlugin",
   "mixins": [
     "FastSurfaceSystemCarvingMixin",
     "MixinSurfaceRules",
@@ -16,7 +17,9 @@
     "SurfaceSystem$new_build_surface",
     "blockpredicates.MixinAllOfPredicate$primitive_array",
     "blockpredicates.MixinAnyOfPredicate$primitive_array",
-    "blockpredicates.MixinCombiningPredicate$convert_to_primitive_array"
+    "blockpredicates.MixinCombiningPredicate$convert_to_primitive_array",
+    "compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
+    "compats.natures_spirit.NaturesSpirit$SurfaceBuilderMixin$fix_compat"
   ],
   "injectors": {
     "defaultRequire": 1

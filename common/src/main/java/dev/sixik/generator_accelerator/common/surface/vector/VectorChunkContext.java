@@ -38,6 +38,9 @@ public class VectorChunkContext {
     public final RandomState randomState;
     public final SurfaceSystem surfaceSystem;
 
+    public final Holder<Biome>[] biomeCache = new Holder[4096];
+    private final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
+
     public VectorChunkContext(Function<BlockPos, Holder<Biome>> biomeManager, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
         this.biomeManager = biomeManager;
         this.STONE_ID = defaultBlockId;
@@ -52,47 +55,28 @@ public class VectorChunkContext {
         this.sectionStartY = startY;
         this.sectionStartZ = startZ;
         this.biomeMaskCache.clear();
+
+        Arrays.fill(this.biomeCache, null);
     }
 
-    public BitSet getBiomeMask(ResourceKey<Biome> targetBiome) {
-        final BitSet value_from_cache = biomeMaskCache.get(targetBiome);
-        if(value_from_cache != null) return value_from_cache;
-
-        BitSet mask = new BitSet(4096);
-        final BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
-
-        for (int by = 0; by < 4; by++) {
-            for (int bz = 0; bz < 4; bz++) {
-                for (int bx = 0; bx < 4; bx++) {
-                    int worldX = this.sectionStartX + (bx * 4);
-                    int worldY = this.sectionStartY + (by * 4);
-                    int worldZ = this.sectionStartZ + (bz * 4);
-
-                    Holder<Biome> holder = biomeManager.apply(blockPos.set(worldX, worldY, worldZ));
-
-                    if(holder.is(targetBiome)) {
-                        fillBiomeCubeInMask(mask, bx, by, bz);
-                    }
-                }
-            }
+    public Holder<Biome> getBiome(int index) {
+        Holder<Biome> cached = this.biomeCache[index];
+        if (cached != null) {
+            return cached;
         }
-        biomeMaskCache.put(targetBiome, mask);
-        return mask;
-    }
 
-    private void fillBiomeCubeInMask(BitSet mask, int bx, int by, int bz) {
-        int startX = bx * 4;
-        int startY = by * 4;
-        int startZ = bz * 4;
+        int localX = index & 15;
+        int localZ = (index >> 4) & 15;
+        int localY = (index >> 8) & 15;
 
-        for (int y = 0; y < 4; y++) {
-            for (int z = 0; z < 4; z++) {
-                for (int x = 0; x < 4; x++) {
-                    int index = ((startY + y) << 8) | ((startZ + z) << 4) | (startX + x);
-                    mask.set(index);
-                }
-            }
-        }
+        cached = this.biomeManager.apply(this.biomePos.set(
+                this.sectionStartX + localX,
+                this.sectionStartY + localY,
+                this.sectionStartZ + localZ
+        ));
+
+        this.biomeCache[index] = cached; // Сохраняем на будущее
+        return cached;
     }
 
     public void buildDepthMap(ChunkAccess chunk) {
