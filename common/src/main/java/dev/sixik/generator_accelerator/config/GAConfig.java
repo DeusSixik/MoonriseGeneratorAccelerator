@@ -20,7 +20,7 @@ public class GAConfig {
 
     public boolean enableNoisePatch                 = true;
 
-    public boolean enableNoiseNativePatch           = false;
+    public boolean enableNoiseNativePatch           = true;
 
     public boolean enableStructuresPatch            = true;
 

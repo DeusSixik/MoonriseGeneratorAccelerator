@@ -4,12 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
   "mixins": [
-    "FrontAndTopCrashFix",
-    "MixinNoiseBasedChunkGenerator",
-    "MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column",
-    "MixinProtoChunk$fast_set_block",
-    "MixinProtoChunk$fast_get_block",
-    "MixinWorldGenRegion$fast_set_block"
+
   ],
   "injectors": {
     "defaultRequire": 1
