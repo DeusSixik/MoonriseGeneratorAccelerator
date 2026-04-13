@@ -36,8 +36,9 @@ dependencies {
 
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
+    modRuntimeOnly "curse.maven:shadow-config-1421861:7625074"
     modRuntimeOnly 'me.lucko:fabric-permissions-api:0.3.3'
-    modRuntimeOnly "curse.maven:spark-361579:5759670"
+//    modRuntimeOnly "curse.maven:spark-361579:5759670"
 
     if (project.hasProperty('withMoonrise')) {
         modRuntimeOnly "curse.maven:moonrise-1096335:7089176"
