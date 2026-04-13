@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.surface;
 
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;
 import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
+import dev.sixik.generator_accelerator.config.GAConfig;
 
 public class GASurfaceMixinPlugin extends GAMixinPlugin {
     @Override
@@ -15,5 +16,10 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.surface.mixin.compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
                 "net.potionstudios.biomeswevegone.mixin.SurfaceSystemMixin"
         ));
+    }
+
+    @Override
+    public boolean isConfigEnable(GAConfig config) {
+        return config.enableSurfacePatch;
     }
 }

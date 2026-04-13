@@ -32,11 +32,22 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private int @Nullable [] bts$rawBlockData;
 
+    /**
+     * Получить сырые данные блоков в виде плоского одномерного массива.
+     * Размер массива всегда равен 4096 (16x16x16).
+     * Значения внутри - это глобальные ID BlockState (Global Palette ID).
+     * @return массив блоков или null, если данные еще не распакованы.
+     */
     @Override
     public int @Nullable [] bts$getRawBlockData() {
         return bts$rawBlockData;
     }
 
+    /**
+     * Распаковать данные из {@link net.minecraft.world.level.chunk.PalettedContainer}
+     * в плоский массив {@code int[]} для сверхбыстрой генерации.
+     * Должен вызываться перед началом тяжелых циклов записи.
+     */
     @Override
     public void bts$unpackForGeneration() {
         if (this.bts$rawBlockData != null) return;
@@ -62,20 +73,31 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
     }
 
+    /**
+     * Сжать обновленный плоский массив обратно в {@link net.minecraft.world.level.chunk.PalettedContainer}
+     * для экономии оперативной памяти и совместимости с ванильным рендером/сохранением.
+     * После вызова этого метода сырой массив "замораживается" (обнуляется или возвращается в пул).
+     */
     @Override
     public void bts$packAndFreeze() {
         if (bts$rawBlockData == null) return;
 
-        // Converting raw data to a familiar PalettedContainer
-        for (int y = 0; y < 16; y++) {
-            for (int z = 0; z < 16; z++) {
-                for (int x = 0; x < 16; x++) {
-                    int index = (y << 8) | (z << 4) | x;
-                    int stateId = bts$rawBlockData[index];
-                    BlockState state = Block.stateById(stateId);
-                    this.states.set(x, y, z, state);
+        this.states.acquire();
+        try {
+            // Converting raw data to a familiar PalettedContainer
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        int index = (y << 8) | (z << 4) | x;
+                        int stateId = bts$rawBlockData[index];
+                        BlockState state = Block.stateById(stateId);
+
+                        this.states.set(this.states.strategy.getIndex(x, y, z), state);
+                    }
                 }
             }
+        } finally {
+            this.states.release();
         }
 
         bts$rawBlockData = null;

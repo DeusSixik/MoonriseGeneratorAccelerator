@@ -3,6 +3,7 @@
   "package": "dev.sixik.generator_accelerator.common.blender.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator.common.blender.GABlenderMixinPlugin",
   "mixins": [
     "MixinBlender$redirect_to_new_blender",
     "MixinBlendingData"

@@ -239,3 +239,8 @@ accessible class net/minecraft/world/level/levelgen/SurfaceRules$WaterConditionS
 accessible class net/minecraft/world/level/levelgen/SurfaceRules$Temperature
 accessible class net/minecraft/world/level/levelgen/SurfaceRules$Steep
 accessible class net/minecraft/world/level/levelgen/SurfaceRules$Hole
+
+accessible field net/minecraft/world/level/levelgen/structure/templatesystem/BlockMatchTest block Lnet/minecraft/world/level/block/Block;
+accessible field net/minecraft/world/level/levelgen/structure/templatesystem/TagMatchTest tag Lnet/minecraft/tags/TagKey;
+
+accessible method net/minecraft/world/level/chunk/PalettedContainer set (ILjava/lang/Object;)V

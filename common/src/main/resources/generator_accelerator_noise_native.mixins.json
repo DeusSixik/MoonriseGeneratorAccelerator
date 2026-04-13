@@ -3,6 +3,7 @@
   "package": "dev.sixik.generator_accelerator.common.noise_native.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator.common.noise_native.GANativeNoiseMixinPlugin",
   "mixins": [
     "MixinNoiseDensityFunction",
     "MixinNormalNoise$redirect_to_native",

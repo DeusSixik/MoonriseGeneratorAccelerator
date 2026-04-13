@@ -1,7 +1,11 @@
 package dev.sixik.generator_accelerator.api.mixin;
 
+import com.mojang.logging.LogUtils;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.objectweb.asm.tree.ClassNode;
+import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
@@ -9,6 +13,8 @@ import java.util.List;
 import java.util.Set;
 
 public abstract class GAMixinPlugin implements IMixinConfigPlugin {
+
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     public static List<MixinApplier> MixinAppliers = new ObjectArrayList<>();
 
@@ -23,6 +29,12 @@ public abstract class GAMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+
+        final var config = GAConfigManager.getConfigOrLoad();
+        if(config.isPresent() && !isConfigEnable(config.get())) {
+            LOGGER.info("Mixin {} is disabled by config", mixinClassName);
+            return false;
+        }
 
         for (MixinApplier mixinApplier : MixinAppliers) {
             if(mixinApplier.hasMixin(mixinClassName) && !mixinApplier.isModLoaded())
@@ -51,4 +63,6 @@ public abstract class GAMixinPlugin implements IMixinConfigPlugin {
     public void postApply(String s, ClassNode classNode, String s1, IMixinInfo iMixinInfo) {
 
     }
+
+    public abstract boolean isConfigEnable(GAConfig config);
 }

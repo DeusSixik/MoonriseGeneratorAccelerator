@@ -29,7 +29,8 @@ public class GAConfigManager {
                 return Optional.empty();
             }
 
-            loadIsolatedConfig();
+            config = new GAConfig();
+//            loadIsolatedConfig();
         }
         return Optional.of((GAConfig) config);
     }

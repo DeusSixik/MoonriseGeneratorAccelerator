@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.biome;
 
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;
 import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
+import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 
 public class GABiomeMixinPlugin extends GAMixinPlugin {
@@ -12,5 +13,10 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinParameterList$redirect_search",
                 ""
         ));
+    }
+
+    @Override
+    public boolean isConfigEnable(GAConfig config) {
+        return config.enableBiomePatch;
     }
 }

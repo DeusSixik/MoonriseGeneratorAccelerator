@@ -3,6 +3,7 @@
   "package": "dev.sixik.generator_accelerator.common.noise.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator.common.noise.GANoiseMixinPlugin",
   "mixins": [
     "MixinBlendedNoise$flat_data",
     "MixinImprovedNoise",
