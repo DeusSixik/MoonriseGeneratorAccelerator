@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.surface.mixin.compats.natures_spi
 import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
-import net.hibiscus.naturespirit.NatureSpirit;
+import net.hibiscus.naturespirit.config.NSConfig;
 import net.hibiscus.naturespirit.registration.NSBiomes;
 import net.hibiscus.naturespirit.registration.NSWorldGen;
 import net.minecraft.core.Holder;
@@ -65,7 +65,7 @@ public class NaturesSpirit$SurfaceBuilderMixin$fix_compat {
     )
     @Inject(method = "@MixinSquared:Handler", at = @At(value = "INVOKE", target = "Lnet/minecraft/core/Holder;is(Lnet/minecraft/resources/ResourceKey;)Z", ordinal = 0))
     private void injectPillars(RandomState noiseConfig, BiomeManager biomeAccess, Registry<Biome> biomeRegistry, boolean useLegacyRandom, WorldGenerationContext heightContext, ChunkAccess chunk, NoiseChunk chunkNoiseSampler, SurfaceRules.RuleSource materialRule, CallbackInfo ci, @Local Holder<Biome> registryEntry, @Local(ordinal = 2) int k, @Local(ordinal = 3) int l, @Local(ordinal = 4) int m, @Local(ordinal = 5) int n, @Local VectorBlockColumn blockColumn) {
-        if (NatureSpirit.CONFIG.sugi_and_stratified_pillars) {
+        if (NSConfig.sugiAndStratifiedPillars) {
             int o = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, k, l) + 1;
             if (registryEntry.is(NSBiomes.SUGI_FOREST) || registryEntry.is(NSBiomes.BLOOMING_SUGI_FOREST)) {
                 this.placeSugiPillar(blockColumn, m, n, o, chunk);

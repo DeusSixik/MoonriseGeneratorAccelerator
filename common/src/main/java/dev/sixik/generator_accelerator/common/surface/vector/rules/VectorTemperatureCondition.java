@@ -18,15 +18,13 @@ public class VectorTemperatureCondition implements VectorCondition {
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
         for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
+            Holder<Biome> biome = ctx.surfaceBiomes[i & 255];
+
             int localX = i & 15;
             int localZ = (i >> 4) & 15;
-            int localY = (i >> 8) & 15;
+            int localY = i >> 8;
 
-            int globalX = ctx.sectionStartX + localX;
-            int globalY = ctx.sectionStartY + localY;
-            int globalZ = ctx.sectionStartZ + localZ;
-
-            Holder<Biome> biome = ctx.biomeManager.apply(pos.set(globalX, globalY, globalZ));
+            pos.set(ctx.sectionStartX + localX, ctx.sectionStartY + localY, ctx.sectionStartZ + localZ);
 
             if (!biome.value().coldEnoughToSnow(pos)) {
                 activeMask.clear(i);

@@ -244,3 +244,5 @@ accessible field net/minecraft/world/level/levelgen/structure/templatesystem/Blo
 accessible field net/minecraft/world/level/levelgen/structure/templatesystem/TagMatchTest tag Lnet/minecraft/tags/TagKey;
 
 accessible method net/minecraft/world/level/chunk/PalettedContainer set (ILjava/lang/Object;)V
+
+accessible field net/minecraft/world/level/levelgen/SurfaceSystem noiseRandom Lnet/minecraft/world/level/levelgen/PositionalRandomFactory;

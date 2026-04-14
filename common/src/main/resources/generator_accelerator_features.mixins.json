@@ -8,9 +8,10 @@
     "FastHolderSetMixin",
     "FastPlacedFeatureMixin",
     "MixinChunkAccess",
-    "features.MixinOreFeature",
     "compats.confluence.Confluence$PlacedFeatureMixin$fix",
-    "features.MixinTreeFeature"
+    "features.MixinOreFeature",
+    "features.MixinTreeFeature",
+    "compats.owo.Mixin$OWO$OreFeature"
   ],
   "injectors": {
     "defaultRequire": 1

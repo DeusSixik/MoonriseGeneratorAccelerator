@@ -1,30 +1,26 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
 
 import java.util.Arrays;
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.Function;
 
 public class VectorChunkContext {
 
-    public final Function<BlockPos, Holder<Biome>> biomeManager;
-    private final Map<ResourceKey<Biome>, BitSet> biomeMaskCache = new HashMap<>();
+    public final Holder<Biome>[] surfaceBiomes;
+
     public final short[] surfaceHeights = new short[256];
     public final int[] surfaceDepths = new int[256];
     public final double[] secondarySurfaceNoises = new double[256];
 
     public final int STONE_ID;
+    public final int AIR_ID;
+    public final int WATER_ID;
 
     public final byte[] stoneDepthAbove = new byte[4096];
     public final byte[] stoneDepthBelow = new byte[4096];
@@ -38,52 +34,31 @@ public class VectorChunkContext {
     public final RandomState randomState;
     public final SurfaceSystem surfaceSystem;
 
-    public final Holder<Biome>[] biomeCache = new Holder[4096];
-    private final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
-
-    public VectorChunkContext(Function<BlockPos, Holder<Biome>> biomeManager, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
-        this.biomeManager = biomeManager;
+    public VectorChunkContext(Holder<Biome>[] surfaceBiomes, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
+        this.surfaceBiomes = surfaceBiomes;
         this.STONE_ID = defaultBlockId;
+        this.AIR_ID = Block.getId(Blocks.AIR.defaultBlockState());
+        this.WATER_ID = Block.getId(Blocks.WATER.defaultBlockState());
+
         this.worldContext = worldContext;
         this.randomState = randomState;
         this.surfaceSystem = surfaceSystem;
-        Arrays.fill(this.waterHeights, Integer.MIN_VALUE);
     }
 
     public void updateForSection(int startX, int startY, int startZ) {
         this.sectionStartX = startX;
         this.sectionStartY = startY;
         this.sectionStartZ = startZ;
-        this.biomeMaskCache.clear();
-
-        Arrays.fill(this.biomeCache, null);
+        Arrays.fill(this.waterHeights, Integer.MIN_VALUE);
     }
 
-    public Holder<Biome> getBiome(int index) {
-        Holder<Biome> cached = this.biomeCache[index];
-        if (cached != null) {
-            return cached;
-        }
-
-        int localX = index & 15;
-        int localZ = (index >> 4) & 15;
-        int localY = (index >> 8) & 15;
-
-        cached = this.biomeManager.apply(this.biomePos.set(
-                this.sectionStartX + localX,
-                this.sectionStartY + localY,
-                this.sectionStartZ + localZ
-        ));
-
-        this.biomeCache[index] = cached; // Сохраняем на будущее
-        return cached;
+    public Holder<Biome> getBiome(int xzIdx) {
+        return this.surfaceBiomes[xzIdx & 255];
     }
 
     public void buildDepthMap(ChunkAccess chunk) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-
-                // +1 because vanilla thinks the same
                 this.surfaceHeights[x | (z << 4)] = (short) (chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1);
             }
         }
@@ -102,40 +77,49 @@ public class VectorChunkContext {
         }
     }
 
-    public void calculateStoneDepths(int[] rawBlockData, int previousSectionBottomDepths[]) {
+    public void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int xzIdx = x | (z << 4);
-                int depthCounter = previousSectionBottomDepths[x | (z << 4)];
 
+                int depthCounterAbove = previousSectionBottomDepths[xzIdx];
                 for (int y = 15; y >= 0; y--) {
                     int index = (y << 8) | (z << 4) | x;
                     int blockId = rawBlockData[index];
 
-                    BlockState currentBlock = Block.stateById(blockId);
+                    boolean isSolid = blockId == STONE_ID || (blockId != AIR_ID && blockId != WATER_ID);
 
-                    if (!currentBlock.isAir() && currentBlock.getFluidState().isEmpty()) {
-                        depthCounter++;
-                        this.stoneDepthAbove[index] = (byte) depthCounter;
+                    if (isSolid) {
+                        depthCounterAbove++;
+                        this.stoneDepthAbove[index] = (byte) Math.min(depthCounterAbove, 127); // Защита от переполнения byte
                     } else {
-                        depthCounter = 0;
+                        depthCounterAbove = 0;
                         this.stoneDepthAbove[index] = 0;
                     }
 
-                    if (this.waterHeights[xzIdx] == Integer.MIN_VALUE) {
-                        if (isLiquid(currentBlock)) {
-                            this.waterHeights[xzIdx] = this.sectionStartY + y;
-                        }
+                    if (this.waterHeights[xzIdx] == Integer.MIN_VALUE && blockId == WATER_ID) {
+                        this.waterHeights[xzIdx] = this.sectionStartY + y;
                     }
                 }
+                previousSectionBottomDepths[xzIdx] = depthCounterAbove;
 
-                previousSectionBottomDepths[x | (z << 4)] = depthCounter;
+                int depthCounterBelow = 0;
+                for (int y = 0; y <= 15; y++) {
+                    int index = (y << 8) | (z << 4) | x;
+                    int blockId = rawBlockData[index];
+
+                    boolean isSolid = blockId == STONE_ID || (blockId != AIR_ID && blockId != WATER_ID);
+
+                    if (isSolid) {
+                        depthCounterBelow++;
+                        this.stoneDepthBelow[index] = (byte) Math.min(depthCounterBelow, 127);
+                    } else {
+                        depthCounterBelow = 0;
+                        this.stoneDepthBelow[index] = 0;
+                    }
+                }
             }
         }
-    }
-
-    private boolean isLiquid(BlockState currentBlock) {
-        return !currentBlock.getFluidState().isEmpty();
     }
 
     public void preparePreliminarySurface(NoiseChunk noiseChunk, int minX, int minZ) {

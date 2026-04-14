@@ -21,9 +21,15 @@ dependencies {
 
     compileOnlyApi "curse.maven:terrablender-neoforge-940057:6054947"
 
-    modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962791"
+    modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962784"
     modCompileOnlyApi "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 
 //    modCompileOnly "curse.maven:shadow-config-1421861:7625074"
     modCompileOnly files("./libs/shadowconfig-common-1.1a.jar")
+
+    modCompileOnly "curse.maven:owo-lib-532610:6446006"
+//    modCompileOnly "curse.maven:lithostitched-936015:7832789" // 1.6.5
+    modCompileOnly "curse.maven:lithostitched-936015:7063201"   // 1.5.0
+
+    modCompileOnly "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 }

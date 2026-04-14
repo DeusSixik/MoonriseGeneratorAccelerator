@@ -12,6 +12,11 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$PlacedFeatureMixin$fix",
                 "org.confluence.mod.mixin.level.PlacedFeatureMixin"
         ));
+
+        create("io.wispforest.owo.Owo", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.owo.Mixin$OWO$OreFeature",
+                "io.wispforest.owo.mixin.Copenhagen"
+        ));
     }
 
     @Override
