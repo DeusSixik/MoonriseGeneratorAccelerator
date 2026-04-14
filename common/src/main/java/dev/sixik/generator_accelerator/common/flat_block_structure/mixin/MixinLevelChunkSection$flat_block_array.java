@@ -30,7 +30,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     public short nonEmptyBlockCount;
 
     @Unique
-    private int @Nullable [] bts$rawBlockData;
+    private volatile int @Nullable [] bts$rawBlockData;
 
     /**
      * Получить сырые данные блоков в виде плоского одномерного массива.
@@ -129,6 +129,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             int index = (pY << 8) | (pZ << 4) | pX;
             cir.setReturnValue(Block.stateById(this.bts$rawBlockData[index]));
         }
+
     }
 
     @Inject(method = "getFluidState", at = @At("HEAD"), cancellable = true)

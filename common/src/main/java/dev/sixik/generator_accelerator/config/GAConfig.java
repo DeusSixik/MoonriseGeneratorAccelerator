@@ -21,7 +21,7 @@ public class GAConfig {
 
     public boolean enableFeaturesPatch = false;
 
-    public boolean enableFlatBlockStructurePatch = false;
+    public boolean enableFlatBlockStructurePatch = true;
 
     public boolean enableHeightmapPatch = false;
 
