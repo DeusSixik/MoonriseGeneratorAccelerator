@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.features.mixin;
+package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
@@ -39,7 +39,18 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     }
 
     @Unique
-    private static final ThreadLocal<BitSet> SHARED_BITSET = ThreadLocal.withInitial(BitSet::new);
+    private static final ThreadLocal<BitSet> BTS$SHARED_BITSET = ThreadLocal.withInitial(BitSet::new);
+
+    @Unique
+    private static final Vec3i[] BTS$DIRECTIONS =
+            Arrays.stream(Direction.values()).map(Direction::getNormal).toList().toArray(new Vec3i[0]);
+
+    @Unique
+    private static final ThreadLocal<IdentityHashMap<RuleTest, Block[]>> BTS$RULE_CACHE =
+            ThreadLocal.withInitial(IdentityHashMap::new);
+
+    @Unique
+    private static final Block[] BTS$COMPLEX_RULE_MARKER = new Block[0];
 
     /**
      * @author Sixik
@@ -75,11 +86,9 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         for (int l1 = k; l1 <= k + j1; l1++) {
             for (int i2 = i1; i2 <= i1 + j1; i2++) {
 
-                // 1. Вычисляем координаты чанка для текущего блока
                 int currentChunkX = l1 >> 4;
                 int currentChunkZ = i2 >> 4;
 
-                // 2. Если мы перешли границу чанка (или это первая итерация) - обновляем кэш!
                 if (currentChunkX != lastChunkX || currentChunkZ != lastChunkZ) {
                     cachedChunk = worldgenlevel.getChunk(currentChunkX, currentChunkZ);
                     cachedHeightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized)cachedChunk).bts$getOrCreateHeightmapUnsynchronized(Heightmap.Types.OCEAN_FLOOR_WG);
@@ -87,10 +96,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                     lastChunkZ = currentChunkZ;
                 }
 
-
-
-                // 3. Читаем высоту МГНОВЕННО, минуя вообще всю ванильную маршрутизацию
-                // block & 15 - это получение локальной координаты (0-15) внутри чанка
                 int height = cachedHeightmap.getFirstAvailable(l1 & 15, i2 & 15) - 1;
 
                 if (l <= height) {
@@ -125,37 +130,45 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     ) {
         int placedCount = 0;
 
-        BitSet bitset = SHARED_BITSET.get();
-        bitset.clear();
+        BitSet bitset = BTS$SHARED_BITSET.get();
+        if (bitset.size() > 262_144) {
+            bitset = new BitSet();
+            BTS$SHARED_BITSET.set(bitset);
+        } else {
+            bitset.clear();
+        }
 
         BlockPos.MutableBlockPos blockpos$mutableblockpos = new BlockPos.MutableBlockPos();
         int j = pConfig.size;
         double[] adouble = new double[j * 4];
 
         for (int k = 0; k < j; k++) {
+            final int mul = k * 4;
             float f = (float)k / j;
             double d0 = Mth.lerp(f, pMinX, pMaxX);
             double d1 = Mth.lerp(f, pMinY, pMaxY);
             double d2 = Mth.lerp(f, pMinZ, pMaxZ);
             double d3 = pRandom.nextDouble() * j / 16.0;
             double d4 = ((Mth.sin((float) Math.PI * f) + 1.0F) * d3 + 1.0) / 2.0;
-            adouble[k * 4 + 0] = d0;
-            adouble[k * 4 + 1] = d1;
-            adouble[k * 4 + 2] = d2;
-            adouble[k * 4 + 3] = d4;
+            adouble[mul] = d0;
+            adouble[mul + 1] = d1;
+            adouble[mul + 2] = d2;
+            adouble[mul + 3] = d4;
         }
 
         for (int l3 = 0; l3 < j - 1; l3++) {
-            if (!(adouble[l3 * 4 + 3] <= 0.0)) {
+            final int mul = l3 * 4;
+            if (!(adouble[mul + 3] <= 0.0)) {
                 for (int i4 = l3 + 1; i4 < j; i4++) {
-                    if (!(adouble[i4 * 4 + 3] <= 0.0)) {
-                        double d8 = adouble[l3 * 4 + 0] - adouble[i4 * 4 + 0];
-                        double d10 = adouble[l3 * 4 + 1] - adouble[i4 * 4 + 1];
-                        double d12 = adouble[l3 * 4 + 2] - adouble[i4 * 4 + 2];
-                        double d14 = adouble[l3 * 4 + 3] - adouble[i4 * 4 + 3];
+                    final int mul2 = i4 * 4;
+                    if (!(adouble[mul2 + 3] <= 0.0)) {
+                        double d8 = adouble[mul] - adouble[mul2];
+                        double d10 = adouble[mul + 1] - adouble[mul2 + 1];
+                        double d12 = adouble[mul + 2] - adouble[mul2 + 2];
+                        double d14 = adouble[mul + 3] - adouble[mul2 + 3];
                         if (d14 * d14 > d8 * d8 + d10 * d10 + d12 * d12) {
-                            if (d14 > 0.0) adouble[i4 * 4 + 3] = -1.0;
-                            else adouble[l3 * 4 + 3] = -1.0;
+                            if (d14 > 0.0) adouble[mul2 + 3] = -1.0;
+                            else adouble[mul + 3] = -1.0;
                         }
                     }
                 }
@@ -169,25 +182,19 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
             Block[] extractedBlocks = null;
 
-            // Взламываем ванильные правила!
             if (rule instanceof BlockMatchTest bmt) {
-                // Правило на 1 конкретный блок
                 extractedBlocks = new Block[] { bmt.block };
             } else if (rule instanceof TagMatchTest tmt) {
-                // Правило на Тег (Решение проблемы с Iterable!)
                 Iterable<Holder<Block>> tagElements = BuiltInRegistries.BLOCK.getTagOrEmpty(tmt.tag);
 
-                // Временно собираем в список
                 List<Block> tempBlocks = new ArrayList<>();
                 for (Holder<Block> holder : tagElements) {
                     tempBlocks.add(holder.value());
                 }
 
-                // Схлопываем в сверхбыстрый плоский массив
                 extractedBlocks = tempBlocks.toArray(new Block[0]);
             }
 
-            // Сохраняем в наш быстрый кэш
             fastTargets[i] = new FastTarget(extractedBlocks, extractedBlocks == null ? rule : null, target.state);
         }
 
@@ -198,12 +205,13 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         float airChance = pConfig.discardChanceOnAirExposure;
         try (BulkSectionAccess bulksectionaccess = new BulkSectionAccess(pLevel)) {
             for (int j4 = 0; j4 < j; j4++) {
-                double radius = adouble[j4 * 4 + 3];
+                final int mul = j4 * 4;
+                double radius = adouble[mul + 3];
                 if (radius < 0.0) continue;
 
-                double centerX = adouble[j4 * 4 + 0];
-                double centerY = adouble[j4 * 4 + 1];
-                double centerZ = adouble[j4 * 4 + 2];
+                double centerX = adouble[mul];
+                double centerY = adouble[mul + 1];
+                double centerZ = adouble[mul + 2];
 
                 int minX = Math.max(Mth.floor(centerX - radius), pX);
                 int minY = Math.max(Mth.floor(centerY - radius), pY);
@@ -212,7 +220,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                 int maxY = Math.max(Mth.floor(centerY + radius), minY);
                 int maxZ = Math.max(Mth.floor(centerZ + radius), minZ);
 
-                // ЗАЖИМАЕМ ВЫСОТУ! Теперь внутри цикла мы гарантированно не выйдем за пределы мира.
                 minY = Math.max(minY, levelMinY);
                 maxY = Math.min(maxY, levelMaxY);
 
@@ -221,7 +228,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                 double offsetY = 0.5 - centerY;
                 double offsetZ = 0.5 - centerZ;
 
-                // ОПТИМИЗАЦИЯ 2: Кэшируем секцию (Убивает 93мс от getSection)
                 LevelChunkSection cachedSection = null;
                 int lastSecX = Integer.MIN_VALUE;
                 int lastSecY = Integer.MIN_VALUE;
@@ -230,10 +236,10 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                 for (int currY = minY; currY <= maxY; currY++) {
                     double dy = (currY + offsetY) * invRadius;
                     double dySq = dy * dy;
-                    if (dySq >= 1.0) continue; // isOutsideBuildHeight удален!
+                    if (dySq >= 1.0) continue;
 
                     int bitIndexY = (currY - pY) * pWidth;
-                    int secY = currY >> 4; // Координата секции по Y
+                    int secY = currY >> 4;
 
                     for (int currZ = minZ; currZ <= maxZ; currZ++) {
                         double dz = (currZ + offsetZ) * invRadius;
@@ -241,7 +247,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                         if (dyzSq >= 1.0) continue;
 
                         int bitIndexYZ = bitIndexY + (currZ - pZ) * pWidth * pHeight;
-                        int secZ = currZ >> 4; // Координата секции по Z
+                        int secZ = currZ >> 4;
 
                         for (int currX = minX; currX <= maxX; currX++) {
                             double dx = (currX + offsetX) * invRadius;
@@ -252,7 +258,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                                 if (!bitset.get(bitIndex)) {
                                     bitset.set(bitIndex);
 
-                                    // Проверяем, сменилась ли секция (16x16x16)
                                     int secX = currX >> 4;
                                     if (secX != lastSecX || secY != lastSecY || secZ != lastSecZ) {
                                         blockpos$mutableblockpos.set(currX, currY, currZ);
@@ -267,16 +272,13 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                                         int j3 = currY & 15;
                                         int k3 = currZ & 15;
                                         BlockState blockstate = cachedSection.getBlockState(i3, j3, k3);
-                                        Block currentBlock = blockstate.getBlock(); // Берем блок всего ОДИН раз!
+                                        Block currentBlock = blockstate.getBlock();
 
-                                        // ОПТИМИЗАЦИЯ 3: Сверхбыстрый перебор без виртуальных вызовов
                                         for (int t = 0; t < fastTargets.length; t++) {
                                             FastTarget target = fastTargets[t];
                                             boolean matched = false;
 
-                                            // Если мы смогли "распаковать" правило в плоский массив
                                             if (target.validBlocks() != null) {
-                                                // Это работает в 100 раз быстрее, чем Set.contains() !
                                                 for (int b = 0; b < target.validBlocks().length; b++) {
                                                     if (currentBlock == target.validBlocks()[b]) { // Сравнение указателей!
                                                         matched = true;
@@ -284,7 +286,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                                                     }
                                                 }
                                             } else {
-                                                // Фолбэк для сложных ванильных правил (если какой-то мод добавил свои кастомные RuleTest)
                                                 matched = target.fallbackRule().test(blockstate, pRandom);
                                             }
 
@@ -311,13 +312,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         return placedCount > 0;
     }
 
-    private static final Vec3i[] DIRECTIONS =
-            Arrays.stream(Direction.values()).map(Direction::getNormal).toList().toArray(new Vec3i[0]);
-
-    private static final ThreadLocal<IdentityHashMap<RuleTest, Block[]>> RULE_CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
-    private static final Block[] COMPLEX_RULE_MARKER = new Block[0];
-
     /**
      * @author Sixik
      * @reason
@@ -332,15 +326,13 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             BlockPos.MutableBlockPos pMutablePos
     ) {
         RuleTest rule = pTargetState.target;
-        IdentityHashMap<RuleTest, Block[]> cache = RULE_CACHE.get();
+        IdentityHashMap<RuleTest, Block[]> cache = BTS$RULE_CACHE.get();
 
-        // Достаем массив блоков для этого правила (или распаковываем, если видим впервые)
         Block[] validBlocks = cache.computeIfAbsent(rule, MixinOreFeature::bts$unwrapRule);
 
         boolean matched = false;
 
-        if (validBlocks != COMPLEX_RULE_MARKER) {
-            // БЫСТРЫЙ ПУТЬ: Проходим по плоскому массиву
+        if (validBlocks != BTS$COMPLEX_RULE_MARKER) {
             Block currentBlock = pState.getBlock();
             for (int i = 0; i < validBlocks.length; i++) {
                 if (currentBlock == validBlocks[i]) {
@@ -349,14 +341,12 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                 }
             }
         } else {
-            // МЕДЛЕННЫЙ ПУТЬ: Для кастомных правил от других модов
             matched = rule.test(pState, pRandom);
         }
 
         if (!matched) {
             return false;
         } else {
-            // Встроенный инлайнинг Air Check'а
             float chance = pConfig.discardChanceOnAirExposure;
             boolean skipAir = (chance <= 0.0F) || (chance < 1.0F && pRandom.nextFloat() < chance);
 
@@ -376,7 +366,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             }
             return list.toArray(new Block[0]);
         }
-        return COMPLEX_RULE_MARKER;
+        return BTS$COMPLEX_RULE_MARKER;
     }
 
     @Unique
@@ -385,16 +375,16 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         int y = pPos.getY();
         int z = pPos.getZ();
 
-        final Vec3i[] dir = DIRECTIONS;
+        final Vec3i[] dir = BTS$DIRECTIONS;
         for (int i = 0; i < dir.length; i++) {
             pPos.setWithOffset(dir[i], x, y, z);
             if (pAdjacentStateAccessor.apply(pPos).isAir()) {
-                pPos.set(x, y, z); // Возвращаем как было перед выходом
+                pPos.set(x, y, z);
                 return true;
             }
         }
 
-        pPos.set(x, y, z); // Возвращаем как было
+        pPos.set(x, y, z);
         return false;
     }
 

@@ -57,7 +57,7 @@ public class GAConfigManager {
                     .path(gameDir.resolve("config"))
                     .build();
 
-            return new Object[]{wrapper, wrapper.getCurrentConfig()};
+            return new Object[]{wrapper, wrapper.read()};
         }
     }
 }
