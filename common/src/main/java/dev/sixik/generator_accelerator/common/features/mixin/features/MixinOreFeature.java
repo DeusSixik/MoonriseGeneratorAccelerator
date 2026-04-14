@@ -213,12 +213,24 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                 double centerY = adouble[mul + 1];
                 double centerZ = adouble[mul + 2];
 
-                int minX = Math.max(Mth.floor(centerX - radius), pX);
-                int minY = Math.max(Mth.floor(centerY - radius), pY);
-                int minZ = Math.max(Mth.floor(centerZ - radius), pZ);
-                int maxX = Math.max(Mth.floor(centerX + radius), minX);
-                int maxY = Math.max(Mth.floor(centerY + radius), minY);
-                int maxZ = Math.max(Mth.floor(centerZ + radius), minZ);
+                // Есть погрешность из-за отказа от (floor), но да пофигу :)
+                int calcMinX = (int)(centerX - radius);
+                int minX = calcMinX > pX ? calcMinX : pX;
+
+                int calcMinY = (int)(centerY - radius);
+                int minY = calcMinY > pY ? calcMinY : pY;
+
+                int calcMinZ = (int)(centerZ - radius);
+                int minZ = calcMinZ > pZ ? calcMinZ : pZ;
+
+                int calcMaxX = (int)(centerX + radius);
+                int maxX = calcMaxX > minX ? calcMaxX : minX;
+
+                int calcMaxY = (int)(centerY + radius);
+                int maxY = calcMaxY > minY ? calcMaxY : minY;
+
+                int calcMaxZ = (int)(centerZ + radius);
+                int maxZ = calcMaxZ > minZ ? calcMaxZ : minZ;
 
                 minY = Math.max(minY, levelMinY);
                 maxY = Math.min(maxY, levelMaxY);
@@ -280,7 +292,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
                                             if (target.validBlocks() != null) {
                                                 for (int b = 0; b < target.validBlocks().length; b++) {
-                                                    if (currentBlock == target.validBlocks()[b]) { // Сравнение указателей!
+                                                    if (currentBlock == target.validBlocks()[b]) {
                                                         matched = true;
                                                         break;
                                                     }
@@ -293,7 +305,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                                                 boolean skipAirCheck = (airChance <= 0.0F) || (airChance < 1.0F && pRandom.nextFloat() < airChance);
 
                                                 blockpos$mutableblockpos.set(currX, currY, currZ);
-                                                if (skipAirCheck || !isAdjacentToAir(bulksectionaccess::getBlockState, blockpos$mutableblockpos)) {
+                                                if (skipAirCheck || !bts$isAdjacentToAirUltraFast(bulksectionaccess, cachedSection, currX, currY, currZ, i3, j3, k3, blockpos$mutableblockpos)) {
                                                     cachedSection.setBlockState(i3, j3, k3, target.placementState(), false);
                                                     placedCount++;
                                                     break;
@@ -388,4 +400,34 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         return false;
     }
 
+    @Unique
+    private boolean bts$isAdjacentToAirUltraFast(
+            BulkSectionAccess access,
+            LevelChunkSection section,
+            int globalX, int globalY, int globalZ,
+            int localX, int localY, int localZ,
+            BlockPos.MutableBlockPos pos
+    ) {
+
+        // Быстро получаем блоки из ChunkSection минуя тяжёлые вызовы у Level
+        if (localX > 0 && localX < 15 && localY > 0 && localY < 15 && localZ > 0 && localZ < 15) {
+            if (section.getBlockState(localX + 1, localY, localZ).isAir()) return true;
+            if (section.getBlockState(localX - 1, localY, localZ).isAir()) return true;
+            if (section.getBlockState(localX, localY + 1, localZ).isAir()) return true;
+            if (section.getBlockState(localX, localY - 1, localZ).isAir()) return true;
+            if (section.getBlockState(localX, localY, localZ + 1).isAir()) return true;
+            if (section.getBlockState(localX, localY, localZ - 1).isAir()) return true;
+            return false;
+        }
+
+        // Если вдруг часть руды находиться в другом чанке то обращаемся через Level
+        pos.set(globalX + 1, globalY, globalZ); if (access.getBlockState(pos).isAir()) return true;
+        pos.set(globalX - 1, globalY, globalZ); if (access.getBlockState(pos).isAir()) return true;
+        pos.set(globalX, globalY + 1, globalZ); if (access.getBlockState(pos).isAir()) return true;
+        pos.set(globalX, globalY - 1, globalZ); if (access.getBlockState(pos).isAir()) return true;
+        pos.set(globalX, globalY, globalZ + 1); if (access.getBlockState(pos).isAir()) return true;
+        pos.set(globalX, globalY, globalZ - 1); if (access.getBlockState(pos).isAir()) return true;
+
+        return false;
+    }
 }
