@@ -36,7 +36,8 @@ dependencies {
 
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
-    modRuntimeOnly "curse.maven:shadow-config-1421861:7625074"
+    modRuntimeOnly files("./libs/shadowconfig-fabric-1.1a.jar")
+
     modRuntimeOnly 'me.lucko:fabric-permissions-api:0.3.3'
 //    modRuntimeOnly "curse.maven:spark-361579:5759670"
 

@@ -1,28 +1,35 @@
 package dev.sixik.generator_accelerator.config;
 
+
+import net.shadowking21.shadowconfig.annotation.ConfigComment;
+
 public class GAConfig {
 
-    public boolean enableAquiferPatch               = true;
+    @ConfigComment("Enable Aquifer Patch")
+    public boolean enableAquiferPatch = false;
 
-    public boolean enableBeardifierPatch            = true;
+    @ConfigComment("Enable Beardifier Patch")
+    public boolean enableBeardifierPatch = false;
 
-    public boolean enableBiomePatch                 = true;
+    @ConfigComment("Enable Biome Patch")
+    public boolean enableBiomePatch = false;
 
-    public boolean enableBlenderPatch               = true;
+    @ConfigComment("Enable Blender Patch")
+    public boolean enableBlenderPatch = false;
 
-    public boolean enableDensityPatch               = true;
+    public boolean enableDensityPatch = false;
 
-    public boolean enableFeaturesPatch              = true;
+    public boolean enableFeaturesPatch = false;
 
-    public boolean enableFlatBlockStructurePatch    = true;
+    public boolean enableFlatBlockStructurePatch = false;
 
-    public boolean enableHeightmapPatch             = true;
+    public boolean enableHeightmapPatch = false;
 
-    public boolean enableNoisePatch                 = true;
+    public boolean enableNoisePatch = false;
 
-    public boolean enableNoiseNativePatch           = true;
+    public boolean enableNoiseNativePatch = false;
 
-    public boolean enableStructuresPatch            = true;
+    public boolean enableStructuresPatch = false;
 
-    public boolean enableSurfacePatch               = true;
+    public boolean enableSurfacePatch = false;
 }

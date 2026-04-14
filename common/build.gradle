@@ -24,5 +24,6 @@ dependencies {
     modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962791"
     modCompileOnlyApi "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 
-    modCompileOnly "curse.maven:shadow-config-1421861:7625074"
+//    modCompileOnly "curse.maven:shadow-config-1421861:7625074"
+    modCompileOnly files("./libs/shadowconfig-common-1.1a.jar")
 }

@@ -10,7 +10,7 @@
 ### Client
 
 - Vanilla `./gradlew :fabric:runClient`
-- Moonrise `./gradlew :fabric:runClient -PwithMoonrise`
+- Moonrise `./gradlew :fabric:runClient  `
 
 ### Server
 - Vanilla `./gradlew :fabric:runServer`
