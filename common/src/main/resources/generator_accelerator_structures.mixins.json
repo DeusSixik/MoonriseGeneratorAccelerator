@@ -13,7 +13,8 @@
     "pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",
     "pools.MixinJigsawPlacement$use_cached_jigsaws",
     "pools.MixinSinglePoolElement$cache_jigsawBlocks",
-    "pools.MixinStructurePoolElement$cache_jigsawBlocks"
+    "pools.MixinStructurePoolElement$cache_jigsawBlocks",
+    "pools.MixinStructureTemplateManager$lru_cache"
   ],
   "injectors": {
     "defaultRequire": 1
