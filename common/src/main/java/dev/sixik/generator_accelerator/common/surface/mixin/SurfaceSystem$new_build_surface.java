@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.mixin;
 
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
@@ -34,6 +35,8 @@ public abstract class SurfaceSystem$new_build_surface {
 
     @Unique
     private static final ThreadLocal<Holder<Biome>[]> BTS$SURFACE_BIOMES = ThreadLocal.withInitial(() -> new Holder[256]);
+    @Unique
+    private static final ThreadLocal<GASurfaceChunkBiomeLookup> BTS$CHUNK_BIOME_LOOKUP = ThreadLocal.withInitial(GASurfaceChunkBiomeLookup::new);
 
     @Unique
     private final SurfaceSystem bts$this = (SurfaceSystem)(Object) this;
@@ -63,6 +66,15 @@ public abstract class SurfaceSystem$new_build_surface {
             NoiseChunk pNoiseChunk,
             SurfaceRules.RuleSource ruleSource
     ) {
+        final GASurfaceChunkBiomeLookup bts$chunkBiome = BTS$CHUNK_BIOME_LOOKUP.get();
+        GABiomeManagerAccess bts$access = (GABiomeManagerAccess) (Object) pBiomeManager;
+        bts$chunkBiome.prepare(
+                bts$access.bts$getNoiseBiomeSource(),
+                bts$access.bts$getBiomeZoomSeed(),
+                pChunk,
+                pBiomeManager
+        );
+        try {
         final VectorSurfaceRules pVectorRules = new VectorSurfaceRules(VectorRuleCompiler.compileRule(ruleSource));
         final ChunkPos chunkpos = pChunk.getPos();
         final int minBlockX = chunkpos.getMinBlockX();
@@ -82,7 +94,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 int globalZ = minBlockZ + z;
                 int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
 
-                Holder<Biome> biome = pBiomeManager.getBiome(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
+                Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
 
                 surfaceBiomes[x | (z << 4)] = biome;
 
@@ -168,6 +180,9 @@ public abstract class SurfaceSystem$new_build_surface {
                     }
                 }
             }
+        }
+        } finally {
+            bts$chunkBiome.dispose();
         }
     }
 }

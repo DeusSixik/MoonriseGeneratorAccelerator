@@ -5,6 +5,7 @@
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.surface.GASurfaceMixinPlugin",
   "mixins": [
+    "GABiomeManagerAccess",
     "FastSurfaceSystemCarvingMixin",
     "MixinSurfaceRules",
     "MixinSurfaceRules$BiomeConditionSource",
