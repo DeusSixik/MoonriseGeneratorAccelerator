@@ -5,6 +5,8 @@
   "minVersion": "0.8",
   "mixins": [
     "FrontAndTopCrashFix",
+    "MixinBlocks",
+    "MixinBlockStateBase$Extension",
     "MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column",
     "MixinProtoChunk$fast_get_block",
     "MixinWorldGenRegion$fast_set_block"

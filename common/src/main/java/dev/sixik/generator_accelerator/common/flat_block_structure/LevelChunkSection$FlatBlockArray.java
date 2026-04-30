@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.flat_block_structure;
 
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -8,6 +9,10 @@ import org.jetbrains.annotations.Nullable;
  * при массовой генерации блоков.
  */
 public interface LevelChunkSection$FlatBlockArray {
+
+    static LevelChunkSection$FlatBlockArray get(LevelChunkSection section) {
+        return (LevelChunkSection$FlatBlockArray) section;
+    }
 
     /**
      * Получить сырые данные блоков в виде плоского одномерного массива.
