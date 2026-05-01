@@ -6,12 +6,26 @@
   "plugin": "dev.sixik.generator_accelerator.common.features.GAFeaturesMixinPlugin",
   "mixins": [
     "FastHolderSetMixin",
-    "FastPlacedFeatureMixin",
     "MixinChunkAccess",
+    "MixinChunkGenerator$apply_biome_decoration",
     "compats.confluence.Confluence$PlacedFeatureMixin$fix",
+    "compats.confluence.Confluence$SecretFlagPlacementMixin",
+    "compats.owo.Mixin$OWO$OreFeature",
     "features.MixinOreFeature",
-    "features.MixinTreeFeature",
-    "compats.owo.Mixin$OWO$OreFeature"
+    "fix.MixinCocoaDecorator$fix_empty_array",
+    "misc.MixinFeatureSorter",
+    "place.FastPlacedFeatureV2Mixin",
+    "place.placment.MixinCarvingMaskPlacement",
+    "place.placment.MixinCountOnEveryLayerPlacement",
+    "place.placment.MixinEnvironmentScanPlacement",
+    "place.placment.MixinFixedPlacement",
+    "place.placment.MixinHeightmapPlacement",
+    "place.placment.MixinHeightRangePlacement",
+    "place.placment.MixinInSquarePlacement",
+    "place.placment.MixinPlacementFilter",
+    "place.placment.MixinPlacementModifier",
+    "place.placment.MixinRandomOffsetPlacement",
+    "place.placment.MixinRepeatingPlacement"
   ],
   "injectors": {
     "defaultRequire": 1

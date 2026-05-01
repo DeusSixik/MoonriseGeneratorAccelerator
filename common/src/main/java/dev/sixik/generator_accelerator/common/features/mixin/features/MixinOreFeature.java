@@ -3,10 +3,8 @@ package dev.sixik.generator_accelerator.common.features.mixin.features;
 import com.mojang.serialization.Codec;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.core.Holder;
-import net.minecraft.core.Vec3i;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -69,7 +67,6 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         double d1 = blockpos.getX() - Math.sin(f) * f1;
         double d2 = blockpos.getZ() + Math.cos(f) * f1;
         double d3 = blockpos.getZ() - Math.cos(f) * f1;
-        int j = 2;
         double d4 = blockpos.getY() + randomsource.nextInt(3) - 2;
         double d5 = blockpos.getY() + randomsource.nextInt(3) - 2;
         int k = blockpos.getX() - Mth.ceil(f1) - i;
@@ -175,6 +172,8 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             }
         }
 
+        final DefaultedRegistry<Block> tag = BuiltInRegistries.BLOCK;
+
         FastTarget[] fastTargets = new FastTarget[pConfig.targetStates.size()];
         for (int i = 0; i < pConfig.targetStates.size(); i++) {
             OreConfiguration.TargetBlockState target = pConfig.targetStates.get(i);
@@ -185,14 +184,21 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             if (rule instanceof BlockMatchTest bmt) {
                 extractedBlocks = new Block[] { bmt.block };
             } else if (rule instanceof TagMatchTest tmt) {
-                Iterable<Holder<Block>> tagElements = BuiltInRegistries.BLOCK.getTagOrEmpty(tmt.tag);
+                final Optional<HolderSet.Named<Block>> tagOpt = tag.getTag(tmt.tag);
+                if(tagOpt.isEmpty()) {
+                    extractedBlocks = new Block[0];
+                } else {
+                    final HolderSet.Named<Block> tagData = tagOpt.get();
+                    final ObjectArrayList<Holder<Block>> tagDataList = (ObjectArrayList<Holder<Block>>) tagData.contents();
+                    final Object[] tagDataArray = tagDataList.elements();
 
-                List<Block> tempBlocks = new ArrayList<>();
-                for (Holder<Block> holder : tagElements) {
-                    tempBlocks.add(holder.value());
+                    final int tagDataSize = tagDataList.size();
+                    final Block[] primitiveArray = new Block[tagDataSize];
+                    for (int i1 = 0; i1 < tagDataSize; i1++) {
+                        primitiveArray[i1] = ((Holder<Block>)tagDataArray[i1]).value();
+                    }
+                    extractedBlocks = primitiveArray;
                 }
-
-                extractedBlocks = tempBlocks.toArray(new Block[0]);
             }
 
             fastTargets[i] = new FastTarget(extractedBlocks, extractedBlocks == null ? rule : null, target.state);

@@ -24,8 +24,8 @@ public class MixinChunkStatusTasks$inject_flat_block_structure {
         for (int i = 0; i < sections.length; i++) {
 
             final LevelChunkSection section = sections[i];
-            if(section == null) continue;
-            ((LevelChunkSection$FlatBlockArray)section).bts$unpackForGeneration();
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$unpackForGeneration();
         }
     }
 
@@ -35,8 +35,8 @@ public class MixinChunkStatusTasks$inject_flat_block_structure {
         for (int i = 0; i < sections.length; i++) {
 
             final LevelChunkSection section = sections[i];
-            if(section == null) continue;
-            ((LevelChunkSection$FlatBlockArray)section).bts$packAndFreeze();
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$packAndFreeze();
         }
     }
 
@@ -44,12 +44,10 @@ public class MixinChunkStatusTasks$inject_flat_block_structure {
     private static void bts$full(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess pChunk, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir) {
         LevelChunkSection[] sections = pChunk.getSections();
         for (int i = 0; i < sections.length; i++) {
-            final LevelChunkSection section = sections[i];
 
-            if(section == null) continue;
-            final LevelChunkSection$FlatBlockArray flatBlockArray = (LevelChunkSection$FlatBlockArray) section;
-            if(flatBlockArray.bts$getRawBlockData() == null) continue;
-            flatBlockArray.bts$packAndFreeze();
+            final LevelChunkSection section = sections[i];
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$packAndFreeze();
         }
     }
 }

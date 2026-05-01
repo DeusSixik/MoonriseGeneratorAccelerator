@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.features.mixin;
+package dev.sixik.generator_accelerator.common.features.mixin.place;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 
+@Deprecated
 @Mixin(PlacedFeature.class)
 public class FastPlacedFeatureMixin {
 

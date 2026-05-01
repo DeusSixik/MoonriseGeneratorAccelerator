@@ -1,8 +1,11 @@
 package dev.sixik.generator_accelerator.common.flat_block_structure.mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
@@ -29,6 +32,10 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Shadow
     public short nonEmptyBlockCount;
 
+    @Shadow
+    public short tickingFluidCount;
+    @Shadow
+    public short tickingBlockCount;
     @Unique
     private volatile int @Nullable [] bts$rawBlockData;
 
@@ -66,7 +73,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
                     if (!state.isAir()) {
                         int index = (y << 8) | (z << 4) | x;
-                        this.bts$rawBlockData[index] = Block.getId(state);
+                        this.bts$rawBlockData[index] = GA$BlockStateExtension.get(state).bts$getFastId();
                     }
                 }
             }
@@ -82,30 +89,44 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     public void bts$packAndFreeze() {
         if (bts$rawBlockData == null) return;
 
-        this.states.acquire();
+        states.acquire();
         try {
-            // Converting raw data to a familiar PalettedContainer
-            for (int y = 0; y < 16; y++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int x = 0; x < 16; x++) {
-                        int index = (y << 8) | (z << 4) | x;
-                        int stateId = bts$rawBlockData[index];
-                        BlockState state = Block.stateById(stateId);
+            short nonAir = 0;
+            short tickBlocks = 0;
+            short tickFluids = 0;
 
-                        this.states.set(this.states.strategy.getIndex(x, y, z), state);
+            BlockState lastState = Blocks.AIR.defaultBlockState();
+            int lastStateIndex = -1;
+
+            for (int i = 0; i < 4096; i++) {
+                int stateId = bts$rawBlockData[i];
+                if(lastStateIndex != stateId) {
+                    lastStateIndex = stateId;
+                    lastState = FastBlockStateCache.getBlockState(stateId);
+                }
+
+                this.states.set(i, lastState);
+
+                if (!lastState.isAir()) {
+                    nonAir++;
+                    if (lastState.isRandomlyTicking()) {
+                        tickBlocks++;
                     }
                 }
+
+                FluidState fluidstate = lastState.getFluidState();
+                if (!fluidstate.isEmpty() && fluidstate.isRandomlyTicking()) {
+                    tickFluids++;
+                }
             }
+
+            this.nonEmptyBlockCount = nonAir;
+            this.tickingBlockCount = tickBlocks;
+            this.tickingFluidCount = tickFluids;
         } finally {
-            this.states.release();
+            bts$rawBlockData = null;
+            states.release();
         }
-
-        bts$rawBlockData = null;
-    }
-
-    @Inject(method = "write", at = @At("HEAD"))
-    public void bts$write(FriendlyByteBuf friendlyByteBuf, CallbackInfo ci) {
-        this.bts$packAndFreeze();
     }
 
     @Inject(method = "getStates", at = @At("HEAD"))
@@ -113,21 +134,11 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         this.bts$packAndFreeze();
     }
 
-    @Inject(method = "recalcBlockCounts", at = @At("HEAD"))
-    public void bts$recalcBlockCounts(CallbackInfo ci) {
-        this.bts$packAndFreeze();
-    }
-
-    @Inject(method = "maybeHas", at = @At("HEAD"))
-    public void bts$maybeHas(Predicate<BlockState> predicate, CallbackInfoReturnable<Boolean> cir) {
-        this.bts$packAndFreeze();
-    }
-
     @Inject(method = "getBlockState", at = @At("HEAD"), cancellable = true)
     public void bts$getBlockState(int pX, int pY, int pZ, CallbackInfoReturnable<BlockState> cir) {
         if (this.bts$rawBlockData != null) {
             int index = (pY << 8) | (pZ << 4) | pX;
-            cir.setReturnValue(Block.stateById(this.bts$rawBlockData[index]));
+            cir.setReturnValue(FastBlockStateCache.getBlockState(this.bts$rawBlockData[index]));
         }
 
     }
@@ -136,7 +147,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     public void bts$getFluidState(int pX, int pY, int pZ, CallbackInfoReturnable<FluidState> cir) {
         if (this.bts$rawBlockData != null) {
             int index = (pY << 8) | (pZ << 4) | pX;
-            cir.setReturnValue(Block.stateById(this.bts$rawBlockData[index]).getFluidState());
+            cir.setReturnValue(FastBlockStateCache.getBlockState(this.bts$rawBlockData[index]).getFluidState());
         }
     }
 
@@ -145,13 +156,23 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         if (this.bts$rawBlockData != null) {
             int index = (pY << 8) | (pZ << 4) | pX;
             int oldId = this.bts$rawBlockData[index];
-            this.bts$rawBlockData[index] = Block.getId(pState);
-            BlockState oldState = Block.stateById(oldId);
+            this.bts$rawBlockData[index] = GA$BlockStateExtension.get(pState).bts$getFastId();
+            BlockState oldState = FastBlockStateCache.getBlockState(oldId);
 
             if (!oldState.isAir()) this.nonEmptyBlockCount--;
             if (!pState.isAir()) this.nonEmptyBlockCount++;
 
             cir.setReturnValue(oldState);
+        }
+    }
+
+    @Inject(method = "maybeHas", at = @At("HEAD"), cancellable = true)
+    public void bts$maybeHas(Predicate<BlockState> predicate, CallbackInfoReturnable<Boolean> cir) {
+        if(bts$rawBlockData != null) {
+            for (int i = 0; i < bts$rawBlockData.length; i++) {
+                if(predicate.test(FastBlockStateCache.getBlockState(bts$rawBlockData[i])))
+                    cir.setReturnValue(true);
+            }
         }
     }
 }

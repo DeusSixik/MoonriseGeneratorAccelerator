@@ -39,7 +39,7 @@ public abstract class SurfaceSystem$new_build_surface {
     private static final ThreadLocal<GASurfaceChunkBiomeLookup> BTS$CHUNK_BIOME_LOOKUP = ThreadLocal.withInitial(GASurfaceChunkBiomeLookup::new);
 
     @Unique
-    private final SurfaceSystem bts$this = (SurfaceSystem)(Object) this;
+    private final SurfaceSystem bts$this = (SurfaceSystem) (Object) this;
 
     @Shadow
     @Final
@@ -75,112 +75,112 @@ public abstract class SurfaceSystem$new_build_surface {
                 pBiomeManager
         );
         try {
-        final VectorSurfaceRules pVectorRules = new VectorSurfaceRules(VectorRuleCompiler.compileRule(ruleSource));
-        final ChunkPos chunkpos = pChunk.getPos();
-        final int minBlockX = chunkpos.getMinBlockX();
-        final int minBlockZ = chunkpos.getMinBlockZ();
+            final VectorSurfaceRules pVectorRules = new VectorSurfaceRules(VectorRuleCompiler.compileRule(ruleSource));
+            final ChunkPos chunkpos = pChunk.getPos();
+            final int minBlockX = chunkpos.getMinBlockX();
+            final int minBlockZ = chunkpos.getMinBlockZ();
 
-        Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
-        boolean hasFrozenOcean = false;
+            Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
+            boolean hasFrozenOcean = false;
 
-        final LevelChunkSection[] sections = pChunk.getSections();
-        final BlockPos.MutableBlockPos columnPos = new BlockPos.MutableBlockPos();
-        final VectorBlockColumn fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
-        final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
+            final LevelChunkSection[] sections = pChunk.getSections();
+            final BlockPos.MutableBlockPos columnPos = new BlockPos.MutableBlockPos();
+            final VectorBlockColumn fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
+            final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
 
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                int globalX = minBlockX + x;
-                int globalZ = minBlockZ + z;
-                int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
-
-                Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
-
-                surfaceBiomes[x | (z << 4)] = biome;
-
-                if (biome.is(Biomes.ERODED_BADLANDS)) {
-                    columnPos.setX(globalX).setZ(globalZ);
-                    this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
-                } else if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
-                    hasFrozenOcean = true;
-                }
-            }
-        }
-
-        VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
-
-        ctx.buildDepthMap(pChunk);
-        ctx.prepareNoiseCaches(bts$this, minBlockX, minBlockZ);
-        ctx.preparePreliminarySurface(pNoiseChunk, minBlockX, minBlockZ);
-
-        int[] previousSectionBottomDepths = new int[256];
-        BitSet stoneMask = BTS$STONE_MASK.get();
-        BitSet workingMask = BTS$WORKING_MASK.get();
-
-        for (int sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
-            LevelChunkSection section = sections[sectionIndex];
-
-            if (section == null || section.hasOnlyAir()) {
-                Arrays.fill(previousSectionBottomDepths, 0);
-                continue;
-            }
-
-            int[] rawBlockData = ((LevelChunkSection$FlatBlockArray)section).bts$getRawBlockData();
-            if (rawBlockData == null) continue;
-
-            int sectionStartY = pChunk.getSectionYFromSectionIndex(sectionIndex) * 16;
-            ctx.updateForSection(minBlockX, sectionStartY, minBlockZ);
-            ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
-
-            stoneMask.clear();
-            int defaultBlockId = Block.getId(this.defaultBlock);
-
-            for (int i = 0; i < 4096; i++) {
-                if (rawBlockData[i] == defaultBlockId) stoneMask.set(i);
-            }
-
-            if (stoneMask.isEmpty()) continue;
-
-            workingMask.clear();
-            workingMask.or(stoneMask);
-
-            pVectorRules.applyToSection(rawBlockData, workingMask, ctx);
-
-            BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
-            for (int i = stoneMask.nextSetBit(0); i >= 0; i = stoneMask.nextSetBit(i + 1)) {
-                int newBlockId = rawBlockData[i];
-                if (newBlockId != defaultBlockId) {
-                    BlockState newState = Block.stateById(newBlockId);
-                    if (!newState.getFluidState().isEmpty()) {
-                        int lx = i & 15;
-                        int lz = (i >> 4) & 15;
-                        int ly = (i >> 8) & 15;
-                        pChunk.markPosForPostprocessing(mutPos.set(minBlockX + lx, sectionStartY + ly, minBlockZ + lz));
-                    }
-                }
-            }
-        }
-
-        if (hasFrozenOcean) {
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    int idx = x | (z << 4);
-                    Holder<Biome> biome = surfaceBiomes[idx];
+                    int globalX = minBlockX + x;
+                    int globalZ = minBlockZ + z;
+                    int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
 
-                    if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
-                        int globalX = minBlockX + x;
-                        int globalZ = minBlockZ + z;
-                        int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
+                    Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
 
+                    surfaceBiomes[x | (z << 4)] = biome;
+
+                    if (biome.is(Biomes.ERODED_BADLANDS)) {
                         columnPos.setX(globalX).setZ(globalZ);
-                        biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ);
-
-                        int minSurfaceLvl = ctx.minSurfaceLevels[idx];
-                        this.frozenOceanExtension(minSurfaceLvl, biome.value(), fastColumn, biomePos, globalX, globalZ, surfaceY);
+                        this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
+                    } else if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                        hasFrozenOcean = true;
                     }
                 }
             }
-        }
+
+            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
+
+            ctx.buildDepthMap(pChunk);
+            ctx.prepareNoiseCaches(bts$this, minBlockX, minBlockZ);
+            ctx.preparePreliminarySurface(pNoiseChunk, minBlockX, minBlockZ);
+
+            int[] previousSectionBottomDepths = new int[256];
+            BitSet stoneMask = BTS$STONE_MASK.get();
+            BitSet workingMask = BTS$WORKING_MASK.get();
+
+            for (int sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
+                LevelChunkSection section = sections[sectionIndex];
+
+                if (section == null || section.hasOnlyAir()) {
+                    Arrays.fill(previousSectionBottomDepths, 0);
+                    continue;
+                }
+
+                int[] rawBlockData = ((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData();
+                if (rawBlockData == null) continue;
+
+                int sectionStartY = pChunk.getSectionYFromSectionIndex(sectionIndex) * 16;
+                ctx.updateForSection(minBlockX, sectionStartY, minBlockZ);
+                ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
+
+                stoneMask.clear();
+                int defaultBlockId = Block.getId(this.defaultBlock);
+
+                for (int i = 0; i < 4096; i++) {
+                    if (rawBlockData[i] == defaultBlockId) stoneMask.set(i);
+                }
+
+                if (stoneMask.isEmpty()) continue;
+
+                workingMask.clear();
+                workingMask.or(stoneMask);
+
+                pVectorRules.applyToSection(rawBlockData, workingMask, ctx);
+
+                BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
+                for (int i = stoneMask.nextSetBit(0); i >= 0; i = stoneMask.nextSetBit(i + 1)) {
+                    int newBlockId = rawBlockData[i];
+                    if (newBlockId != defaultBlockId) {
+                        BlockState newState = Block.stateById(newBlockId);
+                        if (!newState.getFluidState().isEmpty()) {
+                            int lx = i & 15;
+                            int lz = (i >> 4) & 15;
+                            int ly = (i >> 8) & 15;
+                            pChunk.markPosForPostprocessing(mutPos.set(minBlockX + lx, sectionStartY + ly, minBlockZ + lz));
+                        }
+                    }
+                }
+            }
+
+            if (hasFrozenOcean) {
+                for (int x = 0; x < 16; x++) {
+                    for (int z = 0; z < 16; z++) {
+                        int idx = x | (z << 4);
+                        Holder<Biome> biome = surfaceBiomes[idx];
+
+                        if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                            int globalX = minBlockX + x;
+                            int globalZ = minBlockZ + z;
+                            int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
+
+                            columnPos.setX(globalX).setZ(globalZ);
+                            biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ);
+
+                            int minSurfaceLvl = ctx.minSurfaceLevels[idx];
+                            this.frozenOceanExtension(minSurfaceLvl, biome.value(), fastColumn, biomePos, globalX, globalZ, surfaceY);
+                        }
+                    }
+                }
+            }
         } finally {
             bts$chunkBiome.dispose();
         }

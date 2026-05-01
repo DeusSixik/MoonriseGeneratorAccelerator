@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
+import com.google.common.collect.Lists;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -8,12 +9,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelAccessor;
-import net.minecraft.world.level.LevelWriter;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.BulkSectionAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
 import net.minecraft.world.level.levelgen.feature.TreeFeature;
 import net.minecraft.world.level.levelgen.feature.configurations.TreeConfiguration;
@@ -23,12 +24,12 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.shapes.BitSetDiscreteVoxelShape;
 import net.minecraft.world.phys.shapes.DiscreteVoxelShape;
-import org.apache.commons.lang3.NotImplementedException;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -40,20 +41,15 @@ public abstract class MixinTreeFeature {
     private static final Direction[] BTS$DIRS = Direction.values();
 
     @Unique
-    private static final ThreadLocal<LongOpenHashSet[]> BTS$SHARED_QUEUES = ThreadLocal.withInitial(() -> {
-        LongOpenHashSet[] arr = new LongOpenHashSet[7];
-        for (int i = 0; i < 7; i++) arr[i] = new LongOpenHashSet();
+    private static final ThreadLocal<LongArrayList[]> BTS$SHARED_QUEUES = ThreadLocal.withInitial(() -> {
+        LongArrayList[] arr = new LongArrayList[7];
+        for (int i = 0; i < 7; i++) arr[i] = new LongArrayList(256);
         return arr;
     });
 
 
     @Shadow
     protected abstract boolean doPlace(WorldGenLevel worldGenLevel, RandomSource randomSource, BlockPos blockPos, BiConsumer<BlockPos, BlockState> biConsumer, BiConsumer<BlockPos, BlockState> biConsumer2, FoliagePlacer.FoliageSetter foliageSetter, TreeConfiguration treeConfiguration);
-
-    @Shadow
-    private static void setBlockKnownShape(LevelWriter levelWriter, BlockPos blockPos, BlockState blockState) {
-        throw new NotImplementedException();
-    }
 
     /**
      * @author Sixik
@@ -133,7 +129,7 @@ public abstract class MixinTreeFeature {
         bts$fillShape(shape, box, trunks);
         bts$fillShape(shape, box, foliage);
 
-        LongOpenHashSet[] queues = BTS$SHARED_QUEUES.get();
+        LongArrayList[] queues = BTS$SHARED_QUEUES.get();
         for (int i = 0; i < 7; i++)
             queues[i].clear();
 
@@ -150,29 +146,46 @@ public abstract class MixinTreeFeature {
             final int dirLen = dirs.length;
 
             while (currentDist < 7) {
-                LongOpenHashSet currentQueue = queues[currentDist];
+                LongArrayList currentQueue = queues[currentDist];
                 if (currentQueue.isEmpty()) {
                     currentDist++;
                     continue;
                 }
 
-                LongIterator iterator = currentQueue.iterator();
-                while (iterator.hasNext()) {
-                    long pos = iterator.nextLong();
+                int nextDist = currentDist + 1;
+
+                for (int i = 0; i < currentQueue.size(); i++) {
+                    long pos = currentQueue.getLong(i);
                     int px = BlockPos.getX(pos);
                     int py = BlockPos.getY(pos);
                     int pz = BlockPos.getZ(pos);
 
                     if (box.isInside(px, py, pz)) {
+                        int sx = px - box.minX();
+                        int sy = py - box.minY();
+                        int sz = pz - box.minZ();
+
+                        // Защита от дубликатов в LongArrayList
+                        if (currentDist != 0 && shape.isFull(sx, sy, sz)) {
+                            continue;
+                        }
+
                         if (currentDist != 0) {
                             mPos.set(px, py, pz);
-                            BlockState state = bulkAccess.getBlockState(mPos);
-                            if (state.hasProperty(BlockStateProperties.DISTANCE)) {
-                                setBlockKnownShape(level, mPos, state.setValue(BlockStateProperties.DISTANCE, currentDist));
+                            LevelChunkSection section = bulkAccess.getSection(mPos);
+                            if (section != null) {
+                                int lx = px & 15;
+                                int ly = py & 15;
+                                int lz = pz & 15;
+                                BlockState state = section.getBlockState(lx, ly, lz);
+                                if (state.hasProperty(BlockStateProperties.DISTANCE)) {
+                                    // Запись без ванильных локов (false)!
+                                    section.setBlockState(lx, ly, lz, state.setValue(BlockStateProperties.DISTANCE, currentDist), false);
+                                }
                             }
                         }
 
-                        shape.fill(px - box.minX(), py - box.minY(), pz - box.minZ());
+                        shape.fill(sx, sy, sz);
 
                         for (int d = 0; d < dirLen; d++) {
                             Direction dir = dirs[d];
@@ -181,11 +194,11 @@ public abstract class MixinTreeFeature {
                             int nz = pz + dir.getStepZ();
 
                             if (box.isInside(nx, ny, nz)) {
-                                int sx = nx - box.minX();
-                                int sy = ny - box.minY();
-                                int sz = nz - box.minZ();
+                                int nsx = nx - box.minX();
+                                int nsy = ny - box.minY();
+                                int nsz = nz - box.minZ();
 
-                                if (!shape.isFull(sx, sy, sz)) {
+                                if (!shape.isFull(nsx, nsy, nsz)) {
                                     mPos.set(nx, ny, nz);
                                     BlockState neighborState = bulkAccess.getBlockState(mPos);
                                     OptionalInt optDist = LeavesBlock.getOptionalDistanceAt(neighborState);
@@ -194,7 +207,11 @@ public abstract class MixinTreeFeature {
                                         int neighborDist = Math.min(optDist.getAsInt(), currentDist + 1);
                                         if (neighborDist < 7) {
                                             queues[neighborDist].add(BlockPos.asLong(nx, ny, nz));
-                                            currentDist = Math.min(currentDist, neighborDist);
+
+                                            // Если нашли путь короче, запоминаем, чтобы откатить цикл
+                                            if (neighborDist < nextDist) {
+                                                nextDist = neighborDist;
+                                            }
                                         }
                                     }
                                 }
