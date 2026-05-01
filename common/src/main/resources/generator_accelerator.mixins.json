@@ -7,9 +7,12 @@
     "FrontAndTopCrashFix",
     "MixinBlocks",
     "MixinBlockStateBase$Extension",
+    "MixinCarvingMask",
     "MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column",
     "MixinProtoChunk$fast_get_block",
-    "MixinWorldGenRegion$fast_set_block"
+    "MixinStructureManager",
+    "MixinWorldGenRegion$fast_set_block",
+    "utils.MixinHolderSet$Named"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -6,6 +6,8 @@
   "plugin": "dev.sixik.generator_accelerator.common.structures.GAStructuresMixinPlugin",
   "mixins": [
     "MixinChunkAccess$SynchronizeStructureData",
+    "MixinChunkGenerator$optimize_creating_structure",
+    "MixinChunkGeneratorStructureState",
     "optimization.MixinPiecesContainer",
     "optimization.MixinStructurePiece",
     "pools.MixinEmptyPoolElement$default_empty_list",

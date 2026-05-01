@@ -259,3 +259,6 @@ accessible method net/minecraft/world/level/chunk/status/ChunkStatusTasks initia
 accessible method net/minecraft/world/level/chunk/status/ChunkStatusTasks light (Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;
 accessible method net/minecraft/world/level/chunk/status/ChunkStatusTasks generateSpawn (Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;
 accessible method net/minecraft/world/level/chunk/status/ChunkStatusTasks full (Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;
+
+accessible method net/minecraft/world/level/biome/FeatureSorter$StepFeatureData <init> (Ljava/util/List;)V
+accessible method net/minecraft/core/HolderSet$Named contents ()Ljava/util/List;

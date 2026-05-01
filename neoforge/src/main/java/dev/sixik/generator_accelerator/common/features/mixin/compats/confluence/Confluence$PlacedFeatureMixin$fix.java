@@ -27,7 +27,7 @@ public class Confluence$PlacedFeatureMixin$fix {
     private Holder<ConfiguredFeature<?, ?>> feature;
 
     @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.common.features.mixin.FastPlacedFeatureMixin",
+            mixin = "dev.sixik.generator_accelerator.common.features.mixin.place.FastPlacedFeatureMixin",
             name = "bts$placeRecursively"
     )
     @Inject(

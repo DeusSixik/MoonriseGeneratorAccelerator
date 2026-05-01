@@ -8,10 +8,17 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
 
     @Override
     public void onLoad(String s) {
-        create("org.confluence.mod.Confluence", new MixinApplier.Param(
+        create("org.confluence.mod.Confluence",
+                new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$PlacedFeatureMixin$fix",
                 "org.confluence.mod.mixin.level.PlacedFeatureMixin"
-        ));
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$SecretFlagPlacementMixin",
+                        ""
+                )
+        );
+
 
         create("io.wispforest.owo.Owo", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.owo.Mixin$OWO$OreFeature",

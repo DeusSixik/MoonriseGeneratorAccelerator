@@ -18,5 +18,36 @@ import java.util.concurrent.CompletableFuture;
 @Mixin(ChunkStatusTasks.class)
 public class MixinChunkStatusTasks$inject_flat_block_structure {
 
+    @Inject(method = "generateNoise", at = @At("HEAD"))
+    private static void bts$generateNoise(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess pChunk, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir) {
+        LevelChunkSection[] sections = pChunk.getSections();
+        for (int i = 0; i < sections.length; i++) {
 
+            final LevelChunkSection section = sections[i];
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$unpackForGeneration();
+        }
+    }
+
+    @Inject(method = "generateSpawn", at = @At("HEAD"))
+    private static void bts$generateSpawn(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess pChunk, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir) {
+        LevelChunkSection[] sections = pChunk.getSections();
+        for (int i = 0; i < sections.length; i++) {
+
+            final LevelChunkSection section = sections[i];
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$packAndFreeze();
+        }
+    }
+
+    @Inject(method = "full", at = @At("HEAD"))
+    private static void bts$full(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess pChunk, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir) {
+        LevelChunkSection[] sections = pChunk.getSections();
+        for (int i = 0; i < sections.length; i++) {
+
+            final LevelChunkSection section = sections[i];
+            if (section == null) continue;
+            LevelChunkSection$FlatBlockArray.get(section).bts$packAndFreeze();
+        }
+    }
 }

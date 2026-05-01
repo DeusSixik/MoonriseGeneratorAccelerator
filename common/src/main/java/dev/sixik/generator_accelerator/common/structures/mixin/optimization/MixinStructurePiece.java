@@ -78,6 +78,26 @@ public abstract class MixinStructurePiece {
 
                 BlockState oldState = section.setBlockState(lx, ly, lz, blockState);
 
+                if (blockState.hasBlockEntity()) {
+                    if (chunk.getPersistedStatus().getChunkType() == net.minecraft.world.level.chunk.status.ChunkType.LEVELCHUNK) {
+                        net.minecraft.world.level.block.entity.BlockEntity blockEntity = ((net.minecraft.world.level.block.EntityBlock) blockState.getBlock()).newBlockEntity(pos, blockState);
+                        if (blockEntity != null) {
+                            chunk.setBlockEntity(blockEntity);
+                        } else {
+                            chunk.removeBlockEntity(pos);
+                        }
+                    } else {
+                        net.minecraft.nbt.CompoundTag compoundTag = new net.minecraft.nbt.CompoundTag();
+                        compoundTag.putInt("x", pos.getX());
+                        compoundTag.putInt("y", pos.getY());
+                        compoundTag.putInt("z", pos.getZ());
+                        compoundTag.putString("id", "DUMMY");
+                        chunk.setBlockEntityNbt(compoundTag);
+                    }
+                } else if (oldState != null && oldState.hasBlockEntity()) {
+                    chunk.removeBlockEntity(pos);
+                }
+
                 if (oldState != blockState) {
                     chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING).update(lx, pos.getY(), lz, blockState);
                     chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG).update(lx, pos.getY(), lz, blockState);
