@@ -81,6 +81,18 @@ subprojects {
         accessWidenerPath = file("../common/src/main/resources/btsengineconcurrent.accesswidener")
     }
 
+    tasks.withType(AbstractArchiveTask).configureEach {
+        archiveFileName.set(provider {
+            def classifier = archiveClassifier.get()
+            def classifierSuffix = classifier ? "-${classifier}" : ""
+
+            // project.version             => Версия мода
+            // rootProject.archives_name   => Имя мода
+            // project.name                => Лоадер (fabric, neoforge, common)
+            return "[${project.version}] ${rootProject.archives_name}-${project.name}${classifierSuffix}.${archiveExtension.get()}"
+        })
+    }
+
     repositories {
         // Add repositories to retrieve artifacts from in here.
         // You should only use this when depending on other mods because

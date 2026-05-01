@@ -11,6 +11,6 @@ public final class GeneratorAcceleratorFabric implements ModInitializer {
         // Proceed with mild caution.
 
         // Run our common setup.
-        GeneratorAccelerator.init();
+        GeneratorAccelerator.init(GeneratorAccelerator.Platform.FABRIC);
     }
 }

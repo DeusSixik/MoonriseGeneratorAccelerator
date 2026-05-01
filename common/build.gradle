@@ -32,4 +32,7 @@ dependencies {
     modCompileOnly "curse.maven:lithostitched-936015:7063201"   // 1.5.0
 
     modCompileOnly "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
+
+    modCompileOnly "curse.maven:oreberries-replanted-454062:6123417"
+    modCompileOnly "curse.maven:roots-246183:7789182"
 }

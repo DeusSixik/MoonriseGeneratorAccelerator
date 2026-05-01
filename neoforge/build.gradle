@@ -44,7 +44,7 @@ dependencies {
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     compileOnlyApi "curse.maven:confluence-1209464:7677430"
 
-    modRuntimeOnly "curse.maven:shadow-config-1421861:7625073"
+    modRuntimeOnly "curse.maven:shadow-config-1421861:8010596"
     modRuntimeOnly "curse.maven:spark-361579:6225208"
 
     if (project.hasProperty('withMoonrise')) {

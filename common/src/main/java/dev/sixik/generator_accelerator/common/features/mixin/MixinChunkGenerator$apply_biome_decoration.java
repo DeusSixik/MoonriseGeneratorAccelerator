@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.features.mixin;
 
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import dev.sixik.generator_accelerator.api.utils.FastChunkIter;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
@@ -34,12 +33,14 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 
 @Mixin(value = ChunkGenerator.class, priority = 4000)
@@ -58,23 +59,25 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     private Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter;
 
     @Shadow
-    @Final
-    private java.util.function.Supplier<List<FeatureSorter.StepFeatureData>> featuresPerStep;
-
-    @Shadow
     private static BoundingBox getWritableArea(ChunkAccess arg) {
         throw new NotImplementedException();
     }
+//
+//    @Unique
+//    private Supplier<List<FeatureSorter.StepFeatureData>> bts$customFeaturesPerStep;
+//
+//    @Inject(method = "<init>(Lnet/minecraft/world/level/biome/BiomeSource;Ljava/util/function/Function;)V", at = @At("RETURN"))
+//    private void bts$overrideFeaturesPerStep(BiomeSource biomeSource, Function function, CallbackInfo ci) {
+//        bts$customFeaturesPerStep = Suppliers.memoize(() -> FeatureSorter.buildFeaturesPerStep(
+//                new ObjectArrayList<>(biomeSource.possibleBiomes()),
+//                (holder) -> this.generationSettingsGetter.apply(holder).features(), true)
+//        );
+//    }
 
-    @SuppressWarnings("unchecked")
-    @Redirect(method = "<init>(Lnet/minecraft/world/level/biome/BiomeSource;Ljava/util/function/Function;)V", at = @At(value = "INVOKE", target = "Lcom/google/common/base/Suppliers;memoize(Lcom/google/common/base/Supplier;)Lcom/google/common/base/Supplier;"))
-    public <T> Supplier<T> bts$init(Supplier<T> delegate) {
-        return (Supplier<T>) Suppliers.memoize(() -> FeatureSorter.buildFeaturesPerStep(
-                new ObjectArrayList<>(biomeSource.possibleBiomes()),
-                (holder) -> generationSettingsGetter.apply(holder).features(), true)
-        );
-    }
 
+    @Shadow
+    @Final
+    private Supplier<List<FeatureSorter.StepFeatureData>> featuresPerStep;
 
     /**
      * @author Sixik
@@ -101,7 +104,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             }
 // GENERATOR ACCELERATOR END
 
-            ObjectArrayList<FeatureSorter.StepFeatureData> featureDataList = (ObjectArrayList<FeatureSorter.StepFeatureData>) this.featuresPerStep.get();
+            ObjectArrayList<FeatureSorter.StepFeatureData> featureDataList = new ObjectArrayList<>(this.featuresPerStep.get());
             WorldgenRandom worldgenrandom = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
             long i = worldgenrandom.setDecorationSeed(pLevel.getSeed(), blockpos.getX(), blockpos.getZ());
             Set<Holder<Biome>> set = new ObjectArraySet<>();
