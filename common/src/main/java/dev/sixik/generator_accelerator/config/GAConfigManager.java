@@ -30,8 +30,8 @@ public class GAConfigManager {
                 return Optional.empty();
             }
 
-            config = new GAConfig();
-//            loadIsolatedConfig();
+//            config = new GAConfig();
+            loadIsolatedConfig();
         }
         return Optional.of((GAConfig) config);
     }
