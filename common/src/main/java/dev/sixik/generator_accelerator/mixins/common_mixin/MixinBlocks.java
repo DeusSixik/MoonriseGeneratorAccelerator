@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import net.minecraft.world.level.block.Blocks;
 import org.spongepowered.asm.mixin.Mixin;
@@ -12,6 +13,7 @@ public class MixinBlocks {
 
     @Inject(method = "<clinit>", at = @At("RETURN"))
     private static void bts$init(CallbackInfo ci) {
-        FastBlockStateCache.init();
+        if(GeneratorAccelerator.platform != GeneratorAccelerator.Platform.NEOFORGE)
+            FastBlockStateCache.init(GeneratorAccelerator.Platform.FABRIC);
     }
 }

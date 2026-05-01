@@ -11,8 +11,10 @@ public final class GeneratorAccelerator {
 
     public static ForkJoinPool CUSTOM_POOL = new ForkJoinPool(Math.min(0x7fff, Runtime.getRuntime().availableProcessors()));
 
-    public static void init() {
+    public static Platform platform = null;
 
+    public static void init(Platform platform) {
+        GeneratorAccelerator.platform = platform;
     }
 
     public static void tryLoadNatives() {
@@ -20,4 +22,10 @@ public final class GeneratorAccelerator {
         GeneratorAcceleratorNatives.initialize();
     }
 
+
+    public enum Platform {
+        FABRIC,
+        FORGE,
+        NEOFORGE
+    }
 }
