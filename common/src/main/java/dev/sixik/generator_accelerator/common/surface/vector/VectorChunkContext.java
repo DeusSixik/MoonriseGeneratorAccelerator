@@ -49,7 +49,7 @@ public class VectorChunkContext {
         this.sectionStartX = startX;
         this.sectionStartY = startY;
         this.sectionStartZ = startZ;
-        Arrays.fill(this.waterHeights, Integer.MIN_VALUE);
+//        Arrays.fill(this.waterHeights, Integer.MIN_VALUE);
     }
 
     public Holder<Biome> getBiome(int xzIdx) {
@@ -59,7 +59,9 @@ public class VectorChunkContext {
     public void buildDepthMap(ChunkAccess chunk) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-                this.surfaceHeights[x | (z << 4)] = (short) (chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1);
+                int idx = x | (z << 4);
+                this.surfaceHeights[idx] = (short) (chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1);
+                this.waterHeights[idx] = Integer.MIN_VALUE;
             }
         }
     }
@@ -98,7 +100,7 @@ public class VectorChunkContext {
                     }
 
                     if (this.waterHeights[xzIdx] == Integer.MIN_VALUE && blockId == WATER_ID) {
-                        this.waterHeights[xzIdx] = this.sectionStartY + y;
+                        this.waterHeights[xzIdx] = this.sectionStartY + y + 1;
                     }
                 }
                 previousSectionBottomDepths[xzIdx] = depthCounterAbove;

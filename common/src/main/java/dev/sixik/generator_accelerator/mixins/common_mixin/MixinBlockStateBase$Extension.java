@@ -1,7 +1,9 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import com.mojang.serialization.MapCodec;
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectArrayMap;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
@@ -23,6 +25,10 @@ public abstract class MixinBlockStateBase$Extension extends StateHolder<Block, B
 
     @Override
     public int bts$getFastId() {
+        if(bts$generatorFastId == -1) {
+            FastBlockStateCache.init(GeneratorAccelerator.platform);
+        }
+
         return bts$generatorFastId;
     }
 

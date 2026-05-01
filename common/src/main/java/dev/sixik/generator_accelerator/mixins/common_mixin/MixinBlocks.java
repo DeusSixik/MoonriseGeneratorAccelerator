@@ -13,7 +13,7 @@ public class MixinBlocks {
 
     @Inject(method = "<clinit>", at = @At("RETURN"))
     private static void bts$init(CallbackInfo ci) {
-        if(GeneratorAccelerator.platform != GeneratorAccelerator.Platform.NEOFORGE)
-            FastBlockStateCache.init(GeneratorAccelerator.Platform.FABRIC);
+//        if(GeneratorAccelerator.platform != GeneratorAccelerator.Platform.NEOFORGE)
+//            FastBlockStateCache.init(GeneratorAccelerator.Platform.FABRIC);
     }
 }

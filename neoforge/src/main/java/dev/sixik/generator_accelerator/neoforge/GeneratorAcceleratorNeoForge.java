@@ -12,10 +12,10 @@ public final class GeneratorAcceleratorNeoForge {
     public GeneratorAcceleratorNeoForge(IEventBus modEventBus, ModContainer modContainer) {
         GeneratorAccelerator.init(GeneratorAccelerator.Platform.NEOFORGE);
 
-        modEventBus.addListener(this::commonSetup);
+//        modEventBus.addListener(this::commonSetup);
     }
 
     private void commonSetup(FMLLoadCompleteEvent event) {
-        FastBlockStateCache.init(GeneratorAccelerator.Platform.NEOFORGE);
+//        FastBlockStateCache.init(GeneratorAccelerator.Platform.NEOFORGE);
     }
 }
