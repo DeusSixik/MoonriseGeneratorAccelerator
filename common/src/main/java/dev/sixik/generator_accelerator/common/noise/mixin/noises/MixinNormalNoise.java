@@ -1,9 +1,8 @@
 package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
-import net.minecraft.world.level.levelgen.synth.PerlinNoise;
-
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
+import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.spongepowered.asm.mixin.*;
 
 @Mixin(NormalNoise.class)

@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.heightmap.mixin;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.util.BitStorage;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;

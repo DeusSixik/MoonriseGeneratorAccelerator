@@ -262,3 +262,5 @@ accessible method net/minecraft/world/level/chunk/status/ChunkStatusTasks full (
 
 accessible method net/minecraft/world/level/biome/FeatureSorter$StepFeatureData <init> (Ljava/util/List;)V
 accessible method net/minecraft/core/HolderSet$Named contents ()Ljava/util/List;
+
+accessible class net/minecraft/world/level/chunk/PaletteResize

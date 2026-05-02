@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biome
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
-import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched.*;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BandsRuleSource;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BetweenRepeatingNoiseRange;

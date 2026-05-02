@@ -8,8 +8,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
 
-import java.util.Arrays;
-
 public class VectorChunkContext {
 
     public final Holder<Biome>[] surfaceBiomes;

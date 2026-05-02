@@ -4,8 +4,6 @@ import dev.sixik.generator_accelerator.common.surface.vector.rules.*;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biomeswevegone.BiomesWeveGone$CompilerData;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched.Lithostitched$CompilerData;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.terrablender.Terrablender$CompilerData;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
 import java.util.ArrayList;

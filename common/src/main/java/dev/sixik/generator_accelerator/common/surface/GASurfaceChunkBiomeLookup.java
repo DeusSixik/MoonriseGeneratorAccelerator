@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.surface;
 
-import java.util.Arrays;
-import java.util.function.Function;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
@@ -10,6 +8,9 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.chunk.ChunkAccess;
+
+import java.util.Arrays;
+import java.util.function.Function;
 
 public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biome>> {
     @SuppressWarnings("unchecked")

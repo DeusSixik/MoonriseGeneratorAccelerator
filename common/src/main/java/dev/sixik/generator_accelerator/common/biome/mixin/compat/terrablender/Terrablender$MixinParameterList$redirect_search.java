@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender;
 import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import dev.sixik.generator_accelerator.common.biome.ClimateParameterListPrimitiveSearch;
 import dev.sixik.generator_accelerator.common.biome.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.biome.compat.terrablender.TreeCache;
 import net.minecraft.world.level.biome.Climate;
@@ -12,7 +11,6 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import terrablender.worldgen.IExtendedParameterList;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;

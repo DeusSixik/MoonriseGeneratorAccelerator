@@ -1,12 +1,10 @@
 package dev.sixik.generator_accelerator.common.biome.mixin;
 
 import net.minecraft.core.Holder;
-import net.minecraft.util.BitStorage;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeResolver;
 import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.chunk.Palette;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.PalettedContainerRO;
 import org.spongepowered.asm.mixin.Mixin;

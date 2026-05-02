@@ -2,10 +2,8 @@ package dev.sixik.generator_accelerator.common.density.density_custom.misc;
 
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import dev.sixik.generator_accelerator.common.density.density_custom.DensityThreadLocalData;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.DensityFunctions;
 
 import static dev.sixik.generator_accelerator.common.density.density_custom.DensityCustomFunction.NOISE_VALUE_CODEC;
 

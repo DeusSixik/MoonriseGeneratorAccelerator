@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.noise;
 
-import org.apache.commons.lang3.NotImplementedException;
-
 /**
  * Векторизованный генератор шума Симплекса (Perlin/Simplex).
  * Оптимизирован для генерации вертикальных столбцов (когда X и Z постоянны, а Y меняется).

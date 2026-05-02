@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.neoforge;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
-import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;

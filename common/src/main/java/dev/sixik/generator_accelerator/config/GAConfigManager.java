@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.config;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import net.shadowking21.shadowconfig.config.BaseShadowConfig;
 import net.shadowking21.shadowconfig.config.ConfigSide;
-import net.shadowking21.shadowconfig.config.exstensions.toml.SCTomlConfig;
 import net.shadowking21.shadowconfig.config.exstensions.yaml.SCYamlConfig;
 
 import java.nio.file.Path;
