@@ -1,7 +1,9 @@
-package dev.sixik.generator_accelerator.common.noise.mixin;
+package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
+import dev.sixik.generator_accelerator.common.noise.FastVectorNoise;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.spongepowered.asm.mixin.*;
@@ -39,10 +41,26 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
     @Unique
     private double[] canvas$amplitudesArray;
 
+    @Unique
+    private FastVectorNoise[] canvas$fastOctaves;
+
     @Inject(method = "<init>", at = @At("TAIL"))
     protected void bts$createLegacyForBlendedNoise(CallbackInfo ci) {
         canvas$octaveSamplersCount = noiseLevels.length;
         canvas$amplitudesArray = amplitudes.toDoubleArray();
+
+        // Создаем массив наших быстрых векторизованных сэмплеров
+        canvas$fastOctaves = new FastVectorNoise[canvas$octaveSamplersCount];
+        for (int i = 0; i < canvas$octaveSamplersCount; i++) {
+            ImprovedNoise vanillaOctave = noiseLevels[i];
+            if (vanillaOctave != null) {
+                byte[] p = vanillaOctave.p;
+                double xo = vanillaOctave.xo;
+                double yo = vanillaOctave.yo;
+                double zo = vanillaOctave.zo;
+                canvas$fastOctaves[i] = new FastVectorNoise(p, xo, yo, zo);
+            }
+        }
     }
 
     /**
@@ -55,16 +73,14 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
         double e = this.lowestFreqInputFactor;
         double f = this.lowestFreqValueFactor;
 
-        final ImprovedNoise[] array = this.noiseLevels;
         final double[] amplitudesArray = this.canvas$amplitudesArray;
 
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            ImprovedNoise perlinNoiseSampler = array[i];
-            if (perlinNoiseSampler != null) {
-                @SuppressWarnings("deprecation")
-                double g = perlinNoiseSampler.noise(
-                        PerlinNoise.wrap(x * e), PerlinNoise.wrap(y * e), PerlinNoise.wrap(z * e), 0.0, 0.0
-                );
+            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
+
+            if (fastOctave != null) {
+                // wrap() остается нашим, оптимизированным из MixinPerlinNoise
+                double g = fastOctave.computeSingle(wrap(x * e), wrap(y * e), wrap(z * e));
                 d += amplitudesArray[i] * g * f;
             }
             e *= 2.0;
@@ -79,7 +95,7 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
      */
     @Overwrite
     public static double wrap(double value) {
-        return value - Math.floor(value * WRAP_RECRIPROCAL + 0.5) * WRAP_DOMAIN;
+        return value - Mth.floor(value * WRAP_RECRIPROCAL + 0.5) * WRAP_DOMAIN;
     }
 
     @Override
@@ -95,18 +111,21 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
         final double[] amplitudesArray = this.canvas$amplitudesArray;
 
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            ImprovedNoise octave = this.noiseLevels[i];
-            if (octave != null) {
-                double currentAmp = amplitudesArray[i] * valueFactor;
+            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
+
+            if (fastOctave != null) {
+                // Домножаем на additionalScale, если ванилла его передает
+                double currentAmp = amplitudesArray[i] * valueFactor * additionalScale;
 
                 double freqX = scaleX * inputFactor;
                 double freqY = scaleY * inputFactor;
                 double freqZ = scaleZ * inputFactor;
 
-                ((ColumnNoiseFiller)(Object)octave).fillNoiseColumn(
+                // Используем наш векторизованный метод. valueFactor_main = 1.0
+                fastOctave.fillColumnVectorized(
                         values, x, z, yStart, yCount,
                         freqX, freqY, freqZ,
-                        currentAmp
+                        currentAmp, 1.0
                 );
             }
             inputFactor *= 2.0;
@@ -123,15 +142,17 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
         final double[] amplitudesArray = this.canvas$amplitudesArray;
 
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            ImprovedNoise octave = this.noiseLevels[i];
-            if (octave != null) {
+            // ИСПОЛЬЗУЕМ НАШ ВЕКТОРИЗОВАННЫЙ СЭМПЛЕР
+            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
+            if (fastOctave != null) {
                 double currentAmp = amplitudesArray[i] * valueFactor;
 
                 double freqX = scaleX * inputFactor;
                 double freqY = scaleY * inputFactor;
                 double freqZ = scaleZ * inputFactor;
 
-                ((ColumnNoiseFiller)(Object)octave).fillNoiseColumnWithFactor(
+                // ВЫЗОВ СВЕРХБЫСТРОГО МЕТОДА
+                fastOctave.fillColumnVectorized(
                         values, x, z, yStart, yCount,
                         freqX, freqY, freqZ,
                         currentAmp, valueFactor_main

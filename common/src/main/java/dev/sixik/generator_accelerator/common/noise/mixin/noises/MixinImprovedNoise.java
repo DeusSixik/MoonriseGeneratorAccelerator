@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.noise.mixin;
+package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
@@ -274,8 +274,7 @@ public abstract class MixinImprovedNoise implements ColumnNoiseFiller {
         for (int i = 0; i < count; i++) {
             double inputY = ((yStart + i) * scaleY) + this.yo;
 
-            int gridY = (int) inputY;
-            if (inputY < gridY) gridY--;
+            int gridY = inputY > 0 ? (int)inputY : (int)inputY - 1;
 
             double deltaY = inputY - gridY;
 
