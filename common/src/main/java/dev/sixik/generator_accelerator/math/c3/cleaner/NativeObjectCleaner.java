@@ -11,8 +11,6 @@ public class NativeObjectCleaner {
 
     private static Logger LOGGER = LoggerFactory.getLogger(NativeObjectCleaner.class);
 
-    private static final Cleaner CLEANER = Cleaner.create();
-
     public record NativeState(long pointer) implements Runnable {
 
         @Override
@@ -22,9 +20,5 @@ public class NativeObjectCleaner {
                 NativeNormalNoise.deleteNoise(pointer);
             }
         }
-    }
-
-    public static Cleaner.Cleanable create(Object own, long ptr) {
-        return CLEANER.register(own, new NativeState(ptr));
     }
 }
