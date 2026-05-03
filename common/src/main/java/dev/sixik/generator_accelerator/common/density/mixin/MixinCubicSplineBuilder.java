@@ -37,7 +37,7 @@ public abstract class MixinCubicSplineBuilder<C, I extends ToFloatFunction<C>> {
     @Inject(method = "build", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/CubicSpline$Multipoint;create(Lnet/minecraft/util/ToFloatFunction;[FLjava/util/List;[F)Lnet/minecraft/util/CubicSpline$Multipoint;"), cancellable = true)
     public void bts$build(CallbackInfoReturnable<CubicSpline<C, I>> cir) {
         cir.setReturnValue(FastMultipoint.createFast(
-                this.coordinate, this.locations.toFloatArray(), ImmutableList.copyOf(this.values), this.derivatives.toFloatArray()
+                this.coordinate, this.locations.toFloatArray(), this.values.toArray(CubicSpline[]::new), this.derivatives.toFloatArray()
         ));
     }
 }
