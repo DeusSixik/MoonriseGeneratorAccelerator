@@ -5,6 +5,7 @@ import net.minecraft.util.CubicSpline;
 import net.minecraft.util.Mth;
 import net.minecraft.util.ToFloatFunction;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -14,7 +15,7 @@ import java.util.stream.Stream;
 public record FastMultipoint<C, I extends ToFloatFunction<C>>(
         I coordinate,
         float[] locations,
-        List<CubicSpline<C, I>> values,
+        CubicSpline<C, I>[] values,
         float[] derivatives,
         float minValue,
         float maxValue,
@@ -32,39 +33,41 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
     private static final int LUT_SIZE = 4096;
 
     public static <C, I extends ToFloatFunction<C>> FastMultipoint<C, I> createFast(
-            I coordinate, float[] fs, List<CubicSpline<C, I>> list, float[] gs) {
+            I coordinate, float[] fs, CubicSpline<C, I>[] list, float[] gs) {
         int segments = fs.length - 1;
         float minVal = Float.POSITIVE_INFINITY;
         float maxVal = Float.NEGATIVE_INFINITY;
         float coordMin = coordinate.minValue();
         float coordMax = coordinate.maxValue();
 
-        // 1. Сохраняем ванильную логику расчета абсолютных минимумов и максимумов сплайна
         if (coordMin < fs[0]) {
-            float k = linearExtend(coordMin, fs, list.get(0).minValue(), gs, 0);
-            float l = linearExtend(coordMin, fs, list.get(0).maxValue(), gs, 0);
+            var spline1 = list[0];
+            float k = linearExtend(coordMin, fs, spline1.minValue(), gs, 0);
+            float l = linearExtend(coordMin, fs, spline1.maxValue(), gs, 0);
             minVal = Math.min(minVal, Math.min(k, l));
             maxVal = Math.max(maxVal, Math.max(k, l));
         }
 
         if (coordMax > fs[segments]) {
-            float k = linearExtend(coordMax, fs, list.get(segments).minValue(), gs, segments);
-            float l = linearExtend(coordMax, fs, list.get(segments).maxValue(), gs, segments);
+            var spline1 = list[segments];
+            float k = linearExtend(coordMax, fs, spline1.minValue(), gs, segments);
+            float l = linearExtend(coordMax, fs, spline1.maxValue(), gs, segments);
             minVal = Math.min(minVal, Math.min(k, l));
             maxVal = Math.max(maxVal, Math.max(k, l));
         }
 
-        for (CubicSpline<C, I> cubicSpline : list) {
-            minVal = Math.min(minVal, cubicSpline.minValue());
-            maxVal = Math.max(maxVal, cubicSpline.maxValue());
+        for (int i = 0; i < list.length; i++) {
+            CubicSpline<C, I> spline = list[i];
+            minVal = Math.min(minVal, spline.minValue());
+            maxVal = Math.max(maxVal, spline.maxValue());
         }
 
         for (int m = 0; m < segments; ++m) {
             float l = fs[m];
             float n = fs[m + 1];
             float o = n - l;
-            CubicSpline<C, I> spline2 = list.get(m);
-            CubicSpline<C, I> spline3 = list.get(m + 1);
+            CubicSpline<C, I> spline2 = list[m];
+            CubicSpline<C, I> spline3 = list[m + 1];
             float p = spline2.minValue();
             float q = spline2.maxValue();
             float r = spline3.minValue();
@@ -87,7 +90,6 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
             }
         }
 
-        // 2. ФАЗА ПРЕДРАСЧЕТА (Baking)
         float[] invDiffs = new float[segments];
         float[] pB = new float[segments];
         float[] qB = new float[segments];
@@ -99,16 +101,22 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
             qB[m] = -gs[m + 1] * diff;
         }
 
-        // 3. Генерация Look-Up Table
         int[] lut = new int[LUT_SIZE];
         float lMin = fs[0];
         float lMax = fs[segments];
         float lScale = lMax > lMin ? (LUT_SIZE - 1) / (lMax - lMin) : 0;
 
+        int currentSegment = 0;
+
+        float invLScale = lScale > 0 ? 1.0F / lScale : 0;
+
         for (int k = 0; k < LUT_SIZE; k++) {
-            float f_val = lMin + k / lScale;
-            // Делаем бинарный поиск всего один раз при загрузке мира
-            lut[k] = Mth.binarySearch(0, fs.length, (idx) -> f_val < fs[idx]) - 1;
+            float f_val = lMin + k * invLScale;
+            while (currentSegment < segments - 1 && f_val >= fs[currentSegment + 1]) {
+                currentSegment++;
+            }
+
+            lut[k] = currentSegment;
         }
 
         return new FastMultipoint<>(coordinate, fs, list, gs, minVal, maxVal, invDiffs, pB, qB, lut, lMin, lScale);
@@ -119,18 +127,16 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
         float f = this.coordinate.apply(object);
         int i;
 
-        // 1. Поиск индекса интервала за O(1)
         if (f < this.locations[0]) {
-            return linearExtend(f, this.locations, this.values.get(0).apply(object), this.derivatives, 0);
+            return linearExtend(f, this.locations, this.values[0].apply(object), this.derivatives, 0);
         } else if (f >= this.locations[this.locations.length - 1]) {
             int lastIdx = this.locations.length - 1;
-            return linearExtend(f, this.locations, this.values.get(lastIdx).apply(object), this.derivatives, lastIdx);
+            return linearExtend(f, this.locations, this.values[lastIdx].apply(object), this.derivatives, lastIdx);
         } else {
             int lutIndex = (int) ((f - this.lutMin) * this.lutScale);
             i = this.intervalLut[lutIndex];
         }
 
-        // Подстраховка от погрешности float-округления (Branch predictor съест это мгновенно)
         while (i < this.locations.length - 1 && f >= this.locations[i + 1]) {
             i++;
         }
@@ -138,17 +144,15 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
             i--;
         }
 
-        // 2. Раскрученная кубическая математика (без деления)
         float k = (f - this.locations[i]) * this.inverseDiffs[i];
 
-        float n = this.values.get(i).apply(object);
-        float o = this.values.get(i + 1).apply(object);
+        float n = this.values[i].apply(object);
+        float o = this.values[i + 1].apply(object);
 
         float delta = o - n;
         float p = this.pBases[i] - delta;
         float q = this.qBases[i] + delta;
 
-        // Финальная интерполяция
         return n + k * delta + k * (1.0F - k) * (p + k * (q - p));
     }
 
@@ -162,10 +166,12 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
         I newCoordinate = coordinateVisitor.visit(this.coordinate);
         boolean changed = (newCoordinate != this.coordinate);
 
-        List<CubicSpline<C, I>> newValues = new java.util.ArrayList<>(this.values.size());
-        for (CubicSpline<C, I> value : this.values) {
+
+        CubicSpline<C, I>[] newValues = new CubicSpline[this.values.length];
+        for (int i = 0; i < this.values.length; i++) {
+            CubicSpline<C, I> value = this.values[i];
             CubicSpline<C, I> newValue = value.mapAll(coordinateVisitor);
-            newValues.add(newValue);
+            newValues[i] = newValue;
             if (newValue != value) {
                 changed = true;
             }
@@ -191,7 +197,7 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
         return "Spline{coordinate=" + coordStr +
                 ", locations=" + this.toString(this.locations) +
                 ", derivatives=" + this.toString(this.derivatives) +
-                ", values=" + this.values.stream().map(CubicSpline::parityString).collect(Collectors.joining(", ", "[", "]")) + "}";
+                ", values=" + Arrays.stream(this.values).map(CubicSpline::parityString).collect(Collectors.joining(", ", "[", "]")) + "}";
     }
 
     private String toString(float[] fs) {
@@ -204,7 +210,6 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
         if (this == o) return true;
         if (!(o instanceof FastMultipoint<?, ?> that)) return false;
 
-        // Никаких глубоких проверок массивов LUT, только суть графика
         return Float.compare(that.minValue, minValue) == 0 &&
                 Float.compare(that.maxValue, maxValue) == 0 &&
                 coordinate.equals(that.coordinate) &&
@@ -215,8 +220,6 @@ public record FastMultipoint<C, I extends ToFloatFunction<C>>(
 
     @Override
     public int hashCode() {
-        // Мы избавились от Objects.hash(), так как он под капотом создает Object[] массив.
-        // Этот вариант работает с 0 аллокаций памяти.
         int result = coordinate.hashCode();
         result = 31 * result + values.hashCode();
         result = 31 * result + Float.floatToIntBits(minValue);
