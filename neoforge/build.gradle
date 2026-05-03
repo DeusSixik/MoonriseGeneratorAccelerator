@@ -54,6 +54,8 @@ dependencies {
     if(project.hasProperty('withC2ME')) {
         modRuntimeOnly "curse.maven:c2me-533097:7694225"
     }
+
+    modCompileOnly "curse.maven:zeta-968868:7980010"
 }
 
 processResources {
