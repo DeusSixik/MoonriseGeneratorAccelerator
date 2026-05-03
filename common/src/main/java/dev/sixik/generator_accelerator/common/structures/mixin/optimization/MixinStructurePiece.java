@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.*;
 
 import java.util.Set;
 
-@Mixin(StructurePiece.class)
+@Mixin(value = StructurePiece.class)
 public abstract class MixinStructurePiece {
 
     @Unique
