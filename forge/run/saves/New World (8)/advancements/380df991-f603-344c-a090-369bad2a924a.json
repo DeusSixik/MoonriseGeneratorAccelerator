@@ -1,0 +1,59 @@
+{
+  "minecraft:nether/explore_nether": {
+    "criteria": {
+      "minecraft:crimson_forest": "2026-05-03 23:56:35 +0300",
+      "minecraft:nether_wastes": "2026-05-03 23:56:50 +0300",
+      "minecraft:soul_sand_valley": "2026-05-03 23:56:37 +0300",
+      "minecraft:basalt_deltas": "2026-05-03 23:56:51 +0300"
+    },
+    "done": false
+  },
+  "minecraft:nether/root": {
+    "criteria": {
+      "entered_nether": "2026-05-03 23:56:35 +0300"
+    },
+    "done": true
+  },
+  "minecraft:story/enter_the_nether": {
+    "criteria": {
+      "entered_nether": "2026-05-03 23:56:35 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/decorations/crafting_table": {
+    "criteria": {
+      "unlock_right_away": "2026-05-03 23:55:53 +0300"
+    },
+    "done": true
+  },
+  "minecraft:end/root": {
+    "criteria": {
+      "entered_end": "2026-05-03 23:57:05 +0300"
+    },
+    "done": true
+  },
+  "minecraft:adventure/adventuring_time": {
+    "criteria": {
+      "minecraft:taiga": "2026-05-03 23:55:55 +0300",
+      "minecraft:birch_forest": "2026-05-03 23:56:06 +0300",
+      "minecraft:dark_forest": "2026-05-03 23:56:14 +0300",
+      "minecraft:river": "2026-05-03 23:55:58 +0300",
+      "minecraft:grove": "2026-05-03 23:56:05 +0300",
+      "minecraft:plains": "2026-05-03 23:56:27 +0300"
+    },
+    "done": false
+  },
+  "minecraft:nether/find_bastion": {
+    "criteria": {
+      "bastion": "2026-05-03 23:56:47 +0300"
+    },
+    "done": true
+  },
+  "minecraft:story/enter_the_end": {
+    "criteria": {
+      "entered_end": "2026-05-03 23:57:05 +0300"
+    },
+    "done": true
+  },
+  "DataVersion": 3465
+}

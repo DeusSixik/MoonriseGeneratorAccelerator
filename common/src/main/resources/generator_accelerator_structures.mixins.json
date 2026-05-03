@@ -1,13 +1,14 @@
 {
   "required": true,
   "package": "dev.sixik.generator_accelerator.common.structures.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_17",
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.structures.GAStructuresMixinPlugin",
   "mixins": [
     "MixinChunkAccess$SynchronizeStructureData",
     "MixinChunkGenerator$optimize_creating_structure",
     "MixinChunkGeneratorStructureState",
+    "compats.zeta.Zeta$StructurePiece$Fix",
     "optimization.MixinPiecesContainer",
     "optimization.MixinStructurePiece",
     "pools.MixinEmptyPoolElement$default_empty_list",
@@ -16,8 +17,7 @@
     "pools.MixinJigsawPlacement$use_cached_jigsaws",
     "pools.MixinSinglePoolElement$cache_jigsawBlocks",
     "pools.MixinStructurePoolElement$cache_jigsawBlocks",
-    "pools.MixinStructureTemplateManager$lru_cache",
-    "compats.zeta.Zeta$StructurePiece$Fix"
+    "pools.MixinStructureTemplateManager$lru_cache"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -3,8 +3,10 @@ package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectImmutableList;
+import net.minecraft.Optionull;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
@@ -14,10 +16,11 @@ import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
-import org.apache.commons.lang3.NotImplementedException;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
+import java.util.Comparator;
 import java.util.List;
 
 @Mixin(SinglePoolElement.class)
@@ -26,13 +29,21 @@ public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends Structur
     @Shadow
     protected abstract StructureTemplate getTemplate(StructureTemplateManager structureTemplateManager);
 
-    @Shadow
-    static void sortBySelectionPriority(List<StructureTemplate.StructureBlockInfo> list) {
-        throw new NotImplementedException();
-    }
-
     protected MixinSinglePoolElement$cache_jigsawBlocks(StructureTemplatePool.Projection projection) {
         super(projection);
+    }
+
+    @Unique
+    private static void bts$sortBySelectionPriority(List<StructureTemplate.StructureBlockInfo> list) {
+        list.sort((a, b) -> {
+            CompoundTag nbtA = a.nbt();
+            int priorityA = nbtA != null ? nbtA.getInt("selection_priority") : 0;
+
+            CompoundTag nbtB = b.nbt();
+            int priorityB = nbtB != null ? nbtB.getInt("selection_priority") : 0;
+
+            return Integer.compare(priorityB, priorityA);
+        });
     }
 
     @Override
@@ -55,7 +66,7 @@ public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends Structur
             /*
                 Sorting once (calling sortBySelectionPriority)
              */
-            sortBySelectionPriority(blocks);
+            bts$sortBySelectionPriority(blocks);
 
             /*
                 We save an immutable list to the cache
@@ -75,7 +86,7 @@ public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends Structur
             We mix only the elements with the same priority.
          */
         Util.shuffle(result, random);
-        sortBySelectionPriority(result);
+        bts$sortBySelectionPriority(result);
 
         if (pos.equals(BlockPos.ZERO)) {
             return result;

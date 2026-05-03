@@ -27,7 +27,7 @@ public class VectorWeightedRule implements VectorRule {
         int total = 0;
         for (int i = 0; i < unwrap.size(); i++) {
             WeightedEntry.Wrapper<SurfaceRules.RuleSource> wrapper = unwrap.get(i);
-            this.compiledRules[i] = VectorRuleCompiler.compileRule(wrapper.data());
+            this.compiledRules[i] = VectorRuleCompiler.compileRule(wrapper.data);
             this.weights[i] = wrapper.getWeight().asInt();
             total += this.weights[i];
         }

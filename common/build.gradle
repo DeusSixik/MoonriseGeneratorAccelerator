@@ -2,37 +2,22 @@ architectury {
     common rootProject.enabled_platforms.split(',')
 }
 
-test {
-    useJUnitPlatform()
-}
-
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
-    compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
-    modCompileOnly "curse.maven:moonrise-1096335:7089177"
+    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.5.4"))
+    compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
 
-    compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
-
-    compileOnlyApi "curse.maven:terrablender-neoforge-940057:6054947"
-
-    modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962784"
-    modCompileOnlyApi "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
-
-//    modCompileOnly "curse.maven:shadow-config-1421861:7625074"
-    modCompileOnly files("./libs/shadowconfig-common-1.1a.jar")
-
-    modCompileOnly "curse.maven:owo-lib-532610:6446006"
-//    modCompileOnly "curse.maven:lithostitched-936015:7832789" // 1.6.5
-    modCompileOnly "curse.maven:lithostitched-936015:7063201"   // 1.5.0
-
-    modCompileOnly "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
-
-    modCompileOnly "curse.maven:oreberries-replanted-454062:6123417"
-    modCompileOnly "curse.maven:roots-246183:7789182"
+    modCompileOnly ("curse.maven:oh-the-biomes-weve-gone-1070751:7759426")
+    modCompileOnly ("curse.maven:natures-spirit-1044992:6962783")
+    modCompileOnly ("curse.maven:lithostitched-936015:6742615")
+    modCompileOnly ("curse.maven:terrablender-563928:6290448")
+    modCompileOnly ("curse.maven:oreberries-replanted-454062:5138729")
+    modCompileOnly ("curse.maven:owo-lib-532610:4749199")
+    modCompileOnly ("curse.maven:zeta-968868:7335229")
 }

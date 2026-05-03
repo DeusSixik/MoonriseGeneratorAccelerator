@@ -4,7 +4,10 @@ import dev.sixik.generator_accelerator.api.utils.FastMathUtils;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.BeehiveBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BeehiveBlockEntity;
@@ -41,7 +44,7 @@ public abstract class MixinBeehiveDecorator extends TreeDecorator {
      * @reason Fast Version
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         ObjectArrayList<BlockPos> leaves = context.leaves();
         ObjectArrayList<BlockPos> logs = context.logs();
 
@@ -57,7 +60,7 @@ public abstract class MixinBeehiveDecorator extends TreeDecorator {
         if (!leaves.isEmpty()) {
             targetY = Math.max(leaves.get(0).getY() - 1, logs.get(0).getY() + 1);
         } else {
-            targetY = Math.min(logs.get(0).getY() + 1 + randomsource.nextInt(3), logs.getLast().getY());
+            targetY = Math.min(logs.get(0).getY() + 1 + randomsource.nextInt(3), logs.get(logs.size() - 1).getY());
         }
 
         /*
@@ -112,7 +115,9 @@ public abstract class MixinBeehiveDecorator extends TreeDecorator {
             context.level().getBlockEntity(selectedPos, BlockEntityType.BEEHIVE).ifPresent(storeBee -> {
                 int beeCount = 2 + randomsource.nextInt(2);
                 for (int k = 0; k < beeCount; k++) {
-                    storeBee.storeBee(BeehiveBlockEntity.Occupant.create(randomsource.nextInt(599)));
+                    CompoundTag compoundTag = new CompoundTag();
+                    compoundTag.putString("id", BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.BEE).toString());
+                    storeBee.storeBee(compoundTag, randomsource.nextInt(599), false);
                 }
             });
         }

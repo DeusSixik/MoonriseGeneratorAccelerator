@@ -1,10 +1,9 @@
 package dev.sixik.generator_accelerator.common.beardifier.mixin;
 
 import com.google.common.collect.Iterators;
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.world.level.levelgen.Beardifier;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
@@ -12,6 +11,9 @@ import org.spongepowered.asm.mixin.*;
 
 @Mixin(Beardifier.class)
 public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker {
+
+    private static final double BURY_RADIUS_SQ = 36.0; // 6.0 * 6.0
+    private static final double INV_RADIUS = 1.0 / 6.0;
 
     @Shadow
     @Final
@@ -22,11 +24,6 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Shadow
     private static double getBeardContribution(int i, int j, int k, int l) {
-        throw new RuntimeException();
-    }
-
-    @Shadow
-    private static double getBuryContribution(double d, double e, double f) {
         throw new RuntimeException();
     }
 
@@ -46,7 +43,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
      * @reason
      */
     @Overwrite
-    public double compute(FunctionContext context) {
+    public double compute(DensityFunction.FunctionContext context) {
         if (this.c2me$pieceArray == null || this.c2me$junctionArray == null) {
             this.c2me$initArrays();
         }
@@ -68,12 +65,12 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
             d += switch (piece.terrainAdjustment()) { // 2 switch statement merged
                 case NONE -> 0.0;
-                case BURY -> getBuryContribution(m, (double) p / 2.0, n);
+                case BURY -> bts$getBuryContribution(m, (double) p / 2.0, n);
                 case BEARD_THIN -> getBeardContribution(m, p, n, p) * 0.8;
                 case BEARD_BOX ->
                         getBeardContribution(m, Math.max(0, Math.max(o - j, j - blockBox.maxY())), n, p) * 0.8;
-                case ENCAPSULATE ->
-                        getBuryContribution((double) m / 2.0, (double) Math.max(0, Math.max(blockBox.minY() - j, j - blockBox.maxY())) / 2.0, (double) n / 2.0) * 0.8;
+//                case ENCAPSULATE ->
+//                        getBuryContribution((double) m / 2.0, (double) Math.max(0, Math.max(blockBox.minY() - j, j - blockBox.maxY())) / 2.0, (double) n / 2.0) * 0.8;
             };
         }
 
@@ -89,17 +86,14 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         return d;
     }
 
-    /**
-     * @author
-     * @reason
-     */
-    @WrapMethod(method = "getBuryContribution")
-    private static double bts$getBuryContribution(double x, double y, double z, Operation<Double> original) {
-        final double d = Math.sqrt(x * x + y * y + z * z);
-        if (d > 6.0) {
+    @Unique
+    private static double bts$getBuryContribution(double x, double y, double z) {
+        double yScaled = y * 0.5;
+        double d2 = x * x + yScaled * yScaled + z * z;
+        if (d2 >= BURY_RADIUS_SQ) {
             return 0.0;
-        } else {
-            return 1.0 - d / 6.0;
         }
+        double d = Math.sqrt(d2);
+        return 1.0 - d * INV_RADIUS;
     }
 }

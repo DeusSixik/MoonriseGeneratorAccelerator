@@ -24,7 +24,7 @@ public abstract class MixinLeaveVineDecorator extends TreeDecorator {
      * @reason Faster version
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         ObjectArrayList<BlockPos> leaves = context.leaves();
         if (leaves.isEmpty()) return;
 
@@ -67,7 +67,7 @@ public abstract class MixinLeaveVineDecorator extends TreeDecorator {
     }
 
     @Unique
-    private static void bts$addHangingVine(int startX, int startY, int startZ, BooleanProperty property, TreeDecorator.Context context, BlockPos.MutableBlockPos mutPos) {
+    private static void bts$addHangingVine(int startX, int startY, int startZ, BooleanProperty property, Context context, BlockPos.MutableBlockPos mutPos) {
         mutPos.set(startX, startY, startZ);
         context.placeVine(mutPos, property);
 

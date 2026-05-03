@@ -52,7 +52,7 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
      * @reason Replaced {@link HashSet} with {@link LongOpenHashSet}, removed shuffledCopy, replaced betweenClosed with nested int loops.
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         final ObjectArrayList<BlockPos> leaves = context.leaves();
         if (leaves.isEmpty()) return;
 
@@ -109,7 +109,7 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
     }
 
     @Unique
-    private boolean bts$hasRequiredEmptyBlocks(TreeDecorator.Context context, BlockPos startPos, Direction direction, BlockPos.MutableBlockPos mutPos) {
+    private boolean bts$hasRequiredEmptyBlocks(Context context, BlockPos startPos, Direction direction, BlockPos.MutableBlockPos mutPos) {
         final int x = startPos.getX();
         final int y = startPos.getY();
         final int z = startPos.getZ();

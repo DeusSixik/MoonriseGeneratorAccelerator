@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.api.mixin;
 
-import com.mojang.logging.LogUtils;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;

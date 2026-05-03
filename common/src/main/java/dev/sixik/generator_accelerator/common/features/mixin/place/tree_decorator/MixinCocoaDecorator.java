@@ -31,7 +31,7 @@ public abstract class MixinCocoaDecorator extends TreeDecorator {
      * @reason Fixed crash when the trunk list was empty, removed Stream API
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         RandomSource randomSource = context.random();
 
         if (randomSource.nextFloat() >= this.probability) {

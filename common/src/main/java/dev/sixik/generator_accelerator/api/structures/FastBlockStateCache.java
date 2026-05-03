@@ -22,7 +22,7 @@ public class FastBlockStateCache {
         synchronized (FastBlockStateCache.class) {
             if (initialized) return;
 
-            if (platform != GeneratorAccelerator.Platform.NEOFORGE) {
+            if (!platform.isForge()) {
                 int maxId = Block.BLOCK_STATE_REGISTRY.size();
                 STATES = new BlockState[maxId];
 

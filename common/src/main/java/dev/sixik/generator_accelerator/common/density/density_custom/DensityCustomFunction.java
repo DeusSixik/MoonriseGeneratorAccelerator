@@ -33,9 +33,10 @@ public class DensityCustomFunction {
         return KeyDispatchDataCodec.of(((MapCodec)codec.fieldOf("argument")).xmap(function, function2));
     }
 
-    public static MapCodec<? extends DensityFunction> register(Registry<MapCodec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
+    public static Codec<? extends DensityFunction> register(Registry<Codec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
         return Registry.register(registry, string, keyDispatchDataCodec.codec());
     }
+
 
     public static DensityFunction createFastVersion(
             DensityFunctions.TwoArgumentSimpleFunction.Type type, DensityFunction argument1, DensityFunction argument2
@@ -137,7 +138,7 @@ public class DensityCustomFunction {
                 double e = Mth.clamp(d, -1.0, 1.0);
                 yield e / 2.0 - e * e * e / 24.0;
             }
-            default -> throw new MatchException(null, null);
+            default -> throw new NullPointerException("Math exception!");
         };
     }
 }

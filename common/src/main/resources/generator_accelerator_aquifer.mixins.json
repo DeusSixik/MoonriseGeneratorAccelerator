@@ -1,7 +1,7 @@
 {
   "required": true,
   "package": "dev.sixik.generator_accelerator.common.aquifer.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_17",
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.aquifer.GAAquiferMixinPlugin",
   "mixins": [

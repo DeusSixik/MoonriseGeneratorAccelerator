@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.mixin;
 
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import dev.sixik.generator_accelerator.common.density.density_custom.DensityCustomFunction;
 import dev.sixik.generator_accelerator.common.density.density_custom.basic.FastAddDensityFunction;
@@ -32,26 +33,26 @@ public class MixinDensityFunctions$redirect_basic_functions_to_fast_versions {
         return new DensityFunctions.Mapped.Type[0];
     }
 
-    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/MapCodec;"
+    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/Codec;"
             , ordinal = 8))
-    private static MapCodec<? extends DensityFunction> bts$shiftedNoise(Registry<MapCodec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
+    private static Codec<? extends DensityFunction> bts$shiftedNoise(Registry<Codec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
         return DensityCustomFunction.register(registry, "shifted_noise", FastShiftedNoiseDensityFunction.CODEC);
     }
 
-    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/MapCodec;"
+    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/Codec;"
             , ordinal = 9))
-    private static MapCodec<? extends DensityFunction> bts$rangeCoise(Registry<MapCodec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
+    private static Codec<? extends DensityFunction> bts$rangeCoise(Registry<Codec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
         return DensityCustomFunction.register(registry, "range_choice", FastRangeChoice.CODEC);
     }
 
-    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/MapCodec;"
+    @Redirect(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions;register(Lnet/minecraft/core/Registry;Ljava/lang/String;Lnet/minecraft/util/KeyDispatchDataCodec;)Lcom/mojang/serialization/Codec;"
             , ordinal = 14))
-    private static MapCodec<? extends DensityFunction> bts$redirectClampFunction(Registry<MapCodec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
+    private static Codec<? extends DensityFunction> bts$redirectClampFunction(Registry<Codec<? extends DensityFunction>> registry, String string, KeyDispatchDataCodec<? extends DensityFunction> keyDispatchDataCodec) {
         return DensityCustomFunction.register(registry, "clamp", FastClampDensityFunction.CODEC);
     }
 
     @Inject(method = "bootstrap", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type;values()[Lnet/minecraft/world/level/levelgen/DensityFunctions$TwoArgumentSimpleFunction$Type;"))
-    private static void bts$init$bootstrap(Registry<MapCodec<? extends DensityFunction>> registry, CallbackInfoReturnable<MapCodec<? extends DensityFunction>> cir) {
+    private static void bts$init$bootstrap(Registry<Codec<? extends DensityFunction>> registry, CallbackInfoReturnable<Codec<? extends DensityFunction>> cir) {
         DensityCustomFunction.register(registry,  DensityFunctions.TwoArgumentSimpleFunction.Type.ADD.getSerializedName(), FastAddDensityFunction.codec);
         DensityCustomFunction.register(registry,  DensityFunctions.TwoArgumentSimpleFunction.Type.MUL.getSerializedName(), FastMulDensityFunction.codec);
         DensityCustomFunction.register(registry,  DensityFunctions.TwoArgumentSimpleFunction.Type.MAX.getSerializedName(), FastMaxDensityFunction.codec);

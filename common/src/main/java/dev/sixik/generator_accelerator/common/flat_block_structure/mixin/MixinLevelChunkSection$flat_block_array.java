@@ -48,7 +48,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     }
 
     /**
-     * Распаковать данные из {@link net.minecraft.world.level.chunk.PalettedContainer}
+     * Распаковать данные из {@link PalettedContainer}
      * в плоский массив {@code int[]} для сверхбыстрой генерации.
      * Должен вызываться перед началом тяжелых циклов записи.
      */
@@ -78,7 +78,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     }
 
     /**
-     * Сжать обновленный плоский массив обратно в {@link net.minecraft.world.level.chunk.PalettedContainer}
+     * Сжать обновленный плоский массив обратно в {@link PalettedContainer}
      * для экономии оперативной памяти и совместимости с ванильным рендером/сохранением.
      * После вызова этого метода сырой массив "замораживается" (обнуляется или возвращается в пул).
      */

@@ -1,20 +1,13 @@
 package dev.sixik.generator_accelerator.config;
 
-
-import net.shadowking21.shadowconfig.annotation.ConfigComment;
-
 public class GAConfig {
 
-    @ConfigComment("Enable Aquifer Patch")
     public boolean enableAquiferPatch = true;
 
-    @ConfigComment("Enable Beardifier Patch")
     public boolean enableBeardifierPatch = true;
 
-    @ConfigComment("Enable Biome Patch")
     public boolean enableBiomePatch = true;
 
-    @ConfigComment("Enable Blender Patch")
     public boolean enableBlenderPatch = true;
 
     public boolean enableDensityPatch = true;

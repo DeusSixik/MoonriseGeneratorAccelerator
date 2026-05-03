@@ -137,7 +137,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                     if (pStructureManager.shouldGenerateStructures()) {
                         for (Structure structure : structureByStepMap.getOrDefault(k,(ObjectArrayList<Structure>) FastChunkIter.EMPTY_LIST)) {
                             worldgenrandom.setFeatureSeed(i, l, k);
-                            java.util.function.Supplier<String> supplier = () -> registry.getResourceKey(structure).map(Object::toString).orElseGet(structure::toString);
+                            Supplier<String> supplier = () -> registry.getResourceKey(structure).map(Object::toString).orElseGet(structure::toString);
 
                             try {
                                 pLevel.setCurrentlyGenerating(supplier);
@@ -192,7 +192,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                         for (int k1 = 0; k1 < j1; k1++) {
                             int l1 = aint[k1];
                             PlacedFeature placedfeature = featuresorter$stepfeaturedata.features().get(l1);
-                            java.util.function.Supplier<String> supplier1 = () -> registry1.getResourceKey(placedfeature).map(Object::toString).orElseGet(placedfeature::toString);
+                            Supplier<String> supplier1 = () -> registry1.getResourceKey(placedfeature).map(Object::toString).orElseGet(placedfeature::toString);
                             worldgenrandom.setFeatureSeed(i, l1, k);
 
                             try {

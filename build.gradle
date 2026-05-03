@@ -1,5 +1,5 @@
 plugins {
-    id 'dev.architectury.loom' version '1.13-SNAPSHOT' apply false
+    id 'dev.architectury.loom' version '1.10-SNAPSHOT' apply false
     id 'architectury-plugin' version '3.4-SNAPSHOT'
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
@@ -65,8 +65,6 @@ allprojects {
     }
 }
 
-
-
 subprojects {
     apply plugin: 'dev.architectury.loom'
     apply plugin: 'architectury-plugin'
@@ -104,11 +102,6 @@ subprojects {
     dependencies {
         minecraft "net.minecraft:minecraft:$rootProject.minecraft_version"
         mappings loom.officialMojangMappings()
-
-        testImplementation platform('org.junit:junit-bom:5.10.0')
-        testImplementation 'org.junit.jupiter:junit-jupiter'
-        testImplementation 'org.mockito:mockito-core:5.11.0'
-        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
     java {
@@ -117,12 +110,12 @@ subprojects {
         // If you remove this line, sources will not be generated.
         withSourcesJar()
 
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     tasks.withType(JavaCompile).configureEach {
-        it.options.release = 21
+        it.options.release = 17
     }
 
     // Configure Maven publishing.
@@ -141,50 +134,5 @@ subprojects {
             // The repositories here will be used for publishing your artifact, not for
             // retrieving dependencies.
         }
-    }
-}
-
-tasks.register("runBenchmarks") {
-    group = "benchmark"
-    description = "Runs Vanilla and Moonrise benchmarks 2 times each sequentially."
-
-    doLast {
-        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
-
-        // Берем путь к Java, на которой сейчас работает этот скрипт (например, из настроек IDE)
-        def currentJavaHome = System.getProperty("java.home")
-
-        def runTest = { String name, String extraArgs, int count ->
-            println "======================================="
-            println "  START TESTING: $name"
-            println "======================================="
-
-            for (int i = 1; i <= count; i++) {
-                println "\n---> [$name] Прогон $i из $count <---"
-
-                exec {
-                    // Принудительно передаем правильный JAVA_HOME в консоль
-                    environment "JAVA_HOME", currentJavaHome
-
-                    // --no-daemon нужен чтобы процессы не слипались и память очищалась
-                    def fullCommand = "$gradleCmd :neoforge:runServer $extraArgs --no-daemon"
-
-                    if (isWindows) {
-                        commandLine 'cmd', '/c', fullCommand
-                    } else {
-                        commandLine 'bash', '-c', fullCommand
-                    }
-                }
-
-                // Ждем 2 секунды после того как сервер ПОЛНОСТЬЮ умер
-                sleep(2000)
-            }
-        }
-
-//        runTest("Vanilla", "", 2)
-        runTest("Moonrise", "-PwithMoonrise", 4)
-
-        println "\nBenchmarks end!"
     }
 }

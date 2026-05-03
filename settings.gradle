@@ -11,4 +11,4 @@ rootProject.name = 'generator_accelerator'
 
 include 'common'
 include 'fabric'
-include 'neoforge'
+include 'forge'

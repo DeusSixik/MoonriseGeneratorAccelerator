@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.common.surface.vector.rules.*;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biomeswevegone.BiomesWeveGone$CompilerData;
-import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched.Lithostitched$CompilerData;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.terrablender.Terrablender$CompilerData;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
@@ -35,10 +34,10 @@ public class VectorRuleCompiler {
             return VectorBandlandsRule.INSTANCE;
         }
 
-        if(lithostitched_loaded) {
-            final var ret = Lithostitched$CompilerData.compileRule(ruleSource);
-            if (ret != null) return ret;
-        }
+//        if(lithostitched_loaded) {
+//            final var ret = Lithostitched$CompilerData.compileRule(ruleSource);
+//            if (ret != null) return ret;
+//        }
 
         if(terrablender_loaded) {
             final var ret = Terrablender$CompilerData.compileRule(ruleSource);
@@ -108,10 +107,10 @@ public class VectorRuleCompiler {
             return VectorHoleCondition.INSTANCE;
         }
 
-        if(lithostitched_loaded) {
-            final var ret = Lithostitched$CompilerData.compileCondition(conditionSource);
-            if (ret != null) return ret;
-        }
+//        if(lithostitched_loaded) {
+//            final var ret = Lithostitched$CompilerData.compileCondition(conditionSource);
+//            if (ret != null) return ret;
+//        }
 
         throw new UnsupportedOperationException("Unknown condition: " + conditionSource.getClass());
     }

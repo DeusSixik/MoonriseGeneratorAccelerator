@@ -7,6 +7,7 @@ import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -78,7 +79,7 @@ public abstract class MixinStructurePiece {
                 BlockState oldState = section.setBlockState(lx, ly, lz, blockState);
 
                 if (blockState.hasBlockEntity()) {
-                    if (chunk.getPersistedStatus().getChunkType() == net.minecraft.world.level.chunk.status.ChunkType.LEVELCHUNK) {
+                    if (chunk.getStatus().getChunkType() == ChunkStatus.ChunkType.LEVELCHUNK) {
                         net.minecraft.world.level.block.entity.BlockEntity blockEntity = ((net.minecraft.world.level.block.EntityBlock) blockState.getBlock()).newBlockEntity(pos, blockState);
                         if (blockEntity != null) {
                             chunk.setBlockEntity(blockEntity);

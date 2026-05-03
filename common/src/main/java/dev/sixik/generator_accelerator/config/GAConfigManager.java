@@ -1,12 +1,5 @@
 package dev.sixik.generator_accelerator.config;
 
-import dev.sixik.generator_accelerator.GeneratorAccelerator;
-import net.shadowking21.shadowconfig.config.BaseShadowConfig;
-import net.shadowking21.shadowconfig.config.ConfigSide;
-import net.shadowking21.shadowconfig.config.exstensions.yaml.SCYamlConfig;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Optional;
 
 public class GAConfigManager {
@@ -29,8 +22,8 @@ public class GAConfigManager {
                 return Optional.empty();
             }
 
-//            config = new GAConfig();
-            loadIsolatedConfig();
+            config = new GAConfig();
+//            loadIsolatedConfig();
         }
         return Optional.of((GAConfig) config);
     }
@@ -39,24 +32,24 @@ public class GAConfigManager {
         return Optional.ofNullable(configWrapper);
     }
 
-    private static void loadIsolatedConfig() {
-        Object[] result = ShadowConfigImpl.init();
-        configWrapper = result[0];
-        config = result[1];
-    }
+//    private static void loadIsolatedConfig() {
+//        Object[] result = ShadowConfigImpl.init();
+//        configWrapper = result[0];
+//        config = result[1];
+//    }
 
     private static class ShadowConfigImpl {
 
-        static Object[] init() {
-            Path gameDir = Paths.get(System.getProperty("user.dir"));
-            BaseShadowConfig<GAConfig> wrapper = SCYamlConfig.Builder.builder(GAConfig.class)
-                    .defaults(new GAConfig())
-                    .modId(GeneratorAccelerator.MOD_ID)
-                    .side(ConfigSide.COMMON)
-                    .path(gameDir.resolve("config"))
-                    .build();
-
-            return new Object[]{wrapper, wrapper.read()};
-        }
+//        static Object[] init() {
+//            Path gameDir = Paths.get(System.getProperty("user.dir"));
+//            BaseShadowConfig<GAConfig> wrapper = SCYamlConfig.Builder.builder(GAConfig.class)
+//                    .defaults(new GAConfig())
+//                    .modId(GeneratorAccelerator.MOD_ID)
+//                    .side(ConfigSide.COMMON)
+//                    .path(gameDir.resolve("config"))
+//                    .build();
+//
+//            return new Object[]{wrapper, wrapper.read()};
+//        }
     }
 }

@@ -38,7 +38,7 @@ public abstract class MixinGlowBerryDecorator extends TreeDecorator {
      * @reason Zero-Allocation
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         ObjectArrayList<BlockPos> logs = context.logs();
         if (logs.isEmpty()) return;
 

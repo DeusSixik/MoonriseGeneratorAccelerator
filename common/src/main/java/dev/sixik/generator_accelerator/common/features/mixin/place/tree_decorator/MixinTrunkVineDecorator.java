@@ -22,7 +22,7 @@ public abstract class MixinTrunkVineDecorator extends TreeDecorator {
      * @reason Fast Version.
      */
     @Overwrite
-    public void place(TreeDecorator.Context context) {
+    public void place(Context context) {
         ObjectArrayList<BlockPos> logs = context.logs();
         if (logs.isEmpty()) return;
 

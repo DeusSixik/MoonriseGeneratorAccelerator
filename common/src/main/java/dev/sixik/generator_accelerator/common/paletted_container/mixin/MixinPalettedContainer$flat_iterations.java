@@ -25,7 +25,6 @@ public class MixinPalettedContainer$flat_iterations<T> {
     @Unique
     private static final ThreadLocal<boolean[]> PRESENT_FLAGS_BUFFER = ThreadLocal.withInitial(() -> new boolean[4096]);
 
-
     /**
      * @author Sixik
      * @reason The logic associated with forEach has been removed and replaced with a flat implementation.

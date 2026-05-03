@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "generator_accelerator",
   "version": "${version}",
-  "name": "Generator Accelerator",
+  "name": "GeneratorAccelerator",
   "description": "",
   "authors": [
     "Sixik"
@@ -16,17 +16,17 @@
   "entrypoints": {
     "main": [
       "dev.sixik.generator_accelerator.fabric.GeneratorAcceleratorFabric"
+    ],
+    "client": [
+      "dev.sixik.generator_accelerator.fabric.client.GeneratorAcceleratorFabricClient"
     ]
   },
-  "accessWidener": "btsengineconcurrent.accesswidener",
   "mixins": [
     "generator_accelerator.mixins.json",
     "generator_accelerator_density.mixins.json",
-    "generator_accelerator_benchmark.mixins.json",
     "generator_accelerator_biome.mixins.json",
     "generator_accelerator_blender.mixins.json",
     "generator_accelerator_noise.mixins.json",
-    "generator_accelerator_noise_native.mixins.json",
     "generator_accelerator_aquifer.mixins.json",
     "generator_accelerator_features.mixins.json",
     "generator_accelerator_flat_block_structure.mixins.json",
@@ -37,9 +37,9 @@
     "generator_accelerator_structures.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.15.0",
-    "minecraft": "~1.21.1",
-    "java": ">=21"
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.20.1",
+    "java": ">=17"
   },
   "suggests": {
     "another-mod": "*"
