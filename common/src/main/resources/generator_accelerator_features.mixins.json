@@ -17,7 +17,7 @@
     "compats.roots.Roots$AllAroundLogPlacementMixin",
     "compats.roots.Roots$HeightmapYRangeMixin",
     "features.MixinOreFeature",
-    "fix.MixinCocoaDecorator$fix_empty_array",
+    "features.MixinTreeFeature",
     "misc.MixinFeatureSorter",
     "place.FastPlacedFeatureV2Mixin",
     "place.placment.MixinCarvingMaskPlacement",
@@ -30,7 +30,14 @@
     "place.placment.MixinPlacementFilter",
     "place.placment.MixinPlacementModifier",
     "place.placment.MixinRandomOffsetPlacement",
-    "place.placment.MixinRepeatingPlacement"
+    "place.placment.MixinRepeatingPlacement",
+    "place.tree_decorator.MixinAlterGroundDecorator",
+    "place.tree_decorator.MixinAttachedToLeavesDecorator",
+    "place.tree_decorator.MixinBeehiveDecorator",
+    "place.tree_decorator.MixinCocoaDecorator",
+    "place.tree_decorator.MixinGlowBerryDecorator",
+    "place.tree_decorator.MixinLeaveVineDecorator",
+    "place.tree_decorator.MixinTrunkVineDecorator"
   ],
   "injectors": {
     "defaultRequire": 1

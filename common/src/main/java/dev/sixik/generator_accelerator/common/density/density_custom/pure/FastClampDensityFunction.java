@@ -6,7 +6,6 @@ import dev.sixik.generator_accelerator.common.density.density_custom.DensityCust
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.DensityFunctions;
 
 public record FastClampDensityFunction(DensityFunction input, double minValue, double maxValue) implements DensityFunction {
 

@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.noise_native.mixin;
 
-import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
 import dev.sixik.generator_accelerator.common.noise_native.NativePtrGetter;
 import dev.sixik.generator_accelerator.math.c3.NativeNoiseChunk;

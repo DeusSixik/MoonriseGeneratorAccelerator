@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import net.minecraft.core.Holder;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.block.state.BlockState;

@@ -1,12 +1,12 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched;
 
-import java.util.BitSet;
-
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.worldgen.lithostitched.worldgen.bandlands.Bandlands;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+
+import java.util.BitSet;
 
 public class VectorBandlandsRule implements VectorRule {
     private final Bandlands bandlands;

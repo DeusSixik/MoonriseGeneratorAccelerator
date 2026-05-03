@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.features;
 
-import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 /**

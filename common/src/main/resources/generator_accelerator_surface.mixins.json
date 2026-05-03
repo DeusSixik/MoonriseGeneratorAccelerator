@@ -5,8 +5,8 @@
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.surface.GASurfaceMixinPlugin",
   "mixins": [
-    "GABiomeManagerAccess",
     "FastSurfaceSystemCarvingMixin",
+    "GABiomeManagerAccess",
     "MixinSurfaceRules",
     "MixinSurfaceRules$BiomeConditionSource",
     "MixinSurfaceRules$Context",
@@ -14,7 +14,6 @@
     "MixinSurfaceRules$Context$TemperatureHelperCondition",
     "MixinSurfaceRules$SequenceRule",
     "MixinSurfaceRules$SequenceRuleSource",
-    "MixinSurfaceSystem$fast_set_block",
     "SurfaceSystem$new_build_surface",
     "blockpredicates.MixinAllOfPredicate$primitive_array",
     "blockpredicates.MixinAnyOfPredicate$primitive_array",

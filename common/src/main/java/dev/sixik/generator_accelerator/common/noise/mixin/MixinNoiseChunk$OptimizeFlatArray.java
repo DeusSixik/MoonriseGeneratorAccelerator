@@ -1,15 +1,16 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.objectweb.asm.Opcodes;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
+
+import java.util.Map;
 
 @Mixin(NoiseChunk.class)
 public class MixinNoiseChunk$OptimizeFlatArray {
@@ -34,6 +35,12 @@ public class MixinNoiseChunk$OptimizeFlatArray {
     @Shadow
     @Final
     private NoiseChunk.FlatCache blendOffset;
+
+
+    @Shadow
+    @Final
+    @Mutable
+    private Map<DensityFunction, DensityFunction> wrapped = new Object2ObjectOpenHashMap<>();
 
     @Redirect(
             method = "<init>",

@@ -27,8 +27,10 @@ public class GAConfig {
 
     public boolean enableNoisePatch = true;
 
-    @ConfigComment("Enable Noise Native Patch\nATTENTION!\nWhen enabled, the generation will be radically different from the vanilla system. For example, where there used to be a plain, there's now a desert, etc.")
+//    @ConfigComment("Enable Noise Native Patch\nATTENTION!\nWhen enabled, the generation will be radically different from the vanilla system. For example, where there used to be a plain, there's now a desert, etc.")
     public boolean enableNoiseNativePatch = false;
+
+    public boolean enablePalettedContainerPatch = true;
 
     public boolean enableStructuresPatch = true;
 

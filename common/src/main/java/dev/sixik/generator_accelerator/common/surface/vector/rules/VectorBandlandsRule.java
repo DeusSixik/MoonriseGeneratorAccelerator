@@ -1,10 +1,10 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules;
 
+import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.SurfaceSystem;
-import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 
 import java.util.BitSet;
 

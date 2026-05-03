@@ -65,6 +65,9 @@ config = "generator_accelerator_beardifier.mixins.json"
 config = "generator_accelerator_surface.mixins.json"
 
 [[mixins]]
+config = "generator_accelerator_paletted_container.mixins.json"
+
+[[mixins]]
 config = "generator_accelerator_structures.mixins.json"
 
 [[mixins]]

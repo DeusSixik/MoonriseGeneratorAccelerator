@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.features.mixin;
 
-import com.google.common.base.Suppliers;
 import dev.sixik.generator_accelerator.api.utils.FastChunkIter;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -23,7 +22,10 @@ import net.minecraft.world.level.biome.FeatureSorter;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.levelgen.*;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.RandomSupport;
+import net.minecraft.world.level.levelgen.WorldgenRandom;
+import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 import net.minecraft.world.level.levelgen.feature.FeatureCountTracker;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -32,9 +34,6 @@ import net.minecraft.world.level.levelgen.structure.StructureStart;
 import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.*;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Arrays;
 import java.util.List;
@@ -62,18 +61,6 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     private static BoundingBox getWritableArea(ChunkAccess arg) {
         throw new NotImplementedException();
     }
-//
-//    @Unique
-//    private Supplier<List<FeatureSorter.StepFeatureData>> bts$customFeaturesPerStep;
-//
-//    @Inject(method = "<init>(Lnet/minecraft/world/level/biome/BiomeSource;Ljava/util/function/Function;)V", at = @At("RETURN"))
-//    private void bts$overrideFeaturesPerStep(BiomeSource biomeSource, Function function, CallbackInfo ci) {
-//        bts$customFeaturesPerStep = Suppliers.memoize(() -> FeatureSorter.buildFeaturesPerStep(
-//                new ObjectArrayList<>(biomeSource.possibleBiomes()),
-//                (holder) -> this.generationSettingsGetter.apply(holder).features(), true)
-//        );
-//    }
-
 
     @Shadow
     @Final
@@ -188,7 +175,11 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                                 int size = holderset.size();
                                 for (int holderIndex = 0; holderIndex < size; holderIndex++) {
                                     PlacedFeature feature = holderset.get(holderIndex).value();
-                                    intset.add(indexMapper.applyAsInt(feature));
+                                    int featureIndex = indexMapper.applyAsInt(feature);
+
+                                    if (featureIndex >= 0) {
+                                        intset.add(featureIndex);
+                                    }
                                 }
                             }
                         }
