@@ -10,6 +10,9 @@
 /neoforge/.gradle/
 /neoforge/build/
 /neoforge/run/
+/forge/.gradle/
+/forge/build/
+/forge/run/
 /fabric/run/
 /.idea/
 /.architectury-transformer
