@@ -86,6 +86,25 @@ public class GAMainMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.mixins.common_mixin.surface.compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
                 "net.potionstudios.biomeswevegone.mixin.SurfaceSystemMixin"
         ));
+
+        create("com.teamabnormals.blueprint.core.Blueprint", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.mixins.common_mixin.surface.compats.blueprints.Blueprint$StructurePieceMixin",
+                "com.teamabnormals.blueprint.core.mixin.StructurePieceMixin"
+        ));
+
+        create("artifacts.Artifacts", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
+                ""));
+
+        create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.waystones.Waystones$WaystonePlacementMixin",
+                ""));
+
+        create("com.telepathicgrunt.repurposedstructures.RepurposedStructures",
+                new MixinApplier.Param("dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.repurposedstructures.Repurposedstructures$MinDistanceFromWorldOriginPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", "")
+        );
     }
 
     @Override

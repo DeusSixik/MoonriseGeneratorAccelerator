@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.api.patches;
 
+import dev.sixik.generator_accelerator.api.exceptions.MethodNotImplementedException;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
@@ -14,12 +15,13 @@ public interface GA$PlacementModifierExtension {
 
     /**
      * DOD-версия генерации позиций.
-     * @param context Контекст размещения
-     * @param random Источник рандома
+     *
+     * @param context   Контекст размещения
+     * @param random    Источник рандома
      * @param packedPos Входящая позиция, запакованная в long
-     * @param output Буфер, куда будут записаны результаты
+     * @param output    Буфер, куда будут записаны результаты
      */
     default void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
-        throw new NotImplementedException(getClass().getName() + " not implemented method generatePositionsFast(PlacementContext, RandomSource, long, LongArrayList output)");
+        throw new MethodNotImplementedException(getClass(), "generatePositionsFast(PlacementContext, RandomSource, long, LongArrayList output)");
     }
 }

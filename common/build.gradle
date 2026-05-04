@@ -20,6 +20,11 @@ dependencies {
     modCompileOnly ("curse.maven:oreberries-replanted-454062:5138729")
     modCompileOnly ("curse.maven:owo-lib-532610:4749199")
     modCompileOnly ("curse.maven:zeta-968868:7335229")
+
+    modCompileOnly ("curse.maven:artifacts-312353:7903806")
+    modCompileOnly ("curse.maven:repurposed-structures-368293:7971681")
+    modCompileOnly ("curse.maven:waystones-245755:7682270")
+    modCompileOnly ("curse.maven:blueprint-382216:6408581")
 }
 
 tasks.withType(JavaCompile).configureEach {

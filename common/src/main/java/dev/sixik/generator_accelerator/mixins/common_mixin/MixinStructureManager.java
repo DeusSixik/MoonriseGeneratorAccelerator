@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-@Mixin(value = StructureManager.class, priority = 4000)
+@Mixin(value = StructureManager.class, priority = 999)
 public abstract class MixinStructureManager {
 
     @Shadow

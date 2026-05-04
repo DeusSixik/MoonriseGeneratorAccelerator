@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.function.Predicate;
 
-@Mixin(value = LevelChunkSection.class, priority = 2000)
+@Mixin(value = LevelChunkSection.class, priority = 999)
 public abstract class MixinLevelChunkSection$flat_block_array implements LevelChunkSection$FlatBlockArray {
 
     @Shadow
