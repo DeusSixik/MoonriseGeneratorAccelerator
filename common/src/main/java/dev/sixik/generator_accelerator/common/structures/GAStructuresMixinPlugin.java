@@ -16,5 +16,10 @@ public class GAStructuresMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.structures.mixin.compats.zeta.Zeta$StructurePiece$Fix",
                 "org.violetmoon.zeta.mixin.mixins.StructurePieceMixin"
         ));
+
+        create("com.teamabnormals.blueprint.core.Blueprint", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.structures.mixin.compats.blueprints.Blueprint$StructurePieceMixin",
+                "com.teamabnormals.blueprint.core.mixin.StructurePieceMixin"
+        ));
     }
 }

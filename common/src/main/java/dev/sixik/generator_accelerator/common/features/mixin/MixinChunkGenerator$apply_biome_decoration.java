@@ -42,7 +42,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 
-@Mixin(value = ChunkGenerator.class, priority = 4000)
+@Mixin(value = ChunkGenerator.class, priority = 999)
 public abstract class MixinChunkGenerator$apply_biome_decoration {
 
     @Unique
