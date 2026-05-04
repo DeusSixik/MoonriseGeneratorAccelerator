@@ -32,7 +32,7 @@ public abstract class GAMixinPlugin implements IMixinConfigPlugin {
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
 
         final var config = GAConfigManager.getConfigOrLoad();
-        if(config.isPresent() && !isConfigEnable(config.get())) {
+        if(config.isEmpty() || !isConfigEnable(config.get())) {
             LOGGER.info("Mixin {} is disabled by config", mixinClassName);
             return false;
         }
