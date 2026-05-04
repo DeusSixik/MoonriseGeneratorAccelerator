@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.Arrays;
 import java.util.function.Consumer;
 
-@Mixin(value = PalettedContainer.class, priority = 9999)
+@Mixin(value = PalettedContainer.class, priority = 999)
 public class MixinPalettedContainer$flat_iterations<T> {
 
     @Shadow

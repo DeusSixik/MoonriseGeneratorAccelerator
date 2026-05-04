@@ -22,11 +22,24 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 )
         );
 
-
         create("io.wispforest.owo.Owo", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.owo.Mixin$OWO$OreFeature",
                 "io.wispforest.owo.mixin.Copenhagen"
         ));
+
+        create("artifacts.Artifacts", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
+                ""));
+
+        create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.waystones.Waystones$WaystonePlacementMixin",
+                ""));
+
+        create("com.telepathicgrunt.repurposedstructures.RepurposedStructures",
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinDistanceFromWorldOriginPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", "")
+        );
     }
 
     @Override

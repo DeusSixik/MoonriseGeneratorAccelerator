@@ -35,4 +35,10 @@ dependencies {
 
     modCompileOnly "curse.maven:oreberries-replanted-454062:6123417"
     modCompileOnly "curse.maven:roots-246183:7789182"
+
+    modCompileOnly "curse.maven:blueprint-382216:7148094"
+    modCompileOnly "curse.maven:bclib-neoforge-1422283:7755328"
+    modCompileOnly "curse.maven:artifacts-312353:7875426"
+    modCompileOnly "curse.maven:waystones-245755:7966157"
+    modCompileOnly "curse.maven:repurposed-structures-368293:7971691"
 }
