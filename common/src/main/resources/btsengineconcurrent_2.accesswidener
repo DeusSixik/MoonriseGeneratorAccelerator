@@ -262,3 +262,6 @@ accessible method net/minecraft/world/level/levelgen/placement/RepeatingPlacemen
 extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer gridX (I)I
 extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer gridY (I)I
 extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer gridZ (I)I
+
+extendable method net/minecraft/world/level/levelgen/feature/TreeFeature place (Lnet/minecraft/world/level/levelgen/feature/FeaturePlaceContext;)Z
+extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer similarity (II)D

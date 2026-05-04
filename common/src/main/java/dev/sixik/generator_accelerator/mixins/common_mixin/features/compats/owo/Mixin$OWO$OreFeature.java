@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.HashMap;
 import java.util.Map;
 
-@Mixin(value = OreFeature.class, priority = 1500, remap = false)
+@Mixin(value = OreFeature.class, priority = 1500)
 public class Mixin$OWO$OreFeature {
 
     @Unique

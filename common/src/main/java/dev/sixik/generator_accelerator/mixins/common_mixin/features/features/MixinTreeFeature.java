@@ -32,7 +32,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
-@Mixin(TreeFeature.class)
+@Mixin(value = TreeFeature.class, priority = 999)
 public abstract class MixinTreeFeature {
 
     @Unique
@@ -54,7 +54,7 @@ public abstract class MixinTreeFeature {
      * @reason
      */
     @Overwrite
-    public final boolean place(FeaturePlaceContext<TreeConfiguration> pContext) {
+    public boolean place(FeaturePlaceContext<TreeConfiguration> pContext) {
         final WorldGenLevel level = pContext.level();
         RandomSource random = pContext.random();
         BlockPos origin = pContext.origin();

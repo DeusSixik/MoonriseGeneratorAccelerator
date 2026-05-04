@@ -17,12 +17,8 @@ public class Zeta$StructurePiece$Fix {
         return StructureBlockReplacementHandler.getResultingBlockState(level, state);
     }
 
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.structures.optimization.MixinStructurePiece",
-            name = "placeBlock"
-    )
     @ModifyVariable(
-            method = "@MixinSquared:Handler",
+            method = "placeBlock", // Целимся в обычное имя метода
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/state/BlockState;",
@@ -34,12 +30,8 @@ public class Zeta$StructurePiece$Fix {
         return apply(worldGenLevel, state);
     }
 
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.structures.optimization.MixinStructurePiece",
-            name = "placeBlock"
-    )
     @ModifyVariable(
-            method = "@MixinSquared:Handler",
+            method = "placeBlock", // Целимся в обычное имя метода
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/WorldGenLevel;setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;I)Z",

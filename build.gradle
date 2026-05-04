@@ -76,7 +76,7 @@ subprojects {
     }
 
     loom {
-        accessWidenerPath = file("../common/src/main/resources/btsengineconcurrent.accesswidener")
+        accessWidenerPath = file("../common/src/main/resources/btsengineconcurrent_2.accesswidener")
     }
 
     tasks.withType(AbstractArchiveTask).configureEach {

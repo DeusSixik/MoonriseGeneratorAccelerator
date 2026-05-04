@@ -45,8 +45,7 @@ public abstract class Terrablender$MixinParameterList$redirect_search<T> {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/biome/Climate$RTree;search(Lnet/minecraft/world/level/biome/Climate$TargetPoint;Lnet/minecraft/world/level/biome/Climate$DistanceMetric;)Ljava/lang/Object;"
-            ),
-            remap = false
+            )
     )
     private Object bts$fastTerraBlenderSearch(
             Climate.RTree<?> tree,

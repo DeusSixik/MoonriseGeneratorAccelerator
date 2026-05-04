@@ -179,7 +179,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    protected double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
+    private double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
 
         final int i = context.blockY();
         final BlockState blockState = fluidLevel.at(i);
@@ -204,7 +204,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    protected Aquifer.FluidStatus getAquiferStatus(long pos) {
+    private Aquifer.FluidStatus getAquiferStatus(long pos) {
         final int i = BlockPos.getX(pos);
         final int j = BlockPos.getY(pos);
         final int k = BlockPos.getZ(pos);
@@ -228,7 +228,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    protected int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent) {
+    private int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent) {
 
         final DensityFunction.SinglePointContext unblendedNoisePos = new DensityFunction.SinglePointContext(x, y, z);
         double d;
@@ -257,19 +257,15 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
     }
 
-    /**
-     * @author
-     * @reason
-     */
-    @Overwrite
-    protected static double similarity(int i, int j) {
+    @Unique
+    private static double bts$similarity(int i, int j) {
         return 1.0D - (double) Math.abs(j - i) * 0.04D;
     }
 
     @Unique
     private @NotNull BlockState aquiferExtracted$applyPost(DensityFunction.FunctionContext pos, double density, int j, int i, int k) {
         final Aquifer.FluidStatus fluidLevel2 = this.getAquiferStatus(this.c2me$pos1);
-        final double d = similarity(this.c2me$dist1, this.c2me$dist2);
+        final double d = bts$similarity(this.c2me$dist1, this.c2me$dist2);
         final BlockState blockState = fluidLevel2.at(j);
         if (d <= 0.0) {
             this.shouldScheduleFluidUpdate = d >= FLOWING_UPDATE_SIMULARITY;
@@ -293,10 +289,10 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     @Unique
     private BlockState aquiferExtracted$getFinalBlockState(DensityFunction.FunctionContext pos, double density, double d, Aquifer.FluidStatus fluidLevel2, Aquifer.FluidStatus fluidLevel3, BlockState blockState) {
         final Aquifer.FluidStatus fluidLevel4 = this.getAquiferStatus(this.c2me$pos3);
-        final double f = similarity(this.c2me$dist1, this.c2me$dist3);
+        final double f = bts$similarity(this.c2me$dist1, this.c2me$dist3);
         if (aquiferExtracted$extractedCheckFG(pos, density, d, fluidLevel2, f, fluidLevel4)) return null;
 
-        final double g = similarity(this.c2me$dist2, this.c2me$dist3);
+        final double g = bts$similarity(this.c2me$dist2, this.c2me$dist3);
         if (aquiferExtracted$extractedCheckFG(pos, density, d, fluidLevel3, g, fluidLevel4)) return null;
 
         this.shouldScheduleFluidUpdate = true;
