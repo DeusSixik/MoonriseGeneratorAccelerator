@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.mixins.common_mixin.features.features;
 import com.mojang.serialization.Codec;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.mixins.common_mixin.utils.HolderSetNamedInvoker;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -189,9 +190,9 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                     extractedBlocks = new Block[0];
                 } else {
                     final HolderSet.Named<Block> tagData = tagOpt.get();
-                    final ObjectArrayList<Holder<Block>> tagDataList = (ObjectArrayList<Holder<Block>>) tagData.contents();
+                    final List<Holder<Block>> rawList = ((HolderSetNamedInvoker<Holder<Block>>) tagData).ga$contents();
+                    final ObjectArrayList<Holder<Block>> tagDataList = (ObjectArrayList<Holder<Block>>) rawList;
                     final Object[] tagDataArray = tagDataList.elements();
-
                     final int tagDataSize = tagDataList.size();
                     final Block[] primitiveArray = new Block[tagDataSize];
                     for (int i1 = 0; i1 < tagDataSize; i1++) {

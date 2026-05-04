@@ -135,7 +135,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason none
      */
     @Overwrite
-    private int gridX(int i) {
+    public int gridX(int i) {
         return i >> 4;
     }
 
@@ -144,7 +144,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason none
      */
     @Overwrite
-    private int gridZ(int i) {
+    public int gridZ(int i) {
         return i >> 4;
     }
 
@@ -179,7 +179,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    private double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
+    protected double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
 
         final int i = context.blockY();
         final BlockState blockState = fluidLevel.at(i);
@@ -204,7 +204,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    private Aquifer.FluidStatus getAquiferStatus(long pos) {
+    protected Aquifer.FluidStatus getAquiferStatus(long pos) {
         final int i = BlockPos.getX(pos);
         final int j = BlockPos.getY(pos);
         final int k = BlockPos.getZ(pos);
@@ -228,7 +228,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    private int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent) {
+    protected int computeSurfaceLevel(int x, int y, int z, Aquifer.FluidStatus fluidStatus, int maxSurfaceLevel, boolean fluidPresent) {
 
         final DensityFunction.SinglePointContext unblendedNoisePos = new DensityFunction.SinglePointContext(x, y, z);
         double d;
@@ -262,7 +262,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
      * @reason
      */
     @Overwrite
-    private static double similarity(int i, int j) {
+    protected static double similarity(int i, int j) {
         return 1.0D - (double) Math.abs(j - i) * 0.04D;
     }
 

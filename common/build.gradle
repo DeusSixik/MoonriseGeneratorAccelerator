@@ -21,3 +21,9 @@ dependencies {
     modCompileOnly ("curse.maven:owo-lib-532610:4749199")
     modCompileOnly ("curse.maven:zeta-968868:7335229")
 }
+
+tasks.withType(JavaCompile).configureEach {
+    // Включаем максимальную болтливость компилятора и самого Mixin AP
+    options.compilerArgs << "-XprintProcessorInfo"
+    options.compilerArgs << "-Amixin.debug.verbose=true"
+}

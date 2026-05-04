@@ -58,6 +58,7 @@
     "flat_block_structure.MixinLevelChunkSection$flat_block_array",
     "flat_block_structure.MixinNoiseBasedChunkGenerator",
     "heightmap.MixinHeightmap$optimize_logic",
+    "noise.ImprovedNoiseAccessor",
     "noise.MixinBlendedNoise$flat_data",
     "noise.MixinNoiseChunk",
     "noise.MixinNoiseChunk$Cache2D",
@@ -107,6 +108,7 @@
     "surface.blockpredicates.MixinCombiningPredicate$convert_to_primitive_array",
     "surface.compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
     "surface.compats.natures_spirit.NaturesSpirit$SurfaceBuilderMixin$fix_compat",
+    "utils.HolderSetNamedInvoker",
     "utils.MixinHolderSet$Named"
   ],
   "injectors": {

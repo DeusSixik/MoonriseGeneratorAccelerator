@@ -6,6 +6,12 @@ loom {
     accessWidenerPath = project(":common").loom.accessWidenerPath
 
     forge {
+        // 1. Включаем автоматическую конвертацию AW -> AT для Forge
+        convertAccessWideners = true
+
+        // 2. Указываем, какой именно файл нужно конвертировать и положить в мод
+        extraAccessWideners.add loom.accessWidenerPath.get().asFile.name
+
         mixinConfig "generator_accelerator.mixins.json"
     }
 }

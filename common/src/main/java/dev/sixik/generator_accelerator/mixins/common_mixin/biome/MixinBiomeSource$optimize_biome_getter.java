@@ -14,9 +14,6 @@ import java.util.Set;
 @Mixin(BiomeSource.class)
 public abstract class MixinBiomeSource$optimize_biome_getter {
 
-    @Shadow
-    public abstract Holder<Biome> getNoiseBiome(int i, int j, int k, Climate.Sampler sampler);
-
     /**
      * @author Sixik
      * @reason Avoid allocating HashSet and use fast iteration.
@@ -43,7 +40,7 @@ public abstract class MixinBiomeSource$optimize_biome_getter {
                     final int qX = minX + j;
                     final int qY = minY + i;
                     final int qZ = minZ + k;
-                    set.add(this.getNoiseBiome(qX, qY, qZ, sampler));
+                    set.add(((BiomeSource)(Object)this).getNoiseBiome(qX, qY, qZ, sampler));
                 }
             }
         }
