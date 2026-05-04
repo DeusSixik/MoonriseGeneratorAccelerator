@@ -12,9 +12,6 @@ public class GAStructuresMixinPlugin extends GAMixinPlugin {
 
     @Override
     public void onLoad(String s) {
-        create("org.violetmoon.zeta.Zeta", new MixinApplier.Param(
-                "dev.sixik.generator_accelerator.common.structures.mixin.compats.zeta.Zeta$StructurePiece$Fix",
-                "org.violetmoon.zeta.mixin.mixins.StructurePieceMixin"
-        ));
+
     }
 }

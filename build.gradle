@@ -1,5 +1,5 @@
 plugins {
-    id 'dev.architectury.loom' version '1.10-SNAPSHOT' apply false
+    id 'dev.architectury.loom' version '1.11-SNAPSHOT' apply false
     id 'architectury-plugin' version '3.4-SNAPSHOT'
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
@@ -87,7 +87,7 @@ subprojects {
             // project.version             => Версия мода
             // rootProject.archives_name   => Имя мода
             // project.name                => Лоадер (fabric, neoforge, common)
-            return "[${project.version}] ${rootProject.archives_name}-${project.name}${classifierSuffix}.${archiveExtension.get()}"
+            return "[${project.version}] ${rootProject.out_name}-${project.name}${classifierSuffix}.${archiveExtension.get()}"
         })
     }
 

@@ -1,0 +1,102 @@
+package dev.sixik.generator_accelerator.mixins.common_mixin.surface.compats.biomeswevegone;
+
+import com.bawnorton.mixinsquared.TargetHandler;
+import com.llamalad7.mixinextras.sugar.Local;
+import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.util.RandomSource;
+import net.minecraft.util.random.SimpleWeightedRandomList;
+import net.minecraft.util.valueproviders.IntProvider;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.BlockColumn;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.levelgen.*;
+import net.minecraft.world.level.levelgen.synth.NormalNoise;
+import net.potionstudios.biomeswevegone.world.level.levelgen.biome.BWGBiomes;
+import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BandsContext;
+import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BandsRuleSource;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Mixin(value = {SurfaceSystem.class}, priority = 1500)
+public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsContext {
+
+    @Unique
+    private final Map<BandsRuleSource, BlockState[]> bandsLookup = new Reference2ObjectOpenHashMap();
+
+    @Shadow
+    @Final
+    public PositionalRandomFactory noiseRandom;
+    @Shadow
+    @Final
+    private NormalNoise surfaceSecondaryNoise;
+
+    @Shadow
+    protected abstract void erodedBadlandsExtension(BlockColumn var1, int var2, int var3, int var4, LevelHeightAccessor var5);
+
+    @TargetHandler(
+            mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
+            name = "buildSurface"
+    )
+    @Inject(
+            method = {"@MixinSquared:Handler"},
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/core/Holder;is(Lnet/minecraft/resources/ResourceKey;)Z",
+                    ordinal = 0
+            )
+    )
+    private void injectShatteredGlacierExtension(
+            RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> pBiomes,
+            boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource pRuleSource, CallbackInfo ci,
+
+            @Local VectorBlockColumn fastColumn,
+            @Local(ordinal = 4) int globalX,
+            @Local(ordinal = 5) int globalZ,
+            @Local(ordinal = 6) int surfaceY,
+            @Local Holder<Biome> biome
+    ) {
+        if (biome.is(BWGBiomes.SHATTERED_GLACIER) || biome.is(BWGBiomes.ERODED_BOREALIS)) {
+            this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
+        }
+    }
+
+    @Override
+    public BlockState getBandsState(BandsRuleSource bandsRuleSource, SimpleWeightedRandomList<BlockState> bandStates, IntProvider bandSizeProvider, IntProvider bandsCountProvider, int x, int y, int z, float frequency, int noiseScale) {
+        BlockState[] blockStates = this.bandsLookup.computeIfAbsent(bandsRuleSource, (key) -> {
+            List<BlockState> states = new ArrayList();
+            RandomSource random = this.noiseRandom.at(BlockPos.ZERO);
+            int bandsCount = bandsCountProvider.sample(random);
+
+            for(int bandIdx = 0; bandIdx < bandsCount; ++bandIdx) {
+                int bandSize = bandSizeProvider.sample(random);
+                BlockState state = bandStates.getRandomValue(random).orElseThrow();
+
+                for(int size = 0; size < bandSize; ++size) {
+                    states.add(state);
+                }
+            }
+
+            return states.toArray(new BlockState[0]);
+        });
+        double scaledNoise = this.surfaceSecondaryNoise.getValue(x * frequency, 0.0F, z * frequency) * noiseScale;
+        int stateIndex = Math.floorMod((long)y + Math.round(scaledNoise), blockStates.length - 1);
+        return blockStates[stateIndex];
+    }
+}

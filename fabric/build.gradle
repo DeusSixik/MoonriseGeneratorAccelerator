@@ -29,7 +29,7 @@ dependencies {
 
     include(implementation(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.7-beta.1")))
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
-    include(implementation("io.github.llamalad7:mixinextras-forge:0.5.4"))
+    include(implementation("io.github.llamalad7:mixinextras-fabric:0.5.4"))
 
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')

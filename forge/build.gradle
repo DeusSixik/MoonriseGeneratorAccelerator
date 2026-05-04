@@ -7,15 +7,6 @@ loom {
 
     forge {
         mixinConfig "generator_accelerator.mixins.json"
-
-        convertAccessWideners = true
-        extraAccessWideners.add loom.accessWidenerPath.get().asFile.name
-
-        def commonMixins = fileTree(dir: project(":common").file("src/main/resources"), include: "mixins.*.json")
-        commonMixins.files.each { mixinFile ->
-            mixinConfig mixinFile.name
-            println "Add mixin Forge: ${mixinFile.name}"
-        }
     }
 }
 
