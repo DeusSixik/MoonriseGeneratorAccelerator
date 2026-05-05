@@ -1,9 +1,14 @@
 package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.logging.LogUtils;
+import com.mojang.brigadier.CommandDispatcher;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 
@@ -12,14 +17,6 @@ import java.lang.reflect.Method;
 public final class DensityFunctionCompiler {
     public static final String MODID = "generator_accelerator";
     public static final Logger LOGGER = LogUtils.getLogger();
-    /**
-     * Debug switch: when enabled, every generated DensityFunction class is written
-     * under {@code .densitycompiler/} in the current game directory.
-     *
-     * <p>Can be toggled directly at runtime, or initialized with
-     * {@code -Ddfc.dump_classes=true}.
-     */
-    public static volatile boolean dumpCompiledClasses = Boolean.getBoolean("dfc.dump_classes");
 
     private static volatile boolean initialized;
 
@@ -31,9 +28,6 @@ public final class DensityFunctionCompiler {
         }
         initialized = true;
         LOGGER.info("DensityFunctionCompiler initialising - runtime DF JIT pipeline enabling.");
-        if (dumpCompiledClasses) {
-            LOGGER.info("DFC class dump enabled; generated classes will be written to .densitycompiler");
-        }
         DfcVectorSupport.logStatusOnce();
         LOGGER.info("DFC native noise: libraryLoaded={}, avx2={}",
                 DfcNativeBridge.isAvailable(), DfcNativeBridge.hasAvx2());
@@ -57,6 +51,21 @@ public final class DensityFunctionCompiler {
 
     public static void onDatapackReload(MinecraftServer server) {
         RegistryWarmer.warmAll(server);
+    }
+
+    public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(Commands.literal("dfc")
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.literal("dump")
+                        .executes(context -> {
+                            Compiler.DumpResult result = Compiler.dumpCompiledClasses();
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "Dumped " + result.classesDumped() + " compiled DFC classes to "
+                                            + result.directory()
+                                            + (result.failed() == 0 ? "" : " (" + result.failed() + " failed)")),
+                                    false);
+                            return result.classesDumped();
+                        })));
     }
 
     public static boolean isModLoaded(String modId) {

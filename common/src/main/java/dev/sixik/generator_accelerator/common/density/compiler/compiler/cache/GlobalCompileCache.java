@@ -3,6 +3,8 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.cache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 
 import java.lang.invoke.MethodHandle;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -160,6 +162,10 @@ public final class GlobalCompileCache {
 
     public int size() {
         return bundles.size();
+    }
+
+    public List<CopiedClassBundle> snapshotBundles() {
+        return new ArrayList<>(bundles.values());
     }
 
     /**

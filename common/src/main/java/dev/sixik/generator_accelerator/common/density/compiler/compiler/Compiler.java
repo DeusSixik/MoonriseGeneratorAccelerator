@@ -27,6 +27,9 @@ import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -174,7 +177,6 @@ public final class Compiler {
                         fClassName, exactFp, cls, bytecode, ctorMH, helperHandles, helpersEmitted, latticeEmitted,
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
             });
-            dumpCompiledClassIfEnabled(lo.bundle());
             return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
                     cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled);
         } catch (Throwable t) {
@@ -187,36 +189,59 @@ public final class Compiler {
         }
     }
 
-    private static void dumpCompiledClassIfEnabled(GlobalCompileCache.CopiedClassBundle bundle) {
-        if (!DensityFunctionCompiler.dumpCompiledClasses
-                || bundle.bytecode() == null
-                || bundle.classInternalName() == null) {
-            return;
+    public static DumpResult dumpCompiledClasses() {
+        Path dumpRoot = Paths.get(System.getProperty("user.dir", "."))
+                .resolve(".densitycompiler")
+                .toAbsolutePath()
+                .normalize();
+        int dumped = 0;
+        int skipped = 0;
+        int failed = 0;
+        Set<String> seen = new HashSet<>();
+        List<GlobalCompileCache.CopiedClassBundle> bundles = GlobalCompileCache.INSTANCE.snapshotBundles();
+        try {
+            Files.createDirectories(dumpRoot);
+        } catch (Exception e) {
+            DensityFunctionCompiler.LOGGER.warn("DFC: failed to create class dump directory {}", dumpRoot, e);
+            return new DumpResult(dumpRoot, 0, bundles.size(), bundles.size());
         }
 
-        try {
-            Path dumpRoot = Paths.get(System.getProperty("user.dir", "."))
-                    .resolve(".densitycompiler")
-                    .toAbsolutePath()
-                    .normalize();
+        for (GlobalCompileCache.CopiedClassBundle bundle : bundles) {
+            String classInternalName = bundle.classInternalName();
+            byte[] bytecode = bundle.bytecode();
+            if (classInternalName == null || bytecode == null || !seen.add(classInternalName)) {
+                skipped++;
+                continue;
+            }
             Path classFile = dumpRoot
-                    .resolve(bundle.classInternalName() + ".class")
+                    .resolve(classInternalName + ".class")
                     .normalize();
             if (!classFile.startsWith(dumpRoot)) {
+                failed++;
                 DensityFunctionCompiler.LOGGER.warn(
                         "DFC: refused to dump generated class with suspicious name {}",
-                        bundle.classInternalName());
-                return;
+                        classInternalName);
+                continue;
             }
 
-            Files.createDirectories(classFile.getParent());
-            Files.write(classFile, bundle.bytecode());
-            DensityFunctionCompiler.LOGGER.debug("DFC: dumped generated class to {}", classFile);
-        } catch (Exception e) {
-            DensityFunctionCompiler.LOGGER.warn(
-                    "DFC: failed to dump generated class {} to {}",
-                    bundle.classInternalName(), ".densitycompiler", e);
+            try {
+                Files.createDirectories(classFile.getParent());
+                Files.write(classFile, bytecode,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE);
+                dumped++;
+            } catch (Exception e) {
+                failed++;
+                DensityFunctionCompiler.LOGGER.warn(
+                        "DFC: failed to dump generated class {} to {}",
+                        classInternalName, classFile, e);
+            }
         }
+        DensityFunctionCompiler.LOGGER.info(
+                "DFC: dumped {} generated classes to {} ({} skipped, {} failed)",
+                dumped, dumpRoot, skipped, failed);
+        return new DumpResult(dumpRoot, dumped, skipped, failed);
     }
 
     private static Result linkAndRecord(
@@ -303,4 +328,6 @@ public final class Compiler {
             int octavesUnrolled,
             double minValue,
             double maxValue) {}
+
+    public record DumpResult(Path directory, int classesDumped, int skipped, int failed) {}
 }
