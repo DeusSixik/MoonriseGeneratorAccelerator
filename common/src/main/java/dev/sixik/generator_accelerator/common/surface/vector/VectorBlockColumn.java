@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -33,7 +35,7 @@ public class VectorBlockColumn implements BlockColumn {
         if (raw != null) {
             int localY = y & 15;
             int index = (localY << 8) | ((columnPos.getZ() & 15) << 4) | (columnPos.getX() & 15);
-            return Block.stateById(raw[index]);
+            return FastBlockStateCache.getBlockState(raw[index]);
         }
         return pChunk.getBlockState(columnPos.setY(y));
     }
@@ -52,11 +54,11 @@ public class VectorBlockColumn implements BlockColumn {
                 int index = (localY << 8) | ((columnPos.getZ() & 15) << 4) | (columnPos.getX() & 15);
 
                 // Ручное обновление счетчика (чтобы DOD-движок не пропустил секцию)
-                BlockState oldState = Block.stateById(raw[index]);
+                BlockState oldState = FastBlockStateCache.getBlockState(raw[index]);
                 if (!oldState.isAir() && state.isAir()) section.nonEmptyBlockCount--;
                 if (oldState.isAir() && !state.isAir()) section.nonEmptyBlockCount++;
 
-                raw[index] = Block.getId(state);
+                raw[index] = GA$BlockStateExtension.get(state).bts$getFastId();
 
                 if (!state.getFluidState().isEmpty()) {
                     pChunk.markPosForPostprocessing(columnPos.setY(y));

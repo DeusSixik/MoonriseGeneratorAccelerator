@@ -43,4 +43,5 @@ dependencies {
     modCompileOnly "curse.maven:repurposed-structures-368293:7971691"
     modCompileOnly "curse.maven:countereds-terrain-slabs-1125437:7963565"
     modCompileOnly ("curse.maven:yungs-extras-480006:5812545")
+    modCompileOnly "curse.maven:biolith-852512:7074761"
 }
