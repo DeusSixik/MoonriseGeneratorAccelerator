@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Pre-warms the JIT cache after the registries have been bound.
  *
- * <p>This runs once on {@code ServerStartingEvent} (and again on each
- * {@code OnDatapackSyncEvent}, because reload rebuilds the registries) — by which
+ * <p>This runs once on {@code ServerStartingEvent} (and again when datapacks are
+ * synced for all players after a reload, because reload rebuilds the registries) — by which
  * point every {@link net.minecraft.core.Holder.Reference Holder.Reference} into
  * {@link Registries#DENSITY_FUNCTION} is resolvable. That makes it the right place to
  * (a) construct a {@link RandomState} for every {@link NoiseGeneratorSettings} so the
