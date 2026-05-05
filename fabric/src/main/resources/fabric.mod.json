@@ -21,6 +21,7 @@
       "dev.sixik.generator_accelerator.fabric.client.GeneratorAcceleratorFabricClient"
     ]
   },
+  "accessWidener": "btsengineconcurrent_2.accesswidener",
   "mixins": [
     "generator_accelerator.mixins.json"
   ],
