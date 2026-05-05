@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix;
 
 import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAIClearableChunkHolder;
 import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAISuspendedHolderTrackingChunkMap;
@@ -23,7 +23,7 @@ import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 
 @Mixin(ChunkMap.class)
-public abstract class ChunkMapReleaseProtochunksCompatMixin implements GAISuspendedHolderTrackingChunkMap {
+public abstract class ModernFixChunkMapReleaseProtoChunksMixin implements GAISuspendedHolderTrackingChunkMap {
     @Unique
     private static final int GA$TICKS_TO_WAIT_BEFORE_SUSPENDING = 100;
 

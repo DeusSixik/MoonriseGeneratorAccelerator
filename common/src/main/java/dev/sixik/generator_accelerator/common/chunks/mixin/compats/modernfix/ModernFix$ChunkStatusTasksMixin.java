@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix;
 
 import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.CrashReport;
@@ -21,7 +21,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
 @Mixin(ChunkStatusTasks.class)
-public abstract class ChunkStatusTasksCompatMixin {
+public abstract class ModernFix$ChunkStatusTasksMixin {
     @Unique
     private static final ThreadLocal<CompletableFuture<ChunkAccess>> GA$SURROGATE_FUTURE = new ThreadLocal<>();
 

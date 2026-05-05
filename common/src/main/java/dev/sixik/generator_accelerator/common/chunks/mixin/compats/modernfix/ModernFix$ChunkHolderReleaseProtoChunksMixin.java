@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix;
 
 import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAIClearableChunkHolder;
 import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAISuspendedHolderTrackingChunkMap;
@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 @Mixin(ChunkHolder.class)
-public abstract class ChunkHolderReleaseProtochunksCompatMixin extends GenerationChunkHolder implements GAIClearableChunkHolder {
+public abstract class ModernFix$ChunkHolderReleaseProtoChunksMixin extends GenerationChunkHolder implements GAIClearableChunkHolder {
     @Shadow
     private CompletableFuture<?> saveSync;
 
@@ -30,13 +30,13 @@ public abstract class ChunkHolderReleaseProtochunksCompatMixin extends Generatio
     @Final
     private ChunkHolder.PlayerProvider playerProvider;
 
-    public ChunkHolderReleaseProtochunksCompatMixin(ChunkPos pos) {
+    public ModernFix$ChunkHolderReleaseProtoChunksMixin(ChunkPos pos) {
         super(pos);
     }
 
     @Override
     public void ga$resetProtoChunkFutures() {
-        GenerationChunkHolderAccessor accessor = (GenerationChunkHolderAccessor) this;
+        ModernFix$GenerationChunkHolderAccessor accessor = (ModernFix$GenerationChunkHolderAccessor) this;
         var futures = accessor.ga$getFutures();
         int len = futures.length();
         for (int i = 0; i < len; i++) {

@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix;
 
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.server.level.GenerationChunkHolder;
@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 @Mixin(GenerationChunkHolder.class)
-public interface GenerationChunkHolderAccessor {
+public interface ModernFix$GenerationChunkHolderAccessor {
     @Accessor("futures")
     AtomicReferenceArray<CompletableFuture<ChunkResult<ChunkAccess>>> ga$getFutures();
 

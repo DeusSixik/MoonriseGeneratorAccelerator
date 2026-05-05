@@ -1,14 +1,14 @@
 {
   "required": true,
-  "package": "dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin",
+  "package": "dev.sixik.generator_accelerator.common.chunks.mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
-  "plugin": "dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAModernFixMixinPlugin",
+  "plugin": "dev.sixik.generator_accelerator.common.chunks.GAModernFixMixinPlugin",
   "mixins": [
-    "ChunkHolderReleaseProtochunksCompatMixin",
-    "ChunkMapReleaseProtochunksCompatMixin",
-    "ChunkStatusTasksCompatMixin",
-    "GenerationChunkHolderAccessor"
+    "compats.modernfix.ModernFixChunkMapReleaseProtoChunksMixin",
+    "compats.modernfix.ModernFix$ChunkStatusTasksMixin",
+    "compats.modernfix.ModernFix$GenerationChunkHolderAccessor",
+    "compats.modernfix.ModernFix$ChunkHolderReleaseProtoChunksMixin"
   ],
   "injectors": {
     "defaultRequire": 1
