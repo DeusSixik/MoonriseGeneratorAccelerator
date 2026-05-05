@@ -26,6 +26,9 @@ dependencies {
     modCompileOnly ("curse.maven:waystones-245755:7682270")
     modCompileOnly ("curse.maven:blueprint-382216:6408581")
     modCompileOnly ("curse.maven:countereds-terrain-slabs-1125437:7962044")
+    modCompileOnly ("curse.maven:gregtechceu-modern-890405:7917773")
+
+    modCompileOnly ("curse.maven:yungs-extras-480006:4769514")
 }
 
 tasks.withType(JavaCompile).configureEach {

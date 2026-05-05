@@ -82,7 +82,11 @@ public class Mixin$OWO$OreFeature {
     ){
         final Map<BlockPos, BlockState> map = this.OWO$COPING.get();
         if (!map.isEmpty()) {
-            map.forEach((blockPos, state) -> pLevel.setBlock(blockPos, state, 3));
+            for (Map.Entry<BlockPos, BlockState> entry : map.entrySet()) {
+                BlockPos blockPos = entry.getKey();
+                BlockState state = entry.getValue();
+                pLevel.setBlock(blockPos, state, 3);
+            }
             map.clear();
         }
     }
