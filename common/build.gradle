@@ -15,6 +15,7 @@ dependencies {
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
+    modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     modCompileOnly "curse.maven:moonrise-1096335:7089177"
 
     compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
