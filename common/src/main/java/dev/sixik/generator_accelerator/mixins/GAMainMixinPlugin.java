@@ -105,6 +105,13 @@ public class GAMainMixinPlugin extends GAMixinPlugin {
                 new MixinApplier.Param("dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin", ""),
                 new MixinApplier.Param("dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", "")
         );
+
+        create("net.countered.terrainslabs.TerrainSlabs",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.terrainslabs.Mixin$TerrainSlabs$OreFeature",
+                        "net.countered.terrainslabs.mixin.feature.MixinOreFeature"
+                )
+        );
     }
 
     @Override

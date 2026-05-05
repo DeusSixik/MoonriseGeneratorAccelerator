@@ -37,6 +37,7 @@
     "features.compats.owo.Mixin$OWO$OreFeature",
     "features.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin",
     "features.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin",
+    "features.compats.terrainslabs.Mixin$TerrainSlabs$OreFeature",
     "features.compats.waystones.Waystones$WaystonePlacementMixin",
     "features.features.MixinOreFeature",
     "features.features.MixinTreeFeature",

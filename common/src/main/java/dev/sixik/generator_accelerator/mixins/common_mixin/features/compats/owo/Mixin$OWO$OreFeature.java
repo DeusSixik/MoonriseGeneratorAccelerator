@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin.features.compats.owo;
 
-import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
 import io.wispforest.owo.util.Maldenhagen;
@@ -25,13 +24,8 @@ public class Mixin$OWO$OreFeature {
     @Unique
     private final ThreadLocal<Map<BlockPos, BlockState>> OWO$COPING = ThreadLocal.withInitial(HashMap::new);
 
-
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.features.features.MixinOreFeature",
-            name = "doPlace"
-    )
     @Inject(
-            method = {"@MixinSquared:Handler"},
+            method = "doPlace",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/level/block/state/BlockState;",
@@ -55,25 +49,20 @@ public class Mixin$OWO$OreFeature {
             int pHeight,
             CallbackInfoReturnable<Boolean> cir,
             @Local(ordinal = 0) FastTarget target,
-            @Local(ordinal = 29) int i3,
-            @Local(ordinal = 30) int j3,
-            @Local(ordinal = 31) int k3
+            @Local(ordinal = 0) int currX,
+            @Local(ordinal = 1) int currY,
+            @Local(ordinal = 2) int currZ
     ){
         final BlockState state = target.placementState();
         if (Maldenhagen.isOnCopium(state.getBlock())) {
-            ((Map)this.OWO$COPING.get()).put(new BlockPos(i3, j3, k3), state);
+            this.OWO$COPING.get().put(new BlockPos(currX, currY, currZ), state);
         }
     }
 
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.features.features.MixinOreFeature",
-            name = "doPlace"
-    )
     @Inject(
-            method = {"@MixinSquared:Handler"},
+            method = "doPlace",
             at = @At("TAIL")
     )
-
     private void coping(
             WorldGenLevel pLevel,
             RandomSource pRandom,
@@ -92,9 +81,9 @@ public class Mixin$OWO$OreFeature {
             CallbackInfoReturnable<Boolean> cir
     ){
         final Map<BlockPos, BlockState> map = this.OWO$COPING.get();
-        map.forEach((blockPos, state) -> pLevel.setBlock(blockPos, state, 3));
-        map.clear();
+        if (!map.isEmpty()) {
+            map.forEach((blockPos, state) -> pLevel.setBlock(blockPos, state, 3));
+            map.clear();
+        }
     }
-
-
 }
