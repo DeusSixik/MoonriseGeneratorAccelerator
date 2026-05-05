@@ -22,6 +22,8 @@
     "compats.roots.Roots$HeightmapYRangeMixin",
     "compats.terrainslabs.Mixin$TerrainSlabs$OreFeature",
     "compats.waystones.Waystones$WaystonePlacementMixin",
+    "compats.yungs.bridges.YungsBridge$BridgePlacementMixin",
+    "compats.yungs.bridges.YungsBridge$RngInitializerPlacementMixin",
     "compats.yungs.extras.YungsExtras$RngInitializerPlacementMixin",
     "features.MixinOreFeature",
     "features.MixinTreeFeature",
