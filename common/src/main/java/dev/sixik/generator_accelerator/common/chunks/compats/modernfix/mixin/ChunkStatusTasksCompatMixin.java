@@ -8,6 +8,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatusTasks;
 import net.minecraft.world.level.chunk.status.WorldGenContext;
+import org.embeddedt.modernfix.common.mixin.bugfix.chunk_deadlock.ServerChunkCacheAccessor;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,7 +16,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.lang.reflect.Field;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
@@ -24,9 +24,6 @@ import java.util.function.Supplier;
 public abstract class ChunkStatusTasksCompatMixin {
     @Unique
     private static final ThreadLocal<CompletableFuture<ChunkAccess>> GA$SURROGATE_FUTURE = new ThreadLocal<>();
-
-    @Unique
-    private static Field ga$mainThreadProcessorField;
 
     @Redirect(
             method = "full",
@@ -61,31 +58,7 @@ public abstract class ChunkStatusTasksCompatMixin {
 
     @Unique
     private static Executor ga$getMainThreadProcessor(Object chunkSource) {
-        try {
-            Field field = ga$mainThreadProcessorField;
-            if (field == null) {
-                field = ga$findMainThreadProcessorField(chunkSource.getClass());
-                field.setAccessible(true);
-                ga$mainThreadProcessorField = field;
-            }
-            return (Executor) field.get(chunkSource);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Could not access ServerChunkCache main thread executor", e);
-        }
-    }
-
-    @Unique
-    private static Field ga$findMainThreadProcessorField(Class<?> chunkSourceClass) throws NoSuchFieldException {
-        try {
-            return chunkSourceClass.getDeclaredField("mainThreadProcessor");
-        } catch (NoSuchFieldException ignored) {
-            for (Field field : chunkSourceClass.getDeclaredFields()) {
-                if (Executor.class.isAssignableFrom(field.getType())) {
-                    return field;
-                }
-            }
-            throw ignored;
-        }
+        return ((ServerChunkCacheAccessor) chunkSource).mfix$getMainThreadProcessor();
     }
 
     @Inject(
