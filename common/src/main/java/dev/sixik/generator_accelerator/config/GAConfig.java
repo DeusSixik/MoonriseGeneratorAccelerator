@@ -19,6 +19,8 @@ public class GAConfig {
 
     public boolean enableDensityPatch = true;
 
+    public boolean enableDensityCompilerPatch = true;
+
     public boolean enableFeaturesPatch = true;
 
     public boolean enableFlatBlockStructurePatch = true;
