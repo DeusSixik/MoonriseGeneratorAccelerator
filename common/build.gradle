@@ -41,4 +41,5 @@ dependencies {
     modCompileOnly "curse.maven:artifacts-312353:7875426"
     modCompileOnly "curse.maven:waystones-245755:7966157"
     modCompileOnly "curse.maven:repurposed-structures-368293:7971691"
+    modCompileOnly "curse.maven:countereds-terrain-slabs-1125437:7963565"
 }

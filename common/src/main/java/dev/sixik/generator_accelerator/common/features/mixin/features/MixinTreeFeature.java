@@ -32,7 +32,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
-@Mixin(TreeFeature.class)
+@Mixin(value = TreeFeature.class, priority = 999)
 public abstract class MixinTreeFeature {
 
     @Unique

@@ -29,7 +29,7 @@ import org.spongepowered.asm.mixin.Unique;
 import java.util.*;
 import java.util.function.Function;
 
-@Mixin(OreFeature.class)
+@Mixin(value = OreFeature.class, priority = 999)
 public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
     private MixinOreFeature(Codec<OreConfiguration> codec) {
