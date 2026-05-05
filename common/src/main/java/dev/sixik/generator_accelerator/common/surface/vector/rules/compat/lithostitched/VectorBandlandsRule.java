@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.worldgen.lithostitched.worldgen.bandlands.Bandlands;
@@ -26,7 +27,7 @@ public class VectorBandlandsRule implements VectorRule {
             BlockState state = this.bandlands.getBand(ctx.surfaceSystem, globalX, y, globalZ);
 
             if (state != null) {
-                rawBlockData[i] = Block.getId(state);
+                rawBlockData[i] = GA$BlockStateExtension.get(state).bts$getFastId();
                 activeMask.clear(i);
             }
         }

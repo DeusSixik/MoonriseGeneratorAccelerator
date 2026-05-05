@@ -112,7 +112,6 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
             SLOW PATH: we have mixed biomes; fill remaining values (after mismatch point)
             Important: positions before mismatch were backfilled already, but buffer[0] must be set too.
          */
-
 //        buffer[0] = firstBiome;
 
         /*
