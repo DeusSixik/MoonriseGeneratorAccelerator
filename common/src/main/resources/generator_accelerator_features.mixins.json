@@ -20,6 +20,7 @@
     "compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin",
     "compats.roots.Roots$AllAroundLogPlacementMixin",
     "compats.roots.Roots$HeightmapYRangeMixin",
+    "compats.terrainslabs.Mixin$TerrainSlabs$OreFeature",
     "compats.waystones.Waystones$WaystonePlacementMixin",
     "features.MixinOreFeature",
     "features.MixinTreeFeature",

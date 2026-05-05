@@ -26,11 +26,8 @@ public class GAConfigManager {
     public static Optional<GAConfig> getConfigOrLoad() {
         if(config == null) {
             if(!isConfigAvailable()) {
-                return Optional.empty();
-            }
-
-//            config = new GAConfig();
-            loadIsolatedConfig();
+                config = new GAConfig();
+            } else loadIsolatedConfig();
         }
         return Optional.of((GAConfig) config);
     }

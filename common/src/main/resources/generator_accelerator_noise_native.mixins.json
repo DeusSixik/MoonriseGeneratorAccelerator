@@ -5,13 +5,7 @@
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.noise_native.GANativeNoiseMixinPlugin",
   "mixins": [
-    "MixinNoiseDensityFunction",
-    "MixinNormalNoise$redirect_to_native",
-    "MixinShiftNoise",
-    "random.MixinLegacyRandomSource",
-    "random.MixinSimpleRandom",
-    "random.MixinSingleThreadedRandomSource",
-    "random.MixinXoroshiroRandomSource"
+
   ],
   "injectors": {
     "defaultRequire": 1
