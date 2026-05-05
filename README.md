@@ -37,8 +37,7 @@ This module acts as a complete replacement for vanilla placement methods:
 * **VectorNoise**: A vectorized Simplex noise generator optimized specifically for vertical columns.
   * Utilizes **Loop Unrolling (x4)** to assist the JIT compiler in vectorization (SIMD).
   * **Zero Allocation**: Absolutely no object creation within the hot generation loop.
-* **Density Compiler**: Introduces a density function tree compiler that performs constant folding during initialization, saving CPU cycles during actual generation.
-* **FastMultipoint**: Primitive-level point operations built entirely without binary search mechanisms.
+* **Density Compiler**: Introduces a density function tree compiler with IR-level folding, CSE, marker-aware cache preservation, and noise-specialized code generation.
 
 ### 5. Geometry and Structures
 * **Heightmap**: Accelerated heightmap calculation (Hole Punching). Skips empty sections during downward scanning using bitmasks. Zero memory allocation in the main loop.

@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.McDensityFunctionClassNames;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.compat.GeneratorAcceleratorInline;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.spline.SplineInliner;
 import net.minecraft.util.CubicSpline;
@@ -31,9 +30,6 @@ import java.util.Map;
  *   <li><b>Unrecognised nodes invoke.</b> Anything we don't recognise becomes
  *       {@link IRNode.Invoke}, captured by identity into the constant pool. The codegen
  *       calls it through {@code INVOKEINTERFACE DensityFunction.compute}.</li>
- *   <li><b>Generator Accelerator.</b> When present, {@code dev.sixik…Fast*} types are
- *       unwrapped (see {@link GeneratorAcceleratorInline}) to the same IR as the vanilla
- *       node they replace, so the rest of the pipeline can still fuse them.</li>
  * </ul>
  */
 public final class IRBuilder {
@@ -265,13 +261,6 @@ public final class IRBuilder {
         if (df instanceof Beardifier) {
             int idx = pool.internExtern(df);
             return intern(new IRNode.Beardifier(idx));
-        }
-
-        if (df.getClass().getName().startsWith(GeneratorAcceleratorInline.PACKAGE_PREFIX)) {
-            IRNode ga = GeneratorAcceleratorInline.tryUnwrap(df, this);
-            if (ga != null) {
-                return ga;
-            }
         }
 
         // BlendAlpha/BlendOffset/Beardifier, unknown mod / datapack DFs, etc.
