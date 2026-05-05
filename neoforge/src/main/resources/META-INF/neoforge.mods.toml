@@ -73,6 +73,9 @@ config = "generator_accelerator_structures.mixins.json"
 [[mixins]]
 config = "generator_accelerator_features.mixins.json"
 
+[[mixins]]
+config = "generator_accelerator_modernfix.mixins.json"
+
 
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"
