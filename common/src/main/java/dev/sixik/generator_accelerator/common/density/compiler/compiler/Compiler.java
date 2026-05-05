@@ -24,6 +24,9 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Set;
 
 /**
@@ -171,6 +174,7 @@ public final class Compiler {
                         fClassName, exactFp, cls, bytecode, ctorMH, helperHandles, helpersEmitted, latticeEmitted,
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
             });
+            dumpCompiledClassIfEnabled(lo.bundle());
             return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
                     cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled);
         } catch (Throwable t) {
@@ -180,6 +184,38 @@ public final class Compiler {
                     System.identityHashCode(df),
                     t.toString(), t);
             return null;
+        }
+    }
+
+    private static void dumpCompiledClassIfEnabled(GlobalCompileCache.CopiedClassBundle bundle) {
+        if (!DensityFunctionCompiler.dumpCompiledClasses
+                || bundle.bytecode() == null
+                || bundle.classInternalName() == null) {
+            return;
+        }
+
+        try {
+            Path dumpRoot = Paths.get(System.getProperty("user.dir", "."))
+                    .resolve(".densitycompiler")
+                    .toAbsolutePath()
+                    .normalize();
+            Path classFile = dumpRoot
+                    .resolve(bundle.classInternalName() + ".class")
+                    .normalize();
+            if (!classFile.startsWith(dumpRoot)) {
+                DensityFunctionCompiler.LOGGER.warn(
+                        "DFC: refused to dump generated class with suspicious name {}",
+                        bundle.classInternalName());
+                return;
+            }
+
+            Files.createDirectories(classFile.getParent());
+            Files.write(classFile, bundle.bytecode());
+            DensityFunctionCompiler.LOGGER.debug("DFC: dumped generated class to {}", classFile);
+        } catch (Exception e) {
+            DensityFunctionCompiler.LOGGER.warn(
+                    "DFC: failed to dump generated class {} to {}",
+                    bundle.classInternalName(), ".densitycompiler", e);
         }
     }
 

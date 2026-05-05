@@ -12,6 +12,14 @@ import java.lang.reflect.Method;
 public final class DensityFunctionCompiler {
     public static final String MODID = "generator_accelerator";
     public static final Logger LOGGER = LogUtils.getLogger();
+    /**
+     * Debug switch: when enabled, every generated DensityFunction class is written
+     * under {@code .densitycompiler/} in the current game directory.
+     *
+     * <p>Can be toggled directly at runtime, or initialized with
+     * {@code -Ddfc.dump_classes=true}.
+     */
+    public static volatile boolean dumpCompiledClasses = Boolean.getBoolean("dfc.dump_classes");
 
     private static volatile boolean initialized;
 
@@ -23,6 +31,9 @@ public final class DensityFunctionCompiler {
         }
         initialized = true;
         LOGGER.info("DensityFunctionCompiler initialising - runtime DF JIT pipeline enabling.");
+        if (dumpCompiledClasses) {
+            LOGGER.info("DFC class dump enabled; generated classes will be written to .densitycompiler");
+        }
         DfcVectorSupport.logStatusOnce();
         LOGGER.info("DFC native noise: libraryLoaded={}, avx2={}",
                 DfcNativeBridge.isAvailable(), DfcNativeBridge.hasAvx2());
