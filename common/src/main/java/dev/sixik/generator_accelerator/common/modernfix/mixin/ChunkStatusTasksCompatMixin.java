@@ -89,12 +89,12 @@ public abstract class ChunkStatusTasksCompatMixin {
     }
 
     @Inject(
-            method = {"lambda$full$2", "method_60553"},
+            method = {"method_60553"},
             at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/chunk/LevelChunk;runPostLoad()V"),
             remap = false,
             require = 0
     )
-    private static void ga$completeSurrogateFuture(CallbackInfoReturnable<ChunkAccess> cir, @Local(ordinal = 0) LevelChunk levelChunk) {
+    private static void ga$completeSurrogateFuture(CallbackInfoReturnable<ChunkAccess> cir, @Local(name = "levelChunk") LevelChunk levelChunk) {
         CompletableFuture<ChunkAccess> future = GA$SURROGATE_FUTURE.get();
         if (future != null) {
             future.complete(levelChunk);

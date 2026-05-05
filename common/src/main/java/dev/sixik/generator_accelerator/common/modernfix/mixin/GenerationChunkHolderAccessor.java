@@ -18,5 +18,4 @@ public interface GenerationChunkHolderAccessor {
 
     @Accessor("startedWork")
     AtomicReference<ChunkStatus> ga$getStartedWork();
-
 }

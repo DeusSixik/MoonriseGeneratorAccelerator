@@ -14,12 +14,11 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 
@@ -27,9 +26,6 @@ import java.util.function.BooleanSupplier;
 public abstract class ChunkMapReleaseProtochunksCompatMixin implements GAISuspendedHolderTrackingChunkMap {
     @Unique
     private static final int GA$TICKS_TO_WAIT_BEFORE_SUSPENDING = 100;
-
-    @Unique
-    private static Method ga$scheduleUnloadBody;
 
     @Shadow
     @Final
@@ -80,12 +76,9 @@ public abstract class ChunkMapReleaseProtochunksCompatMixin implements GAISuspen
 
             dropIterator.remove();
             pendingUnloads.put(pos, holder);
-            if (ga$invokeScheduleUnloadBody((ChunkMap) (Object) this, holder, pos)) {
-                ((GAIClearableChunkHolder) holder).ga$resetProtoChunkFutures();
-                suspended++;
-            } else {
-                pendingUnloads.remove(pos, holder);
-            }
+            ga$invokeScheduleUnloadBody(holder, pos);
+            ((GAIClearableChunkHolder) holder).ga$resetProtoChunkFutures();
+            suspended++;
         }
     }
 
@@ -100,41 +93,10 @@ public abstract class ChunkMapReleaseProtochunksCompatMixin implements GAISuspen
     }
 
     @Unique
-    private static boolean ga$invokeScheduleUnloadBody(ChunkMap chunkMap, ChunkHolder holder, long pos) {
-        try {
-            Method method = ga$getScheduleUnloadBody();
-            method.invoke(chunkMap, holder, pos);
-            return true;
-        } catch (ReflectiveOperationException e) {
-            if (e instanceof InvocationTargetException invocationTargetException) {
-                Throwable cause = invocationTargetException.getCause();
-                if (cause instanceof RuntimeException runtimeException) {
-                    throw runtimeException;
-                }
-                if (cause instanceof Error error) {
-                    throw error;
-                }
-            }
-            return false;
-        }
+    private void ga$invokeScheduleUnloadBody(ChunkHolder holder, long pos) {
+        ga$getScheduleUnloadBody(holder, pos);
     }
 
-    // TODO: add better solution
-    @Unique
-    private static Method ga$getScheduleUnloadBody() throws NoSuchMethodException {
-        Method method = ga$scheduleUnloadBody;
-        if (method != null) {
-            return method;
-        }
-
-        try {
-            method = ChunkMap.class.getDeclaredMethod("method_60440", ChunkHolder.class, long.class);
-        } catch (NoSuchMethodException ignored) {
-            method = ChunkMap.class.getDeclaredMethod("lambda$scheduleUnload$12", ChunkHolder.class, long.class);
-        }
-
-        method.setAccessible(true);
-        ga$scheduleUnloadBody = method;
-        return method;
-    }
+    @Invoker("method_60440")
+    protected abstract void ga$getScheduleUnloadBody(ChunkHolder holder, long pos);
 }
