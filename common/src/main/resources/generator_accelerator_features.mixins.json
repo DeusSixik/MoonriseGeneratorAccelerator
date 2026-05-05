@@ -12,6 +12,7 @@
     "compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
     "compats.confluence.Confluence$PlacedFeatureMixin$fix",
     "compats.confluence.Confluence$SecretFlagPlacementMixin",
+    "compats.dynamictrees.DynamicTrees$CaveRootedTreePlacementMixin",
     "compats.neofogre.MixinChunkGenerator",
     "compats.oreberries.Oreberries$ChanceRangePlacementMixin",
     "compats.owo.Mixin$OWO$OreFeature",

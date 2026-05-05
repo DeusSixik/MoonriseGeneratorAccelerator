@@ -45,4 +45,5 @@ dependencies {
     modCompileOnly ("curse.maven:yungs-extras-480006:5812545")
     modCompileOnly "curse.maven:biolith-852512:7074761"
     modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
+    modCompileOnly "curse.maven:dynamictrees-252818:7661136"
 }
