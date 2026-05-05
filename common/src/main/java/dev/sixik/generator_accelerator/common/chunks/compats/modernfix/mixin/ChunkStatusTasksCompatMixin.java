@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
 
 import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.CrashReport;

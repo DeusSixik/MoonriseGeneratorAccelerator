@@ -1,7 +1,7 @@
-package dev.sixik.generator_accelerator.common.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
 
-import dev.sixik.generator_accelerator.common.modernfix.GAIClearableChunkHolder;
-import dev.sixik.generator_accelerator.common.modernfix.GAISuspendedHolderTrackingChunkMap;
+import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAIClearableChunkHolder;
+import dev.sixik.generator_accelerator.common.chunks.compats.modernfix.GAISuspendedHolderTrackingChunkMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.minecraft.server.level.ChunkHolder;

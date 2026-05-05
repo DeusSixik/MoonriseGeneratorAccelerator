@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.modernfix.mixin;
+package dev.sixik.generator_accelerator.common.chunks.compats.modernfix.mixin;
 
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.server.level.GenerationChunkHolder;

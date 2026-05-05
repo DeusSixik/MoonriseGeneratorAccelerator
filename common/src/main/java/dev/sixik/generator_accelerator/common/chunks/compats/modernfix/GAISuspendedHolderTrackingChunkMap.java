@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.modernfix;
+package dev.sixik.generator_accelerator.common.chunks.compats.modernfix;
 
 import net.minecraft.world.level.ChunkPos;
 
