@@ -6,6 +6,43 @@ test {
     useJUnitPlatform()
 }
 
+def surfaceQuickBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceCompilerQuickBenchmark"
+def surfaceQuickBenchmarkArgs = [
+        "--warmup=${findProperty('surfaceQuickWarmup') ?: '600'}",
+        "--iterations=${findProperty('surfaceQuickIterations') ?: '1400'}",
+        "--samples=${findProperty('surfaceQuickSamples') ?: '5'}"
+]
+
+tasks.register("surfaceQuickBenchmarkLegacy", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Rule Compiler compile benchmark with the legacy compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceQuickBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false"
+    args surfaceQuickBenchmarkArgs
+}
+
+tasks.register("surfaceQuickBenchmarkIr", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Rule Compiler compile benchmark with the IR compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceQuickBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false"
+    args surfaceQuickBenchmarkArgs
+}
+
+tasks.named("surfaceQuickBenchmarkIr") {
+    mustRunAfter tasks.named("surfaceQuickBenchmarkLegacy")
+}
+
+tasks.register("surfaceQuickBenchmark") {
+    group = "benchmark"
+    description = "Runs very quick legacy and IR Surface Rule Compiler benchmarks for comparison."
+    dependsOn "surfaceQuickBenchmarkLegacy", "surfaceQuickBenchmarkIr"
+}
+
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.

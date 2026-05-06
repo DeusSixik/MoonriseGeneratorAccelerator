@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
+import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import net.minecraft.core.Holder;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
@@ -7,6 +8,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
+
+import java.util.Arrays;
 
 public class VectorChunkContext {
 
@@ -94,6 +97,19 @@ public class VectorChunkContext {
     }
 
     public void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths) {
+        calculateStoneDepths(rawBlockData, previousSectionBottomDepths, null);
+    }
+
+    public void calculateStoneDepthsAndLoadStoneMask(int[] rawBlockData, int[] previousSectionBottomDepths, Mask4096 stoneMask) {
+        calculateStoneDepths(rawBlockData, previousSectionBottomDepths, stoneMask);
+    }
+
+    private void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths, Mask4096 stoneMask) {
+        long[] stoneWords = stoneMask == null ? null : stoneMask.words();
+        if (stoneWords != null) {
+            Arrays.fill(stoneWords, 0L);
+        }
+
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int xzIdx = x | (z << 4);
@@ -104,6 +120,9 @@ public class VectorChunkContext {
                     int blockId = rawBlockData[index];
 
                     boolean isSolid = blockId == STONE_ID || (blockId != AIR_ID && blockId != WATER_ID);
+                    if (stoneWords != null && blockId == STONE_ID) {
+                        stoneWords[index >>> 6] |= 1L << (index & 63);
+                    }
 
                     if (isSolid) {
                         depthCounterAbove++;

@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgram;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgramCache;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceRequirements;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceScratch;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
@@ -91,6 +92,7 @@ public abstract class SurfaceSystem$new_build_surface {
             final VectorBlockColumn fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
             final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
 
+            long biomePrepStart = SurfaceMetrics.startTimer();
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     int globalX = minBlockX + x;
@@ -112,17 +114,24 @@ public abstract class SurfaceSystem$new_build_surface {
                     }
                 }
             }
+            SurfaceMetrics.recordBiomePrepTime(biomePrepStart);
 
             boolean needsSurfaceDepth = hasFrozenOcean
                     || pSurfaceProgram.requires(SurfaceRequirements.SURFACE_DEPTH | SurfaceRequirements.PRELIMINARY_SURFACE);
             if (needsSurfaceDepth) {
+                long surfaceDepthStart = SurfaceMetrics.startTimer();
                 ctx.prepareSurfaceDepthCache(bts$this, minBlockX, minBlockZ);
+                SurfaceMetrics.recordSurfaceDepthTime(surfaceDepthStart);
             }
             if (pSurfaceProgram.requires(SurfaceRequirements.SECONDARY_SURFACE)) {
+                long secondarySurfaceStart = SurfaceMetrics.startTimer();
                 ctx.prepareSecondarySurfaceNoiseCache(bts$this, minBlockX, minBlockZ);
+                SurfaceMetrics.recordSecondarySurfaceTime(secondarySurfaceStart);
             }
             if (hasFrozenOcean || pSurfaceProgram.requires(SurfaceRequirements.PRELIMINARY_SURFACE)) {
+                long preliminarySurfaceStart = SurfaceMetrics.startTimer();
                 ctx.preparePreliminarySurface(pNoiseChunk, minBlockX, minBlockZ);
+                SurfaceMetrics.recordPreliminarySurfaceTime(preliminarySurfaceStart);
             }
 
             int[] previousSectionBottomDepths = scratch.previousSectionBottomDepths;
@@ -137,6 +146,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 LevelChunkSection section = sections[sectionIndex];
 
                 if (section == null || section.hasOnlyAir()) {
+                    SurfaceMetrics.emptySectionSkipped();
                     if (needsStoneDepths) {
                         Arrays.fill(previousSectionBottomDepths, 0);
                     }
@@ -144,21 +154,35 @@ public abstract class SurfaceSystem$new_build_surface {
                 }
 
                 int[] rawBlockData = ((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData();
-                if (rawBlockData == null) continue;
+                if (rawBlockData == null) {
+                    SurfaceMetrics.rawBlockArrayMiss();
+                    continue;
+                }
+                SurfaceMetrics.sectionProcessed();
 
                 int sectionStartY = pChunk.getSectionYFromSectionIndex(sectionIndex) * 16;
                 ctx.updateForSection(minBlockX, sectionStartY, minBlockZ);
                 if (needsStoneDepths) {
-                    ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
+                    long stoneDepthStart = SurfaceMetrics.startTimer();
+                    ctx.calculateStoneDepthsAndLoadStoneMask(rawBlockData, previousSectionBottomDepths, stoneMask);
+                    SurfaceMetrics.recordStoneDepthTime(stoneDepthStart);
+                } else {
+                    long stoneMaskStart = SurfaceMetrics.startTimer();
+                    stoneMask.loadMatchingBlockIds(rawBlockData, defaultBlockId);
+                    SurfaceMetrics.recordStoneMaskLoadTime(stoneMaskStart);
                 }
 
-                stoneMask.loadMatchingBlockIds(rawBlockData, defaultBlockId);
+                if (stoneMask.isEmpty()) {
+                    SurfaceMetrics.stonelessSectionSkipped();
+                    continue;
+                }
 
-                if (stoneMask.isEmpty()) continue;
-
+                long programApplyStart = SurfaceMetrics.startTimer();
                 SurfaceExecutor.apply(rawBlockData, stoneMask, ctx, pSurfaceProgram, scratch);
+                SurfaceMetrics.recordProgramApplyTime(programApplyStart);
 
                 if (pSurfaceProgram.mayWriteFluid()) {
+                    long fluidPostprocessStart = SurfaceMetrics.startTimer();
                     BlockPos.MutableBlockPos mutPos = scratch.postProcessPos;
                     long[] stoneWords = stoneMask.words();
                     for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
@@ -179,10 +203,12 @@ public abstract class SurfaceSystem$new_build_surface {
                             word &= word - 1L;
                         }
                     }
+                    SurfaceMetrics.recordFluidPostprocessTime(fluidPostprocessStart);
                 }
             }
 
             if (hasFrozenOcean) {
+                long frozenOceanStart = SurfaceMetrics.startTimer();
                 for (int x = 0; x < 16; x++) {
                     for (int z = 0; z < 16; z++) {
                         int idx = x | (z << 4);
@@ -201,6 +227,7 @@ public abstract class SurfaceSystem$new_build_surface {
                         }
                     }
                 }
+                SurfaceMetrics.recordFrozenOceanTime(frozenOceanStart);
             }
         } finally {
             bts$chunkBiome.dispose();

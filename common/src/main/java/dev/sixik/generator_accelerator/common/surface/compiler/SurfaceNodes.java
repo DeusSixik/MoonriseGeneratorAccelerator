@@ -235,9 +235,14 @@ final class VectorSurfaceRuleBridgeNode implements SurfaceRuleNode {
 
     @Override
     public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
-        activeMask.toBitSet(scratch.bridgeBitSet);
-        this.vectorRule.apply(rawBlockData, scratch.bridgeBitSet, ctx);
-        activeMask.fromBitSet(scratch.bridgeBitSet);
+        long start = SurfaceMetrics.startTimer();
+        try {
+            activeMask.toBitSet(scratch.bridgeBitSet);
+            this.vectorRule.apply(rawBlockData, scratch.bridgeBitSet, ctx);
+            activeMask.fromBitSet(scratch.bridgeBitSet);
+        } finally {
+            SurfaceMetrics.recordFallbackRuleBridgeTime(start);
+        }
     }
 
     @Override
@@ -294,9 +299,14 @@ final class VectorSurfaceConditionBridgeNode implements SurfaceConditionNode {
 
     @Override
     public void filter(Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
-        activeMask.toBitSet(scratch.bridgeBitSet);
-        this.vectorCondition.filter(scratch.bridgeBitSet, ctx);
-        activeMask.fromBitSet(scratch.bridgeBitSet);
+        long start = SurfaceMetrics.startTimer();
+        try {
+            activeMask.toBitSet(scratch.bridgeBitSet);
+            this.vectorCondition.filter(scratch.bridgeBitSet, ctx);
+            activeMask.fromBitSet(scratch.bridgeBitSet);
+        } finally {
+            SurfaceMetrics.recordFallbackConditionBridgeTime(start);
+        }
     }
 
     @Override
@@ -312,6 +322,31 @@ final class VectorSurfaceConditionBridgeNode implements SurfaceConditionNode {
                 | SurfaceRequirements.NOISE
                 | SurfaceRequirements.RANDOM
                 | SurfaceRequirements.SLOPE;
+    }
+}
+
+final class TimedSurfaceConditionNode implements SurfaceConditionNode {
+    private final SurfaceConditionNode delegate;
+    private final String kind;
+
+    TimedSurfaceConditionNode(SurfaceConditionNode delegate, String kind) {
+        this.delegate = delegate;
+        this.kind = kind;
+    }
+
+    @Override
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
+        long start = SurfaceMetrics.startTimer();
+        try {
+            this.delegate.filter(activeMask, ctx, scratch);
+        } finally {
+            SurfaceMetrics.recordConditionTime(this.kind, start);
+        }
+    }
+
+    @Override
+    public int requirements() {
+        return this.delegate.requirements();
     }
 }
 

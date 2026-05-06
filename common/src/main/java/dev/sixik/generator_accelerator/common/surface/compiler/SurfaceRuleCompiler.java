@@ -21,12 +21,72 @@ public final class SurfaceRuleCompiler {
     }
 
     public static SurfaceProgram compile(SurfaceRules.RuleSource ruleSource) {
+        long compileStart = SurfaceMetrics.startTimer();
+        try {
+            if (SurfaceCompilerConfig.IR) {
+                try {
+                    return compileWithIr(ruleSource);
+                } catch (RuntimeException ignored) {
+                    SurfaceMetrics.irFallback();
+                }
+            }
+            return compileLegacy(ruleSource);
+        } finally {
+            SurfaceMetrics.recordCompileTime(compileStart);
+        }
+    }
+
+    private static SurfaceProgram compileWithIr(SurfaceRules.RuleSource ruleSource) {
+        SurfaceIRCompileResult result = SurfaceIRCompiler.compile(ruleSource);
+        SurfaceMetrics.compiledProgram();
+        SurfaceMetrics.irProgram();
+        SurfaceMetrics.interpretedProgram();
+        if (SurfaceMetrics.enabled()) {
+            SurfaceMetrics.irFallbackNodes(result.fallbackRuleCount(), result.fallbackConditionCount());
+        }
+        SurfacePlanDump.compiledIr(
+                ruleSource,
+                result.ir(),
+                result.program(),
+                result.rootNodeName(),
+                result.compiledConditionCount(),
+                result.conditionCacheSlots()
+        );
+        return result.program();
+    }
+
+    private static SurfaceProgram compileLegacy(SurfaceRules.RuleSource ruleSource) {
         Builder builder = new Builder();
         builder.countRuleConditions(ruleSource);
         SurfaceRuleNode root = builder.compileRule(ruleSource);
         SurfaceProgram program = new SurfaceProgram(root, builder.fallbackIslandCount);
+        SurfaceProgram optimized = SurfacePlanOptimizer.optimize(program);
         SurfaceMetrics.compiledProgram();
-        return SurfacePlanOptimizer.optimize(program);
+        SurfaceMetrics.interpretedProgram();
+        SurfacePlanDump.compiled(
+                ruleSource,
+                optimized,
+                root.getClass().getName(),
+                builder.compiledConditions.size(),
+                builder.structuralCompiledConditions.size(),
+                builder.nextConditionCacheSlot,
+                builder.fallbackIslandCount,
+                builder.fallbackRuleClasses,
+                builder.fallbackConditionClasses
+        );
+        return optimized;
+    }
+
+    static SurfaceRuleNode compileLegacyRuleNode(SurfaceRules.RuleSource ruleSource) {
+        Builder builder = new Builder();
+        builder.countRuleConditions(ruleSource);
+        return builder.compileRule(ruleSource);
+    }
+
+    static SurfaceConditionNode compileLegacyConditionNode(SurfaceRules.ConditionSource conditionSource) {
+        Builder builder = new Builder();
+        builder.countCondition(conditionSource);
+        return builder.compileCondition(conditionSource);
     }
 
     private static boolean isLoaded(String className) {
@@ -45,6 +105,8 @@ public final class SurfaceRuleCompiler {
         private final IdentityHashMap<SurfaceRules.ConditionSource, SurfaceConditionNode> compiledConditions = new IdentityHashMap<>();
         private final HashMap<ConditionKey, Integer> structuralConditionUseCounts = new HashMap<>();
         private final HashMap<ConditionKey, SurfaceConditionNode> structuralCompiledConditions = new HashMap<>();
+        private final List<String> fallbackRuleClasses = SurfaceCompilerConfig.DUMP ? new ArrayList<>() : List.of();
+        private final List<String> fallbackConditionClasses = SurfaceCompilerConfig.DUMP ? new ArrayList<>() : List.of();
         private int nextConditionCacheSlot;
         private int fallbackIslandCount;
 
@@ -114,6 +176,9 @@ public final class SurfaceRuleCompiler {
             try {
                 this.fallbackIslandCount++;
                 SurfaceMetrics.fallbackRule(ruleSource.getClass());
+                if (SurfaceCompilerConfig.DUMP) {
+                    this.fallbackRuleClasses.add(ruleSource.getClass().getName());
+                }
                 return new VectorSurfaceRuleBridgeNode(VectorRuleCompiler.compileRule(ruleSource));
             } catch (RuntimeException e) {
                 throw new UnknownSurfaceRuleSource("Unknown surface rule source: " + ruleSource.getClass().getName());
@@ -175,6 +240,10 @@ public final class SurfaceRuleCompiler {
             int structuralUses = key == null ? 0 : this.structuralConditionUseCounts.getOrDefault(key, 0);
             if (identityUses > 1 || structuralUses > 1) {
                 compiled = new CachedSurfaceConditionNode(compiled, this.nextConditionCacheSlot++);
+            }
+            if (SurfaceMetrics.enabled()) {
+                String metricKind = compiled.getClass().getSimpleName();
+                compiled = new TimedSurfaceConditionNode(compiled, metricKind);
             }
 
             this.compiledConditions.put(conditionSource, compiled);
@@ -267,6 +336,9 @@ public final class SurfaceRuleCompiler {
 
             try {
                 SurfaceMetrics.fallbackCondition(conditionSource.getClass());
+                if (SurfaceCompilerConfig.DUMP) {
+                    this.fallbackConditionClasses.add(conditionSource.getClass().getName());
+                }
                 return new VectorSurfaceConditionBridgeNode(VectorRuleCompiler.compileCondition(conditionSource));
             } catch (RuntimeException e) {
                 throw new UnknownSurfaceConditionSource("Unknown surface condition source: " + conditionSource.getClass().getName());

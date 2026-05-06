@@ -4,9 +4,9 @@ import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 
 public final class SurfaceProgram {
-    private static final int OP_RULE = 0;
-    private static final int OP_BLOCK = 1;
-    private static final int OP_TEST_BLOCK = 2;
+    static final int OP_RULE = 0;
+    static final int OP_BLOCK = 1;
+    static final int OP_TEST_BLOCK = 2;
 
     private final int[] opcodes;
     private final int[] intOperands;
@@ -14,6 +14,22 @@ public final class SurfaceProgram {
     private final int requirements;
     private final int fallbackIslandCount;
     private final boolean mayWriteFluid;
+
+    SurfaceProgram(
+            int[] opcodes,
+            int[] intOperands,
+            Object[] objectOperands,
+            int requirements,
+            int fallbackIslandCount,
+            boolean mayWriteFluid
+    ) {
+        this.opcodes = opcodes;
+        this.intOperands = intOperands;
+        this.objectOperands = objectOperands;
+        this.requirements = requirements;
+        this.fallbackIslandCount = fallbackIslandCount;
+        this.mayWriteFluid = mayWriteFluid;
+    }
 
     SurfaceProgram(SurfaceRuleNode root, int fallbackIslandCount) {
         this.requirements = root.requirements();
@@ -69,6 +85,40 @@ public final class SurfaceProgram {
 
     public int fallbackIslandCount() {
         return this.fallbackIslandCount;
+    }
+
+    public int opcodeCount() {
+        return this.opcodes.length;
+    }
+
+    public int testBlockOpcodeCount() {
+        int count = 0;
+        for (int opcode : this.opcodes) {
+            if (opcode == OP_TEST_BLOCK) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public int blockOpcodeCount() {
+        int count = 0;
+        for (int opcode : this.opcodes) {
+            if (opcode == OP_BLOCK) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public int genericRuleOpcodeCount() {
+        int count = 0;
+        for (int opcode : this.opcodes) {
+            if (opcode == OP_RULE) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public boolean requires(int requirementMask) {
