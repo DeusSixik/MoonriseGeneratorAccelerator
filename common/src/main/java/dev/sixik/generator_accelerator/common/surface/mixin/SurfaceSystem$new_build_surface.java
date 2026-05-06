@@ -2,10 +2,14 @@ package dev.sixik.generator_accelerator.common.surface.mixin;
 
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceExecutor;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgram;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgramCache;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceRequirements;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceScratch;
+import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
-import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
-import dev.sixik.generator_accelerator.common.surface.vector.VectorSurfaceRules;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -23,15 +27,12 @@ import net.minecraft.world.level.levelgen.*;
 import org.spongepowered.asm.mixin.*;
 
 import java.util.Arrays;
-import java.util.BitSet;
 
 @Mixin(SurfaceSystem.class)
 public abstract class SurfaceSystem$new_build_surface {
 
     @Unique
-    private static final ThreadLocal<BitSet> BTS$STONE_MASK = ThreadLocal.withInitial(() -> new BitSet(4096));
-    @Unique
-    private static final ThreadLocal<BitSet> BTS$WORKING_MASK = ThreadLocal.withInitial(() -> new BitSet(4096));
+    private static final ThreadLocal<SurfaceScratch> BTS$SURFACE_SCRATCH = ThreadLocal.withInitial(SurfaceScratch::new);
 
     @Unique
     private static final ThreadLocal<Holder<Biome>[]> BTS$SURFACE_BIOMES = ThreadLocal.withInitial(() -> new Holder[256]);
@@ -75,12 +76,14 @@ public abstract class SurfaceSystem$new_build_surface {
                 pBiomeManager
         );
         try {
-            final VectorSurfaceRules pVectorRules = new VectorSurfaceRules(VectorRuleCompiler.compileRule(ruleSource));
+            final SurfaceProgram pSurfaceProgram = SurfaceProgramCache.getOrCompile(ruleSource);
+            final SurfaceScratch scratch = BTS$SURFACE_SCRATCH.get();
             final ChunkPos chunkpos = pChunk.getPos();
             final int minBlockX = chunkpos.getMinBlockX();
             final int minBlockZ = chunkpos.getMinBlockZ();
 
             Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
+            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
             boolean hasFrozenOcean = false;
 
             final LevelChunkSection[] sections = pChunk.getSections();
@@ -93,10 +96,13 @@ public abstract class SurfaceSystem$new_build_surface {
                     int globalX = minBlockX + x;
                     int globalZ = minBlockZ + z;
                     int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
+                    int idx = x | (z << 4);
 
                     Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
 
-                    surfaceBiomes[x | (z << 4)] = biome;
+                    surfaceBiomes[idx] = biome;
+                    ctx.surfaceHeights[idx] = (short) surfaceY;
+                    ctx.waterHeights[idx] = Integer.MIN_VALUE;
 
                     if (biome.is(Biomes.ERODED_BADLANDS)) {
                         columnPos.setX(globalX).setZ(globalZ);
@@ -107,21 +113,33 @@ public abstract class SurfaceSystem$new_build_surface {
                 }
             }
 
-            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
+            boolean needsSurfaceDepth = hasFrozenOcean
+                    || pSurfaceProgram.requires(SurfaceRequirements.SURFACE_DEPTH | SurfaceRequirements.PRELIMINARY_SURFACE);
+            if (needsSurfaceDepth) {
+                ctx.prepareSurfaceDepthCache(bts$this, minBlockX, minBlockZ);
+            }
+            if (pSurfaceProgram.requires(SurfaceRequirements.SECONDARY_SURFACE)) {
+                ctx.prepareSecondarySurfaceNoiseCache(bts$this, minBlockX, minBlockZ);
+            }
+            if (hasFrozenOcean || pSurfaceProgram.requires(SurfaceRequirements.PRELIMINARY_SURFACE)) {
+                ctx.preparePreliminarySurface(pNoiseChunk, minBlockX, minBlockZ);
+            }
 
-            ctx.buildDepthMap(pChunk);
-            ctx.prepareNoiseCaches(bts$this, minBlockX, minBlockZ);
-            ctx.preparePreliminarySurface(pNoiseChunk, minBlockX, minBlockZ);
-
-            int[] previousSectionBottomDepths = new int[256];
-            BitSet stoneMask = BTS$STONE_MASK.get();
-            BitSet workingMask = BTS$WORKING_MASK.get();
+            int[] previousSectionBottomDepths = scratch.previousSectionBottomDepths;
+            boolean needsStoneDepths = pSurfaceProgram.requires(SurfaceRequirements.STONE_DEPTH | SurfaceRequirements.WATER);
+            if (needsStoneDepths) {
+                Arrays.fill(previousSectionBottomDepths, 0);
+            }
+            Mask4096 stoneMask = scratch.stoneMask;
+            int defaultBlockId = Block.getId(this.defaultBlock);
 
             for (int sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
                 LevelChunkSection section = sections[sectionIndex];
 
                 if (section == null || section.hasOnlyAir()) {
-                    Arrays.fill(previousSectionBottomDepths, 0);
+                    if (needsStoneDepths) {
+                        Arrays.fill(previousSectionBottomDepths, 0);
+                    }
                     continue;
                 }
 
@@ -130,32 +148,35 @@ public abstract class SurfaceSystem$new_build_surface {
 
                 int sectionStartY = pChunk.getSectionYFromSectionIndex(sectionIndex) * 16;
                 ctx.updateForSection(minBlockX, sectionStartY, minBlockZ);
-                ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
-
-                stoneMask.clear();
-                int defaultBlockId = Block.getId(this.defaultBlock);
-
-                for (int i = 0; i < 4096; i++) {
-                    if (rawBlockData[i] == defaultBlockId) stoneMask.set(i);
+                if (needsStoneDepths) {
+                    ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
                 }
+
+                stoneMask.loadMatchingBlockIds(rawBlockData, defaultBlockId);
 
                 if (stoneMask.isEmpty()) continue;
 
-                workingMask.clear();
-                workingMask.or(stoneMask);
+                SurfaceExecutor.apply(rawBlockData, stoneMask, ctx, pSurfaceProgram, scratch);
 
-                pVectorRules.applyToSection(rawBlockData, workingMask, ctx);
-
-                BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
-                for (int i = stoneMask.nextSetBit(0); i >= 0; i = stoneMask.nextSetBit(i + 1)) {
-                    int newBlockId = rawBlockData[i];
-                    if (newBlockId != defaultBlockId) {
-                        BlockState newState = Block.stateById(newBlockId);
-                        if (!newState.getFluidState().isEmpty()) {
-                            int lx = i & 15;
-                            int lz = (i >> 4) & 15;
-                            int ly = (i >> 8) & 15;
-                            pChunk.markPosForPostprocessing(mutPos.set(minBlockX + lx, sectionStartY + ly, minBlockZ + lz));
+                if (pSurfaceProgram.mayWriteFluid()) {
+                    BlockPos.MutableBlockPos mutPos = scratch.postProcessPos;
+                    long[] stoneWords = stoneMask.words();
+                    for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+                        long word = stoneWords[wordIndex];
+                        while (word != 0L) {
+                            int bit = Long.numberOfTrailingZeros(word);
+                            int i = (wordIndex << 6) + bit;
+                            int newBlockId = rawBlockData[i];
+                            if (newBlockId != defaultBlockId) {
+                                BlockState newState = Block.stateById(newBlockId);
+                                if (!newState.getFluidState().isEmpty()) {
+                                    int lx = i & 15;
+                                    int lz = (i >> 4) & 15;
+                                    int ly = (i >> 8) & 15;
+                                    pChunk.markPosForPostprocessing(mutPos.set(minBlockX + lx, sectionStartY + ly, minBlockZ + lz));
+                                }
+                            }
+                            word &= word - 1L;
                         }
                     }
                 }

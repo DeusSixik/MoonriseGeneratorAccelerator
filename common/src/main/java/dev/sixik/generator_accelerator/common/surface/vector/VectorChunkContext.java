@@ -65,6 +65,11 @@ public class VectorChunkContext {
     }
 
     public void prepareNoiseCaches(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
+        prepareSurfaceDepthCache(surfaceSystem, chunkMinX, chunkMinZ);
+        prepareSecondarySurfaceNoiseCache(surfaceSystem, chunkMinX, chunkMinZ);
+    }
+
+    public void prepareSurfaceDepthCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int globalX = chunkMinX + x;
@@ -72,6 +77,17 @@ public class VectorChunkContext {
                 int index = x | (z << 4);
 
                 this.surfaceDepths[index] = surfaceSystem.getSurfaceDepth(globalX, globalZ);
+            }
+        }
+    }
+
+    public void prepareSecondarySurfaceNoiseCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int globalX = chunkMinX + x;
+                int globalZ = chunkMinZ + z;
+                int index = x | (z << 4);
+
                 this.secondarySurfaceNoises[index] = surfaceSystem.getSurfaceSecondary(globalX, globalZ);
             }
         }
