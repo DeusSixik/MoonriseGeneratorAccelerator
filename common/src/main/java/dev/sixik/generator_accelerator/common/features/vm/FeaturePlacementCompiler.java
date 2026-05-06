@@ -36,6 +36,7 @@ public final class FeaturePlacementCompiler {
         PlacementModifier[] modifiers = new PlacementModifier[size];
         int fastOps = 0;
         int fallbackOps = 0;
+        boolean linearFastOnly = true;
 
         for (int i = 0; i < size; i++) {
             PlacementModifier modifier = placement.get(i);
@@ -47,10 +48,14 @@ public final class FeaturePlacementCompiler {
             } else {
                 fallbackOps++;
             }
+            if (!isLinearFastOpcode(opcode)) {
+                linearFastOnly = false;
+            }
         }
 
         FeatureVmMetrics.recordProgramCompiled(fastOps, fallbackOps);
-        return new FeatureProgram(opcodes, modifiers, feature, fastOps, fallbackOps);
+        int specializedExecutor = selectSpecializedExecutor(opcodes, fallbackOps);
+        return new FeatureProgram(opcodes, modifiers, feature, fastOps, fallbackOps, linearFastOnly, specializedExecutor);
     }
 
     private static int opcodeFor(PlacementModifier modifier) {
@@ -66,5 +71,35 @@ public final class FeaturePlacementCompiler {
         if (modifier instanceof CountOnEveryLayerPlacement && modifier instanceof GA$CountOnEveryLayerPlacementAccess) return FeatureOpcode.COUNT_ON_EVERY_LAYER;
         if (modifier instanceof GA$PlacementModifierExtension extension && extension.ga$hasFastPositions()) return FeatureOpcode.RAW_MODIFIER;
         return FeatureOpcode.VANILLA_FALLBACK;
+    }
+
+    private static boolean isLinearFastOpcode(int opcode) {
+        return opcode == FeatureOpcode.IN_SQUARE
+                || opcode == FeatureOpcode.HEIGHT_RANGE
+                || opcode == FeatureOpcode.HEIGHTMAP
+                || opcode == FeatureOpcode.RANDOM_OFFSET
+                || opcode == FeatureOpcode.PLACEMENT_FILTER
+                || opcode == FeatureOpcode.ENVIRONMENT_SCAN;
+    }
+
+    private static int selectSpecializedExecutor(int[] opcodes, int fallbackOps) {
+        if (fallbackOps != 0 || opcodes.length < 3) {
+            return FeatureExecutorKind.GENERIC;
+        }
+        if (opcodes[0] != FeatureOpcode.REPEATING || opcodes[1] != FeatureOpcode.IN_SQUARE) {
+            return FeatureExecutorKind.GENERIC;
+        }
+        for (int i = 3; i < opcodes.length; i++) {
+            if (!isLinearFastOpcode(opcodes[i])) {
+                return FeatureExecutorKind.GENERIC;
+            }
+        }
+        if (opcodes[2] == FeatureOpcode.HEIGHT_RANGE) {
+            return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHT_RANGE;
+        }
+        if (opcodes[2] == FeatureOpcode.HEIGHTMAP) {
+            return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHTMAP;
+        }
+        return FeatureExecutorKind.REPEATING_IN_SQUARE_LINEAR_TAIL;
     }
 }

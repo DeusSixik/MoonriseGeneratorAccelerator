@@ -18,6 +18,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(FeaturePlacementCompat.class)
 public class Confluence$FeaturePlacementCompatMixin {
 
+    @Inject(method = "enabled", at = @At("HEAD"), cancellable = true)
+    private static void ga$enableConfluencePlacementCompat(CallbackInfoReturnable<Boolean> cir) {
+        cir.setReturnValue(true);
+    }
+
     @Inject(method = "beforePlace", at = @At("HEAD"), cancellable = true)
     private static void ga$replaceConfluencePine(
             Holder<ConfiguredFeature<?, ?>> feature,

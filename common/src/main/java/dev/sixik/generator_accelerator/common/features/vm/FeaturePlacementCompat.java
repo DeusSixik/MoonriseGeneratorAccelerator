@@ -10,6 +10,10 @@ public final class FeaturePlacementCompat {
     private FeaturePlacementCompat() {
     }
 
+    public static boolean enabled() {
+        return false;
+    }
+
     public static boolean beforePlace(Holder<ConfiguredFeature<?, ?>> feature, PlacementContext context, RandomSource random, BlockPos.MutableBlockPos pos) {
         return false;
     }

@@ -33,6 +33,11 @@ public abstract class MixinPlacementFilter extends PlacementModifier implements 
     }
 
     @Override
+    public boolean ga$shouldPlaceRaw(PlacementContext context, RandomSource random, int x, int y, int z, BlockPos.MutableBlockPos scratch) {
+        return this.shouldPlace(context, random, scratch.set(x, y, z));
+    }
+
+    @Override
     public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         BlockPos.MutableBlockPos mPos = SHARED_POS.get().set(packedPos);
 
