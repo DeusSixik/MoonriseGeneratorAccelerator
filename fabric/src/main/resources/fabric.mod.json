@@ -34,7 +34,8 @@
     "generator_accelerator_beardifier.mixins.json",
     "generator_accelerator_paletted_container.mixins.json",
     "generator_accelerator_surface.mixins.json",
-    "generator_accelerator_structures.mixins.json"
+    "generator_accelerator_structures.mixins.json",
+    "generator_accelerator_modernfix.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

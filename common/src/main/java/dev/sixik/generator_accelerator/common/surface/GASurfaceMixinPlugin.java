@@ -22,6 +22,13 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.surface.mixin.compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
                 "net.potionstudios.biomeswevegone.mixin.SurfaceSystemMixin"
         ));
+
+        create("com.terraformersmc.biolith.impl.Biolith",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.surface.mixin.compats.biolith.Mixin$Biolith$SurfaceSystem",
+                        "com.terraformersmc.biolith.impl.mixin.MixinSurfaceBuilder"
+                )
+        );
     }
 
     @Override

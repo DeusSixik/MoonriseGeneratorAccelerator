@@ -17,6 +17,7 @@ dependencies {
     compileOnly "org.ow2.asm:asm-tree:9.8"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
+    modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     modCompileOnly "curse.maven:moonrise-1096335:7089177"
 
     compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
@@ -45,6 +46,9 @@ dependencies {
     modCompileOnly "curse.maven:repurposed-structures-368293:7971691"
     modCompileOnly "curse.maven:countereds-terrain-slabs-1125437:7963565"
     modCompileOnly ("curse.maven:yungs-extras-480006:5812545")
+    modCompileOnly "curse.maven:biolith-852512:7074761"
+    modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
+    modCompileOnly "curse.maven:dynamictrees-252818:7661136"
 }
 
 def dfcNativeDir = file("natives/dfc")
