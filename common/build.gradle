@@ -13,6 +13,8 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
+    compileOnly "org.ow2.asm:asm:9.8"
+    compileOnly "org.ow2.asm:asm-tree:9.8"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
@@ -47,4 +49,153 @@ dependencies {
     modCompileOnly "curse.maven:biolith-852512:7074761"
     modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
     modCompileOnly "curse.maven:dynamictrees-252818:7661136"
+}
+
+def dfcNativeDir = file("natives/dfc")
+def dfcNativeBuildDir = layout.buildDirectory.dir("dfcNative/cmake").get().asFile
+def dfcNativeArtifactsDir = layout.buildDirectory.dir("dfcNative/nativeArtifacts").get().asFile
+def dfcOsName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
+def dfcOsArch = System.getProperty("os.arch").toLowerCase(java.util.Locale.ROOT)
+def dfcHostClassifier = dfcOsName.contains("windows") ? "windows_amd64"
+        : dfcOsName.contains("mac") ? (dfcOsArch.contains("aarch64") || dfcOsArch.contains("arm64") ? "macos_aarch64" : "macos_x64")
+        : "linux_x64"
+def dfcNativeClassifiers = ["windows_amd64", "linux_x64"]
+def dfcLibFileForClassifier = { String classifier ->
+    classifier == "windows_amd64" ? "dfc_native.dll" : classifier.startsWith("macos") ? "libdfc_native.dylib" : "libdfc_native.so"
+}
+def dfcBuildNatives = findProperty("dfc.buildNatives") == "true"
+        || System.getenv("DFC_BUILD_NATIVES") == "1"
+        || dfcNativeClassifiers.contains(dfcHostClassifier)
+def dfcRequireAllNatives = findProperty("dfc.requireAllNatives") == "true"
+def dfcCmakeExecutable = findProperty("dfc.cmake")?.toString() ?: "cmake"
+def dfcCmakeGenerator = findProperty("dfc.cmakeGenerator")?.toString()
+def dfcJavaHome = System.getProperty("java.home") ?: System.getenv("JAVA_HOME")
+def dfcHostPrebuiltFile = { -> new File(dfcNativeDir, "prebuilts/${dfcHostClassifier}/${dfcLibFileForClassifier(dfcHostClassifier)}") }
+
+tasks.register("dfcCmakeConfigure", Exec) {
+    group = "native"
+    description = "Configure DensityFunctionCompiler native library for the host platform."
+    onlyIf { dfcBuildNatives && !dfcHostPrebuiltFile().isFile() }
+    workingDir = dfcNativeDir
+    inputs.file(new File(dfcNativeDir, "CMakeLists.txt"))
+    inputs.files(fileTree(new File(dfcNativeDir, "c")).matching {
+        include "**/*.c"
+        include "**/*.h"
+    })
+    outputs.dir(dfcNativeBuildDir)
+    doFirst {
+        dfcNativeBuildDir.mkdirs()
+    }
+    def args = [dfcCmakeExecutable, "-B", dfcNativeBuildDir.absolutePath, "-S", dfcNativeDir.absolutePath,
+                "-DCMAKE_BUILD_TYPE=Release"]
+    if (dfcJavaHome) {
+        args += "-DJAVA_HOME=${dfcJavaHome}"
+    }
+    if (dfcCmakeGenerator) {
+        args += ["-G", dfcCmakeGenerator]
+    }
+    commandLine = args
+}
+
+tasks.register("dfcCmakeBuild", Exec) {
+    group = "native"
+    description = "Build DensityFunctionCompiler native shared library for the host platform."
+    dependsOn "dfcCmakeConfigure"
+    onlyIf { dfcBuildNatives && !dfcHostPrebuiltFile().isFile() }
+    workingDir = dfcNativeDir
+    inputs.dir(new File(dfcNativeDir, "c"))
+    outputs.dir(dfcNativeArtifactsDir)
+    if (org.gradle.internal.os.OperatingSystem.current().windows) {
+        commandLine = [dfcCmakeExecutable, "--build", dfcNativeBuildDir.absolutePath, "--config", "Release", "--parallel"]
+    } else {
+        commandLine = [dfcCmakeExecutable, "--build", dfcNativeBuildDir.absolutePath, "--parallel"]
+    }
+    doLast {
+        def builtLib = org.gradle.internal.os.OperatingSystem.current().windows
+                ? new File(dfcNativeBuildDir, "Release/dfc_native.dll")
+                : dfcOsName.contains("mac")
+                ? new File(dfcNativeBuildDir, "libdfc_native.dylib")
+                : new File(dfcNativeBuildDir, "libdfc_native.so")
+        if (!builtLib.isFile()) {
+            throw new GradleException("DFC native library was not produced: ${builtLib}")
+        }
+        def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
+        targetDir.mkdirs()
+        java.nio.file.Files.copy(builtLib.toPath(), new File(targetDir, dfcLibFileForClassifier(dfcHostClassifier)).toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+tasks.register("dfcStageHostNative") {
+    group = "native"
+    description = "Stage the DensityFunctionCompiler native library for the host platform."
+    dependsOn "dfcCmakeBuild"
+    onlyIf { dfcBuildNatives }
+    doLast {
+        def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
+        targetDir.mkdirs()
+        def target = new File(targetDir, dfcLibFileForClassifier(dfcHostClassifier))
+        if (target.isFile()) {
+            return
+        }
+        def prebuilt = dfcHostPrebuiltFile()
+        if (prebuilt.isFile()) {
+            java.nio.file.Files.copy(prebuilt.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            logger.lifecycle("DFC native: staged host prebuilt ${prebuilt}")
+            return
+        }
+        throw new GradleException("DFC native library was not staged for ${dfcHostClassifier}: ${target}")
+    }
+}
+
+tasks.register("dfcStageForeignNatives") {
+    group = "native"
+    description = "Stage prebuilt DensityFunctionCompiler native libraries for non-host Windows/Linux platforms."
+    onlyIf { dfcBuildNatives }
+    doLast {
+        dfcNativeClassifiers.each { classifier ->
+            if (classifier == dfcHostClassifier) {
+                return
+            }
+            def lib = dfcLibFileForClassifier(classifier)
+            def prebuilt = new File(dfcNativeDir, "prebuilts/${classifier}/${lib}")
+            if (!prebuilt.isFile()) {
+                logger.lifecycle("DFC native: no prebuilt for ${classifier} at ${prebuilt}")
+                return
+            }
+            def targetDir = new File(dfcNativeArtifactsDir, classifier)
+            targetDir.mkdirs()
+            java.nio.file.Files.copy(prebuilt.toPath(), new File(targetDir, lib).toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+tasks.register("dfcAssembleNatives") {
+    group = "native"
+    description = "Build/stage DensityFunctionCompiler Windows/Linux native resources."
+    dependsOn "dfcStageHostNative", "dfcStageForeignNatives"
+    onlyIf { dfcBuildNatives }
+    doLast {
+        if (dfcRequireAllNatives) {
+            dfcNativeClassifiers.each { classifier ->
+                def lib = dfcLibFileForClassifier(classifier)
+                def staged = new File(dfcNativeArtifactsDir, "${classifier}/${lib}")
+                if (!staged.isFile()) {
+                    throw new GradleException("dfc.requireAllNatives: missing ${classifier} native at ${staged}")
+                }
+            }
+        }
+    }
+}
+
+tasks.named("processResources", ProcessResources) {
+    exclude "META-INF/natives/**"
+    if (dfcBuildNatives) {
+        dependsOn "dfcAssembleNatives"
+        from(dfcNativeArtifactsDir) {
+            into "META-INF/natives"
+        }
+    }
 }

@@ -82,20 +82,23 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
         for (int l1 = k; l1 <= k + j1; l1++) {
             for (int i2 = i1; i2 <= i1 + j1; i2++) {
-
                 int currentChunkX = l1 >> 4;
                 int currentChunkZ = i2 >> 4;
-
                 if (currentChunkX != lastChunkX || currentChunkZ != lastChunkZ) {
                     cachedChunk = worldgenlevel.getChunk(currentChunkX, currentChunkZ);
-                    cachedHeightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized)cachedChunk).bts$getOrCreateHeightmapUnsynchronized(Heightmap.Types.OCEAN_FLOOR_WG);
+                    cachedHeightmap =
+                            ((ChunkAccess$getOrCreateHeightmapUnsynchronized) cachedChunk)
+                                    .bts$getOrCreateHeightmapUnsynchronized(Heightmap.Types.OCEAN_FLOOR_WG);
                     lastChunkX = currentChunkX;
                     lastChunkZ = currentChunkZ;
                 }
-
-                int height = cachedHeightmap.getFirstAvailable(l1 & 15, i2 & 15) - 1;
-
-                if (l <= height) {
+                boolean aboveFloor;
+                if (cachedHeightmap != null) {
+                    aboveFloor = l <= (cachedHeightmap.getFirstAvailable(l1 & 15, i2 & 15) - 1);
+                } else {
+                    aboveFloor = l <= worldgenlevel.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, l1, i2);
+                }
+                if (aboveFloor) {
                     return this.doPlace(worldgenlevel, randomsource, oreconfiguration, d0, d1, d2, d3, d4, d5, k, l, i1, j1, k1);
                 }
             }

@@ -11,11 +11,14 @@ import java.util.EnumSet;
 import java.util.Map;
 
 @Mixin(ChunkAccess.class)
-public class MixinChunkAccess implements ChunkAccess$getOrCreateHeightmapUnsynchronized {
+public abstract class MixinChunkAccess implements ChunkAccess$getOrCreateHeightmapUnsynchronized {
 
     @Shadow
     @Final
     protected Map<Heightmap.Types, Heightmap> heightmaps;
+
+    @Shadow
+    protected abstract Heightmap getOrCreateHeightmapUnprimed(Heightmap.Types type);
 
     @Override
     public Heightmap bts$getOrCreateHeightmapUnsynchronized(Heightmap.Types types) {
@@ -23,6 +26,9 @@ public class MixinChunkAccess implements ChunkAccess$getOrCreateHeightmapUnsynch
         if (heightmap == null) {
             Heightmap.primeHeightmaps((ChunkAccess) (Object)this, EnumSet.of(types));
             heightmap = this.heightmaps.get(types);
+        }
+        if (heightmap == null) {
+            heightmap = this.getOrCreateHeightmapUnprimed(types);
         }
 
         return heightmap;

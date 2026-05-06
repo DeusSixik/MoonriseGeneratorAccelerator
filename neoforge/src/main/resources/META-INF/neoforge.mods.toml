@@ -32,7 +32,7 @@ side = "BOTH"
 config = "generator_accelerator.mixins.json"
 
 [[mixins]]
-config = "generator_accelerator_density.mixins.json"
+config = "generator_accelerator_density_compiler.mixins.json"
 
 [[mixins]]
 config = "generator_accelerator_benchmark.mixins.json"

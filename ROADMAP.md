@@ -45,7 +45,6 @@ This document outlines the planned technical trajectory for Generator Accelerato
 
 - [x] **DOD Feature Sorter:** Eradicated `Stream API` and `TreeMap` from feature placement.
 - [x] **Flat Block Structure:** Implemented `int[4096]` flat arrays to bypass `PalettedContainer` packing overhead.
-- [x] **FastMultipoint:** Replaced binary searches with primitive-level sliding window operations.
 - [x] **FlatClimateIndex:** High-performance spatial index for Minecraft climate parameter lookup.
 
 ### How to Suggest an Addition to the Roadmap

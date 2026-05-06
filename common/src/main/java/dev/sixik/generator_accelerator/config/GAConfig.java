@@ -17,7 +17,7 @@ public class GAConfig {
     @ConfigComment("Enable Blender Patch")
     public boolean enableBlenderPatch = true;
 
-    public boolean enableDensityPatch = true;
+    public boolean enableDensityCompilerPatch = true;
 
     public boolean enableFeaturesPatch = true;
 

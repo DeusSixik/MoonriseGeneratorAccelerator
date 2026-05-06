@@ -13,5 +13,6 @@
 /fabric/run/
 /.idea/
 /.architectury-transformer
+/.densitycompiler/
 *.log
 *.gz
