@@ -21,7 +21,7 @@
   "accessWidener": "btsengineconcurrent.accesswidener",
   "mixins": [
     "generator_accelerator.mixins.json",
-    "generator_accelerator_density.mixins.json",
+    "generator_accelerator_density_compiler.mixins.json",
     "generator_accelerator_benchmark.mixins.json",
     "generator_accelerator_biome.mixins.json",
     "generator_accelerator_blender.mixins.json",
@@ -34,7 +34,8 @@
     "generator_accelerator_beardifier.mixins.json",
     "generator_accelerator_paletted_container.mixins.json",
     "generator_accelerator_surface.mixins.json",
-    "generator_accelerator_structures.mixins.json"
+    "generator_accelerator_structures.mixins.json",
+    "generator_accelerator_modernfix.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

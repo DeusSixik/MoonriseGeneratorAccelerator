@@ -1,0 +1,27 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.sixik.generator_accelerator.common.density.compiler.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "dev.sixik.generator_accelerator.common.density.compiler.GADensityCompilerMixinPlugin",
+  "mixins": [
+    "ClimateSamplerFabricDfcFapiSupportMixin",
+    "NoiseChunkCache2dMixin",
+    "NoiseChunkCacheAllInCellMixin",
+    "NoiseChunkCacheOnceMixin",
+    "NoiseChunkFlatCacheMixin",
+    "NoiseChunkSessionMixin",
+    "NoiseRouterMixin",
+    "RandomStateMixin",
+    "noise.BlendedNoiseAccessor",
+    "noise.ImprovedNoiseAccessor",
+    "noise.NormalNoiseAccessor",
+    "noise.PerlinNoiseAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

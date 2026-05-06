@@ -66,3 +66,7 @@ shadowJar {
 remapJar {
     input.set shadowJar.archiveFile
 }
+
+tasks.matching { it.name.startsWith("run") || it.name.startsWith("prepareRun") }.configureEach {
+    dependsOn project(":common").tasks.named("processResources")
+}
