@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.placement.InSquarePlacement;
@@ -13,7 +13,12 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class MixinInSquarePlacement extends PlacementModifier implements GA$PlacementModifierExtension {
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos) + random.nextInt(16);
         int z = BlockPos.getZ(packedPos) + random.nextInt(16);
         int y = BlockPos.getY(packedPos);

@@ -1,7 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.api.patches.GA$FixedPlacementAccess;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -20,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.List;
 
 @Mixin(FixedPlacement.class)
-public abstract class MixinFixedPlacement extends PlacementModifier implements GA$PlacementModifierExtension {
+public abstract class MixinFixedPlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$FixedPlacementAccess {
 
     @Mutable
     @Shadow
@@ -33,7 +34,17 @@ public abstract class MixinFixedPlacement extends PlacementModifier implements G
     }
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public List<BlockPos> ga$fixedPositions() {
+        return this.positions;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int chunkX = SectionPos.blockToSectionCoord(BlockPos.getX(packedPos));
         int chunkZ = SectionPos.blockToSectionCoord(BlockPos.getZ(packedPos));
 

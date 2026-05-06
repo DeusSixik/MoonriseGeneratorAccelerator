@@ -10,6 +10,7 @@
     "MixinChunkAccess",
     "MixinChunkGenerator$apply_biome_decoration",
     "compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
+    "compats.confluence.Confluence$FeaturePlacementCompatMixin",
     "compats.confluence.Confluence$PlacedFeatureMixin$fix",
     "compats.confluence.Confluence$SecretFlagPlacementMixin",
     "compats.neofogre.MixinChunkGenerator",

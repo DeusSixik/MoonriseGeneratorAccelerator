@@ -43,10 +43,11 @@ public final class DensityFunctionCompiler {
     }
 
     public static void onServerStarting(MinecraftServer server) {
-        RegistryWarmer.warmAll(server);
+        // Levels are not guaranteed to exist yet here; warm after the server has created them.
     }
 
     public static void onServerStarted(MinecraftServer server) {
+        RegistryWarmer.warmAll(server);
     }
 
     public static void onDatapackReload(MinecraftServer server) {

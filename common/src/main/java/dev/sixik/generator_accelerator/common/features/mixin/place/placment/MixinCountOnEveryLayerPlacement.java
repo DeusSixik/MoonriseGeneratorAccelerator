@@ -1,7 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
+import dev.sixik.generator_accelerator.api.patches.GA$CountOnEveryLayerPlacementAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.valueproviders.IntProvider;
@@ -18,7 +19,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(CountOnEveryLayerPlacement.class)
-public abstract class MixinCountOnEveryLayerPlacement extends PlacementModifier implements GA$PlacementModifierExtension {
+public abstract class MixinCountOnEveryLayerPlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$CountOnEveryLayerPlacementAccess {
 
     @Shadow
     private static boolean isEmpty(BlockState arg) {
@@ -30,7 +31,17 @@ public abstract class MixinCountOnEveryLayerPlacement extends PlacementModifier 
     private IntProvider count;
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public IntProvider ga$countProvider() {
+        return this.count;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int startX = BlockPos.getX(packedPos);
         int startZ = BlockPos.getZ(packedPos);
 

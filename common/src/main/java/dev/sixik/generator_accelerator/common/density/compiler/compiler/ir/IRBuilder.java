@@ -191,14 +191,14 @@ public final class IRBuilder {
 
         if (df instanceof DensityFunctions.Noise n) {
             var noise = n.noise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             return intern(new IRNode.Noise(idx, n.xzScale(), n.yScale(), n.noise().maxValue()));
         }
 
         if (df instanceof DensityFunctions.ShiftedNoise sn) {
             var noise = sn.noise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             IRNode sx = walk(sn.shiftX());
             IRNode sy = walk(sn.shiftY());
@@ -208,26 +208,26 @@ public final class IRBuilder {
 
         if (df instanceof DensityFunctions.ShiftA sa) {
             var noise = sa.offsetNoise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             return intern(new IRNode.ShiftA(idx, sa.offsetNoise().maxValue()));
         }
         if (df instanceof DensityFunctions.ShiftB sb) {
             var noise = sb.offsetNoise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             return intern(new IRNode.ShiftB(idx, sb.offsetNoise().maxValue()));
         }
         if (df instanceof DensityFunctions.Shift s) {
             var noise = s.offsetNoise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             return intern(new IRNode.Shift(idx, s.offsetNoise().maxValue()));
         }
 
         if (df instanceof DensityFunctions.WeirdScaledSampler wss) {
             var noise = wss.noise().noise();
-            if (noise == null) return intern(new IRNode.Const(0.0));
+            if (noise == null) return invokeOpaque(df);
             int idx = pool.internNoise(noise);
             IRNode input = walk(wss.input());
             return intern(new IRNode.WeirdScaled(input, idx, wss.rarityValueMapper().ordinal(),
@@ -357,5 +357,10 @@ public final class IRBuilder {
                     + structuralKey(rc.whenOutOfRange()) + ')';
         }
         throw new IllegalArgumentException("No canonical key for impure IR node " + node);
+    }
+
+    private IRNode invokeOpaque(DensityFunction df) {
+        int idx = pool.internExtern(df);
+        return intern(new IRNode.Invoke(idx));
     }
 }

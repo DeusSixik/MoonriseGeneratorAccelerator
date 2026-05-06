@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.roots;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import mysticmods.roots.worldgen.features.placements.AllAroundLogPlacement;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -23,7 +23,12 @@ public abstract class Roots$AllAroundLogPlacementMixin extends PlacementModifier
     private List<Direction> DIRECTIONS;
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         Collections.shuffle(this.DIRECTIONS);
 
         int x = BlockPos.getX(packedPos);

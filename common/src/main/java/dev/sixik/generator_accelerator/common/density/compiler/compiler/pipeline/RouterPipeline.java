@@ -212,12 +212,9 @@ public final class RouterPipeline {
      *
      * <p>The sampler must be compiled <em>after</em> {@code RandomState.<init>} has wired
      * the source DensityFunctions through {@code NoiseWiringHelper}. Compiling earlier
-     * leaves every {@link DensityFunction.NoiseHolder} unbound, and our IR builder collapses
-     * those to {@code Const(0.0)} (matching vanilla's "noise is null → 0.0" fallback). A
-     * NoiseRouter where every noise reads as 0 is what produced the well-known "all River
-     * biomes / no terrain features" symptom — the climate sampler picks the closest
-     * defined biome to {@code (0, 0, 0, 0, 0, 0)} which happens to be River, and the
-     * height/erosion/density routers all collapse to flat featureless terrain.
+     * leaves every {@link DensityFunction.NoiseHolder} unbound. The IR builder keeps those
+     * nodes opaque now, but compiling after wiring is still required for noise-specialized
+     * bytecode and to avoid caching a pre-wiring shape.
      *
      * <p>Failures fall back to the original sampler field, identical to {@link #compile}.
      */

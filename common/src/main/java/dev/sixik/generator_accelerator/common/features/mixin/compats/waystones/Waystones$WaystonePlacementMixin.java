@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.waystones;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.blay09.mods.waystones.config.WaystonesConfig;
 import net.blay09.mods.waystones.config.WaystonesConfigData;
 import net.blay09.mods.waystones.worldgen.WaystonePlacement;
@@ -61,7 +61,12 @@ public abstract class Waystones$WaystonePlacementMixin extends PlacementModifier
     }
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         bts$initConfigs(context);
 
         if (this.bts$chunkDistance == 0 || !this.bts$isDimensionAllowed) {
@@ -141,7 +146,7 @@ public abstract class Waystones$WaystonePlacementMixin extends PlacementModifier
     }
 
     /**
-     * Эмулятор java.util.Random.nextInt(bound) без аллокаций.
+     * Allocation-free java.util.Random.nextInt(bound) emulator.
      */
     @Unique
     private int bts$fastLegacyNextInt(long seed, int bound) {

@@ -2,7 +2,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.compats.yungs.extr
 
 import com.yungnickyoung.minecraft.yungsextras.world.placement.RngInitializerPlacement;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
@@ -13,7 +13,12 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class YungsExtras$RngInitializerPlacementMixin extends PlacementModifier implements GA$PlacementModifierExtension {
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         long a = random.nextLong() | 1L;
         long b = random.nextLong() | 1L;
 

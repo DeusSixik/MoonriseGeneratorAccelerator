@@ -1,7 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.api.patches.GA$PlacementFilterAccess;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
@@ -12,7 +13,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(PlacementFilter.class)
-public abstract class MixinPlacementFilter extends PlacementModifier implements GA$PlacementModifierExtension {
+public abstract class MixinPlacementFilter extends PlacementModifier implements GA$PlacementModifierExtension, GA$PlacementFilterAccess {
 
     @Shadow
     protected abstract boolean shouldPlace(PlacementContext arg, RandomSource arg2, BlockPos arg3);
@@ -22,7 +23,17 @@ public abstract class MixinPlacementFilter extends PlacementModifier implements 
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public boolean ga$shouldPlace(PlacementContext context, RandomSource random, BlockPos.MutableBlockPos pos) {
+        return this.shouldPlace(context, random, pos);
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         BlockPos.MutableBlockPos mPos = SHARED_POS.get().set(packedPos);
 
         if (this.shouldPlace(context, random, mPos)) {

@@ -1,7 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.api.patches.GA$EnvironmentScanPlacementAccess;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -15,7 +16,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
 @Mixin(EnvironmentScanPlacement.class)
-public abstract class MixinEnvironmentScanPlacement extends PlacementModifier implements GA$PlacementModifierExtension {
+public abstract class MixinEnvironmentScanPlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$EnvironmentScanPlacementAccess {
 
     @Shadow
     @Final
@@ -34,7 +35,32 @@ public abstract class MixinEnvironmentScanPlacement extends PlacementModifier im
     private BlockPredicate targetCondition;
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public BlockPredicate ga$allowedSearchCondition() {
+        return this.allowedSearchCondition;
+    }
+
+    @Override
+    public BlockPredicate ga$targetCondition() {
+        return this.targetCondition;
+    }
+
+    @Override
+    public Direction ga$directionOfSearch() {
+        return this.directionOfSearch;
+    }
+
+    @Override
+    public int ga$maxSteps() {
+        return this.maxSteps;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos);
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);

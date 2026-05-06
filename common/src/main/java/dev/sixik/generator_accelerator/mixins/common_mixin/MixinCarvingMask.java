@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskExtension;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -21,6 +22,15 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
 
     @Override
     public void bts$addPositionsFast(ChunkPos chunkPos, LongArrayList output) {
+        this.bts$addPositions(chunkPos, output::add);
+    }
+
+    @Override
+    public void bts$addPositionsRaw(ChunkPos chunkPos, LongScratchBuffer output) {
+        this.bts$addPositions(chunkPos, output::add);
+    }
+
+    private void bts$addPositions(ChunkPos chunkPos, PositionConsumer output) {
         int startX = chunkPos.getMinBlockX();
         int startZ = chunkPos.getMinBlockZ();
 
@@ -31,5 +41,9 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
 
             output.add(BlockPos.asLong(startX + lx, ly, startZ + lz));
         }
+    }
+
+    private interface PositionConsumer {
+        void add(long packedPos);
     }
 }
