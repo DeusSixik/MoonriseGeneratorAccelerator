@@ -70,3 +70,9 @@ remapJar {
 tasks.matching { it.name.startsWith("run") || it.name.startsWith("prepareRun") }.configureEach {
     dependsOn project(":common").tasks.named("processResources")
 }
+
+tasks.withType(JavaExec).configureEach {
+    if (rootProject.hasProperty("gaJvmArgs")) {
+        jvmArgs rootProject.property("gaJvmArgs").toString().split("\\s+").findAll { !it.isBlank() }
+    }
+}

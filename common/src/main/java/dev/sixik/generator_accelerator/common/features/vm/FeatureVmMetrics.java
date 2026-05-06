@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.features.vm;
 import java.util.concurrent.atomic.LongAdder;
 
 public final class FeatureVmMetrics {
-    public static final boolean ENABLED = false;
+    public static final boolean ENABLED = Boolean.getBoolean("ga.featureVm.metrics");
 
     private static final LongAdder PROGRAMS_COMPILED = new LongAdder();
     private static final LongAdder FAST_OPS_COMPILED = new LongAdder();
@@ -14,6 +14,7 @@ public final class FeatureVmMetrics {
     private static final LongAdder FAST_OP_EXECUTIONS = new LongAdder();
     private static final LongAdder FALLBACK_OP_EXECUTIONS = new LongAdder();
     private static final LongAdder FEATURE_PLACE_CALLS = new LongAdder();
+    private static final LongAdder TOTAL_EXECUTION_NANOS = new LongAdder();
 
     private FeatureVmMetrics() {
     }
@@ -65,6 +66,11 @@ public final class FeatureVmMetrics {
         FEATURE_PLACE_CALLS.add(count);
     }
 
+    static void recordExecutionNanos(long nanos) {
+        if (!ENABLED) return;
+        TOTAL_EXECUTION_NANOS.add(nanos);
+    }
+
     public static long programsCompiled() {
         return PROGRAMS_COMPILED.sum();
     }
@@ -99,5 +105,26 @@ public final class FeatureVmMetrics {
 
     public static long featurePlaceCalls() {
         return FEATURE_PLACE_CALLS.sum();
+    }
+
+    public static long totalExecutionNanos() {
+        return TOTAL_EXECUTION_NANOS.sum();
+    }
+
+    public static String summary() {
+        long executions = programExecutions();
+        long nanos = totalExecutionNanos();
+        long avgNanos = executions == 0 ? 0 : nanos / executions;
+        return "FeatureVM metrics: programsCompiled=" + programsCompiled()
+                + ", fastOpsCompiled=" + fastOpsCompiled()
+                + ", fallbackOpsCompiled=" + fallbackOpsCompiled()
+                + ", executions=" + executions
+                + ", linearFastExecutions=" + linearFastExecutions()
+                + ", bufferFastExecutions=" + bufferFastExecutions()
+                + ", fastOpExecutions=" + fastOpExecutions()
+                + ", fallbackOpExecutions=" + fallbackOpExecutions()
+                + ", featurePlaceCalls=" + featurePlaceCalls()
+                + ", totalExecutionMs=" + (nanos / 1_000_000L)
+                + ", avgExecutionNs=" + avgNanos;
     }
 }

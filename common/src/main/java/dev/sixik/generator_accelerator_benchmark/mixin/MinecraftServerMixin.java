@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator_benchmark.mixin;
 
 import com.mojang.authlib.GameProfile;
+import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -43,6 +44,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     @Unique private ServerPlayer fakePlayer;
     @Unique private boolean isProfilerStart = false;
     @Unique private int tickCounter = 0;
+    @Unique private long benchmarkStartNanos = 0L;
 
     private MinecraftServerMixin(String string) {
         super(string);
@@ -63,6 +65,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         if (!isProfilerStart && tickCounter == 30) {
             var commandSource = server.createCommandSourceStack().withPermission(4);
             server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
+            this.benchmarkStartNanos = System.nanoTime();
 
             this.fakePlayer = this.sdm$makePlayer();
             fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
@@ -96,6 +99,11 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         if(tickCounter == 1500) {
             var commandSource = server.createCommandSourceStack().withPermission(4);
             server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMANd);
+            long elapsedMs = (System.nanoTime() - this.benchmarkStartNanos) / 1_000_000L;
+            MainBenchmark.log("Benchmark wall time ms: " + elapsedMs);
+            if (FeatureVmMetrics.ENABLED) {
+                MainBenchmark.log(FeatureVmMetrics.summary());
+            }
             isProfilerStart = false;
             server.getPlayerList().removeAll();
         }

@@ -41,6 +41,7 @@ public final class FeatureVm {
     }
 
     public static boolean execute(FeatureProgram program, PlacementContext context, RandomSource random, BlockPos startPos) {
+        long startNanos = FeatureVmMetrics.ENABLED ? System.nanoTime() : 0L;
         FeatureVmMetrics.recordProgramExecution();
         FeatureScratchStack stack = SCRATCH_STACK.get();
         FeatureScratch scratch = stack.acquire();
@@ -58,6 +59,9 @@ public final class FeatureVm {
             }
             return executeDepthFirst(program, context, random, startPos.asLong(), 0, scratch);
         } finally {
+            if (FeatureVmMetrics.ENABLED) {
+                FeatureVmMetrics.recordExecutionNanos(System.nanoTime() - startNanos);
+            }
             stack.release(scratch);
         }
     }

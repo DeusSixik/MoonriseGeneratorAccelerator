@@ -28,6 +28,7 @@ public class GAConfigManager {
             if(!isConfigAvailable()) {
                 config = new GAConfig();
             } else loadIsolatedConfig();
+            applySystemOverrides((GAConfig) config);
         }
         return Optional.of((GAConfig) config);
     }
@@ -55,5 +56,50 @@ public class GAConfigManager {
 
             return new Object[]{wrapper, wrapper.read()};
         }
+    }
+
+    private static void applySystemOverrides(GAConfig config) {
+        if (Boolean.getBoolean("ga.benchmark.disableAllPatches")) {
+            setAllPatches(config, false);
+        }
+        if (Boolean.getBoolean("ga.benchmark.featuresOnly")) {
+            setAllPatches(config, false);
+            config.enableFeaturesPatch = true;
+        }
+
+        config.enableAquiferPatch = boolOverride("ga.config.enableAquiferPatch", config.enableAquiferPatch);
+        config.enableBeardifierPatch = boolOverride("ga.config.enableBeardifierPatch", config.enableBeardifierPatch);
+        config.enableBiomePatch = boolOverride("ga.config.enableBiomePatch", config.enableBiomePatch);
+        config.enableBlenderPatch = boolOverride("ga.config.enableBlenderPatch", config.enableBlenderPatch);
+        config.enableDensityCompilerPatch = boolOverride("ga.config.enableDensityCompilerPatch", config.enableDensityCompilerPatch);
+        config.enableFeaturesPatch = boolOverride("ga.config.enableFeaturesPatch", config.enableFeaturesPatch);
+        config.enableFlatBlockStructurePatch = boolOverride("ga.config.enableFlatBlockStructurePatch", config.enableFlatBlockStructurePatch);
+        config.enableHeightmapPatch = boolOverride("ga.config.enableHeightmapPatch", config.enableHeightmapPatch);
+        config.enableNoisePatch = boolOverride("ga.config.enableNoisePatch", config.enableNoisePatch);
+        config.enableNoiseNativePatch = boolOverride("ga.config.enableNoiseNativePatch", config.enableNoiseNativePatch);
+        config.enablePalettedContainerPatch = boolOverride("ga.config.enablePalettedContainerPatch", config.enablePalettedContainerPatch);
+        config.enableStructuresPatch = boolOverride("ga.config.enableStructuresPatch", config.enableStructuresPatch);
+        config.enableSurfacePatch = boolOverride("ga.config.enableSurfacePatch", config.enableSurfacePatch);
+    }
+
+    private static boolean boolOverride(String property, boolean fallback) {
+        String value = System.getProperty(property);
+        return value == null ? fallback : Boolean.parseBoolean(value);
+    }
+
+    private static void setAllPatches(GAConfig config, boolean enabled) {
+        config.enableAquiferPatch = enabled;
+        config.enableBeardifierPatch = enabled;
+        config.enableBiomePatch = enabled;
+        config.enableBlenderPatch = enabled;
+        config.enableDensityCompilerPatch = enabled;
+        config.enableFeaturesPatch = enabled;
+        config.enableFlatBlockStructurePatch = enabled;
+        config.enableHeightmapPatch = enabled;
+        config.enableNoisePatch = enabled;
+        config.enableNoiseNativePatch = enabled;
+        config.enablePalettedContainerPatch = enabled;
+        config.enableStructuresPatch = enabled;
+        config.enableSurfacePatch = enabled;
     }
 }

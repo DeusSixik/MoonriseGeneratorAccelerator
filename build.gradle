@@ -188,3 +188,37 @@ tasks.register("runBenchmarks") {
         println "\nBenchmarks end!"
     }
 }
+
+tasks.register("runFeatureVmBenchmarks") {
+    group = "benchmark"
+    description = "Runs raw vanilla-ish vs FeatureVM-only server benchmarks."
+
+    doLast {
+        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def currentJavaHome = System.getProperty("java.home")
+        def runs = (findProperty("benchRuns") ?: "3") as int
+
+        def runTest = { String name, String jvmArgs ->
+            println "======================================="
+            println "  START FEATURE VM TEST: $name"
+            println "  JVM ARGS: $jvmArgs"
+            println "======================================="
+
+            for (int i = 1; i <= runs; i++) {
+                println "\n---> [$name] run $i of $runs <---"
+                exec {
+                    environment "JAVA_HOME", currentJavaHome
+                    commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$jvmArgs", "--no-daemon"
+                }
+                sleep(2000)
+            }
+        }
+
+        runTest("Vanilla-ish GA disabled", "-Dga.benchmark.disableAllPatches=true")
+        runTest("FeatureVM only", "-Dga.benchmark.featuresOnly=true -Dga.benchmark.featureVmOnly=true -Dga.benchmark.featureVm=true")
+        runTest("FeatureVM only with metrics", "-Dga.benchmark.featuresOnly=true -Dga.benchmark.featureVmOnly=true -Dga.benchmark.featureVm=true -Dga.featureVm.metrics=true")
+
+        println "\nFeatureVM benchmarks end!"
+    }
+}
