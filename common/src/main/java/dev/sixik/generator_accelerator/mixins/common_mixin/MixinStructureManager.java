@@ -13,13 +13,16 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 @Mixin(value = StructureManager.class, priority = 999)
 public abstract class MixinStructureManager {
+    @Unique
+    private static final ThreadLocal<GA$StructureStartCollector> GA$START_COLLECTOR =
+            ThreadLocal.withInitial(GA$StructureStartCollector::new);
 
     @Shadow
     @Final
@@ -35,9 +38,24 @@ public abstract class MixinStructureManager {
     @Overwrite
     public List<StructureStart> startsForStructure(SectionPos sectionPos, Structure structure) {
         LongSet longSet = this.level.getChunk(sectionPos.x(), sectionPos.z(), ChunkStatus.STRUCTURE_REFERENCES).getReferencesForStructure(structure);
-        ObjectArrayList<StructureStart> fastList = new ObjectArrayList<>();
-        Objects.requireNonNull(fastList);
-        this.fillStartsForStructure(structure, longSet, fastList::add);
+        ObjectArrayList<StructureStart> fastList = new ObjectArrayList<>(longSet.size());
+        GA$StructureStartCollector collector = GA$START_COLLECTOR.get();
+        collector.target = fastList;
+        try {
+            this.fillStartsForStructure(structure, longSet, collector);
+        } finally {
+            collector.target = null;
+        }
         return fastList;
+    }
+
+    @Unique
+    private static final class GA$StructureStartCollector implements Consumer<StructureStart> {
+        private ObjectArrayList<StructureStart> target;
+
+        @Override
+        public void accept(StructureStart structureStart) {
+            this.target.add(structureStart);
+        }
     }
 }
