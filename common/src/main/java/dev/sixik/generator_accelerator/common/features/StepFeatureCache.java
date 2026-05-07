@@ -7,41 +7,43 @@ import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.FeatureSorter;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 
 public final class StepFeatureCache {
-    private static final int[] EMPTY = new int[0];
+    private static final long[] EMPTY_MASK = new long[0];
 
     public final int stepCount;
     public final Object[][] featuresByStep;
-    public final ToIntFunction<PlacedFeature>[] indexMappings;
-    private final ConcurrentHashMap<Holder<Biome>, int[][]> biomeFeatureIndices = new ConcurrentHashMap<>();
+    public final int[] featureMaskWordsByStep;
+    private final ToIntFunction<PlacedFeature>[] indexMappings;
+    private final ConcurrentHashMap<Holder<Biome>, BiomeFeatureData> biomeFeatureData = new ConcurrentHashMap<>();
 
     @SuppressWarnings("unchecked")
     public StepFeatureCache(List<FeatureSorter.StepFeatureData> featureData) {
         this.stepCount = featureData.size();
         this.featuresByStep = new Object[this.stepCount][];
+        this.featureMaskWordsByStep = new int[this.stepCount];
         this.indexMappings = new ToIntFunction[this.stepCount];
 
         for (int step = 0; step < this.stepCount; step++) {
             FeatureSorter.StepFeatureData data = featureData.get(step);
             this.featuresByStep[step] = data.features().toArray();
+            this.featureMaskWordsByStep[step] = (this.featuresByStep[step].length + Long.SIZE - 1) >>> 6;
             this.indexMappings[step] = data.indexMapping();
         }
     }
 
-    public int[] indicesFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter, int step) {
-        int[][] byStep = this.biomeFeatureIndices.computeIfAbsent(biome, holder -> this.buildIndices(holder, generationSettingsGetter));
-        int[] indices = byStep[step];
-        return indices == null ? EMPTY : indices;
+    public long[] featureMaskFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter, int step) {
+        long[][] byStep = this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter)).masksByStep;
+        long[] mask = byStep[step];
+        return mask == null ? EMPTY_MASK : mask;
     }
 
-    private int[][] buildIndices(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
-        int[][] byStep = new int[this.stepCount][];
+    private BiomeFeatureData buildFeatureData(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
+        long[][] byStep = new long[this.stepCount][];
         List<HolderSet<PlacedFeature>> placedFeatureSets = generationSettingsGetter.apply(biome).features();
         int maxStep = Math.min(this.stepCount, placedFeatureSets.size());
 
@@ -49,25 +51,33 @@ public final class StepFeatureCache {
             HolderSet<PlacedFeature> holderSet = placedFeatureSets.get(step);
             int holderCount = holderSet.size();
             if (holderCount == 0) {
-                byStep[step] = EMPTY;
+                byStep[step] = EMPTY_MASK;
                 continue;
             }
 
-            int[] tmp = new int[holderCount];
-            int count = 0;
             ToIntFunction<PlacedFeature> indexMapper = this.indexMappings[step];
             int featureCount = this.featuresByStep[step].length;
+            int wordCount = this.featureMaskWordsByStep[step];
+            if (featureCount == 0 || wordCount == 0) {
+                byStep[step] = EMPTY_MASK;
+                continue;
+            }
+
+            long[] mask = new long[wordCount];
 
             for (int holderIndex = 0; holderIndex < holderCount; holderIndex++) {
                 int featureIndex = indexMapper.applyAsInt(holderSet.get(holderIndex).value());
                 if (featureIndex >= 0 && featureIndex < featureCount) {
-                    tmp[count++] = featureIndex;
+                    mask[featureIndex >>> 6] |= 1L << (featureIndex & 63);
                 }
             }
 
-            byStep[step] = count == 0 ? EMPTY : count == holderCount ? tmp : Arrays.copyOf(tmp, count);
+            byStep[step] = mask;
         }
 
-        return byStep;
+        return new BiomeFeatureData(byStep);
+    }
+
+    private record BiomeFeatureData(long[][] masksByStep) {
     }
 }
