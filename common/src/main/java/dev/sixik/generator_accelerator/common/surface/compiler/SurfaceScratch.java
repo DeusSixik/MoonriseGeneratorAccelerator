@@ -19,6 +19,9 @@ public final class SurfaceScratch {
     public final BitSet bridgeBitSet = new BitSet(Mask4096.BIT_COUNT);
     public final int[] previousSectionBottomDepths = new int[256];
     public final long[] activeColumns = new long[4];
+    public final long[] candidateColumns = new long[4];
+    public final long[] layeredColumns = new long[Mask4096.WORD_COUNT];
+    public final int[] intervalMinY = new int[256];
     public final String[] biomeNamespaces = new String[256];
     public final BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
     public final BlockPos.MutableBlockPos postProcessPos = new BlockPos.MutableBlockPos();
@@ -56,6 +59,13 @@ public final class SurfaceScratch {
         Mask4096 mask = this.transientMasks[this.transientTop++];
         mask.clear();
         return mask;
+    }
+
+    public Mask4096 pushMaskForOverwrite() {
+        if (this.transientTop >= this.transientMasks.length) {
+            growTransientMasks();
+        }
+        return this.transientMasks[this.transientTop++];
     }
 
     public int reserveMasks(int count) {

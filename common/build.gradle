@@ -12,6 +12,14 @@ def surfaceQuickBenchmarkArgs = [
         "--iterations=${findProperty('surfaceQuickIterations') ?: '1400'}",
         "--samples=${findProperty('surfaceQuickSamples') ?: '5'}"
 ]
+def surfaceColumnIntervalFlag = "-Dga.surface.compiler.columnInterval=${findProperty('surfaceColumnInterval') ?: 'true'}"
+def surfaceDagFlag = "-Dga.surface.compiler.dag=${findProperty('surfaceDag') ?: 'true'}"
+def surfaceApplyBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceProgramApplyQuickBenchmark"
+def surfaceApplyBenchmarkArgs = [
+        "--warmup=${findProperty('surfaceApplyWarmup') ?: '3000'}",
+        "--iterations=${findProperty('surfaceApplyIterations') ?: '12000'}",
+        "--samples=${findProperty('surfaceApplySamples') ?: '5'}"
+]
 
 tasks.register("surfaceQuickBenchmarkLegacy", JavaExec) {
     group = "benchmark"
@@ -19,7 +27,7 @@ tasks.register("surfaceQuickBenchmarkLegacy", JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceQuickBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false"
+    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
     args surfaceQuickBenchmarkArgs
 }
 
@@ -29,7 +37,7 @@ tasks.register("surfaceQuickBenchmarkIr", JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceQuickBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false"
+    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
     args surfaceQuickBenchmarkArgs
 }
 
@@ -41,6 +49,36 @@ tasks.register("surfaceQuickBenchmark") {
     group = "benchmark"
     description = "Runs very quick legacy and IR Surface Rule Compiler benchmarks for comparison."
     dependsOn "surfaceQuickBenchmarkLegacy", "surfaceQuickBenchmarkIr"
+}
+
+tasks.register("surfaceApplyQuickBenchmarkLegacy", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick SurfaceProgram.apply benchmark with the legacy compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceApplyBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceApplyBenchmarkArgs
+}
+
+tasks.register("surfaceApplyQuickBenchmarkIr", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick SurfaceProgram.apply benchmark with the IR compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceApplyBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceApplyBenchmarkArgs
+}
+
+tasks.named("surfaceApplyQuickBenchmarkIr") {
+    mustRunAfter tasks.named("surfaceApplyQuickBenchmarkLegacy")
+}
+
+tasks.register("surfaceApplyQuickBenchmark") {
+    group = "benchmark"
+    description = "Runs very quick legacy and IR SurfaceProgram.apply benchmarks for comparison."
+    dependsOn "surfaceApplyQuickBenchmarkLegacy", "surfaceApplyQuickBenchmarkIr"
 }
 
 dependencies {
@@ -232,3 +270,4 @@ tasks.named("processResources", ProcessResources) {
         }
     }
 }
+

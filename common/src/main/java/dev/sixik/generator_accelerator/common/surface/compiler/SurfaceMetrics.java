@@ -14,8 +14,6 @@ public final class SurfaceMetrics {
     private static final LongAdder IR_FALLBACK_CONDITION_NODES = new LongAdder();
     private static final LongAdder INTERPRETED_PROGRAMS = new LongAdder();
     private static final LongAdder OPTIMIZED_PROGRAMS = new LongAdder();
-    private static final LongAdder GENERATED_PROGRAMS = new LongAdder();
-    private static final LongAdder GENERATED_FALLBACK_FAILURES = new LongAdder();
 
     private static final LongAdder CACHE_HITS = new LongAdder();
     private static final LongAdder CACHE_MISSES = new LongAdder();
@@ -89,16 +87,6 @@ public final class SurfaceMetrics {
     public static void optimizedProgram() {
         if (!ENABLED) return;
         OPTIMIZED_PROGRAMS.increment();
-    }
-
-    public static void generatedProgram() {
-        if (!ENABLED) return;
-        GENERATED_PROGRAMS.increment();
-    }
-
-    public static void generatedFallbackFailure() {
-        if (!ENABLED) return;
-        GENERATED_FALLBACK_FAILURES.increment();
     }
 
     public static void cacheHit() {
@@ -249,14 +237,6 @@ public final class SurfaceMetrics {
 
     public static long optimizedPrograms() {
         return OPTIMIZED_PROGRAMS.sum();
-    }
-
-    public static long generatedPrograms() {
-        return GENERATED_PROGRAMS.sum();
-    }
-
-    public static long generatedFallbackFailures() {
-        return GENERATED_FALLBACK_FAILURES.sum();
     }
 
     public static long cacheHits() {

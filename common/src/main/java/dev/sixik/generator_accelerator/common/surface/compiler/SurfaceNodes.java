@@ -152,7 +152,7 @@ final class TestSurfaceRuleNode implements SurfaceRuleNode {
     @Override
     public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
         int mark = scratch.mark();
-        Mask4096 matchingMask = scratch.pushMask();
+        Mask4096 matchingMask = scratch.pushMaskForOverwrite();
         matchingMask.copyFrom(activeMask);
         this.condition.filter(matchingMask, ctx, scratch);
 
@@ -161,7 +161,7 @@ final class TestSurfaceRuleNode implements SurfaceRuleNode {
             return;
         }
 
-        Mask4096 processedBlocks = scratch.pushMask();
+        Mask4096 processedBlocks = scratch.pushMaskForOverwrite();
         processedBlocks.copyFrom(matchingMask);
         this.thenRun.apply(rawBlockData, matchingMask, ctx, scratch);
         processedBlocks.xor(matchingMask);
@@ -202,7 +202,7 @@ final class TestBlockSurfaceRuleNode implements SurfaceRuleNode {
     @Override
     public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
         int mark = scratch.mark();
-        Mask4096 matchingMask = scratch.pushMask();
+        Mask4096 matchingMask = scratch.pushMaskForOverwrite();
         matchingMask.copyFrom(activeMask);
         this.condition.filter(matchingMask, ctx, scratch);
 
@@ -364,7 +364,7 @@ final class NotSurfaceConditionNode implements SurfaceConditionNode {
         }
 
         int mark = scratch.mark();
-        Mask4096 passedMask = scratch.pushMask();
+        Mask4096 passedMask = scratch.pushMaskForOverwrite();
         passedMask.copyFrom(activeMask);
         this.target.filter(passedMask, ctx, scratch);
         activeMask.xor(passedMask);
@@ -909,14 +909,14 @@ final class AnyOfSurfaceConditionNode implements SurfaceConditionNode {
 
         int mark = scratch.mark();
         Mask4096 finalPassedMask = scratch.pushMask();
-        Mask4096 remainingMask = scratch.pushMask();
+        Mask4096 remainingMask = scratch.pushMaskForOverwrite();
         remainingMask.copyFrom(activeMask);
 
         for (SurfaceConditionNode condition : this.conditions) {
             if (remainingMask.isEmpty()) {
                 break;
             }
-            Mask4096 testMask = scratch.pushMask();
+            Mask4096 testMask = scratch.pushMaskForOverwrite();
             testMask.copyFrom(remainingMask);
             condition.filter(testMask, ctx, scratch);
             finalPassedMask.or(testMask);

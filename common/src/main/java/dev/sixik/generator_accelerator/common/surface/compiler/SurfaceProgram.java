@@ -11,6 +11,7 @@ public final class SurfaceProgram {
     private final int[] opcodes;
     private final int[] intOperands;
     private final Object[] objectOperands;
+    private final SurfaceProgramStep[] steps;
     private final int requirements;
     private final int fallbackIslandCount;
     private final boolean mayWriteFluid;
@@ -26,6 +27,25 @@ public final class SurfaceProgram {
         this.opcodes = opcodes;
         this.intOperands = intOperands;
         this.objectOperands = objectOperands;
+        this.steps = null;
+        this.requirements = requirements;
+        this.fallbackIslandCount = fallbackIslandCount;
+        this.mayWriteFluid = mayWriteFluid;
+    }
+
+    SurfaceProgram(
+            int[] opcodes,
+            int[] intOperands,
+            Object[] objectOperands,
+            SurfaceProgramStep[] steps,
+            int requirements,
+            int fallbackIslandCount,
+            boolean mayWriteFluid
+    ) {
+        this.opcodes = opcodes;
+        this.intOperands = intOperands;
+        this.objectOperands = objectOperands;
+        this.steps = steps;
         this.requirements = requirements;
         this.fallbackIslandCount = fallbackIslandCount;
         this.mayWriteFluid = mayWriteFluid;
@@ -41,10 +61,12 @@ public final class SurfaceProgram {
             this.opcodes = new int[0];
             this.intOperands = new int[0];
             this.objectOperands = new Object[0];
+            this.steps = null;
         } else {
             this.opcodes = new int[rules.length];
             this.intOperands = new int[rules.length];
             this.objectOperands = new Object[rules.length];
+            this.steps = null;
             for (int i = 0; i < rules.length; i++) {
                 encodeRule(i, rules[i]);
             }
@@ -56,6 +78,18 @@ public final class SurfaceProgram {
         scratch.activeMask.copyFrom(stoneMask);
 
         Mask4096 activeMask = scratch.activeMask;
+        SurfaceProgramStep[] localSteps = this.steps;
+        if (localSteps != null) {
+            for (int i = 0; i < localSteps.length; i++) {
+                if (activeMask.isEmpty()) {
+                    SurfaceMetrics.activeMaskEarlyExit();
+                    return;
+                }
+                localSteps[i].apply(rawBlockData, activeMask, ctx, scratch);
+            }
+            return;
+        }
+
         int[] localOpcodes = this.opcodes;
         int[] localIntOperands = this.intOperands;
         Object[] localObjectOperands = this.objectOperands;
@@ -149,7 +183,7 @@ public final class SurfaceProgram {
 
     private static void applyTestBlock(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch, SurfaceConditionNode condition, int blockId) {
         int mark = scratch.mark();
-        Mask4096 matchingMask = scratch.pushMask();
+        Mask4096 matchingMask = scratch.pushMaskForOverwrite();
         matchingMask.copyFrom(activeMask);
         condition.filter(matchingMask, ctx, scratch);
 

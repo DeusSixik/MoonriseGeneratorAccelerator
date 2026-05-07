@@ -30,7 +30,7 @@ final class SurfacePlanDump {
         }
 
         LOGGER.info(
-                "GA Surface compiler dump: source={}, backend=interpreted-mask4096, root={}, opcodes={}, blockOps={}, testBlockOps={}, genericRuleOps={}, requirements=0x{}, mayWriteFluid={}, identityConditions={}, structuralConditions={}, conditionCacheSlots={}, fallbackIslands={}, fallbackRules={}, fallbackConditions={}, flags[ir={}, dag={}, columnInterval={}, codegen={}]",
+                "GA Surface compiler dump: source={}, backend=interpreted-mask4096, root={}, opcodes={}, blockOps={}, testBlockOps={}, genericRuleOps={}, requirements=0x{}, mayWriteFluid={}, identityConditions={}, structuralConditions={}, conditionCacheSlots={}, fallbackIslands={}, fallbackRules={}, fallbackConditions={}, flags[ir={}, dag={}, columnInterval={}]",
                 source.getClass().getName(),
                 rootNode,
                 program.opcodeCount(),
@@ -47,8 +47,7 @@ final class SurfacePlanDump {
                 fallbackConditionClasses,
                 SurfaceCompilerConfig.IR,
                 SurfaceCompilerConfig.DAG,
-                SurfaceCompilerConfig.COLUMN_INTERVAL,
-                SurfaceCompilerConfig.CODEGEN
+                SurfaceCompilerConfig.COLUMN_INTERVAL
         );
     }
 
@@ -65,7 +64,7 @@ final class SurfacePlanDump {
         }
 
         LOGGER.info(
-                "GA Surface compiler dump: source={}, backend=surface-ir-lowered-mask4096, root={}, irRules={}, irConditions={}, irFallbackRules={}, irFallbackConditions={}, opcodes={}, blockOps={}, testBlockOps={}, genericRuleOps={}, requirements=0x{}, irRequirements=0x{}, mayWriteFluid={}, irMayWriteFluid={}, compiledConditions={}, conditionCacheSlots={}, flags[ir={}, dag={}, columnInterval={}, codegen={}]",
+                "GA Surface compiler dump: source={}, backend=surface-ir-phase3, root={}, irRules={}, irConditions={}, irFallbackRules={}, irFallbackConditions={}, opcodes={}, blockOps={}, testBlockOps={}, genericRuleOps={}, requirements=0x{}, irRequirements=0x{}, mayWriteFluid={}, irMayWriteFluid={}, compiledConditions={}, conditionCacheSlots={}, flags[ir={}, dag={}, columnInterval={}]",
                 source.getClass().getName(),
                 rootNode,
                 SurfaceIRAnalyzer.ruleCount(ir),
@@ -84,8 +83,7 @@ final class SurfacePlanDump {
                 conditionCacheSlots,
                 SurfaceCompilerConfig.IR,
                 SurfaceCompilerConfig.DAG,
-                SurfaceCompilerConfig.COLUMN_INTERVAL,
-                SurfaceCompilerConfig.CODEGEN
+                SurfaceCompilerConfig.COLUMN_INTERVAL
         );
     }
 }

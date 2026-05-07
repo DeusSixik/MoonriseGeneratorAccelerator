@@ -39,6 +39,14 @@ public abstract class SurfaceSystem$new_build_surface {
     private static final ThreadLocal<Holder<Biome>[]> BTS$SURFACE_BIOMES = ThreadLocal.withInitial(() -> new Holder[256]);
     @Unique
     private static final ThreadLocal<GASurfaceChunkBiomeLookup> BTS$CHUNK_BIOME_LOOKUP = ThreadLocal.withInitial(GASurfaceChunkBiomeLookup::new);
+    @Unique
+    private static final ThreadLocal<VectorChunkContext> BTS$VECTOR_CONTEXT = new ThreadLocal<>();
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$COLUMN_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$BIOME_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+    @Unique
+    private static final ThreadLocal<VectorBlockColumn> BTS$VECTOR_COLUMN = new ThreadLocal<>();
 
     @Unique
     private final SurfaceSystem bts$this = (SurfaceSystem) (Object) this;
@@ -69,13 +77,6 @@ public abstract class SurfaceSystem$new_build_surface {
             SurfaceRules.RuleSource ruleSource
     ) {
         final GASurfaceChunkBiomeLookup bts$chunkBiome = BTS$CHUNK_BIOME_LOOKUP.get();
-        GABiomeManagerAccess bts$access = (GABiomeManagerAccess) (Object) pBiomeManager;
-        bts$chunkBiome.prepare(
-                bts$access.bts$getNoiseBiomeSource(),
-                bts$access.bts$getBiomeZoomSeed(),
-                pChunk,
-                pBiomeManager
-        );
         try {
             final SurfaceProgram pSurfaceProgram = SurfaceProgramCache.getOrCompile(ruleSource);
             final SurfaceScratch scratch = BTS$SURFACE_SCRATCH.get();
@@ -84,34 +85,73 @@ public abstract class SurfaceSystem$new_build_surface {
             final int minBlockZ = chunkpos.getMinBlockZ();
 
             Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
-            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
+            int defaultBlockId = Block.getId(this.defaultBlock);
+            VectorChunkContext ctx = BTS$VECTOR_CONTEXT.get();
+            if (ctx == null) {
+                ctx = new VectorChunkContext(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
+                BTS$VECTOR_CONTEXT.set(ctx);
+            } else {
+                ctx.reset(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
+            }
             boolean hasFrozenOcean = false;
 
             final LevelChunkSection[] sections = pChunk.getSections();
-            final BlockPos.MutableBlockPos columnPos = new BlockPos.MutableBlockPos();
-            final VectorBlockColumn fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
-            final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
+            final BlockPos.MutableBlockPos columnPos = BTS$COLUMN_POS.get();
+            final BlockPos.MutableBlockPos biomePos = BTS$BIOME_POS.get();
+            VectorBlockColumn fastColumn = BTS$VECTOR_COLUMN.get();
+            if (fastColumn == null) {
+                fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
+                BTS$VECTOR_COLUMN.set(fastColumn);
+            } else {
+                fastColumn.reset(pChunk, sections, columnPos);
+            }
 
             long biomePrepStart = SurfaceMetrics.startTimer();
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    int globalX = minBlockX + x;
-                    int globalZ = minBlockZ + z;
-                    int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
-                    int idx = x | (z << 4);
+            short[] surfaceHeights = ctx.surfaceHeights;
+            int[] waterHeights = ctx.waterHeights;
+            int minQueryY = Integer.MAX_VALUE;
+            int maxQueryY = Integer.MIN_VALUE;
+            for (int idx = 0; idx < 256; idx++) {
+                int x = idx & 15;
+                int z = idx >> 4;
+                int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
+                surfaceHeights[idx] = (short) surfaceY;
+                waterHeights[idx] = Integer.MIN_VALUE;
+                int queryY = pUseLegacyRandomSource ? 0 : surfaceY;
+                if (queryY < minQueryY) {
+                    minQueryY = queryY;
+                }
+                if (queryY > maxQueryY) {
+                    maxQueryY = queryY;
+                }
+            }
 
-                    Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
+            GABiomeManagerAccess bts$access = (GABiomeManagerAccess) (Object) pBiomeManager;
+            bts$chunkBiome.prepare(
+                    bts$access.bts$getNoiseBiomeSource(),
+                    bts$access.bts$getBiomeZoomSeed(),
+                    pChunk,
+                    pBiomeManager,
+                    minQueryY,
+                    maxQueryY
+            );
 
-                    surfaceBiomes[idx] = biome;
-                    ctx.surfaceHeights[idx] = (short) surfaceY;
-                    ctx.waterHeights[idx] = Integer.MIN_VALUE;
+            for (int idx = 0; idx < 256; idx++) {
+                int x = idx & 15;
+                int z = idx >> 4;
+                int globalX = minBlockX + x;
+                int globalZ = minBlockZ + z;
+                int surfaceY = surfaceHeights[idx];
 
-                    if (biome.is(Biomes.ERODED_BADLANDS)) {
-                        columnPos.setX(globalX).setZ(globalZ);
-                        this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
-                    } else if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
-                        hasFrozenOcean = true;
-                    }
+                Holder<Biome> biome = bts$chunkBiome.getBiomeAt(biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ));
+
+                surfaceBiomes[idx] = biome;
+
+                if (biome.is(Biomes.ERODED_BADLANDS)) {
+                    columnPos.setX(globalX).setZ(globalZ);
+                    this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
+                } else if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                    hasFrozenOcean = true;
                 }
             }
             SurfaceMetrics.recordBiomePrepTime(biomePrepStart);
@@ -136,19 +176,20 @@ public abstract class SurfaceSystem$new_build_surface {
 
             int[] previousSectionBottomDepths = scratch.previousSectionBottomDepths;
             boolean needsStoneDepths = pSurfaceProgram.requires(SurfaceRequirements.STONE_DEPTH | SurfaceRequirements.WATER);
+            boolean previousDepthsZero = true;
             if (needsStoneDepths) {
                 Arrays.fill(previousSectionBottomDepths, 0);
             }
             Mask4096 stoneMask = scratch.stoneMask;
-            int defaultBlockId = Block.getId(this.defaultBlock);
 
             for (int sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
                 LevelChunkSection section = sections[sectionIndex];
 
                 if (section == null || section.hasOnlyAir()) {
                     SurfaceMetrics.emptySectionSkipped();
-                    if (needsStoneDepths) {
+                    if (needsStoneDepths && !previousDepthsZero) {
                         Arrays.fill(previousSectionBottomDepths, 0);
+                        previousDepthsZero = true;
                     }
                     continue;
                 }
@@ -166,6 +207,7 @@ public abstract class SurfaceSystem$new_build_surface {
                     long stoneDepthStart = SurfaceMetrics.startTimer();
                     ctx.calculateStoneDepthsAndLoadStoneMask(rawBlockData, previousSectionBottomDepths, stoneMask);
                     SurfaceMetrics.recordStoneDepthTime(stoneDepthStart);
+                    previousDepthsZero = false;
                 } else {
                     long stoneMaskStart = SurfaceMetrics.startTimer();
                     stoneMask.loadMatchingBlockIds(rawBlockData, defaultBlockId);
@@ -209,22 +251,19 @@ public abstract class SurfaceSystem$new_build_surface {
 
             if (hasFrozenOcean) {
                 long frozenOceanStart = SurfaceMetrics.startTimer();
-                for (int x = 0; x < 16; x++) {
-                    for (int z = 0; z < 16; z++) {
-                        int idx = x | (z << 4);
-                        Holder<Biome> biome = surfaceBiomes[idx];
+                for (int idx = 0; idx < 256; idx++) {
+                    Holder<Biome> biome = surfaceBiomes[idx];
+                    if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                        int x = idx & 15;
+                        int z = idx >> 4;
+                        int globalX = minBlockX + x;
+                        int globalZ = minBlockZ + z;
+                        int surfaceY = surfaceHeights[idx];
 
-                        if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
-                            int globalX = minBlockX + x;
-                            int globalZ = minBlockZ + z;
-                            int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
+                        columnPos.setX(globalX).setZ(globalZ);
+                        biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ);
 
-                            columnPos.setX(globalX).setZ(globalZ);
-                            biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ);
-
-                            int minSurfaceLvl = ctx.minSurfaceLevels[idx];
-                            this.frozenOceanExtension(minSurfaceLvl, biome.value(), fastColumn, biomePos, globalX, globalZ, surfaceY);
-                        }
+                        this.frozenOceanExtension(ctx.minSurfaceLevels[idx], biome.value(), fastColumn, biomePos, globalX, globalZ, surfaceY);
                     }
                 }
                 SurfaceMetrics.recordFrozenOceanTime(frozenOceanStart);

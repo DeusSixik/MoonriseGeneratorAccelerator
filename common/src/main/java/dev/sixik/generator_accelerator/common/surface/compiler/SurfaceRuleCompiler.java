@@ -77,6 +77,10 @@ public final class SurfaceRuleCompiler {
         return optimized;
     }
 
+    static SurfaceProgram compileLegacyDirect(SurfaceRules.RuleSource ruleSource) {
+        return compileLegacy(ruleSource);
+    }
+
     static SurfaceRuleNode compileLegacyRuleNode(SurfaceRules.RuleSource ruleSource) {
         Builder builder = new Builder();
         builder.countRuleConditions(ruleSource);

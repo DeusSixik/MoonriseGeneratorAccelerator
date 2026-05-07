@@ -30,22 +30,34 @@ final class SurfaceIRLowerer {
         int[] opcodes = new int[ruleCount];
         int[] intOperands = new int[ruleCount];
         Object[] objectOperands = new Object[ruleCount];
+        SurfaceProgramStep[] steps = new SurfaceProgramStep[ruleCount];
+        boolean[] hasSpecialStep = new boolean[1];
         boolean hasGenericRule = false;
 
         if (root instanceof SurfaceRuleIR.Sequence sequence) {
             List<SurfaceRuleIR> rules = sequence.rules();
             for (int i = 0; i < rules.size(); i++) {
-                hasGenericRule |= encodeTopLevelRule(rules.get(i), i, opcodes, intOperands, objectOperands);
+                hasGenericRule |= encodeTopLevelRule(rules.get(i), i, opcodes, intOperands, objectOperands, steps, hasSpecialStep);
             }
         } else if (!(root instanceof SurfaceRuleIR.Empty)) {
-            hasGenericRule = encodeTopLevelRule(root, 0, opcodes, intOperands, objectOperands);
+            hasGenericRule = encodeTopLevelRule(root, 0, opcodes, intOperands, objectOperands, steps, hasSpecialStep);
         }
 
         long facts = facts(root);
-        SurfaceProgram program = new SurfaceProgram(
-                opcodes,
-                intOperands,
-                objectOperands,
+        SurfaceProgram program = hasSpecialStep[0]
+                ? new SurfaceProgram(
+                        opcodes,
+                        intOperands,
+                        objectOperands,
+                        steps,
+                        factsRequirements(facts),
+                        fallbackIslandCount,
+                        factsMayWriteFluid(facts)
+                )
+                : new SurfaceProgram(
+                        opcodes,
+                        intOperands,
+                        objectOperands,
                 factsRequirements(facts),
                 fallbackIslandCount,
                 factsMayWriteFluid(facts)
@@ -77,23 +89,36 @@ final class SurfaceIRLowerer {
             int index,
             int[] opcodes,
             int[] intOperands,
-            Object[] objectOperands
+            Object[] objectOperands,
+            SurfaceProgramStep[] steps,
+            boolean[] hasSpecialStep
     ) {
         if (rule instanceof SurfaceRuleIR.Block block) {
             opcodes[index] = SurfaceProgram.OP_BLOCK;
             intOperands[index] = block.blockId();
+            steps[index] = new BlockProgramStep(block.blockId());
             return false;
         }
 
         if (rule instanceof SurfaceRuleIR.Test test && test.thenRun() instanceof SurfaceRuleIR.Block block) {
             opcodes[index] = SurfaceProgram.OP_TEST_BLOCK;
             intOperands[index] = block.blockId();
-            objectOperands[index] = lowerCondition(test.condition());
+            SurfaceProgramStep specializedStep = SurfaceCompilerConfig.COLUMN_INTERVAL ? intervalStep(test.condition(), block.blockId()) : null;
+            if (specializedStep != null) {
+                steps[index] = specializedStep;
+                hasSpecialStep[0] = true;
+            } else {
+                SurfaceConditionNode condition = lowerCondition(test.condition());
+                objectOperands[index] = condition;
+                steps[index] = new MaskTestBlockProgramStep(condition, block.blockId());
+            }
             return false;
         }
 
         opcodes[index] = SurfaceProgram.OP_RULE;
-        objectOperands[index] = lowerRule(rule);
+        SurfaceRuleNode lowered = lowerRule(rule);
+        objectOperands[index] = lowered;
+        steps[index] = new RuleProgramStep(lowered);
         return true;
     }
 
@@ -209,6 +234,175 @@ final class SurfaceIRLowerer {
             case SurfaceConditionIR.AnyOf anyOf -> lowerAnyOf(anyOf.conditions());
             case SurfaceConditionIR.FallbackCondition fallback -> SurfaceRuleCompiler.compileLegacyConditionNode(fallback.source());
         };
+    }
+
+    private SurfaceProgramStep intervalStep(SurfaceConditionIR condition, int blockId) {
+        if (condition instanceof SurfaceConditionIR.Y y && !y.addStoneDepth() && y.surfaceDepthMultiplier() == 0) {
+            return new AnchorYTestBlockProgramStep(y.anchor(), blockId);
+        }
+        if (condition instanceof SurfaceConditionIR.AllOf allOf) {
+            return allOfStep(allOf.conditions(), blockId);
+        }
+        IntervalConditionPlan intervalPlan = intervalPlan(condition);
+        if (intervalPlan != null) {
+            return new IntervalTestBlockProgramStep(intervalPlan, blockId);
+        }
+        ColumnConditionPlan columnPlan = columnPlan(condition);
+        if (columnPlan != null) {
+            return new ColumnTestBlockProgramStep(columnPlan, blockId);
+        }
+        return null;
+    }
+
+    private SurfaceProgramStep allOfStep(List<SurfaceConditionIR> conditions, int blockId) {
+        if (conditions.isEmpty()) {
+            return new BlockProgramStep(blockId);
+        }
+
+        ColumnConditionPlan[] columnPlans = new ColumnConditionPlan[conditions.size()];
+        IntervalConditionPlan[] intervalPlans = new IntervalConditionPlan[conditions.size()];
+        int columnCount = 0;
+        int intervalCount = 0;
+        SurfaceConditionIR.Y anchorY = null;
+
+        for (SurfaceConditionIR condition : conditions) {
+            ColumnConditionPlan columnPlan = columnPlan(condition);
+            if (columnPlan != null) {
+                columnPlans[columnCount++] = columnPlan;
+                continue;
+            }
+
+            IntervalConditionPlan intervalPlan = intervalPlan(condition);
+            if (intervalPlan != null) {
+                intervalPlans[intervalCount++] = intervalPlan;
+                if (condition instanceof SurfaceConditionIR.Y y && !y.addStoneDepth() && y.surfaceDepthMultiplier() == 0) {
+                    anchorY = y;
+                }
+                continue;
+            }
+
+            return null;
+        }
+
+        ColumnConditionPlan columnPlan = columnCount == 0
+                ? null
+                : columnCount == 1
+                ? columnPlans[0]
+                : new AllOfColumnConditionPlan(java.util.Arrays.copyOf(columnPlans, columnCount));
+        IntervalConditionPlan intervalPlan = intervalCount == 0
+                ? null
+                : intervalCount == 1
+                ? intervalPlans[0]
+                : new AllOfIntervalConditionPlan(java.util.Arrays.copyOf(intervalPlans, intervalCount));
+
+        if (columnPlan != null && intervalPlan != null) {
+            if (intervalCount == 1 && anchorY != null) {
+                return new ColumnAnchorYTestBlockProgramStep(columnPlan, anchorY.anchor(), blockId);
+            }
+            return new ColumnIntervalTestBlockProgramStep(columnPlan, intervalPlan, blockId);
+        }
+        if (columnPlan != null) {
+            return new ColumnTestBlockProgramStep(columnPlan, blockId);
+        }
+        return intervalPlan == null ? null : new IntervalTestBlockProgramStep(intervalPlan, blockId);
+    }
+
+    private ColumnConditionPlan columnPlan(SurfaceConditionIR condition) {
+        return switch (condition) {
+            case SurfaceConditionIR.Constant constant -> constant.value()
+                    ? TrueColumnConditionPlan.INSTANCE
+                    : FalseColumnConditionPlan.INSTANCE;
+            case SurfaceConditionIR.BiomeCondition biome -> new BiomeColumnConditionPlan(biome.biomes());
+            case SurfaceConditionIR.HolderSetBiomeCondition holderSetBiome -> new HolderSetBiomeColumnConditionPlan(holderSetBiome.biomes());
+            case SurfaceConditionIR.NoiseThreshold noiseThreshold -> new NoiseThresholdColumnConditionPlan(
+                    noiseThreshold.noiseKey(),
+                    noiseThreshold.minThreshold(),
+                    noiseThreshold.maxThreshold()
+            );
+            case SurfaceConditionIR.Hole ignored -> HoleColumnConditionPlan.INSTANCE;
+            case SurfaceConditionIR.Steep ignored -> SteepColumnConditionPlan.INSTANCE;
+            case SurfaceConditionIR.Not not -> {
+                ColumnConditionPlan target = columnPlan(not.target());
+                yield target == null ? null : new NotColumnConditionPlan(target);
+            }
+            case SurfaceConditionIR.AllOf allOf -> columnAllOfPlan(allOf.conditions());
+            case SurfaceConditionIR.AnyOf anyOf -> columnAnyOfPlan(anyOf.conditions());
+            default -> null;
+        };
+    }
+
+    private ColumnConditionPlan columnAllOfPlan(List<SurfaceConditionIR> conditions) {
+        if (conditions.isEmpty()) {
+            return TrueColumnConditionPlan.INSTANCE;
+        }
+
+        ColumnConditionPlan[] plans = new ColumnConditionPlan[conditions.size()];
+        for (int i = 0; i < conditions.size(); i++) {
+            ColumnConditionPlan plan = columnPlan(conditions.get(i));
+            if (plan == null) {
+                return null;
+            }
+            plans[i] = plan;
+        }
+        if (plans.length == 1) {
+            return plans[0];
+        }
+        return new AllOfColumnConditionPlan(plans);
+    }
+
+    private ColumnConditionPlan columnAnyOfPlan(List<SurfaceConditionIR> conditions) {
+        if (conditions.isEmpty()) {
+            return FalseColumnConditionPlan.INSTANCE;
+        }
+
+        ColumnConditionPlan[] plans = new ColumnConditionPlan[conditions.size()];
+        for (int i = 0; i < conditions.size(); i++) {
+            ColumnConditionPlan plan = columnPlan(conditions.get(i));
+            if (plan == null) {
+                return null;
+            }
+            plans[i] = plan;
+        }
+        if (plans.length == 1) {
+            return plans[0];
+        }
+        return new AnyOfColumnConditionPlan(plans);
+    }
+
+    private IntervalConditionPlan intervalPlan(SurfaceConditionIR condition) {
+        return switch (condition) {
+            case SurfaceConditionIR.Constant constant -> constant.value()
+                    ? TrueIntervalConditionPlan.INSTANCE
+                    : FalseIntervalConditionPlan.INSTANCE;
+            case SurfaceConditionIR.Y y -> y.addStoneDepth()
+                    ? null
+                    : new YIntervalConditionPlan(y.anchor(), y.surfaceDepthMultiplier());
+            case SurfaceConditionIR.AbovePreliminarySurface ignored -> AbovePreliminaryIntervalConditionPlan.INSTANCE;
+            case SurfaceConditionIR.Water water -> water.addStoneDepth()
+                    ? null
+                    : new WaterIntervalConditionPlan(water.offset(), water.surfaceDepthMultiplier());
+            case SurfaceConditionIR.AllOf allOf -> intervalAllOfPlan(allOf.conditions());
+            default -> null;
+        };
+    }
+
+    private IntervalConditionPlan intervalAllOfPlan(List<SurfaceConditionIR> conditions) {
+        if (conditions.isEmpty()) {
+            return TrueIntervalConditionPlan.INSTANCE;
+        }
+
+        IntervalConditionPlan[] plans = new IntervalConditionPlan[conditions.size()];
+        for (int i = 0; i < conditions.size(); i++) {
+            IntervalConditionPlan plan = intervalPlan(conditions.get(i));
+            if (plan == null) {
+                return null;
+            }
+            plans[i] = plan;
+        }
+        if (plans.length == 1) {
+            return plans[0];
+        }
+        return new AllOfIntervalConditionPlan(plans);
     }
 
     private SurfaceConditionNode lowerAllOf(List<SurfaceConditionIR> conditions) {

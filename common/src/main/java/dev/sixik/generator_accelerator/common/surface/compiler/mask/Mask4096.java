@@ -6,6 +6,8 @@ import java.util.BitSet;
 public final class Mask4096 {
     public static final int BIT_COUNT = 4096;
     public static final int WORD_COUNT = BIT_COUNT >>> 6;
+    private static final int WORD_BIT_COUNT = Long.SIZE;
+    private static final long[] ALL_COLUMNS = {-1L, -1L, -1L, -1L};
 
     private final long[] words = new long[WORD_COUNT];
 
@@ -181,11 +183,165 @@ public final class Mask4096 {
         long[] a = this.words;
         for (int wordIndex = 0; wordIndex < WORD_COUNT; wordIndex++) {
             long word = a[wordIndex];
+            if (word == -1L) {
+                int base = wordIndex << 6;
+                Arrays.fill(rawBlockData, base, base + WORD_BIT_COUNT, stateId);
+                continue;
+            }
             while (word != 0L) {
                 int bit = Long.numberOfTrailingZeros(word);
                 rawBlockData[(wordIndex << 6) + bit] = stateId;
                 word &= word - 1L;
             }
+        }
+    }
+
+    public void applyBlockStateAndClearAbove(int[] rawBlockData, int stateId, int minLocalYInclusive) {
+        applyBlockStateAndClearAbove(rawBlockData, stateId, minLocalYInclusive, ALL_COLUMNS, null);
+    }
+
+    public void applyBlockStateAndClearAbove(
+            int[] rawBlockData,
+            int stateId,
+            int minLocalYInclusive,
+            long[] allowedColumns,
+            long[] activeColumnsScratch
+    ) {
+        if (minLocalYInclusive <= 0) {
+            applyBlockStateAndClearColumns(rawBlockData, stateId, allowedColumns, activeColumnsScratch);
+            return;
+        }
+        if (minLocalYInclusive >= 16) {
+            return;
+        }
+
+        if (activeColumnsScratch != null) {
+            computeActiveColumns(activeColumnsScratch);
+        }
+        long[] a = this.words;
+        for (int y = minLocalYInclusive; y < 16; y++) {
+            int yBase = y << 2;
+            int blockBase = y << 8;
+            for (int columnWordIndex = 0; columnWordIndex < 4; columnWordIndex++) {
+                long allowed = allowedColumns[columnWordIndex];
+                if (allowed == 0L) {
+                    continue;
+                }
+                int wordIndex = yBase + columnWordIndex;
+                long word = a[wordIndex] & allowed;
+                if (activeColumnsScratch != null) {
+                    word &= activeColumnsScratch[columnWordIndex];
+                }
+                if (word == -1L) {
+                    int base = blockBase + (columnWordIndex << 6);
+                    Arrays.fill(rawBlockData, base, base + WORD_BIT_COUNT, stateId);
+                    a[wordIndex] &= ~allowed;
+                    continue;
+                }
+                while (word != 0L) {
+                    int bit = Long.numberOfTrailingZeros(word);
+                    rawBlockData[blockBase + (columnWordIndex << 6) + bit] = stateId;
+                    word &= word - 1L;
+                }
+                a[wordIndex] &= ~allowed;
+            }
+        }
+    }
+
+    public void applyBlockStateAndClearColumns(int[] rawBlockData, int stateId, long[] allowedColumns, long[] activeColumnsScratch) {
+        if (activeColumnsScratch != null) {
+            computeActiveColumns(activeColumnsScratch);
+        }
+        long[] a = this.words;
+        for (int y = 0; y < 16; y++) {
+            int yBase = y << 2;
+            int blockBase = y << 8;
+            for (int columnWordIndex = 0; columnWordIndex < 4; columnWordIndex++) {
+                long allowed = allowedColumns[columnWordIndex];
+                if (allowed == 0L) {
+                    continue;
+                }
+                int wordIndex = yBase + columnWordIndex;
+                long word = a[wordIndex] & allowed;
+                if (activeColumnsScratch != null) {
+                    word &= activeColumnsScratch[columnWordIndex];
+                }
+                if (word == -1L) {
+                    int base = blockBase + (columnWordIndex << 6);
+                    Arrays.fill(rawBlockData, base, base + WORD_BIT_COUNT, stateId);
+                    a[wordIndex] &= ~allowed;
+                    continue;
+                }
+                while (word != 0L) {
+                    int bit = Long.numberOfTrailingZeros(word);
+                    rawBlockData[blockBase + (columnWordIndex << 6) + bit] = stateId;
+                    word &= word - 1L;
+                }
+                a[wordIndex] &= ~allowed;
+            }
+        }
+    }
+
+    public void applyBlockStateAndClearAbove(int[] rawBlockData, int stateId, int[] minLocalYByColumn, long[] activeColumnsScratch) {
+        applyBlockStateAndClearAbove(rawBlockData, stateId, minLocalYByColumn, activeColumnsScratch, activeColumnsScratch);
+    }
+
+    public void applyBlockStateAndClearAbove(
+            int[] rawBlockData,
+            int stateId,
+            int[] minLocalYByColumn,
+            long[] allowedColumns,
+            long[] activeColumnsScratch
+    ) {
+        if (activeColumnsScratch != null) {
+            computeActiveColumns(activeColumnsScratch);
+        }
+        long[] a = this.words;
+        for (int columnWordIndex = 0; columnWordIndex < 4; columnWordIndex++) {
+            long columnWord = activeColumnsScratch == null
+                    ? allowedColumns[columnWordIndex]
+                    : activeColumnsScratch[columnWordIndex] & allowedColumns[columnWordIndex];
+            while (columnWord != 0L) {
+                int columnBit = Long.numberOfTrailingZeros(columnWord);
+                int xz = (columnWordIndex << 6) + columnBit;
+                int minY = minLocalYByColumn[xz];
+                if (minY < 0) {
+                    minY = 0;
+                }
+                if (minY < 16) {
+                    long bitMask = 1L << columnBit;
+                    for (int y = minY; y < 16; y++) {
+                        int wordIndex = (y << 2) + columnWordIndex;
+                        if ((a[wordIndex] & bitMask) != 0L) {
+                            rawBlockData[(y << 8) | xz] = stateId;
+                            a[wordIndex] &= ~bitMask;
+                        }
+                    }
+                }
+                columnWord &= columnWord - 1L;
+            }
+        }
+    }
+
+    public void applyBlockStateAndClearLayered(int[] rawBlockData, int stateId, long[] layerColumnMasks) {
+        long[] a = this.words;
+        for (int wordIndex = 0; wordIndex < WORD_COUNT; wordIndex++) {
+            long word = a[wordIndex] & layerColumnMasks[wordIndex];
+            if (word == 0L) {
+                continue;
+            }
+            if (word == -1L) {
+                int base = wordIndex << 6;
+                Arrays.fill(rawBlockData, base, base + WORD_BIT_COUNT, stateId);
+                a[wordIndex] = 0L;
+                continue;
+            }
+            while (word != 0L) {
+                int bit = Long.numberOfTrailingZeros(word);
+                rawBlockData[(wordIndex << 6) + bit] = stateId;
+                word &= word - 1L;
+            }
+            a[wordIndex] &= ~layerColumnMasks[wordIndex];
         }
     }
 
