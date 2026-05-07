@@ -6,5 +6,9 @@ public interface NoiseChunk$NoiseInterpolatorPatch {
 
     double[] bts$getSlice1();
 
+    void bts$setSoAIndex(int index);
+
+    int bts$getSoAIndex();
+
     void bts$copyData(double[] newArray, boolean pIsSlice0, int startIndex, int sizeY);
 }
