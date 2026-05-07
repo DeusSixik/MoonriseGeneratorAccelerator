@@ -33,9 +33,7 @@ public final class FeatureScratch {
     }
 
     void reset() {
-        for (LongScratchBuffer buffer : this.buffers) {
-            buffer.clear();
-        }
+        // Buffers clear on acquire by depth; release must stay zero-cost in hot path.
     }
 
     private void grow(int capacity) {

@@ -26,6 +26,7 @@ import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
+import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 
@@ -82,8 +83,9 @@ public final class FeatureVm {
         applyOpcode(opcode, modifier, context, random, packedPos, opIndex, output, scratch);
 
         boolean success = false;
-        for (int i = 0; i < output.size(); i++) {
-            if (executeDepthFirst(program, context, random, output.getLong(i), opIndex + 1, scratch)) {
+        long[] positions = output.elements();
+        for (int i = 0, size = output.size(); i < size; i++) {
+            if (executeDepthFirst(program, context, random, positions[i], opIndex + 1, scratch)) {
                 success = true;
             }
         }
@@ -93,13 +95,15 @@ public final class FeatureVm {
     private static boolean executeLinearFast(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, FeatureScratch scratch) {
         FeatureVmMetrics.recordLinearFastExecution();
         int opCount = program.opCount();
+        int[] opcodes = program.opcodes();
+        PlacementModifier[] modifiers = program.modifiers();
         int executedOps = 0;
         int x = BlockPos.getX(packedPos);
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);
         for (int opIndex = 0; opIndex < opCount; opIndex++) {
             executedOps++;
-            packedPos = applyLinearOpcode(program.opcode(opIndex), program.modifier(opIndex), context, random, x, y, z, opIndex, scratch);
+            packedPos = applyLinearOpcode(opcodes[opIndex], modifiers[opIndex], context, random, x, y, z, opIndex, scratch);
             if (packedPos == NO_POSITION) {
                 FeatureVmMetrics.recordFastOpExecutions(executedOps);
                 return false;
@@ -119,6 +123,8 @@ public final class FeatureVm {
         current.add(startPackedPos);
 
         int opCount = program.opCount();
+        int[] opcodes = program.opcodes();
+        PlacementModifier[] modifiers = program.modifiers();
         long executedOps = 0L;
         for (int opIndex = 0; opIndex < opCount; opIndex++) {
             if (current.isEmpty()) {
@@ -126,11 +132,12 @@ public final class FeatureVm {
                 return false;
             }
             next.clear();
-            int opcode = program.opcode(opIndex);
-            PlacementModifier modifier = program.modifier(opIndex);
+            int opcode = opcodes[opIndex];
+            PlacementModifier modifier = modifiers[opIndex];
 
+            long[] currentValues = current.elements();
             for (int i = 0, size = current.size(); i < size; i++) {
-                applyOpcode(opcode, modifier, context, random, current.getLong(i), opIndex, next, scratch);
+                applyOpcode(opcode, modifier, context, random, currentValues[i], opIndex, next, scratch);
             }
             executedOps += current.size();
 
@@ -144,8 +151,9 @@ public final class FeatureVm {
         int finalPosDepth = opCount + 1;
         int size = current.size();
         FeatureVmMetrics.recordFeaturePlaceCalls(size);
+        long[] finalPositions = current.elements();
         for (int i = 0; i < size; i++) {
-            if (placeFeatureUntracked(program, context, random, current.getLong(i), finalPosDepth, scratch)) {
+            if (placeFeatureUntracked(program, context, random, finalPositions[i], finalPosDepth, scratch)) {
                 success = true;
             }
         }
@@ -160,6 +168,10 @@ public final class FeatureVm {
                     executeRepeatingInSquareHeightmap(program, context, random, startPackedPos, scratch);
             case FeatureExecutorKind.REPEATING_IN_SQUARE_LINEAR_TAIL ->
                     executeRepeatingInSquareLinearTail(program, context, random, startPackedPos, scratch);
+            case FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHT_RANGE_FILTER ->
+                    executeRepeatingInSquareHeightRangeFilter(program, context, random, startPackedPos, scratch);
+            case FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHTMAP_FILTER ->
+                    executeRepeatingInSquareHeightmapFilter(program, context, random, startPackedPos, scratch);
             default -> executeBufferFast(program, context, random, startPackedPos, scratch);
         };
     }
@@ -201,6 +213,7 @@ public final class FeatureVm {
         }
 
         GA$HeightRangePlacementAccess height = (GA$HeightRangePlacementAccess) program.modifier(2);
+        HeightProvider heightProvider = height.ga$heightProvider();
         boolean success = false;
         int baseX = BlockPos.getX(startPackedPos);
         int baseZ = BlockPos.getZ(startPackedPos);
@@ -211,11 +224,13 @@ public final class FeatureVm {
         for (int i = 0; i < count; i++) {
             int x = baseX + random.nextInt(16);
             int z = baseZ + random.nextInt(16);
-            long packedPos = BlockPos.asLong(x, height.ga$heightProvider().sample(random, context), z);
-            packedPos = applySpecializedLinearTail(program, context, random, packedPos, 3, scratch);
+            int y = heightProvider.sample(random, context);
+            long packedPos = opCount == 3 ? BlockPos.asLong(x, y, z) : applySpecializedLinearTail(program, context, random, BlockPos.asLong(x, y, z), 3, scratch);
             if (packedPos != NO_POSITION) {
                 placeAttempts++;
-                if (placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
+                if (opCount == 3
+                        ? placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)
+                        : placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
                     success = true;
                 }
             }
@@ -249,11 +264,75 @@ public final class FeatureVm {
                 continue;
             }
 
-            long packedPos = BlockPos.asLong(x, y, z);
-            packedPos = applySpecializedLinearTail(program, context, random, packedPos, 3, scratch);
+            long packedPos = opCount == 3 ? BlockPos.asLong(x, y, z) : applySpecializedLinearTail(program, context, random, BlockPos.asLong(x, y, z), 3, scratch);
             if (packedPos != NO_POSITION) {
                 placeAttempts++;
-                if (placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
+                if (opCount == 3
+                        ? placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)
+                        : placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
+                    success = true;
+                }
+            }
+        }
+        FeatureVmMetrics.recordFeaturePlaceCalls(placeAttempts);
+        return success;
+    }
+
+    private static boolean executeRepeatingInSquareHeightRangeFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
+        BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
+        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        if (count <= 0) {
+            return false;
+        }
+
+        HeightProvider heightProvider = ((GA$HeightRangePlacementAccess) program.modifier(2)).ga$heightProvider();
+        GA$PlacementFilterAccess filter = (GA$PlacementFilterAccess) program.modifier(3);
+        BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
+        int baseX = BlockPos.getX(startPackedPos);
+        int baseZ = BlockPos.getZ(startPackedPos);
+        boolean success = false;
+        int placeAttempts = 0;
+
+        FeatureVmMetrics.recordFastOpExecutions((long) count * program.opCount());
+        for (int i = 0; i < count; i++) {
+            int x = baseX + random.nextInt(16);
+            int z = baseZ + random.nextInt(16);
+            int y = heightProvider.sample(random, context);
+            if (filter.ga$shouldPlaceRaw(context, random, x, y, z, filterPos)) {
+                placeAttempts++;
+                if (placeFeatureAt(program, context, random, x, y, z, 5, scratch)) {
+                    success = true;
+                }
+            }
+        }
+        FeatureVmMetrics.recordFeaturePlaceCalls(placeAttempts);
+        return success;
+    }
+
+    private static boolean executeRepeatingInSquareHeightmapFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
+        BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
+        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        if (count <= 0) {
+            return false;
+        }
+
+        Heightmap.Types type = ((GA$HeightmapPlacementAccess) program.modifier(2)).ga$heightmapType();
+        GA$PlacementFilterAccess filter = (GA$PlacementFilterAccess) program.modifier(3);
+        BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
+        int minBuildHeight = context.getMinBuildHeight();
+        int baseX = BlockPos.getX(startPackedPos);
+        int baseZ = BlockPos.getZ(startPackedPos);
+        boolean success = false;
+        int placeAttempts = 0;
+
+        FeatureVmMetrics.recordFastOpExecutions((long) count * program.opCount());
+        for (int i = 0; i < count; i++) {
+            int x = baseX + random.nextInt(16);
+            int z = baseZ + random.nextInt(16);
+            int y = fastHeight(context, type, x, z);
+            if (y > minBuildHeight && filter.ga$shouldPlaceRaw(context, random, x, y, z, filterPos)) {
+                placeAttempts++;
+                if (placeFeatureAt(program, context, random, x, y, z, 5, scratch)) {
                     success = true;
                 }
             }
@@ -263,8 +342,10 @@ public final class FeatureVm {
     }
 
     private static long applySpecializedLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int startOpIndex, FeatureScratch scratch) {
-        for (int opIndex = startOpIndex, opCount = program.opCount(); opIndex < opCount; opIndex++) {
-            packedPos = applyLinearOpcode(program.opcode(opIndex), program.modifier(opIndex), context, random, packedPos, opIndex, scratch);
+        int[] opcodes = program.opcodes();
+        PlacementModifier[] modifiers = program.modifiers();
+        for (int opIndex = startOpIndex, opCount = opcodes.length; opIndex < opCount; opIndex++) {
+            packedPos = applyLinearOpcode(opcodes[opIndex], modifiers[opIndex], context, random, packedPos, opIndex, scratch);
             if (packedPos == NO_POSITION) {
                 return NO_POSITION;
             }
@@ -388,9 +469,7 @@ public final class FeatureVm {
     private static void applyRepeating(PlacementModifier modifier, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
         int count = ((GA$RepeatingPlacementAccess) modifier).ga$repeatingCount(random, pos);
-        for (int i = 0; i < count; i++) {
-            output.add(packedPos);
-        }
+        output.addRepeated(packedPos, count);
     }
 
     private static void applyPlacementFilter(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
@@ -606,7 +685,10 @@ public final class FeatureVm {
         FeatureVmMetrics.recordFallbackOpExecution();
         BlockPos.MutableBlockPos input = scratch.mutablePos(opIndex).set(packedPos);
         try (Stream<BlockPos> positions = modifier.getPositions(context, random, input)) {
-            positions.forEach(pos -> output.add(pos.asLong()));
+            Iterator<BlockPos> iterator = positions.iterator();
+            while (iterator.hasNext()) {
+                output.add(iterator.next().asLong());
+            }
         }
     }
 
@@ -616,11 +698,26 @@ public final class FeatureVm {
     }
 
     private static boolean placeFeatureUntracked(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
-        ConfiguredFeature<?, ?> configuredFeature = program.feature().value();
+        ConfiguredFeature<?, ?> configuredFeature = program.configuredFeature();
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
 
         if (FeaturePlacementCompat.enabled() && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(packedPos))) {
+            success = true;
+        }
+        if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {
+            success = true;
+        }
+
+        return success;
+    }
+
+    private static boolean placeFeatureAt(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        ConfiguredFeature<?, ?> configuredFeature = program.configuredFeature();
+        boolean success = false;
+        BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
+
+        if (FeaturePlacementCompat.enabled() && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(x, y, z))) {
             success = true;
         }
         if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {

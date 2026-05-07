@@ -1,10 +1,11 @@
 package dev.sixik.generator_accelerator.common.features.mixin;
 
 import dev.sixik.generator_accelerator.api.utils.FastChunkIter;
+import dev.sixik.generator_accelerator.common.features.BiomeDecorationScratch;
+import dev.sixik.generator_accelerator.common.features.RegistryNameSupplier;
+import dev.sixik.generator_accelerator.common.features.StepFeatureCache;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntArraySet;
-import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.CrashReport;
@@ -23,7 +24,6 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.GenerationStep;
-import net.minecraft.world.level.levelgen.RandomSupport;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 import net.minecraft.world.level.levelgen.feature.FeatureCountTracker;
@@ -35,12 +35,9 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.*;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.function.ToIntFunction;
 
 @Mixin(value = ChunkGenerator.class, priority = 999)
 public abstract class MixinChunkGenerator$apply_biome_decoration {
@@ -48,6 +45,24 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     @Unique
     private static final ThreadLocal<@Nullable Int2ObjectMap<ObjectArrayList<Structure>>> STRUCTURE_CACHE =
             new ThreadLocal<>();
+
+    @Unique
+    private static final int GA$DECORATION_STEP_COUNT = GenerationStep.Decoration.values().length;
+
+    @Unique
+    private static final ThreadLocal<WorldgenRandom> GA$WORLDGEN_RANDOM =
+            ThreadLocal.withInitial(() -> new WorldgenRandom(new XoroshiroRandomSource(0L)));
+
+    @Unique
+    private static final ThreadLocal<BiomeDecorationScratch> GA$DECORATION_SCRATCH =
+            ThreadLocal.withInitial(BiomeDecorationScratch::new);
+
+    @Unique
+    private static final ThreadLocal<RegistryNameSupplier> GA$NAME_SUPPLIER =
+            ThreadLocal.withInitial(RegistryNameSupplier::new);
+
+    @Unique
+    private volatile StepFeatureCache ga$stepFeatureCache;
 
     @Shadow
     @Final
@@ -91,10 +106,12 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             }
 // GENERATOR ACCELERATOR END
 
-            ObjectArrayList<FeatureSorter.StepFeatureData> featureDataList = new ObjectArrayList<>(this.featuresPerStep.get());
-            WorldgenRandom worldgenrandom = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
+            StepFeatureCache featureCache = this.ga$getStepFeatureCache();
+            BiomeDecorationScratch decorationScratch = GA$DECORATION_SCRATCH.get();
+            WorldgenRandom worldgenrandom = GA$WORLDGEN_RANDOM.get();
             long i = worldgenrandom.setDecorationSeed(pLevel.getSeed(), blockpos.getX(), blockpos.getZ());
-            Set<Holder<Biome>> set = new ObjectArraySet<>();
+            ObjectArraySet<Holder<Biome>> set = decorationScratch.biomes;
+            set.clear();
 
 // GENERATOR ACCELERATOR START
             // REPLACE ChunkPos.rangeClosed
@@ -119,10 +136,9 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
 // GENERATOR ACCELERATOR END
 
             set.retainAll(this.biomeSource.possibleBiomes());
-            int featureDataSize = featureDataList.size();
+            int featureDataSize = featureCache.stepCount;
 
 // GENERATOR ACCELERATOR START
-            Object[] featureDataArray = featureDataList.elements();
             final BoundingBox writableArea = getWritableArea(pChunk);
 // GENERATOR ACCELERATOR END
 
@@ -130,14 +146,14 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
 
             try {
                 Registry<PlacedFeature> registry1 = pLevel.registryAccess().registryOrThrow(Registries.PLACED_FEATURE);
-                int i1 = Math.max(GenerationStep.Decoration.values().length, featureDataSize);
+                int i1 = Math.max(GA$DECORATION_STEP_COUNT, featureDataSize);
 
                 for (int k = 0; k < i1; k++) {
                     int l = 0;
                     if (pStructureManager.shouldGenerateStructures()) {
                         for (Structure structure : structureByStepMap.getOrDefault(k,(ObjectArrayList<Structure>) FastChunkIter.EMPTY_LIST)) {
                             worldgenrandom.setFeatureSeed(i, l, k);
-                            java.util.function.Supplier<String> supplier = () -> registry.getResourceKey(structure).map(Object::toString).orElseGet(structure::toString);
+                            RegistryNameSupplier supplier = GA$NAME_SUPPLIER.get().set(registry, structure);
 
                             try {
                                 pLevel.setCurrentlyGenerating(supplier);
@@ -151,7 +167,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                                 // GENERATOR ACCELERATOR END
                             } catch (Exception exception) {
                                 CrashReport crashreport1 = CrashReport.forThrowable(exception, "Feature placement");
-                                crashreport1.addCategory("Feature").setDetail("Description", supplier::get);
+                                crashreport1.addCategory("Feature").setDetail("Description", supplier);
                                 throw new ReportedException(crashreport1);
                             }
 
@@ -160,39 +176,24 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                     }
 
                     if (k < featureDataSize) {
-                        IntSet intset = new IntArraySet();
-
                         // GENERATOR ACCELERATOR START
-                        final FeatureSorter.StepFeatureData featuresorter$stepfeaturedata =
-                                (FeatureSorter.StepFeatureData) featureDataArray[k];
-
-                        ToIntFunction<PlacedFeature> indexMapper = featuresorter$stepfeaturedata.indexMapping();
+                        Object[] placedFeatures = featureCache.featuresByStep[k];
+                        decorationScratch.beginStep(placedFeatures.length);
                         for (Holder<Biome> holder : set) {
-                            List<HolderSet<PlacedFeature>> placedFeatureHolderSet = this.generationSettingsGetter.apply(holder).features();
-
-                            if (k < placedFeatureHolderSet.size()) {
-                                HolderSet<PlacedFeature> holderset = placedFeatureHolderSet.get(k);
-                                int size = holderset.size();
-                                for (int holderIndex = 0; holderIndex < size; holderIndex++) {
-                                    PlacedFeature feature = holderset.get(holderIndex).value();
-                                    int featureIndex = indexMapper.applyAsInt(feature);
-
-                                    if (featureIndex >= 0) {
-                                        intset.add(featureIndex);
-                                    }
-                                }
+                            int[] indices = featureCache.indicesFor(holder, this.generationSettingsGetter, k);
+                            for (int idx = 0; idx < indices.length; idx++) {
+                                decorationScratch.addFeatureIndex(indices[idx]);
                             }
                         }
                         // GENERATOR ACCELERATOR END
 
-                        int j1 = intset.size();
-                        int[] aint = intset.toIntArray();
-                        Arrays.sort(aint);
+                        int j1 = decorationScratch.featureIndexCount();
+                        int[] aint = decorationScratch.sortedFeatureIndices();
 
                         for (int k1 = 0; k1 < j1; k1++) {
                             int l1 = aint[k1];
-                            PlacedFeature placedfeature = featuresorter$stepfeaturedata.features().get(l1);
-                            java.util.function.Supplier<String> supplier1 = () -> registry1.getResourceKey(placedfeature).map(Object::toString).orElseGet(placedfeature::toString);
+                            PlacedFeature placedfeature = (PlacedFeature) placedFeatures[l1];
+                            RegistryNameSupplier supplier1 = GA$NAME_SUPPLIER.get().set(registry1, placedfeature);
                             worldgenrandom.setFeatureSeed(i, l1, k);
 
                             try {
@@ -200,7 +201,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                                 placedfeature.placeWithBiomeCheck(pLevel, thisObj, worldgenrandom, blockpos);
                             } catch (Exception exception1) {
                                 CrashReport crashreport2 = CrashReport.forThrowable(exception1, "Feature placement");
-                                crashreport2.addCategory("Feature").setDetail("Description", supplier1::get);
+                                crashreport2.addCategory("Feature").setDetail("Description", supplier1);
                                 throw new ReportedException(crashreport2);
                             }
                         }
@@ -208,6 +209,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 }
 
                 pLevel.setCurrentlyGenerating(null);
+                GA$NAME_SUPPLIER.get().clear();
                 if (SharedConstants.DEBUG_FEATURE_COUNT) {
                     FeatureCountTracker.chunkDecorated(pLevel.getLevel());
                 }
@@ -220,5 +222,15 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 throw new ReportedException(crashreport);
             }
         }
+    }
+
+    @Unique
+    private StepFeatureCache ga$getStepFeatureCache() {
+        StepFeatureCache cache = this.ga$stepFeatureCache;
+        if (cache == null) {
+            cache = new StepFeatureCache(this.featuresPerStep.get());
+            this.ga$stepFeatureCache = cache;
+        }
+        return cache;
     }
 }

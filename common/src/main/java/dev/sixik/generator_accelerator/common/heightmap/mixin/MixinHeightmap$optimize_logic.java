@@ -9,13 +9,13 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 import java.util.Set;
 import java.util.function.Predicate;
 
 @Mixin(Heightmap.class)
 public abstract class MixinHeightmap$optimize_logic {
-
     @Shadow
     @Final private ChunkAccess chunk;
     @Shadow @Final
@@ -80,6 +80,10 @@ public abstract class MixinHeightmap$optimize_logic {
     public static void primeHeightmaps(ChunkAccess chunk, Set<Heightmap.Types> types) {
         int count = types.size();
         if (count == 0) return;
+        if (bts$isFeatureHeightmapSet(types)) {
+            bts$primeFeatureHeightmaps(chunk);
+            return;
+        }
 
         Heightmap[] maps = new Heightmap[count];
         Predicate<BlockState>[] predicates = new Predicate[count];
@@ -126,6 +130,86 @@ public abstract class MixinHeightmap$optimize_logic {
                             maps[i].setHeight(x, z, minY);
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @Unique
+    private static boolean bts$isFeatureHeightmapSet(Set<Heightmap.Types> types) {
+        return types.size() == 4
+                && types.contains(Heightmap.Types.MOTION_BLOCKING)
+                && types.contains(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES)
+                && types.contains(Heightmap.Types.OCEAN_FLOOR)
+                && types.contains(Heightmap.Types.WORLD_SURFACE);
+    }
+
+    @Unique
+    private static void bts$primeFeatureHeightmaps(ChunkAccess chunk) {
+        Predicate<BlockState> motionBlockingPredicate = Heightmap.Types.MOTION_BLOCKING.isOpaque();
+        Predicate<BlockState> motionBlockingNoLeavesPredicate = Heightmap.Types.MOTION_BLOCKING_NO_LEAVES.isOpaque();
+        Predicate<BlockState> oceanFloorPredicate = Heightmap.Types.OCEAN_FLOOR.isOpaque();
+        Predicate<BlockState> worldSurfacePredicate = Heightmap.Types.WORLD_SURFACE.isOpaque();
+
+        Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
+        Heightmap motionBlockingNoLeaves = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES);
+        Heightmap oceanFloor = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR);
+        Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE);
+
+        final int highestY = chunk.getHighestSectionPosition() + 16;
+        final int minY = chunk.getMinBuildHeight();
+
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                int remaining = 0b1111;
+
+                for (int y = highestY - 1; y >= minY; y--) {
+                    int sectionIndex = chunk.getSectionIndex(y);
+                    LevelChunkSection section = chunk.getSection(sectionIndex);
+
+                    if (section.hasOnlyAir()) {
+                        y = chunk.getSectionYFromSectionIndex(sectionIndex) << 4;
+                        continue;
+                    }
+
+                    BlockState state = section.getBlockState(x, y & 15, z);
+                    if (state.isAir()) {
+                        continue;
+                    }
+
+                    int height = y + 1;
+                    if ((remaining & 0b0001) != 0 && motionBlockingPredicate.test(state)) {
+                        motionBlocking.setHeight(x, z, height);
+                        remaining &= ~0b0001;
+                    }
+                    if ((remaining & 0b0010) != 0 && motionBlockingNoLeavesPredicate.test(state)) {
+                        motionBlockingNoLeaves.setHeight(x, z, height);
+                        remaining &= ~0b0010;
+                    }
+                    if ((remaining & 0b0100) != 0 && oceanFloorPredicate.test(state)) {
+                        oceanFloor.setHeight(x, z, height);
+                        remaining &= ~0b0100;
+                    }
+                    if ((remaining & 0b1000) != 0 && worldSurfacePredicate.test(state)) {
+                        worldSurface.setHeight(x, z, height);
+                        remaining &= ~0b1000;
+                    }
+                    if (remaining == 0) {
+                        break;
+                    }
+                }
+
+                if ((remaining & 0b0001) != 0) {
+                    motionBlocking.setHeight(x, z, minY);
+                }
+                if ((remaining & 0b0010) != 0) {
+                    motionBlockingNoLeaves.setHeight(x, z, minY);
+                }
+                if ((remaining & 0b0100) != 0) {
+                    oceanFloor.setHeight(x, z, minY);
+                }
+                if ((remaining & 0b1000) != 0) {
+                    worldSurface.setHeight(x, z, minY);
                 }
             }
         }

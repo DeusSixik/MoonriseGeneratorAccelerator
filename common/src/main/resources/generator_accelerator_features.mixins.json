@@ -9,6 +9,7 @@
     "MixinBiomeGenerationSettings",
     "MixinChunkAccess",
     "MixinChunkGenerator$apply_biome_decoration",
+    "MixinChunkStatusTasks$generate_features",
     "compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
     "compats.confluence.Confluence$FeaturePlacementCompatMixin",
     "compats.confluence.Confluence$PlacedFeatureMixin$fix",

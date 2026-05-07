@@ -89,6 +89,14 @@ public final class FeaturePlacementCompiler {
         if (opcodes[0] != FeatureOpcode.REPEATING || opcodes[1] != FeatureOpcode.IN_SQUARE) {
             return FeatureExecutorKind.GENERIC;
         }
+        if (opcodes.length == 4 && opcodes[3] == FeatureOpcode.PLACEMENT_FILTER) {
+            if (opcodes[2] == FeatureOpcode.HEIGHT_RANGE) {
+                return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHT_RANGE_FILTER;
+            }
+            if (opcodes[2] == FeatureOpcode.HEIGHTMAP) {
+                return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHTMAP_FILTER;
+            }
+        }
         for (int i = 3; i < opcodes.length; i++) {
             if (!isLinearFastOpcode(opcodes[i])) {
                 return FeatureExecutorKind.GENERIC;

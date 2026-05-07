@@ -74,6 +74,9 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         if (mixinClassName.equals(prefix + "MixinChunkAccess")) {
             return true;
         }
+        if (mixinClassName.equals(prefix + "MixinChunkStatusTasks$generate_features")) {
+            return true;
+        }
         if (mixinClassName.startsWith(prefix + "place.")) {
             return true;
         }

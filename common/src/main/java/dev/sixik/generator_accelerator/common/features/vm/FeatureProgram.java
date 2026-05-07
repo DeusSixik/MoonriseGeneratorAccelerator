@@ -8,6 +8,7 @@ public final class FeatureProgram {
     private final int[] opcodes;
     private final PlacementModifier[] modifiers;
     private final Holder<ConfiguredFeature<?, ?>> feature;
+    private final ConfiguredFeature<?, ?> configuredFeature;
     private final int fastOpCount;
     private final int fallbackOpCount;
     private final boolean linearFastOnly;
@@ -17,10 +18,19 @@ public final class FeatureProgram {
         this.opcodes = opcodes;
         this.modifiers = modifiers;
         this.feature = feature;
+        this.configuredFeature = feature.value();
         this.fastOpCount = fastOpCount;
         this.fallbackOpCount = fallbackOpCount;
         this.linearFastOnly = linearFastOnly;
         this.specializedExecutor = specializedExecutor;
+    }
+
+    int[] opcodes() {
+        return this.opcodes;
+    }
+
+    PlacementModifier[] modifiers() {
+        return this.modifiers;
     }
 
     public int opCount() {
@@ -37,6 +47,10 @@ public final class FeatureProgram {
 
     public Holder<ConfiguredFeature<?, ?>> feature() {
         return this.feature;
+    }
+
+    public ConfiguredFeature<?, ?> configuredFeature() {
+        return this.configuredFeature;
     }
 
     public boolean hasFallback() {

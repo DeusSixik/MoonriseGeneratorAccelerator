@@ -19,8 +19,25 @@ public final class LongScratchBuffer {
         this.size = index + 1;
     }
 
+    public void addRepeated(long value, int count) {
+        if (count <= 0) {
+            return;
+        }
+        int index = this.size;
+        int nextSize = index + count;
+        if (nextSize > this.values.length) {
+            grow(nextSize);
+        }
+        Arrays.fill(this.values, index, nextSize, value);
+        this.size = nextSize;
+    }
+
     public long getLong(int index) {
         return this.values[index];
+    }
+
+    public long[] elements() {
+        return this.values;
     }
 
     public int size() {
