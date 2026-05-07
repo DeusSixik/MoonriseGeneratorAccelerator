@@ -94,6 +94,8 @@ public final class Codegen {
     private static final String DENSITY_FUNCTION_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction";
     private static final String DENSITY_FUNCTION_DESC = "L" + DENSITY_FUNCTION_INTERNAL + ";";
     private static final String CACHE_FAST_PATH_INTERNAL = Type.getInternalName(DfcCacheFastPath.class);
+    private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL =
+            "dev/sixik/generator_accelerator/common/noise/DfcNoiseChunkSliceAccess";
     private static final String DFC_VECTOR_SUPPORT_INTERNAL = Type.getInternalName(DfcVectorSupport.class);
     private static final String DOUBLE_VECTOR_FROM_ARRAY_DESC =
             "(L" + DfcVectorSupport.VECTOR_SPECIES_INTERNAL + ";[DI)L" + DfcVectorSupport.DOUBLE_VECTOR_INTERNAL + ";";
@@ -180,6 +182,8 @@ public final class Codegen {
     static final String NOISE_CHUNK_INTERNAL = "net/minecraft/world/level/levelgen/NoiseChunk";
     /** Reference desc for a {@code NoiseChunk}. */
     static final String NOISE_CHUNK_DESC = "L" + NOISE_CHUNK_INTERNAL + ";";
+    private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_DESC =
+            "L" + DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL + ";";
 
     /** Method name of the cell-lattice Y-only helper. */
     public static final String LATTICE_Y_NAME = "lattice_y";
@@ -906,11 +910,12 @@ public final class Codegen {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "fillArray", desc, null, null);
         mv.visitCode();
 
+        Label sliceCheck = new Label();
         Label fallback = new Label();
 
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.INSTANCEOF, NOISE_CHUNK_INTERNAL);
-        mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+        mv.visitJumpInsn(Opcodes.IFEQ, sliceCheck);
 
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_CHUNK_INTERNAL);
@@ -966,6 +971,9 @@ public final class Codegen {
 
         mv.visitInsn(Opcodes.RETURN);
 
+        mv.visitLabel(sliceCheck);
+        emitLatticeFillArraySliceFastPath(mv, latticePlan.hoistAxis(), fallback);
+
         mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
@@ -975,6 +983,102 @@ public final class Codegen {
 
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+    }
+
+    /**
+     * Fast path for {@link dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider}.
+     * The provider is a fixed X/Z lattice column used by {@code NoiseChunk.fillSlice};
+     * output index is the noise-cell Y index, not an in-cell block index.
+     */
+    private static void emitLatticeFillArraySliceFastPath(MethodVisitor mv,
+                                                          CellLatticeOption.Axis hoistAxis,
+                                                          Label fallback) {
+        Label notSlice = new Label();
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL);
+        mv.visitJumpInsn(Opcodes.IFEQ, notSlice);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL);
+        mv.visitVarInsn(Opcodes.ASTORE, 20);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 20);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL,
+                "noiseChunk", "()" + NOISE_CHUNK_DESC, true);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 20);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL,
+                "sliceSizeY", "()I", true);
+        mv.visitVarInsn(Opcodes.ISTORE, 4);
+
+        boolean xzHoist = hoistAxis == CellLatticeOption.Axis.XZ_ONLY;
+        String innerName = xzHoist ? LATTICE_INNER_XZ_NAME : LATTICE_INNER_NAME;
+
+        if (xzHoist) {
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitInvokeDynamicInsn(LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
+            mv.visitVarInsn(Opcodes.DSTORE, 11);
+        }
+
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 5);
+        Label loopHead = new Label();
+        Label loopExit = new Label();
+        mv.visitLabel(loopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, loopExit);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellNoiseMinY", "I");
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "cellStartBlockY", "I");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "interpolationCounter", "J");
+        mv.visitInsn(Opcodes.LCONST_1);
+        mv.visitInsn(Opcodes.LADD);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "interpolationCounter", "J");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+
+        if (!xzHoist) {
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitInvokeDynamicInsn(LATTICE_Y_NAME, HELPER_DESC, HELPER_BSM);
+            mv.visitVarInsn(Opcodes.DSTORE, 11);
+        }
+
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.DLOAD, 11);
+        mv.visitInvokeDynamicInsn(innerName, LATTICE_INNER_DESC, HELPER_BSM);
+        mv.visitInsn(Opcodes.DASTORE);
+
+        mv.visitIincInsn(5, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, loopHead);
+        mv.visitLabel(loopExit);
+        mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitLabel(notSlice);
+        mv.visitJumpInsn(Opcodes.GOTO, fallback);
     }
 
     /**
@@ -1391,11 +1495,12 @@ public final class Codegen {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "fillArray", desc, null, null);
         mv.visitCode();
 
+        Label sliceCheck = new Label();
         Label fallback = new Label();
 
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.INSTANCEOF, NOISE_CHUNK_INTERNAL);
-        mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+        mv.visitJumpInsn(Opcodes.IFEQ, sliceCheck);
 
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_CHUNK_INTERNAL);
@@ -1556,6 +1661,9 @@ public final class Codegen {
         mv.visitLabel(yLoopExit);
 
         mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitLabel(sliceCheck);
+        emitLatticeFillArraySliceFastPath(mv, latticePlan.hoistAxis(), fallback);
 
         mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -1751,10 +1859,11 @@ public final class Codegen {
 
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "fillArray", desc, null, null);
         mv.visitCode();
+        Label sliceCheck = new Label();
         Label fallback = new Label();
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.INSTANCEOF, NOISE_CHUNK_INTERNAL);
-        mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+        mv.visitJumpInsn(Opcodes.IFEQ, sliceCheck);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_CHUNK_INTERNAL);
         mv.visitVarInsn(Opcodes.ASTORE, 3);
@@ -1764,6 +1873,10 @@ public final class Codegen {
         mv.visitMethodInsn(
                 Opcodes.INVOKESPECIAL, classInternalName, LATTICE_XZ_SLAB_FILL_BODY, bodyDesc, false);
         mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitLabel(sliceCheck);
+        emitLatticeFillArraySliceFastPath(mv, CellLatticeOption.Axis.XZ_ONLY, fallback);
+
         mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
