@@ -36,6 +36,8 @@ public final class GlobalCompileCache {
 
     public record CopiedClassBundle(
             String classInternalName,
+            String sourceRootClass,
+            String rootDebug,
             byte[] exactSha256,
             Class<? extends CompiledDensityFunction> cls,
             byte[] bytecode,
@@ -51,6 +53,8 @@ public final class GlobalCompileCache {
              * codegen so we'd otherwise undercount.
              */
             boolean latticeEmitted,
+            boolean cellAddLatticeSpecialized,
+            boolean cellAddExternSpecialized,
             /**
              * Native {@code SlabInnerNativeProgram} buffer machine code from
              * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen#emit}

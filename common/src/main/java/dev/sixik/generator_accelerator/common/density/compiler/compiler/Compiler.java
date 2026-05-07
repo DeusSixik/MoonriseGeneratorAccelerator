@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.CompilationFingerprint;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
@@ -13,6 +14,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRBui
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IROptimizer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.NoiseExpander;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.CellLatticeOption;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
@@ -124,6 +126,7 @@ public final class Compiler {
             final double fMin = minVal;
             final double fMax = maxVal;
             final String fClassName = className;
+            final String fRootDebug = describeRootForCellFillDebug(irRoot);
 
             GlobalCompileCache g = GlobalCompileCache.INSTANCE;
             GlobalCompileCache.LookupResult lo = g.getOrCompile(shapeFp, exactFp, () -> {
@@ -131,7 +134,8 @@ public final class Compiler {
                 byte[] bytecode = emitResult.bytecode();
                 int helpersEmitted = emitResult.helpersEmitted();
                 boolean latticeEmitted = emitResult.latticeEmitted();
-
+                boolean slabInnerProgramPresent = emitResult.slabInnerProgram() != null
+                        && emitResult.slabInnerProgram().length > 0;
                 HiddenClassLoader.DefineResult dr = HiddenClassLoader.defineWithLookup(bytecode);
                 Class<? extends CompiledDensityFunction> cls = dr.cls();
                 MethodHandles.Lookup lookup = dr.lookup();
@@ -174,7 +178,9 @@ public final class Compiler {
                 }
 
                 return new GlobalCompileCache.CopiedClassBundle(
-                        fClassName, exactFp, cls, bytecode, ctorMH, helperHandles, helpersEmitted, latticeEmitted,
+                        fClassName, df.getClass().getName(), fRootDebug, exactFp, cls, bytecode, ctorMH,
+                        helperHandles, helpersEmitted, latticeEmitted,
+                        emitResult.cellAddLatticeSpecialized(), emitResult.cellAddExternSpecialized(),
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
             });
             return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
@@ -277,6 +283,14 @@ public final class Compiler {
         } catch (Throwable t) {
             throw new RuntimeException("Failed to instantiate " + bundle.classInternalName(), t);
         }
+        DfcCompiledClassRegistry.record(
+                bundle.classInternalName(),
+                bundle.sourceRootClass(),
+                bundle.latticeEmitted(),
+                bundle.slabNativeProgram() != null && bundle.slabNativeProgram().length > 0,
+                bundle.cellAddLatticeSpecialized(),
+                bundle.cellAddExternSpecialized(),
+                bundle.rootDebug());
         if (reusedClassFromCache) {
             RouterPipeline.recordRootFromGlobalClassCache(uniqueNodes, cseSavings);
         } else {
@@ -310,6 +324,21 @@ public final class Compiler {
             }
         }
         return t;
+    }
+
+    private static String describeRootForCellFillDebug(IRNode root) {
+        if (root instanceof IRNode.Bin bin) {
+            String leftType = bin.left().getClass().getSimpleName();
+            String rightType = bin.right().getClass().getSimpleName();
+            var leftPlan = CellLatticeOption.analyze(bin.left()).orElse(null);
+            var rightPlan = CellLatticeOption.analyze(bin.right()).orElse(null);
+            return "bin=" + bin.op()
+                    + ",left=" + leftType
+                    + ",right=" + rightType
+                    + ",leftPlan=" + (leftPlan != null ? leftPlan.hoistAxis() + ":" + leftPlan.hoistedNodeCount() : "none")
+                    + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none");
+        }
+        return root.getClass().getSimpleName();
     }
 
     /** Diagnostic snapshot of one compile() call. */

@@ -8,6 +8,7 @@ import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -306,6 +307,9 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
             final double[] values = valuesArray[i];
             if (fast != null) {
+                if (DfcCellFillStats.ENABLED) {
+                    DfcCellFillStats.recordCellFill(fast, filler);
+                }
                 fast.dfc$fillCell(values, self);
                 if (DfcCellFillParity.ENABLED) {
                     DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);

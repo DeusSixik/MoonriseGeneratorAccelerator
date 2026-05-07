@@ -3,6 +3,8 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
@@ -89,6 +91,76 @@ public final class DensityFunctionCompiler {
                                         false);
                             }
                             return (int) stats.failures();
+                        }))
+                .then(Commands.literal("cellfillstats")
+                        .executes(context -> {
+                            DfcCellFillStats.Stats stats = DfcCellFillStats.snapshot();
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "DFC cell-fill stats: enabled=" + stats.enabled()
+                                            + ", cellScalar=" + stats.cellScalar()
+                                            + ", cellCompiled=" + stats.cellCompiled()
+                                            + ", cellNativeSlabInner=" + stats.cellNativeSlabInner()
+                                            + ", cellUnknown=" + stats.cellUnknown()
+                                            + ", cellXzSlab=" + stats.cellXzSlab()
+                                            + ", columnsScalar=" + stats.columnsScalar()
+                                            + ", columnsJavaBatched=" + stats.columnsJavaBatched()
+                                            + ", columnsNativeInner=" + stats.columnsNativeInner()),
+                                    false);
+                            if (!stats.fastFillerClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill fast classes: " + stats.fastFillerClasses().stream()
+                                                .map(s -> s.className() + "=" + s.calls()
+                                                        + "/" + s.nativeSlabInnerCalls())
+                                                .reduce((a, b) -> a + ", " + b)
+                                                .orElse("")),
+                                        false);
+                            }
+                            if (!stats.fastFillerDebugClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill fast debug: " + stats.fastFillerDebugClasses().stream()
+                                                .map(s -> s.className()
+                                                        + "{src=" + s.sourceRootClass()
+                                                        + ", lattice=" + s.latticeEmitted()
+                                                        + ", slabProgram=" + s.slabInnerProgramPresent()
+                                                        + ", cellAddLattice=" + s.cellAddLatticeSpecialized()
+                                                        + ", cellAddExtern=" + s.cellAddExternSpecialized()
+                                                        + ", root=" + s.rootDebug()
+                                                        + "}")
+                                                .reduce((a, b) -> a + ", " + b)
+                                                .orElse("")),
+                                        false);
+                            }
+                            if (!stats.sourceFillerClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill source classes: "
+                                                + String.join(", ", stats.sourceFillerClasses())),
+                                        false);
+                            }
+                            DfcNativePlanningStats.Stats nativeStats = DfcNativePlanningStats.snapshot();
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "DFC native planning stats: latticeRoots=" + nativeStats.latticeRoots()
+                                            + ", nativeOpsDisabled=" + nativeStats.nativeOpsDisabled()
+                                            + ", slabPlanPresent=" + nativeStats.slabPlanPresent()
+                                            + ", slabPlanMissing=" + nativeStats.slabPlanMissing()
+                                            + ", slabPlanMissingNoSlots=" + nativeStats.slabPlanMissingNoSlots()
+                                            + ", slabPlanMissingUnsafeCoords=" + nativeStats.slabPlanMissingUnsafeCoords()
+                                            + ", slabPlanMissingBadHandleIndex=" + nativeStats.slabPlanMissingBadHandleIndex()
+                                            + ", slabInnerVmPresent=" + nativeStats.slabInnerVmPresent()
+                                            + ", slabInnerVmMissing=" + nativeStats.slabInnerVmMissing()
+                                            + ", slabInnerMissingExtracted=" + nativeStats.slabInnerVmMissingExtracted()
+                                            + ", slabInnerMissingUnsupportedNode=" + nativeStats.slabInnerVmMissingUnsupportedNode()
+                                            + ", slabInnerMissingInvalidProgram=" + nativeStats.slabInnerVmMissingInvalidProgram()
+                                            + ", slabInnerMissingIo=" + nativeStats.slabInnerVmMissingIo()
+                                            + ", axisYOnly=" + nativeStats.axisYOnly()
+                                            + ", axisXzOnly=" + nativeStats.axisXzOnly()),
+                                    false);
+                            if (!nativeStats.slabInnerUnsupportedClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC slab-inner unsupported classes: "
+                                                + String.join(", ", nativeStats.slabInnerUnsupportedClasses())),
+                                        false);
+                            }
+                            return 1;
                         })));
     }
 

@@ -207,6 +207,10 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         fillArray(out, chunk);
     }
 
+    public final boolean dfc$hasNativeSlabInnerProgram() {
+        return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
+    }
+
     /**
      * Per-instance "rebind" hook called by {@link #mapAll(DensityFunction.Visitor)}
      * when the visitor remapped at least one extern (e.g. a {@code NoiseChunk}

@@ -12,7 +12,7 @@ loom {
         client {
             vmArgs "-Ddfc.cellfill.parity=true",
                     "-Ddfc.cellfill.parity.maxChecks=2048",
-                    "-Ddfc.cellfill.parity.epsilon=1.0E-9"
+                    "-Ddfc.cellfill.stats=true"
         }
     }
 }
