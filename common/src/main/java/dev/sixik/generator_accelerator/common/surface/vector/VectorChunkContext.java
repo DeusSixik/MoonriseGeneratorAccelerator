@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
+import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import net.minecraft.core.Holder;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
@@ -8,17 +9,19 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
 
+import java.util.Arrays;
+
 public class VectorChunkContext {
 
-    public final Holder<Biome>[] surfaceBiomes;
+    public Holder<Biome>[] surfaceBiomes;
 
     public final short[] surfaceHeights = new short[256];
     public final int[] surfaceDepths = new int[256];
     public final double[] secondarySurfaceNoises = new double[256];
 
-    public final int STONE_ID;
-    public final int AIR_ID;
-    public final int WATER_ID;
+    public int STONE_ID;
+    public int AIR_ID;
+    public int WATER_ID;
 
     public final byte[] stoneDepthAbove = new byte[4096];
     public final byte[] stoneDepthBelow = new byte[4096];
@@ -28,16 +31,19 @@ public class VectorChunkContext {
     public int sectionStartX;
     public int sectionStartY;
     public int sectionStartZ;
-    public final WorldGenerationContext worldContext;
-    public final RandomState randomState;
-    public final SurfaceSystem surfaceSystem;
+    public WorldGenerationContext worldContext;
+    public RandomState randomState;
+    public SurfaceSystem surfaceSystem;
 
     public VectorChunkContext(Holder<Biome>[] surfaceBiomes, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
+        reset(surfaceBiomes, defaultBlockId, worldContext, randomState, surfaceSystem);
+    }
+
+    public void reset(Holder<Biome>[] surfaceBiomes, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
         this.surfaceBiomes = surfaceBiomes;
         this.STONE_ID = defaultBlockId;
         this.AIR_ID = Block.getId(Blocks.AIR.defaultBlockState());
         this.WATER_ID = Block.getId(Blocks.WATER.defaultBlockState());
-
         this.worldContext = worldContext;
         this.randomState = randomState;
         this.surfaceSystem = surfaceSystem;
@@ -47,7 +53,6 @@ public class VectorChunkContext {
         this.sectionStartX = startX;
         this.sectionStartY = startY;
         this.sectionStartZ = startZ;
-//        Arrays.fill(this.waterHeights, Integer.MIN_VALUE);
     }
 
     public Holder<Biome> getBiome(int xzIdx) {
@@ -65,58 +70,86 @@ public class VectorChunkContext {
     }
 
     public void prepareNoiseCaches(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                int globalX = chunkMinX + x;
-                int globalZ = chunkMinZ + z;
-                int index = x | (z << 4);
+        prepareSurfaceDepthCache(surfaceSystem, chunkMinX, chunkMinZ);
+        prepareSecondarySurfaceNoiseCache(surfaceSystem, chunkMinX, chunkMinZ);
+    }
 
-                this.surfaceDepths[index] = surfaceSystem.getSurfaceDepth(globalX, globalZ);
-                this.secondarySurfaceNoises[index] = surfaceSystem.getSurfaceSecondary(globalX, globalZ);
-            }
+    public void prepareSurfaceDepthCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
+        int[] depths = this.surfaceDepths;
+        for (int xz = 0; xz < 256; xz++) {
+            depths[xz] = surfaceSystem.getSurfaceDepth(chunkMinX + (xz & 15), chunkMinZ + (xz >> 4));
+        }
+    }
+
+    public void prepareSecondarySurfaceNoiseCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
+        double[] noises = this.secondarySurfaceNoises;
+        for (int xz = 0; xz < 256; xz++) {
+            noises[xz] = surfaceSystem.getSurfaceSecondary(chunkMinX + (xz & 15), chunkMinZ + (xz >> 4));
         }
     }
 
     public void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths) {
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                int xzIdx = x | (z << 4);
+        calculateStoneDepths(rawBlockData, previousSectionBottomDepths, null);
+    }
 
-                int depthCounterAbove = previousSectionBottomDepths[xzIdx];
-                for (int y = 15; y >= 0; y--) {
-                    int index = (y << 8) | (z << 4) | x;
-                    int blockId = rawBlockData[index];
+    public void calculateStoneDepthsAndLoadStoneMask(int[] rawBlockData, int[] previousSectionBottomDepths, Mask4096 stoneMask) {
+        calculateStoneDepths(rawBlockData, previousSectionBottomDepths, stoneMask);
+    }
 
-                    boolean isSolid = blockId == STONE_ID || (blockId != AIR_ID && blockId != WATER_ID);
+    private void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths, Mask4096 stoneMask) {
+        long[] stoneWords = stoneMask == null ? null : stoneMask.words();
+        if (stoneWords != null) {
+            Arrays.fill(stoneWords, 0L);
+        }
 
-                    if (isSolid) {
-                        depthCounterAbove++;
-                        this.stoneDepthAbove[index] = (byte) Math.min(depthCounterAbove, 127); // Защита от переполнения byte
-                    } else {
-                        depthCounterAbove = 0;
-                        this.stoneDepthAbove[index] = 0;
-                    }
+        int stoneId = this.STONE_ID;
+        int airId = this.AIR_ID;
+        int waterId = this.WATER_ID;
+        int sectionStartY = this.sectionStartY;
+        byte[] depthAbove = this.stoneDepthAbove;
+        byte[] depthBelow = this.stoneDepthBelow;
+        int[] waterHeights = this.waterHeights;
 
-                    if (this.waterHeights[xzIdx] == Integer.MIN_VALUE && blockId == WATER_ID) {
-                        this.waterHeights[xzIdx] = this.sectionStartY + y + 1;
-                    }
+        for (int xzIdx = 0; xzIdx < 256; xzIdx++) {
+            int depthCounterAbove = previousSectionBottomDepths[xzIdx];
+            int waterHeight = waterHeights[xzIdx];
+            for (int y = 15; y >= 0; y--) {
+                int index = (y << 8) | xzIdx;
+                int blockId = rawBlockData[index];
+
+                boolean isStone = blockId == stoneId;
+                boolean isSolid = isStone || (blockId != airId && blockId != waterId);
+                if (stoneWords != null && isStone) {
+                    stoneWords[index >>> 6] |= 1L << (index & 63);
                 }
-                previousSectionBottomDepths[xzIdx] = depthCounterAbove;
 
-                int depthCounterBelow = 0;
-                for (int y = 0; y <= 15; y++) {
-                    int index = (y << 8) | (z << 4) | x;
-                    int blockId = rawBlockData[index];
+                if (isSolid) {
+                    depthCounterAbove++;
+                    depthAbove[index] = (byte) Math.min(depthCounterAbove, 127);
+                } else {
+                    depthCounterAbove = 0;
+                    depthAbove[index] = 0;
+                }
 
-                    boolean isSolid = blockId == STONE_ID || (blockId != AIR_ID && blockId != WATER_ID);
+                if (waterHeight == Integer.MIN_VALUE && blockId == waterId) {
+                    waterHeight = sectionStartY + y + 1;
+                }
+            }
+            previousSectionBottomDepths[xzIdx] = depthCounterAbove;
+            waterHeights[xzIdx] = waterHeight;
 
-                    if (isSolid) {
-                        depthCounterBelow++;
-                        this.stoneDepthBelow[index] = (byte) Math.min(depthCounterBelow, 127);
-                    } else {
-                        depthCounterBelow = 0;
-                        this.stoneDepthBelow[index] = 0;
-                    }
+            int depthCounterBelow = 0;
+            for (int y = 0; y < 16; y++) {
+                int index = (y << 8) | xzIdx;
+                int blockId = rawBlockData[index];
+                boolean isSolid = blockId == stoneId || (blockId != airId && blockId != waterId);
+
+                if (isSolid) {
+                    depthCounterBelow++;
+                    depthBelow[index] = (byte) Math.min(depthCounterBelow, 127);
+                } else {
+                    depthCounterBelow = 0;
+                    depthBelow[index] = 0;
                 }
             }
         }
