@@ -8,10 +8,6 @@ static const int GRAD[16][3] = {
     {1, 1, 0}, {0, -1, 1}, {-1, 1, 0}, {0, -1, -1}
 };
 
-static int dfc_p(const DfcImprovedNoise *self, int index) {
-  return (int) (self->p[index & 0xFF] & 0xFF);
-}
-
 static double grad_dot(int grad_index, double xf, double yf, double zf) {
   const int *g = GRAD[grad_index & 15];
   return (double) g[0] * xf + (double) g[1] * yf + (double) g[2] * zf;
@@ -41,20 +37,23 @@ static double lerp3(double d1, double d2, double d3,
 
 static double sample_and_lerp(const DfcImprovedNoise *self, int grid_x, int grid_y, int grid_z,
                               double delta_x, double weird_delta_y, double delta_z, double delta_y) {
-  int i = dfc_p(self, grid_x);
-  int j = dfc_p(self, grid_x + 1);
-  int k = dfc_p(self, i + grid_y);
-  int l = dfc_p(self, i + grid_y + 1);
-  int i1 = dfc_p(self, j + grid_y);
-  int j1 = dfc_p(self, j + grid_y + 1);
-  double d0 = grad_dot(dfc_p(self, k + grid_z), delta_x, weird_delta_y, delta_z);
-  double d1 = grad_dot(dfc_p(self, i1 + grid_z), delta_x - 1.0, weird_delta_y, delta_z);
-  double d2 = grad_dot(dfc_p(self, l + grid_z), delta_x, weird_delta_y - 1.0, delta_z);
-  double d3 = grad_dot(dfc_p(self, j1 + grid_z), delta_x - 1.0, weird_delta_y - 1.0, delta_z);
-  double d4 = grad_dot(dfc_p(self, k + grid_z + 1), delta_x, weird_delta_y, delta_z - 1.0);
-  double d5 = grad_dot(dfc_p(self, i1 + grid_z + 1), delta_x - 1.0, weird_delta_y, delta_z - 1.0);
-  double d6 = grad_dot(dfc_p(self, l + grid_z + 1), delta_x, weird_delta_y - 1.0, delta_z - 1.0);
-  double d7 = grad_dot(dfc_p(self, j1 + grid_z + 1), delta_x - 1.0, weird_delta_y - 1.0, delta_z - 1.0);
+  int gx = grid_x & 255;
+  int gy = grid_y & 255;
+  int gz = grid_z & 255;
+  int i = (int) self->p[gx];
+  int j = (int) self->p[gx + 1];
+  int k = (int) self->p[i + gy];
+  int l = (int) self->p[i + gy + 1];
+  int i1 = (int) self->p[j + gy];
+  int j1 = (int) self->p[j + gy + 1];
+  double d0 = grad_dot((int) self->p[k + gz], delta_x, weird_delta_y, delta_z);
+  double d1 = grad_dot((int) self->p[i1 + gz], delta_x - 1.0, weird_delta_y, delta_z);
+  double d2 = grad_dot((int) self->p[l + gz], delta_x, weird_delta_y - 1.0, delta_z);
+  double d3 = grad_dot((int) self->p[j1 + gz], delta_x - 1.0, weird_delta_y - 1.0, delta_z);
+  double d4 = grad_dot((int) self->p[k + gz + 1], delta_x, weird_delta_y, delta_z - 1.0);
+  double d5 = grad_dot((int) self->p[i1 + gz + 1], delta_x - 1.0, weird_delta_y, delta_z - 1.0);
+  double d6 = grad_dot((int) self->p[l + gz + 1], delta_x, weird_delta_y - 1.0, delta_z - 1.0);
+  double d7 = grad_dot((int) self->p[j1 + gz + 1], delta_x - 1.0, weird_delta_y - 1.0, delta_z - 1.0);
   double d8 = smoothstep(delta_x);
   double d9 = smoothstep(delta_y);
   double d10 = smoothstep(delta_z);
