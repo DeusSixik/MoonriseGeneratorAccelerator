@@ -20,6 +20,8 @@ public final class DfcCellFillStats {
     private static final LongAdder CELL_NATIVE_SLAB_INNER = new LongAdder();
     private static final LongAdder CELL_UNKNOWN = new LongAdder();
     private static final LongAdder CELL_XZ_SLAB = new LongAdder();
+    private static final LongAdder CELL_EXTERN_ACCUMULATE = new LongAdder();
+    private static final LongAdder CELL_EXTERN_SCALAR_RESIDUAL = new LongAdder();
     private static final LongAdder COLUMNS_SCALAR = new LongAdder();
     private static final LongAdder COLUMNS_JAVA_BATCHED = new LongAdder();
     private static final LongAdder COLUMNS_NATIVE_INNER = new LongAdder();
@@ -41,6 +43,7 @@ public final class DfcCellFillStats {
     }
 
     public record Stats(long cellScalar, long cellCompiled, long cellNativeSlabInner, long cellUnknown, long cellXzSlab, long columnsScalar,
+                        long cellExternAccumulate, long cellExternScalarResidual,
                         long columnsJavaBatched, long columnsNativeInner, boolean enabled,
                         List<ClassStats> fastFillerClasses, List<ClassDebugStats> fastFillerDebugClasses,
                         List<String> sourceFillerClasses) {
@@ -48,7 +51,7 @@ public final class DfcCellFillStats {
 
     public static Stats snapshot() {
         return new Stats(CELL_SCALAR.sum(), CELL_COMPILED.sum(), CELL_NATIVE_SLAB_INNER.sum(), CELL_UNKNOWN.sum(),
-                CELL_XZ_SLAB.sum(), COLUMNS_SCALAR.sum(),
+                CELL_XZ_SLAB.sum(), COLUMNS_SCALAR.sum(), CELL_EXTERN_ACCUMULATE.sum(), CELL_EXTERN_SCALAR_RESIDUAL.sum(),
                 COLUMNS_JAVA_BATCHED.sum(), COLUMNS_NATIVE_INNER.sum(), ENABLED,
                 snapshotFastFillerClasses(), snapshotFastFillerDebugClasses(), snapshotSourceFillerClasses());
     }
@@ -130,6 +133,20 @@ public final class DfcCellFillStats {
 
     public static void recordCellXzSlab() {
         CELL_XZ_SLAB.increment();
+    }
+
+    public static void recordCellExternAccumulate() {
+        if (!ENABLED) {
+            return;
+        }
+        CELL_EXTERN_ACCUMULATE.increment();
+    }
+
+    public static void recordCellExternScalarResidual() {
+        if (!ENABLED) {
+            return;
+        }
+        CELL_EXTERN_SCALAR_RESIDUAL.increment();
     }
 
     public static void recordColumnScalar() {

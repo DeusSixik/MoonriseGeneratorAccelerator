@@ -103,6 +103,8 @@ public final class DensityFunctionCompiler {
                                             + ", cellUnknown=" + stats.cellUnknown()
                                             + ", cellXzSlab=" + stats.cellXzSlab()
                                             + ", columnsScalar=" + stats.columnsScalar()
+                                            + ", cellExternAccumulate=" + stats.cellExternAccumulate()
+                                            + ", cellExternScalarResidual=" + stats.cellExternScalarResidual()
                                             + ", columnsJavaBatched=" + stats.columnsJavaBatched()
                                             + ", columnsNativeInner=" + stats.columnsNativeInner()),
                                     false);

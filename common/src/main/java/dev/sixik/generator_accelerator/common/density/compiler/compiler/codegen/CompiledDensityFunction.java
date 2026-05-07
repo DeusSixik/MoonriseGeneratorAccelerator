@@ -207,6 +207,27 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         fillArray(out, chunk);
     }
 
+    @Override
+    public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellX = 0; inCellX < cellW; inCellX++) {
+            chunk.inCellX = inCellX;
+            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                chunk.inCellZ = inCellZ;
+                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                    chunk.inCellY = inCellY;
+                    chunk.arrayIndex = idx;
+                    out[idx] += this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
+    }
+
     public final boolean dfc$hasNativeSlabInnerProgram() {
         return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
     }

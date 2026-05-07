@@ -7,7 +7,6 @@ architectury {
     neoForge()
 }
 
-/*
 loom {
     runs {
         client {
@@ -17,7 +16,6 @@ loom {
         }
     }
 }
-*/
 
 configurations {
     common {
