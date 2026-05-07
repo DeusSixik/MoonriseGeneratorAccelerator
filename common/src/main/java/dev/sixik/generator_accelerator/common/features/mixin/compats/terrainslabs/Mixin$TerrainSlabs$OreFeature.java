@@ -32,7 +32,7 @@ public abstract class Mixin$TerrainSlabs$OreFeature {
             method = {"@MixinSquared:Handler"},
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/level/block/state/BlockState;",
+                    target = "Lnet/minecraft/world/level/levelgen/feature/OreFeature;bts$commitPlacement(Lnet/minecraft/world/level/WorldGenLevel;Lnet/minecraft/world/level/chunk/BulkSectionAccess;Lnet/minecraft/world/level/chunk/LevelChunkSection;[ILnet/minecraft/core/BlockPos$MutableBlockPos;Ldev/sixik/generator_accelerator/common/features/FastTarget;IIIII[ZZ)V",
                     ordinal = 0
             )
     )

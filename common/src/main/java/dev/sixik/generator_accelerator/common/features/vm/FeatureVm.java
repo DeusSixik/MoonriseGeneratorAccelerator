@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 public final class FeatureVm {
     private static final ThreadLocal<FeatureScratchStack> SCRATCH_STACK = ThreadLocal.withInitial(FeatureScratchStack::new);
     private static final long NO_POSITION = Long.MIN_VALUE;
+    private static final boolean FEATURE_PLACEMENT_COMPAT = FeaturePlacementCompat.enabled();
 
     private FeatureVm() {
     }
@@ -41,7 +42,7 @@ public final class FeatureVm {
                     return executeSpecialized(program, context, random, startPos.asLong(), scratch, specializedExecutor);
                 }
                 if (program.linearFastOnly()) {
-                    return executeLinearFast(program, context, random, startPos.asLong(), scratch);
+                    return executeLinearFast(program, context, random, startPos.getX(), startPos.getY(), startPos.getZ(), scratch);
                 }
                 return executeBufferFast(program, context, random, startPos.asLong(), scratch);
             }
@@ -78,27 +79,63 @@ public final class FeatureVm {
         return success;
     }
 
-    private static boolean executeLinearFast(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, FeatureScratch scratch) {
+    private static boolean executeLinearFast(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, FeatureScratch scratch) {
         FeatureVmMetrics.recordLinearFastExecution();
         int opCount = program.opCount();
         int[] opcodes = program.opcodes();
         int executedOps = 0;
-        int x = BlockPos.getX(packedPos);
-        int y = BlockPos.getY(packedPos);
-        int z = BlockPos.getZ(packedPos);
         for (int opIndex = 0; opIndex < opCount; opIndex++) {
             executedOps++;
-            packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
-            if (packedPos == NO_POSITION) {
-                FeatureVmMetrics.recordFastOpExecutions(executedOps);
-                return false;
+            switch (opcodes[opIndex]) {
+                case FeatureOpcode.IN_SQUARE -> {
+                    x += random.nextInt(16);
+                    z += random.nextInt(16);
+                }
+                case FeatureOpcode.HEIGHT_RANGE -> y = program.heightProvider(opIndex).sample(random, context);
+                case FeatureOpcode.HEIGHTMAP -> {
+                    y = fastHeight(context, program.heightmapType(opIndex), x, z);
+                    if (y <= context.getMinBuildHeight()) {
+                        FeatureVmMetrics.recordFastOpExecutions(executedOps);
+                        return false;
+                    }
+                }
+                case FeatureOpcode.RANDOM_OFFSET -> {
+                    FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
+                    x += data.xzSpread().sample(random);
+                    y += data.ySpread().sample(random);
+                    z += data.xzSpread().sample(random);
+                }
+                case FeatureOpcode.PLACEMENT_FILTER -> {
+                    if (!passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch)) {
+                        FeatureVmMetrics.recordFastOpExecutions(executedOps);
+                        return false;
+                    }
+                }
+                case FeatureOpcode.ENVIRONMENT_SCAN -> {
+                    long scanned = applyEnvironmentScanLinear(program, context, x, y, z, opIndex, scratch);
+                    if (scanned == NO_POSITION) {
+                        FeatureVmMetrics.recordFastOpExecutions(executedOps);
+                        return false;
+                    }
+                    x = BlockPos.getX(scanned);
+                    y = BlockPos.getY(scanned);
+                    z = BlockPos.getZ(scanned);
+                }
+                default -> {
+                    long packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
+                    if (packedPos == NO_POSITION) {
+                        FeatureVmMetrics.recordFastOpExecutions(executedOps);
+                        return false;
+                    }
+                    x = BlockPos.getX(packedPos);
+                    y = BlockPos.getY(packedPos);
+                    z = BlockPos.getZ(packedPos);
+                }
             }
-            x = BlockPos.getX(packedPos);
-            y = BlockPos.getY(packedPos);
-            z = BlockPos.getZ(packedPos);
         }
         FeatureVmMetrics.recordFastOpExecutions(executedOps);
-        return placeFeature(program, context, random, packedPos, opCount, scratch);
+        FeatureVmMetrics.recordFeaturePlaceCall();
+        return placeFeatureAt(program, context, random, x, y, z, opCount, scratch);
     }
 
     private static boolean executeBufferFast(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
@@ -175,8 +212,9 @@ public final class FeatureVm {
 
         FeatureVmMetrics.recordFastOpExecutions((long) count * opCount);
         for (int i = 0; i < count; i++) {
-            long packedPos = BlockPos.asLong(baseX + random.nextInt(16), baseY, baseZ + random.nextInt(16));
-            packedPos = applySpecializedLinearTail(program, context, random, packedPos, 2, scratch);
+            int x = baseX + random.nextInt(16);
+            int z = baseZ + random.nextInt(16);
+            long packedPos = applySpecializedLinearTail(program, context, random, x, baseY, z, 2, scratch);
             if (packedPos != NO_POSITION) {
                 placeAttempts++;
                 if (placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
@@ -207,12 +245,18 @@ public final class FeatureVm {
             int x = baseX + random.nextInt(16);
             int z = baseZ + random.nextInt(16);
             int y = heightProvider.sample(random, context);
-            long packedPos = opCount == 3 ? BlockPos.asLong(x, y, z) : applySpecializedLinearTail(program, context, random, BlockPos.asLong(x, y, z), 3, scratch);
+            if (opCount == 3) {
+                placeAttempts++;
+                if (placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)) {
+                    success = true;
+                }
+                continue;
+            }
+
+            long packedPos = applySpecializedLinearTail(program, context, random, x, y, z, 3, scratch);
             if (packedPos != NO_POSITION) {
                 placeAttempts++;
-                if (opCount == 3
-                        ? placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)
-                        : placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
+                if (placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
                     success = true;
                 }
             }
@@ -245,12 +289,18 @@ public final class FeatureVm {
                 continue;
             }
 
-            long packedPos = opCount == 3 ? BlockPos.asLong(x, y, z) : applySpecializedLinearTail(program, context, random, BlockPos.asLong(x, y, z), 3, scratch);
+            if (opCount == 3) {
+                placeAttempts++;
+                if (placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)) {
+                    success = true;
+                }
+                continue;
+            }
+
+            long packedPos = applySpecializedLinearTail(program, context, random, x, y, z, 3, scratch);
             if (packedPos != NO_POSITION) {
                 placeAttempts++;
-                if (opCount == 3
-                        ? placeFeatureAt(program, context, random, x, y, z, opCount + 1, scratch)
-                        : placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
+                if (placeFeatureUntracked(program, context, random, packedPos, opCount + 1, scratch)) {
                     success = true;
                 }
             }
@@ -322,21 +372,53 @@ public final class FeatureVm {
         return success;
     }
 
-    private static long applySpecializedLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int startOpIndex, FeatureScratch scratch) {
-        int x = BlockPos.getX(packedPos);
-        int y = BlockPos.getY(packedPos);
-        int z = BlockPos.getZ(packedPos);
+    private static long applySpecializedLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int startOpIndex, FeatureScratch scratch) {
         int[] opcodes = program.opcodes();
         for (int opIndex = startOpIndex, opCount = opcodes.length; opIndex < opCount; opIndex++) {
-            packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
-            if (packedPos == NO_POSITION) {
-                return NO_POSITION;
+            switch (opcodes[opIndex]) {
+                case FeatureOpcode.IN_SQUARE -> {
+                    x += random.nextInt(16);
+                    z += random.nextInt(16);
+                }
+                case FeatureOpcode.HEIGHT_RANGE -> y = program.heightProvider(opIndex).sample(random, context);
+                case FeatureOpcode.HEIGHTMAP -> {
+                    y = fastHeight(context, program.heightmapType(opIndex), x, z);
+                    if (y <= context.getMinBuildHeight()) {
+                        return NO_POSITION;
+                    }
+                }
+                case FeatureOpcode.RANDOM_OFFSET -> {
+                    FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
+                    x += data.xzSpread().sample(random);
+                    y += data.ySpread().sample(random);
+                    z += data.xzSpread().sample(random);
+                }
+                case FeatureOpcode.PLACEMENT_FILTER -> {
+                    if (!passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch)) {
+                        return NO_POSITION;
+                    }
+                }
+                case FeatureOpcode.ENVIRONMENT_SCAN -> {
+                    long scanned = applyEnvironmentScanLinear(program, context, x, y, z, opIndex, scratch);
+                    if (scanned == NO_POSITION) {
+                        return NO_POSITION;
+                    }
+                    x = BlockPos.getX(scanned);
+                    y = BlockPos.getY(scanned);
+                    z = BlockPos.getZ(scanned);
+                }
+                default -> {
+                    long packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
+                    if (packedPos == NO_POSITION) {
+                        return NO_POSITION;
+                    }
+                    x = BlockPos.getX(packedPos);
+                    y = BlockPos.getY(packedPos);
+                    z = BlockPos.getZ(packedPos);
+                }
             }
-            x = BlockPos.getX(packedPos);
-            y = BlockPos.getY(packedPos);
-            z = BlockPos.getZ(packedPos);
         }
-        return packedPos;
+        return BlockPos.asLong(x, y, z);
     }
 
     private static long applyLinearOpcode(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
@@ -437,7 +519,11 @@ public final class FeatureVm {
     }
 
     private static long applyPlacementFilterLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
-        return program.placementFilter(opIndex).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex)) ? BlockPos.asLong(x, y, z) : NO_POSITION;
+        return passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch) ? BlockPos.asLong(x, y, z) : NO_POSITION;
+    }
+
+    private static boolean passesPlacementFilter(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        return program.placementFilter(opIndex).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex));
     }
 
     private static void applyFixed(FeatureProgram program, long packedPos, int opIndex, LongScratchBuffer output) {
@@ -643,7 +729,7 @@ public final class FeatureVm {
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
 
-        if (FeaturePlacementCompat.enabled() && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(packedPos))) {
+        if (FEATURE_PLACEMENT_COMPAT && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(packedPos))) {
             success = true;
         }
         if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {
@@ -658,7 +744,7 @@ public final class FeatureVm {
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
 
-        if (FeaturePlacementCompat.enabled() && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(x, y, z))) {
+        if (FEATURE_PLACEMENT_COMPAT && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(x, y, z))) {
             success = true;
         }
         if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {

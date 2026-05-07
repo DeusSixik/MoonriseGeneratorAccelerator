@@ -71,21 +71,41 @@ final class MaskTestBlockProgramStep implements SurfaceProgramStep {
 final class IntervalTestBlockProgramStep implements SurfaceProgramStep {
     private final IntervalConditionPlan condition;
     private final int blockId;
+    private final int cacheSlot;
 
     IntervalTestBlockProgramStep(IntervalConditionPlan condition, int blockId) {
+        this(condition, blockId, -1);
+    }
+
+    IntervalTestBlockProgramStep(IntervalConditionPlan condition, int blockId, int cacheSlot) {
         this.condition = condition;
         this.blockId = blockId;
+        this.cacheSlot = cacheSlot;
     }
 
     @Override
     public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
-        if (this.condition.applyDirect(rawBlockData, this.blockId, activeMask, ctx, scratch)) {
+        if (this.cacheSlot < 0 && this.condition.applyDirect(rawBlockData, this.blockId, activeMask, ctx, scratch)) {
             return;
         }
-        int[] minY = scratch.intervalMinY;
-        Arrays.fill(minY, 0);
-        this.condition.applyMinY(minY, ctx);
-        activeMask.applyBlockStateAndClearAbove(rawBlockData, this.blockId, minY, scratch.activeColumns);
+        activeMask.applyBlockStateAndClearAbove(rawBlockData, this.blockId, intervalMinY(ctx, scratch), scratch.activeColumns);
+    }
+
+    private int[] intervalMinY(VectorChunkContext ctx, SurfaceScratch scratch) {
+        if (this.cacheSlot < 0) {
+            int[] minY = scratch.intervalMinY;
+            Arrays.fill(minY, 0);
+            this.condition.applyMinY(minY, ctx);
+            return minY;
+        }
+
+        int[] cached = scratch.intervalMinYCache(this.cacheSlot);
+        if (!scratch.isIntervalConditionValid(this.cacheSlot)) {
+            Arrays.fill(cached, 0);
+            this.condition.applyMinY(cached, ctx);
+            scratch.markIntervalConditionValid(this.cacheSlot);
+        }
+        return cached;
     }
 }
 
@@ -123,11 +143,17 @@ final class ColumnIntervalTestBlockProgramStep implements SurfaceProgramStep {
     private final ColumnConditionPlan columnCondition;
     private final IntervalConditionPlan intervalCondition;
     private final int blockId;
+    private final int intervalCacheSlot;
 
     ColumnIntervalTestBlockProgramStep(ColumnConditionPlan columnCondition, IntervalConditionPlan intervalCondition, int blockId) {
+        this(columnCondition, intervalCondition, blockId, -1);
+    }
+
+    ColumnIntervalTestBlockProgramStep(ColumnConditionPlan columnCondition, IntervalConditionPlan intervalCondition, int blockId, int intervalCacheSlot) {
         this.columnCondition = columnCondition;
         this.intervalCondition = intervalCondition;
         this.blockId = blockId;
+        this.intervalCacheSlot = intervalCacheSlot;
     }
 
     @Override
@@ -139,14 +165,28 @@ final class ColumnIntervalTestBlockProgramStep implements SurfaceProgramStep {
             return;
         }
 
-        if (this.intervalCondition.applyDirect(rawBlockData, this.blockId, activeMask, ctx, scratch, columns)) {
+        if (this.intervalCacheSlot < 0 && this.intervalCondition.applyDirect(rawBlockData, this.blockId, activeMask, ctx, scratch, columns)) {
             return;
         }
 
-        int[] minY = scratch.intervalMinY;
-        Arrays.fill(minY, 0);
-        this.intervalCondition.applyMinY(minY, ctx, columns);
-        activeMask.applyBlockStateAndClearAbove(rawBlockData, this.blockId, minY, columns, null);
+        activeMask.applyBlockStateAndClearAbove(rawBlockData, this.blockId, intervalMinY(ctx, scratch), columns, null);
+    }
+
+    private int[] intervalMinY(VectorChunkContext ctx, SurfaceScratch scratch) {
+        if (this.intervalCacheSlot < 0) {
+            int[] minY = scratch.intervalMinY;
+            Arrays.fill(minY, 0);
+            this.intervalCondition.applyMinY(minY, ctx);
+            return minY;
+        }
+
+        int[] cached = scratch.intervalMinYCache(this.intervalCacheSlot);
+        if (!scratch.isIntervalConditionValid(this.intervalCacheSlot)) {
+            Arrays.fill(cached, 0);
+            this.intervalCondition.applyMinY(cached, ctx);
+            scratch.markIntervalConditionValid(this.intervalCacheSlot);
+        }
+        return cached;
     }
 }
 
@@ -225,6 +265,33 @@ final class ColumnAnchorYTestBlockProgramStep implements SurfaceProgramStep {
 
 interface ColumnConditionPlan {
     void filterColumns(long[] columns, VectorChunkContext ctx, SurfaceScratch scratch);
+}
+
+final class CachedColumnConditionPlan implements ColumnConditionPlan {
+    private final ColumnConditionPlan target;
+    private final int cacheSlot;
+
+    CachedColumnConditionPlan(ColumnConditionPlan target, int cacheSlot) {
+        this.target = target;
+        this.cacheSlot = cacheSlot;
+    }
+
+    @Override
+    public void filterColumns(long[] columns, VectorChunkContext ctx, SurfaceScratch scratch) {
+        long[] cached = scratch.columnConditionMask(this.cacheSlot);
+        if (!scratch.isColumnConditionValid(this.cacheSlot)) {
+            cached[0] = -1L;
+            cached[1] = -1L;
+            cached[2] = -1L;
+            cached[3] = -1L;
+            this.target.filterColumns(cached, ctx, scratch);
+            scratch.markColumnConditionValid(this.cacheSlot);
+        }
+        columns[0] &= cached[0];
+        columns[1] &= cached[1];
+        columns[2] &= cached[2];
+        columns[3] &= cached[3];
+    }
 }
 
 final class TrueColumnConditionPlan implements ColumnConditionPlan {

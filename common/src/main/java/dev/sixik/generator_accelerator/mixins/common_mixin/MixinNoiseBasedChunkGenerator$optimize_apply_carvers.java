@@ -1,13 +1,13 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$CarverChunkCache;
+import dev.sixik.generator_accelerator.common.carver.CarverChunkPlan;
 import net.minecraft.core.Holder;
-import net.minecraft.core.QuartPos;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.CarvingMask;
@@ -20,7 +20,6 @@ import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.carver.CarvingContext;
-import net.minecraft.world.level.levelgen.carver.ConfiguredWorldCarver;
 import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import net.minecraft.world.level.levelgen.RandomSupport;
@@ -82,29 +81,17 @@ public abstract class MixinNoiseBasedChunkGenerator$optimize_apply_carvers {
             for (int offsetZ = -8; offsetZ <= 8; ++offsetZ) {
                 ChunkAccess neighborChunk = worldGenRegion.getChunk(centerPos.x + offsetX, centerPos.z + offsetZ);
                 ChunkPos neighborPos = neighborChunk.getPos();
-                int quartX = QuartPos.fromBlock(neighborPos.getMinBlockX());
-                int quartZ = QuartPos.fromBlock(neighborPos.getMinBlockZ());
-                BiomeGenerationSettings generationSettings = neighborChunk.carverBiome(
-                        () -> generator.getBiomeGenerationSettings(biomeSource.getNoiseBiome(quartX, 0, quartZ, randomState.sampler()))
-                );
-
-                int index = 0;
-                for (Holder<ConfiguredWorldCarver<?>> holder : generationSettings.getCarvers(carving)) {
-                    ConfiguredWorldCarver<?> configuredWorldCarver = holder.value();
-                    worldgenRandom.setLargeFeatureSeed(seed + index, neighborPos.x, neighborPos.z);
-                    if (configuredWorldCarver.isStartChunk(worldgenRandom)) {
-                        configuredWorldCarver.carve(
-                                carvingContext,
-                                chunkAccess,
-                                biomeGetter,
-                                worldgenRandom,
-                                aquifer,
-                                neighborPos,
-                                carvingMask
-                        );
+                CarverChunkPlan plan = neighborChunk instanceof GA$CarverChunkCache cache
+                        ? cache.ga$getCarverChunkPlan(carving, seed)
+                        : null;
+                if (plan == null) {
+                    plan = CarverChunkPlan.build(generator, biomeSource, randomState, carving, neighborChunk, seed, worldgenRandom);
+                    if (neighborChunk instanceof GA$CarverChunkCache cache) {
+                        cache.ga$setCarverChunkPlan(carving, seed, plan);
                     }
-                    ++index;
                 }
+
+                plan.carve(carvingContext, chunkAccess, biomeGetter, worldgenRandom, aquifer, neighborPos, carvingMask, seed);
             }
         }
     }

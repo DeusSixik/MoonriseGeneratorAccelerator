@@ -11,6 +11,8 @@ final class SurfaceIRLowerer {
     private final Map<SurfaceConditionIR, Integer> conditionUseCounts;
     private final HashMap<SurfaceConditionIR, SurfaceConditionNode> compiledConditions = new HashMap<>();
     private int nextConditionCacheSlot;
+    private int nextColumnConditionCacheSlot;
+    private int nextIntervalConditionCacheSlot;
 
     SurfaceIRLowerer() {
         this(new HashMap<>());
@@ -241,11 +243,11 @@ final class SurfaceIRLowerer {
             return new AnchorYTestBlockProgramStep(y.anchor(), blockId);
         }
         if (condition instanceof SurfaceConditionIR.AllOf allOf) {
-            return allOfStep(allOf.conditions(), blockId);
+            return allOfStep(allOf.conditions(), blockId, intervalCacheSlot(condition));
         }
         IntervalConditionPlan intervalPlan = intervalPlan(condition);
         if (intervalPlan != null) {
-            return new IntervalTestBlockProgramStep(intervalPlan, blockId);
+            return new IntervalTestBlockProgramStep(intervalPlan, blockId, intervalCacheSlot(condition));
         }
         ColumnConditionPlan columnPlan = columnPlan(condition);
         if (columnPlan != null) {
@@ -254,7 +256,7 @@ final class SurfaceIRLowerer {
         return null;
     }
 
-    private SurfaceProgramStep allOfStep(List<SurfaceConditionIR> conditions, int blockId) {
+    private SurfaceProgramStep allOfStep(List<SurfaceConditionIR> conditions, int blockId, int intervalCacheSlot) {
         if (conditions.isEmpty()) {
             return new BlockProgramStep(blockId);
         }
@@ -299,16 +301,16 @@ final class SurfaceIRLowerer {
             if (intervalCount == 1 && anchorY != null) {
                 return new ColumnAnchorYTestBlockProgramStep(columnPlan, anchorY.anchor(), blockId);
             }
-            return new ColumnIntervalTestBlockProgramStep(columnPlan, intervalPlan, blockId);
+            return new ColumnIntervalTestBlockProgramStep(columnPlan, intervalPlan, blockId, intervalCacheSlot);
         }
         if (columnPlan != null) {
             return new ColumnTestBlockProgramStep(columnPlan, blockId);
         }
-        return intervalPlan == null ? null : new IntervalTestBlockProgramStep(intervalPlan, blockId);
+        return intervalPlan == null ? null : new IntervalTestBlockProgramStep(intervalPlan, blockId, intervalCacheSlot);
     }
 
     private ColumnConditionPlan columnPlan(SurfaceConditionIR condition) {
-        return switch (condition) {
+        ColumnConditionPlan plan = switch (condition) {
             case SurfaceConditionIR.Constant constant -> constant.value()
                     ? TrueColumnConditionPlan.INSTANCE
                     : FalseColumnConditionPlan.INSTANCE;
@@ -329,6 +331,7 @@ final class SurfaceIRLowerer {
             case SurfaceConditionIR.AnyOf anyOf -> columnAnyOfPlan(anyOf.conditions());
             default -> null;
         };
+        return maybeCachedColumnPlan(condition, plan);
     }
 
     private ColumnConditionPlan columnAllOfPlan(List<SurfaceConditionIR> conditions) {
@@ -384,6 +387,20 @@ final class SurfaceIRLowerer {
             case SurfaceConditionIR.AllOf allOf -> intervalAllOfPlan(allOf.conditions());
             default -> null;
         };
+    }
+
+    private ColumnConditionPlan maybeCachedColumnPlan(SurfaceConditionIR condition, ColumnConditionPlan plan) {
+        if (plan == null || !isCacheable(condition) || this.conditionUseCounts.getOrDefault(condition, 0) <= 1) {
+            return plan;
+        }
+        return new CachedColumnConditionPlan(plan, this.nextColumnConditionCacheSlot++);
+    }
+
+    private int intervalCacheSlot(SurfaceConditionIR condition) {
+        if (!isCacheable(condition) || this.conditionUseCounts.getOrDefault(condition, 0) <= 1) {
+            return -1;
+        }
+        return this.nextIntervalConditionCacheSlot++;
     }
 
     private IntervalConditionPlan intervalAllOfPlan(List<SurfaceConditionIR> conditions) {

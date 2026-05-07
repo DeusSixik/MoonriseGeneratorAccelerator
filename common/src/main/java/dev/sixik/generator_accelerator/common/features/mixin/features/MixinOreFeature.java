@@ -1,10 +1,19 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-import net.minecraft.core.*;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.DefaultedRegistry;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -26,7 +35,12 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 
 @Mixin(value = OreFeature.class, priority = 999)
@@ -46,6 +60,18 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     @Unique
     private static final ThreadLocal<IdentityHashMap<RuleTest, Block[]>> BTS$RULE_CACHE =
             ThreadLocal.withInitial(IdentityHashMap::new);
+
+    @Unique
+    private static final ThreadLocal<IdentityHashMap<OreConfiguration, CompiledTargets>> BTS$TARGET_CACHE =
+            ThreadLocal.withInitial(IdentityHashMap::new);
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
+    @Unique
+    private static final ThreadLocal<double[]> BTS$VEIN_DATA =
+            ThreadLocal.withInitial(() -> new double[64 * 4]);
 
     @Unique
     private static final Block[] BTS$COMPLEX_RULE_MARKER = new Block[0];
@@ -138,13 +164,17 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             bitset.clear();
         }
 
-        BlockPos.MutableBlockPos blockpos$mutableblockpos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos blockpos$mutableblockpos = BTS$MUTABLE_POS.get();
         int j = pConfig.size;
-        double[] adouble = new double[j * 4];
+        double[] adouble = BTS$VEIN_DATA.get();
+        if (adouble.length < j * 4) {
+            adouble = new double[j * 4];
+            BTS$VEIN_DATA.set(adouble);
+        }
 
         for (int k = 0; k < j; k++) {
-            final int mul = k * 4;
-            float f = (float)k / j;
+            int mul = k * 4;
+            float f = (float) k / j;
             double d0 = Mth.lerp(f, pMinX, pMaxX);
             double d1 = Mth.lerp(f, pMinY, pMaxY);
             double d2 = Mth.lerp(f, pMinZ, pMaxZ);
@@ -157,171 +187,187 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
         }
 
         for (int l3 = 0; l3 < j - 1; l3++) {
-            final int mul = l3 * 4;
+            int mul = l3 * 4;
             if (!(adouble[mul + 3] <= 0.0)) {
                 for (int i4 = l3 + 1; i4 < j; i4++) {
-                    final int mul2 = i4 * 4;
+                    int mul2 = i4 * 4;
                     if (!(adouble[mul2 + 3] <= 0.0)) {
                         double d8 = adouble[mul] - adouble[mul2];
                         double d10 = adouble[mul + 1] - adouble[mul2 + 1];
                         double d12 = adouble[mul + 2] - adouble[mul2 + 2];
                         double d14 = adouble[mul + 3] - adouble[mul2 + 3];
                         if (d14 * d14 > d8 * d8 + d10 * d10 + d12 * d12) {
-                            if (d14 > 0.0) adouble[mul2 + 3] = -1.0;
-                            else adouble[mul + 3] = -1.0;
+                            if (d14 > 0.0) {
+                                adouble[mul2 + 3] = -1.0;
+                            } else {
+                                adouble[mul + 3] = -1.0;
+                            }
                         }
                     }
                 }
             }
         }
 
-        final DefaultedRegistry<Block> tag = BuiltInRegistries.BLOCK;
-
-        FastTarget[] fastTargets = new FastTarget[pConfig.targetStates.size()];
-        for (int i = 0; i < pConfig.targetStates.size(); i++) {
-            OreConfiguration.TargetBlockState target = pConfig.targetStates.get(i);
-            RuleTest rule = target.target;
-
-            Block[] extractedBlocks = null;
-
-            if (rule instanceof BlockMatchTest bmt) {
-                extractedBlocks = new Block[] { bmt.block };
-            } else if (rule instanceof TagMatchTest tmt) {
-                final Optional<HolderSet.Named<Block>> tagOpt = tag.getTag(tmt.tag);
-                if(tagOpt.isEmpty()) {
-                    extractedBlocks = new Block[0];
-                } else {
-                    final HolderSet.Named<Block> tagData = tagOpt.get();
-                    final ObjectArrayList<Holder<Block>> tagDataList = (ObjectArrayList<Holder<Block>>) tagData.contents();
-                    final Object[] tagDataArray = tagDataList.elements();
-
-                    final int tagDataSize = tagDataList.size();
-                    final Block[] primitiveArray = new Block[tagDataSize];
-                    for (int i1 = 0; i1 < tagDataSize; i1++) {
-                        primitiveArray[i1] = ((Holder<Block>)tagDataArray[i1]).value();
-                    }
-                    extractedBlocks = primitiveArray;
-                }
-            }
-
-            fastTargets[i] = new FastTarget(extractedBlocks, extractedBlocks == null ? rule : null, target.state);
+        CompiledTargets compiledTargets = BTS$TARGET_CACHE.get().computeIfAbsent(pConfig, MixinOreFeature::bts$compileTargets);
+        FastTarget[] fastTargets = compiledTargets.targets();
+        boolean hasFallbackTargets = compiledTargets.hasFallbackTargets();
+        boolean placementMayBeAir = compiledTargets.placementMayBeAir();
+        BlockState[] states = FastBlockStateCache.STATES;
+        if (states == null) {
+            FastBlockStateCache.init(dev.sixik.generator_accelerator.GeneratorAccelerator.platform);
+            states = FastBlockStateCache.STATES;
         }
-
+        boolean[] airStates = FastBlockStateCache.AIR_STATES;
 
         int levelMinY = pLevel.getMinBuildHeight();
-        int levelMaxY = pLevel.getMaxBuildHeight();
-
+        int levelMaxY = pLevel.getMaxBuildHeight() - 1;
+        int planeStride = pWidth * pHeight;
         float airChance = pConfig.discardChanceOnAirExposure;
+
         try (BulkSectionAccess bulksectionaccess = new BulkSectionAccess(pLevel)) {
             for (int j4 = 0; j4 < j; j4++) {
-                final int mul = j4 * 4;
+                int mul = j4 * 4;
                 double radius = adouble[mul + 3];
-                if (radius < 0.0) continue;
+                if (radius < 0.0) {
+                    continue;
+                }
 
                 double centerX = adouble[mul];
                 double centerY = adouble[mul + 1];
                 double centerZ = adouble[mul + 2];
+                double shiftedCenterX = centerX - 0.5D;
+                double shiftedCenterY = centerY - 0.5D;
+                double shiftedCenterZ = centerZ - 0.5D;
 
-                // Есть погрешность из-за отказа от (floor), но да пофигу :)
-                int calcMinX = (int)(centerX - radius);
-                int minX = calcMinX > pX ? calcMinX : pX;
-
-                int calcMinY = (int)(centerY - radius);
-                int minY = calcMinY > pY ? calcMinY : pY;
-
-                int calcMinZ = (int)(centerZ - radius);
-                int minZ = calcMinZ > pZ ? calcMinZ : pZ;
-
-                int calcMaxX = (int)(centerX + radius);
-                int maxX = calcMaxX > minX ? calcMaxX : minX;
-
-                int calcMaxY = (int)(centerY + radius);
-                int maxY = calcMaxY > minY ? calcMaxY : minY;
-
-                int calcMaxZ = (int)(centerZ + radius);
-                int maxZ = calcMaxZ > minZ ? calcMaxZ : minZ;
-
-                minY = Math.max(minY, levelMinY);
-                maxY = Math.min(maxY, levelMaxY);
+                int minY = Math.max(Math.max(Mth.ceil(shiftedCenterY - radius), pY), levelMinY);
+                int maxY = Math.min(Math.min(Mth.floor(shiftedCenterY + radius), pY + pHeight - 1), levelMaxY);
+                if (minY > maxY) {
+                    continue;
+                }
 
                 double invRadius = 1.0 / radius;
-                double offsetX = 0.5 - centerX;
-                double offsetY = 0.5 - centerY;
-                double offsetZ = 0.5 - centerZ;
-
                 LevelChunkSection cachedSection = null;
+                int[] cachedRaw = null;
                 int lastSecX = Integer.MIN_VALUE;
                 int lastSecY = Integer.MIN_VALUE;
                 int lastSecZ = Integer.MIN_VALUE;
 
                 for (int currY = minY; currY <= maxY; currY++) {
-                    double dy = (currY + offsetY) * invRadius;
+                    double dy = (currY - shiftedCenterY) * invRadius;
                     double dySq = dy * dy;
-                    if (dySq >= 1.0) continue;
+                    if (dySq >= 1.0) {
+                        continue;
+                    }
+
+                    double zRadius = Math.sqrt(1.0 - dySq) * radius;
+                    int minZ = Math.max(Mth.ceil(shiftedCenterZ - zRadius), pZ);
+                    int maxZ = Math.min(Mth.floor(shiftedCenterZ + zRadius), pZ + pWidth - 1);
+                    if (minZ > maxZ) {
+                        continue;
+                    }
 
                     int bitIndexY = (currY - pY) * pWidth;
                     int secY = currY >> 4;
 
                     for (int currZ = minZ; currZ <= maxZ; currZ++) {
-                        double dz = (currZ + offsetZ) * invRadius;
+                        double dz = (currZ - shiftedCenterZ) * invRadius;
                         double dyzSq = dySq + dz * dz;
-                        if (dyzSq >= 1.0) continue;
+                        if (dyzSq >= 1.0) {
+                            continue;
+                        }
 
-                        int bitIndexYZ = bitIndexY + (currZ - pZ) * pWidth * pHeight;
+                        double xRadius = Math.sqrt(1.0 - dyzSq) * radius;
+                        int minX = Math.max(Mth.ceil(shiftedCenterX - xRadius), pX);
+                        int maxX = Math.min(Mth.floor(shiftedCenterX + xRadius), pX + pWidth - 1);
+                        if (minX > maxX) {
+                            continue;
+                        }
+
+                        int bitIndexYZ = bitIndexY + (currZ - pZ) * planeStride;
                         int secZ = currZ >> 4;
 
                         for (int currX = minX; currX <= maxX; currX++) {
-                            double dx = (currX + offsetX) * invRadius;
+                            int bitIndex = (currX - pX) + bitIndexYZ;
+                            if (bitset.get(bitIndex)) {
+                                continue;
+                            }
+                            bitset.set(bitIndex);
 
-                            if (dx * dx + dyzSq < 1.0) {
-                                int bitIndex = (currX - pX) + bitIndexYZ;
+                            int secX = currX >> 4;
+                            if (secX != lastSecX || secY != lastSecY || secZ != lastSecZ) {
+                                blockpos$mutableblockpos.set(currX, currY, currZ);
+                                cachedSection = bulksectionaccess.getSection(blockpos$mutableblockpos);
+                                cachedRaw = cachedSection == null ? null : LevelChunkSection$FlatBlockArray.get(cachedSection).bts$getRawBlockData();
+                                lastSecX = secX;
+                                lastSecY = secY;
+                                lastSecZ = secZ;
+                            }
 
-                                if (!bitset.get(bitIndex)) {
-                                    bitset.set(bitIndex);
+                            if (cachedSection == null) {
+                                continue;
+                            }
 
-                                    int secX = currX >> 4;
-                                    if (secX != lastSecX || secY != lastSecY || secZ != lastSecZ) {
-                                        blockpos$mutableblockpos.set(currX, currY, currZ);
-                                        cachedSection = bulksectionaccess.getSection(blockpos$mutableblockpos);
-                                        lastSecX = secX;
-                                        lastSecY = secY;
-                                        lastSecZ = secZ;
+                            int localX = currX & 15;
+                            int localY = currY & 15;
+                            int localZ = currZ & 15;
+                            int sectionIndex = (localY << 8) | (localZ << 4) | localX;
+
+                            int currentStateId;
+                            BlockState currentState = null;
+                            if (cachedRaw != null) {
+                                currentStateId = cachedRaw[sectionIndex];
+                            } else {
+                                currentState = cachedSection.getBlockState(localX, localY, localZ);
+                                currentStateId = GA$BlockStateExtension.get(currentState).bts$getFastId();
+                            }
+
+                            for (int t = 0; t < fastTargets.length; t++) {
+                                FastTarget target = fastTargets[t];
+                                boolean matched = target.matchesStateId(currentStateId);
+                                if (!matched && target.requiresFallbackState()) {
+                                    if (currentState == null) {
+                                        currentState = states[currentStateId];
                                     }
+                                    matched = target.fallbackRule().test(currentState, pRandom);
+                                }
 
-                                    if (cachedSection != null) {
-                                        int i3 = currX & 15;
-                                        int j3 = currY & 15;
-                                        int k3 = currZ & 15;
-                                        BlockState blockstate = cachedSection.getBlockState(i3, j3, k3);
-                                        Block currentBlock = blockstate.getBlock();
+                                if (!matched) {
+                                    continue;
+                                }
 
-                                        for (int t = 0; t < fastTargets.length; t++) {
-                                            FastTarget target = fastTargets[t];
-                                            boolean matched = false;
-
-                                            if (target.validBlocks() != null) {
-                                                for (int b = 0; b < target.validBlocks().length; b++) {
-                                                    if (currentBlock == target.validBlocks()[b]) {
-                                                        matched = true;
-                                                        break;
-                                                    }
-                                                }
-                                            } else {
-                                                matched = target.fallbackRule().test(blockstate, pRandom);
-                                            }
-
-                                            if (matched) {
-                                                boolean skipAirCheck = (airChance <= 0.0F) || (airChance < 1.0F && pRandom.nextFloat() < airChance);
-
-                                                blockpos$mutableblockpos.set(currX, currY, currZ);
-                                                if (skipAirCheck || !bts$isAdjacentToAirUltraFast(bulksectionaccess, cachedSection, currX, currY, currZ, i3, j3, k3, blockpos$mutableblockpos)) {
-                                                    cachedSection.setBlockState(i3, j3, k3, target.placementState(), false);
-                                                    placedCount++;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
+                                blockpos$mutableblockpos.set(currX, currY, currZ);
+                                if (bts$shouldSkipAirCheck(pRandom, airChance)
+                                        || !bts$isAdjacentToAirUltraFast(
+                                                bulksectionaccess,
+                                                cachedSection,
+                                                cachedRaw,
+                                                airStates,
+                                                currX,
+                                                currY,
+                                                currZ,
+                                                localX,
+                                                localY,
+                                                localZ,
+                                                sectionIndex,
+                                                blockpos$mutableblockpos
+                                        )) {
+                                    this.bts$commitPlacement(
+                                            pLevel,
+                                            bulksectionaccess,
+                                            cachedSection,
+                                            cachedRaw,
+                                            blockpos$mutableblockpos,
+                                            target,
+                                            localX,
+                                            localY,
+                                            localZ,
+                                            sectionIndex,
+                                            currentStateId,
+                                            airStates,
+                                            placementMayBeAir
+                                    );
+                                    placedCount++;
+                                    break;
                                 }
                             }
                         }
@@ -367,18 +413,16 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
         if (!matched) {
             return false;
-        } else {
-            float chance = pConfig.discardChanceOnAirExposure;
-            boolean skipAir = (chance <= 0.0F) || (chance < 1.0F && pRandom.nextFloat() < chance);
-
-            return skipAir || !fastIsAdjacentToAir(pAdjacentStateAccessor, pMutablePos);
         }
+
+        return bts$shouldSkipAirCheck(pRandom, pConfig.discardChanceOnAirExposure)
+                || !fastIsAdjacentToAir(pAdjacentStateAccessor, pMutablePos);
     }
 
     @Unique
     private static Block[] bts$unwrapRule(RuleTest rule) {
         if (rule instanceof BlockMatchTest bmt) {
-            return new Block[] { bmt.block };
+            return new Block[] {bmt.block};
         } else if (rule instanceof TagMatchTest tmt) {
             Iterable<Holder<Block>> tags = BuiltInRegistries.BLOCK.getTagOrEmpty(tmt.tag);
             List<Block> list = new ArrayList<>();
@@ -391,12 +435,120 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     }
 
     @Unique
+    private static CompiledTargets bts$compileTargets(OreConfiguration config) {
+        if (FastBlockStateCache.STATES == null) {
+            FastBlockStateCache.init(dev.sixik.generator_accelerator.GeneratorAccelerator.platform);
+        }
+
+        DefaultedRegistry<Block> registry = BuiltInRegistries.BLOCK;
+        int stateCount = FastBlockStateCache.STATES.length;
+        FastTarget[] targets = new FastTarget[config.targetStates.size()];
+        boolean hasFallbackTargets = false;
+        boolean placementMayBeAir = false;
+
+        for (int i = 0; i < config.targetStates.size(); i++) {
+            OreConfiguration.TargetBlockState target = config.targetStates.get(i);
+            RuleTest rule = target.target;
+            int singleStateId = -1;
+            int[] validStateIds = null;
+            boolean[] validStateIdMask = null;
+            RuleTest fallbackRule = null;
+            int placementStateId = GA$BlockStateExtension.get(target.state).bts$getFastId();
+            placementMayBeAir |= FastBlockStateCache.isAir(placementStateId);
+
+            if (rule instanceof BlockMatchTest bmt) {
+                StateSet stateSet = bts$collectStateIds(bmt.block, stateCount);
+                singleStateId = stateSet.singleStateId();
+                validStateIds = stateSet.validStateIds();
+                validStateIdMask = stateSet.validStateIdMask();
+            } else if (rule instanceof TagMatchTest tmt) {
+                Optional<HolderSet.Named<Block>> tagOpt = registry.getTag(tmt.tag);
+                if (tagOpt.isPresent()) {
+                    StateSet stateSet = bts$collectStateIds(tagOpt.get(), stateCount);
+                    singleStateId = stateSet.singleStateId();
+                    validStateIds = stateSet.validStateIds();
+                    validStateIdMask = stateSet.validStateIdMask();
+                } else {
+                    validStateIds = new int[0];
+                }
+            } else {
+                fallbackRule = rule;
+                hasFallbackTargets = true;
+            }
+
+            targets[i] = new FastTarget(singleStateId, validStateIds, validStateIdMask, fallbackRule, target.state, placementStateId);
+        }
+
+        return new CompiledTargets(targets, hasFallbackTargets, placementMayBeAir);
+    }
+
+    @Unique
+    private static StateSet bts$collectStateIds(Block block, int stateCount) {
+        List<BlockState> possibleStates = block.getStateDefinition().getPossibleStates();
+        int size = possibleStates.size();
+        if (size == 1) {
+            return new StateSet(GA$BlockStateExtension.get(possibleStates.getFirst()).bts$getFastId(), null, null);
+        }
+
+        IntArrayList ids = new IntArrayList(size);
+        for (int i = 0; i < size; i++) {
+            ids.add(GA$BlockStateExtension.get(possibleStates.get(i)).bts$getFastId());
+        }
+        return bts$packStateIds(ids, stateCount);
+    }
+
+    @Unique
+    private static StateSet bts$collectStateIds(HolderSet.Named<Block> tagData, int stateCount) {
+        ObjectArrayList<Holder<Block>> tagDataList = (ObjectArrayList<Holder<Block>>) tagData.contents();
+        Object[] tagDataArray = tagDataList.elements();
+        IntArrayList ids = new IntArrayList();
+
+        for (int entry = 0; entry < tagDataList.size(); entry++) {
+            Block block = ((Holder<Block>) tagDataArray[entry]).value();
+            List<BlockState> states = block.getStateDefinition().getPossibleStates();
+            for (int stateIndex = 0; stateIndex < states.size(); stateIndex++) {
+                ids.add(GA$BlockStateExtension.get(states.get(stateIndex)).bts$getFastId());
+            }
+        }
+
+        return bts$packStateIds(ids, stateCount);
+    }
+
+    @Unique
+    private static StateSet bts$packStateIds(IntArrayList ids, int stateCount) {
+        int size = ids.size();
+        if (size == 0) {
+            return new StateSet(-1, new int[0], null);
+        }
+        if (size == 1) {
+            return new StateSet(ids.getInt(0), null, null);
+        }
+        if (size <= 4) {
+            return new StateSet(-1, ids.toIntArray(), null);
+        }
+
+        boolean[] mask = new boolean[stateCount];
+        for (int i = 0; i < size; i++) {
+            int stateId = ids.getInt(i);
+            if (stateId >= 0 && stateId < stateCount) {
+                mask[stateId] = true;
+            }
+        }
+        return new StateSet(-1, null, mask);
+    }
+
+    @Unique
+    private static boolean bts$shouldSkipAirCheck(RandomSource random, float chance) {
+        return chance <= 0.0F || (chance < 1.0F && random.nextFloat() >= chance);
+    }
+
+    @Unique
     private static boolean fastIsAdjacentToAir(Function<BlockPos, BlockState> pAdjacentStateAccessor, BlockPos.MutableBlockPos pPos) {
         int x = pPos.getX();
         int y = pPos.getY();
         int z = pPos.getZ();
 
-        final Vec3i[] dir = BTS$DIRECTIONS;
+        Vec3i[] dir = BTS$DIRECTIONS;
         for (int i = 0; i < dir.length; i++) {
             pPos.setWithOffset(dir[i], x, y, z);
             if (pAdjacentStateAccessor.apply(pPos).isAir()) {
@@ -410,15 +562,84 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     }
 
     @Unique
+    private void bts$commitPlacement(
+            WorldGenLevel level,
+            BulkSectionAccess access,
+            LevelChunkSection section,
+            int[] raw,
+            BlockPos.MutableBlockPos pos,
+            FastTarget target,
+            int localX,
+            int localY,
+            int localZ,
+            int sectionIndex,
+            int previousStateId,
+            boolean[] airStates,
+            boolean placementMayBeAir
+    ) {
+        if (raw != null && (!placementMayBeAir || airStates[previousStateId] == airStates[target.placementStateId()])) {
+            raw[sectionIndex] = target.placementStateId();
+            return;
+        }
+
+        section.setBlockState(localX, localY, localZ, target.placementState(), false);
+    }
+
+    @Unique
     private boolean bts$isAdjacentToAirUltraFast(
             BulkSectionAccess access,
             LevelChunkSection section,
-            int globalX, int globalY, int globalZ,
-            int localX, int localY, int localZ,
+            int[] raw,
+            boolean[] airStates,
+            int globalX,
+            int globalY,
+            int globalZ,
+            int localX,
+            int localY,
+            int localZ,
+            int sectionIndex,
             BlockPos.MutableBlockPos pos
     ) {
+        if (raw != null) {
+            if (localX > 0) {
+                if (airStates[raw[sectionIndex - 1]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX - 1, globalY, globalZ, pos)) {
+                return true;
+            }
 
-        // Быстро получаем блоки из ChunkSection минуя тяжёлые вызовы у Level
+            if (localX < 15) {
+                if (airStates[raw[sectionIndex + 1]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX + 1, globalY, globalZ, pos)) {
+                return true;
+            }
+
+            if (localY > 0) {
+                if (airStates[raw[sectionIndex - 256]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX, globalY - 1, globalZ, pos)) {
+                return true;
+            }
+
+            if (localY < 15) {
+                if (airStates[raw[sectionIndex + 256]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX, globalY + 1, globalZ, pos)) {
+                return true;
+            }
+
+            if (localZ > 0) {
+                if (airStates[raw[sectionIndex - 16]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX, globalY, globalZ - 1, pos)) {
+                return true;
+            }
+
+            if (localZ < 15) {
+                if (airStates[raw[sectionIndex + 16]]) return true;
+            } else if (bts$isAirAt(access, airStates, globalX, globalY, globalZ + 1, pos)) {
+                return true;
+            }
+
+            return false;
+        }
+
         if (localX > 0 && localX < 15 && localY > 0 && localY < 15 && localZ > 0 && localZ < 15) {
             if (section.getBlockState(localX + 1, localY, localZ).isAir()) return true;
             if (section.getBlockState(localX - 1, localY, localZ).isAir()) return true;
@@ -429,14 +650,43 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             return false;
         }
 
-        // Если вдруг часть руды находиться в другом чанке то обращаемся через Level
-        pos.set(globalX + 1, globalY, globalZ); if (access.getBlockState(pos).isAir()) return true;
-        pos.set(globalX - 1, globalY, globalZ); if (access.getBlockState(pos).isAir()) return true;
-        pos.set(globalX, globalY + 1, globalZ); if (access.getBlockState(pos).isAir()) return true;
-        pos.set(globalX, globalY - 1, globalZ); if (access.getBlockState(pos).isAir()) return true;
-        pos.set(globalX, globalY, globalZ + 1); if (access.getBlockState(pos).isAir()) return true;
-        pos.set(globalX, globalY, globalZ - 1); if (access.getBlockState(pos).isAir()) return true;
+        return bts$isAirAt(access, airStates, globalX + 1, globalY, globalZ, pos)
+                || bts$isAirAt(access, airStates, globalX - 1, globalY, globalZ, pos)
+                || bts$isAirAt(access, airStates, globalX, globalY + 1, globalZ, pos)
+                || bts$isAirAt(access, airStates, globalX, globalY - 1, globalZ, pos)
+                || bts$isAirAt(access, airStates, globalX, globalY, globalZ + 1, pos)
+                || bts$isAirAt(access, airStates, globalX, globalY, globalZ - 1, pos);
+    }
 
-        return false;
+    @Unique
+    private boolean bts$isAirAt(
+            BulkSectionAccess access,
+            boolean[] airStates,
+            int globalX,
+            int globalY,
+            int globalZ,
+            BlockPos.MutableBlockPos pos
+    ) {
+        pos.set(globalX, globalY, globalZ);
+        LevelChunkSection neighborSection = access.getSection(pos);
+        if (neighborSection == null) {
+            return true;
+        }
+
+        int[] neighborRaw = LevelChunkSection$FlatBlockArray.get(neighborSection).bts$getRawBlockData();
+        if (neighborRaw != null) {
+            int index = ((globalY & 15) << 8) | ((globalZ & 15) << 4) | (globalX & 15);
+            return airStates[neighborRaw[index]];
+        }
+
+        return access.getBlockState(pos).isAir();
+    }
+
+    @Unique
+    private record CompiledTargets(FastTarget[] targets, boolean hasFallbackTargets, boolean placementMayBeAir) {
+    }
+
+    @Unique
+    private record StateSet(int singleStateId, int[] validStateIds, boolean[] validStateIdMask) {
     }
 }

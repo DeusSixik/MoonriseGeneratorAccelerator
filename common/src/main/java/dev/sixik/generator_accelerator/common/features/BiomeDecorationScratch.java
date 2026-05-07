@@ -12,10 +12,16 @@ public final class BiomeDecorationScratch {
     private final IntArrayList featureIndices = new IntArrayList(128);
     private long[] featureMask = new long[2];
     private int featureMaskWordCount;
+    private long[][][] biomeFeatureMasks = new long[8][][];
+    private int biomeFeatureMaskCount;
+    private final int[] biomePaletteIndices = new int[64];
 
     public void beginStep(int featureCount) {
+        this.beginStepWords((featureCount + Long.SIZE - 1) >>> 6);
+    }
+
+    public void beginStepWords(int requiredWords) {
         this.featureIndices.clear();
-        int requiredWords = (featureCount + Long.SIZE - 1) >>> 6;
         if (requiredWords > this.featureMask.length) {
             int next = this.featureMask.length;
             while (next < requiredWords) {
@@ -27,6 +33,44 @@ public final class BiomeDecorationScratch {
             Arrays.fill(this.featureMask, 0, requiredWords, 0L);
         }
         this.featureMaskWordCount = requiredWords;
+    }
+
+    public void beginBiomeFeatureMasks(int expectedCount) {
+        this.clearBiomeFeatureMasks();
+        if (expectedCount > this.biomeFeatureMasks.length) {
+            int next = this.biomeFeatureMasks.length;
+            while (next < expectedCount) {
+                next = next + (next >> 1) + 1;
+            }
+            this.biomeFeatureMasks = Arrays.copyOf(this.biomeFeatureMasks, next);
+        }
+        this.biomeFeatureMaskCount = 0;
+    }
+
+    public void clearBiomeFeatureMasks() {
+        if (this.biomeFeatureMaskCount > 0) {
+            Arrays.fill(this.biomeFeatureMasks, 0, this.biomeFeatureMaskCount, null);
+            this.biomeFeatureMaskCount = 0;
+        }
+    }
+
+    public void addBiomeFeatureMasks(long[][] masksByStep) {
+        if (this.biomeFeatureMaskCount >= this.biomeFeatureMasks.length) {
+            this.biomeFeatureMasks = Arrays.copyOf(this.biomeFeatureMasks, this.biomeFeatureMasks.length + (this.biomeFeatureMasks.length >> 1) + 1);
+        }
+        this.biomeFeatureMasks[this.biomeFeatureMaskCount++] = masksByStep;
+    }
+
+    public long[][][] biomeFeatureMasks() {
+        return this.biomeFeatureMasks;
+    }
+
+    public int biomeFeatureMaskCount() {
+        return this.biomeFeatureMaskCount;
+    }
+
+    public int[] biomePaletteIndices() {
+        return this.biomePaletteIndices;
     }
 
     public void addFeatureMask(long[] mask) {

@@ -37,9 +37,13 @@ public final class StepFeatureCache {
     }
 
     public long[] featureMaskFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter, int step) {
-        long[][] byStep = this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter)).masksByStep;
+        long[][] byStep = this.featureMasksFor(biome, generationSettingsGetter);
         long[] mask = byStep[step];
         return mask == null ? EMPTY_MASK : mask;
+    }
+
+    public long[][] featureMasksFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
+        return this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter)).masksByStep;
     }
 
     private BiomeFeatureData buildFeatureData(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {

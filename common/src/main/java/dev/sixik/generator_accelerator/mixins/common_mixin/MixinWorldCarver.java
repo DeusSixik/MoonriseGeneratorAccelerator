@@ -1,6 +1,13 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskExtension;
+import dev.sixik.generator_accelerator.common.carver.CarveStateScratch;
+import dev.sixik.generator_accelerator.common.carver.CarverChunkWriter;
+import dev.sixik.generator_accelerator.common.carver.CarverReplaceableCache;
+import dev.sixik.generator_accelerator.common.carver.CanyonSkipChecker;
+import dev.sixik.generator_accelerator.common.carver.CaveSkipChecker;
+import dev.sixik.generator_accelerator.common.carver.MutableFunctionContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.ChunkPos;
@@ -10,7 +17,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Aquifer;
-import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.carver.CarverConfiguration;
 import net.minecraft.world.level.levelgen.carver.CarvingContext;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
@@ -28,9 +34,35 @@ import java.util.function.Function;
 @Mixin(WorldCarver.class)
 public abstract class MixinWorldCarver<C extends CarverConfiguration> {
 
-    @Shadow
-    @Final
-    protected static FluidState LAVA;
+    @Unique
+    private static final int GA$NO_DIRECT_STATE = Integer.MIN_VALUE;
+
+    @Unique
+    private static final boolean GA$FAST_SIMPLE_CAVE_STATE = !"false".equalsIgnoreCase(System.getProperty("ga.carver.fastSimpleCaveState", "true"));
+
+    @Unique
+    private static final boolean GA$FAST_SKIP_TOP_MATERIAL = !"false".equalsIgnoreCase(System.getProperty("ga.carver.fastSkipTopMaterial", "true"));
+
+    @Unique
+    private static final BlockState GA$CAVE_AIR_BLOCK = Blocks.CAVE_AIR.defaultBlockState();
+
+    @Unique
+    private static final BlockState GA$LAVA_BLOCK = Blocks.LAVA.defaultBlockState();
+
+    @Unique
+    private static final int GA$CAVE_AIR_STATE_ID = GA$BlockStateExtension.get(GA$CAVE_AIR_BLOCK).bts$getFastId();
+
+    @Unique
+    private static final int GA$LAVA_STATE_ID = GA$BlockStateExtension.get(GA$LAVA_BLOCK).bts$getFastId();
+
+    @Unique
+    private static final int GA$GRASS_STATE_ID = GA$BlockStateExtension.get(Blocks.GRASS_BLOCK.defaultBlockState()).bts$getFastId();
+
+    @Unique
+    private static final int GA$MYCELIUM_STATE_ID = GA$BlockStateExtension.get(Blocks.MYCELIUM.defaultBlockState()).bts$getFastId();
+
+    @Unique
+    private static final int GA$DIRT_STATE_ID = GA$BlockStateExtension.get(Blocks.DIRT.defaultBlockState()).bts$getFastId();
 
     @Shadow
     protected abstract boolean canReplaceBlock(C carverConfiguration, BlockState blockState);
@@ -46,7 +78,13 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     }
 
     @Unique
-    private final ThreadLocal<GA$MutableFunctionContext> ga$mutableFunctionContext = ThreadLocal.withInitial(GA$MutableFunctionContext::new);
+    private ThreadLocal<MutableFunctionContext> ga$mutableFunctionContext;
+
+    @Unique
+    private ThreadLocal<CarveStateScratch> ga$carveStateScratch;
+
+    @Unique
+    private ThreadLocal<CarverChunkWriter> ga$carverChunkWriter;
 
     /**
      * @author Sixik
@@ -92,46 +130,95 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
         BlockPos.MutableBlockPos belowPos = new BlockPos.MutableBlockPos();
         MutableBoolean surfaceHit = new MutableBoolean();
         GA$CarvingMaskExtension maskExtension = (GA$CarvingMaskExtension) carvingMask;
+        CarveStateScratch carveStateScratch = this.ga$getCarveStateScratch();
+        CarverChunkWriter chunkWriter = this.ga$getCarverChunkWriter();
+        boolean restoreSurface = !GA$FAST_SIMPLE_CAVE_STATE || debug || !GA$FAST_SKIP_TOP_MATERIAL;
+        carveStateScratch.set(
+                carverConfiguration.lavaLevel.resolveY(carvingContext),
+                debug,
+                restoreSurface,
+                debug ? null : CarverReplaceableCache.get(carverConfiguration)
+        );
+        chunkWriter.begin(chunkAccess);
 
-        for (int localX = minX; localX <= maxX; ++localX) {
-            int blockX = chunkPos.getBlockX(localX);
-            double scaledX = ((double) blockX + 0.5D - d) / g;
+        CaveSkipChecker caveSkipChecker = carveSkipChecker instanceof CaveSkipChecker checker ? checker : null;
+        CanyonSkipChecker canyonSkipChecker = carveSkipChecker instanceof CanyonSkipChecker checker ? checker : null;
+        double inverseHorizontalRadius = 1.0D / g;
+        double inverseVerticalRadius = 1.0D / h;
+        double scaledZStart = ((double) (minBlockZ + minZ) + 0.5D - f) * inverseHorizontalRadius;
 
-            for (int localZ = minZ; localZ <= maxZ; ++localZ) {
-                int blockZ = chunkPos.getBlockZ(localZ);
-                double scaledZ = ((double) blockZ + 0.5D - f) / g;
-                if (scaledX * scaledX + scaledZ * scaledZ >= 1.0D) {
-                    continue;
-                }
+        try {
+            for (int localX = minX; localX <= maxX; ++localX) {
+                int blockX = minBlockX + localX;
+                double scaledX = ((double) blockX + 0.5D - d) * inverseHorizontalRadius;
+                double scaledX2 = scaledX * scaledX;
+                double scaledZ = scaledZStart;
 
-                surfaceHit.setFalse();
-                for (int y = maxY; y > minY; --y) {
-                    double scaledY = ((double) y - 0.5D - e) / h;
-                    if (carveSkipChecker.shouldSkip(carvingContext, scaledX, scaledY, scaledZ, y)) {
+                for (int localZ = minZ; localZ <= maxZ; ++localZ) {
+                    int blockZ = minBlockZ + localZ;
+                    double scaledXZ = scaledX2 + scaledZ * scaledZ;
+                    if (scaledXZ >= 1.0D) {
+                        scaledZ += inverseHorizontalRadius;
                         continue;
                     }
 
-                    if (!maskExtension.ga$setIfAbsent(localX, y, localZ)) {
-                        if (!debug) {
+                    surfaceHit.setFalse();
+                    double scaledY = ((double) maxY - 0.5D - e) * inverseVerticalRadius;
+                    int canyonWidthIndex = canyonSkipChecker != null ? maxY - canyonSkipChecker.getMinGenY() - 1 : -1;
+                    for (int y = maxY; y > minY; --y) {
+                        double scaledY2 = scaledY * scaledY;
+                        if (caveSkipChecker != null) {
+                            if (scaledY <= caveSkipChecker.getFloorLevel() || scaledXZ + scaledY2 >= 1.0D) {
+                                scaledY -= inverseVerticalRadius;
+                                continue;
+                            }
+                        } else if (canyonSkipChecker != null) {
+                            if (scaledXZ * canyonSkipChecker.getWidthFactors()[canyonWidthIndex] + scaledY2 * (1.0D / 6.0D) >= 1.0D) {
+                                scaledY -= inverseVerticalRadius;
+                                canyonWidthIndex--;
+                                continue;
+                            }
+                        } else if (carveSkipChecker.shouldSkip(carvingContext, scaledX, scaledY, scaledZ, y)) {
+                            scaledY -= inverseVerticalRadius;
                             continue;
                         }
-                        carvingMask.set(localX, y, localZ);
+
+                        if (!maskExtension.ga$setIfAbsent(localX, y, localZ)) {
+                            if (!debug) {
+                                scaledY -= inverseVerticalRadius;
+                                if (canyonWidthIndex >= 0) {
+                                    canyonWidthIndex--;
+                                }
+                                continue;
+                            }
+                            carvingMask.set(localX, y, localZ);
+                        }
+
+                        carvePos.set(blockX, y, blockZ);
+                        carvedAny |= this.carveBlock(
+                                carvingContext,
+                                carverConfiguration,
+                                chunkAccess,
+                                function,
+                                carvingMask,
+                                carvePos,
+                                belowPos,
+                                aquifer,
+                                surfaceHit
+                        );
+
+                        scaledY -= inverseVerticalRadius;
+                        if (canyonWidthIndex >= 0) {
+                            canyonWidthIndex--;
+                        }
                     }
 
-                    carvePos.set(blockX, y, blockZ);
-                    carvedAny |= this.carveBlock(
-                            carvingContext,
-                            carverConfiguration,
-                            chunkAccess,
-                            function,
-                            carvingMask,
-                            carvePos,
-                            belowPos,
-                            aquifer,
-                            surfaceHit
-                    );
+                    scaledZ += inverseHorizontalRadius;
                 }
             }
+        } finally {
+            chunkWriter.end();
+            carveStateScratch.clear();
         }
 
         return carvedAny;
@@ -153,35 +240,69 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             Aquifer aquifer,
             MutableBoolean mutableBoolean
     ) {
-        BlockState originalState = chunkAccess.getBlockState(mutableBlockPos);
-        if (originalState.is(Blocks.GRASS_BLOCK) || originalState.is(Blocks.MYCELIUM)) {
+        CarverChunkWriter chunkWriter = this.ga$getCarverChunkWriter();
+        int originalStateId = chunkWriter.getStateId(mutableBlockPos);
+        CarveStateScratch carveStateScratch = this.ga$getCarveStateScratch();
+        boolean restoreSurface = !carveStateScratch.isActive() || carveStateScratch.shouldRestoreSurface();
+        if (restoreSurface && (originalStateId == GA$GRASS_STATE_ID || originalStateId == GA$MYCELIUM_STATE_ID)) {
             mutableBoolean.setTrue();
         }
 
-        if (!this.canReplaceBlock(carverConfiguration, originalState) && !isDebugEnabled(carverConfiguration)) {
-            return false;
+        boolean debug = carveStateScratch.isActive() ? carveStateScratch.isDebug() : isDebugEnabled(carverConfiguration);
+        if (!debug) {
+            if (carveStateScratch.isActive()) {
+                boolean[] replaceableStateIds = carveStateScratch.getReplaceableStateIds();
+                if (originalStateId < 0 || originalStateId >= replaceableStateIds.length || !replaceableStateIds[originalStateId]) {
+                    return false;
+                }
+            } else if (!this.canReplaceBlock(carverConfiguration, chunkWriter.getBlockState(mutableBlockPos))) {
+                return false;
+            }
         }
 
-        BlockState carvedState = this.ga$getCarveState(carvingContext, carverConfiguration, mutableBlockPos, aquifer);
-        if (carvedState == null) {
-            return false;
+        int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, mutableBlockPos, carveStateScratch, debug);
+        BlockState carvedState;
+        if (carvedStateId != GA$NO_DIRECT_STATE) {
+            carvedState = carvedStateId == GA$CAVE_AIR_STATE_ID ? GA$CAVE_AIR_BLOCK : GA$LAVA_BLOCK;
+        } else {
+            carvedState = this.ga$getCarveState(carvingContext, carverConfiguration, mutableBlockPos, aquifer, debug);
+            if (carvedState == null) {
+                return false;
+            }
+            carvedStateId = GA$BlockStateExtension.get(carvedState).bts$getFastId();
         }
 
-        chunkAccess.setBlockState(mutableBlockPos, carvedState, false);
+        if (chunkWriter.isActive()) {
+            chunkWriter.setStateId(mutableBlockPos, carvedStateId, carvedState);
+        } else {
+            chunkAccess.setBlockState(mutableBlockPos, carvedState, false);
+        }
         FluidState carvedFluid = carvedState.getFluidState();
         if (aquifer.shouldScheduleFluidUpdate() && !carvedFluid.isEmpty()) {
-            chunkAccess.markPosForPostprocessing(mutableBlockPos);
+            if (chunkWriter.isActive()) {
+                chunkWriter.markPosForPostprocessing(mutableBlockPos);
+            } else {
+                chunkAccess.markPosForPostprocessing(mutableBlockPos);
+            }
         }
 
-        if (mutableBoolean.isTrue()) {
+        if (restoreSurface && mutableBoolean.isTrue()) {
             mutableBlockPos2.setWithOffset(mutableBlockPos, net.minecraft.core.Direction.DOWN);
-            if (chunkAccess.getBlockState(mutableBlockPos2).is(Blocks.DIRT)) {
+            if (chunkWriter.getStateId(mutableBlockPos2) == GA$DIRT_STATE_ID) {
                 Optional<BlockState> topMaterial = carvingContext.topMaterial(function, chunkAccess, mutableBlockPos2, !carvedFluid.isEmpty());
                 if (topMaterial.isPresent()) {
                     BlockState state = topMaterial.get();
-                    chunkAccess.setBlockState(mutableBlockPos2, state, false);
+                    if (chunkWriter.isActive()) {
+                        chunkWriter.setBlockState(mutableBlockPos2, state);
+                    } else {
+                        chunkAccess.setBlockState(mutableBlockPos2, state, false);
+                    }
                     if (!state.getFluidState().isEmpty()) {
-                        chunkAccess.markPosForPostprocessing(mutableBlockPos2);
+                        if (chunkWriter.isActive()) {
+                            chunkWriter.markPosForPostprocessing(mutableBlockPos2);
+                        } else {
+                            chunkAccess.markPosForPostprocessing(mutableBlockPos2);
+                        }
                     }
                 }
             }
@@ -191,47 +312,71 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     }
 
     @Unique
-    private BlockState ga$getCarveState(CarvingContext carvingContext, C carverConfiguration, BlockPos blockPos, Aquifer aquifer) {
-        if (blockPos.getY() <= carverConfiguration.lavaLevel.resolveY(carvingContext)) {
-            return LAVA.createLegacyBlock();
+    private int ga$getDirectCarveStateId(
+            CarvingContext carvingContext,
+            C carverConfiguration,
+            BlockPos blockPos,
+            CarveStateScratch carveStateScratch,
+            boolean debug
+    ) {
+        int lavaLevel = carveStateScratch.isActive() ? carveStateScratch.getLavaLevel() : carverConfiguration.lavaLevel.resolveY(carvingContext);
+        if (blockPos.getY() <= lavaLevel) {
+            return GA$LAVA_STATE_ID;
         }
 
-        GA$MutableFunctionContext functionContext = this.ga$mutableFunctionContext.get();
+        if (GA$FAST_SIMPLE_CAVE_STATE && !debug) {
+            return GA$CAVE_AIR_STATE_ID;
+        }
+
+        return GA$NO_DIRECT_STATE;
+    }
+
+    @Unique
+    private BlockState ga$getCarveState(
+            CarvingContext carvingContext,
+            C carverConfiguration,
+            BlockPos blockPos,
+            Aquifer aquifer,
+            boolean debug
+    ) {
+        MutableFunctionContext functionContext = this.ga$getMutableFunctionContext();
         functionContext.set(blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
         BlockState state = aquifer.computeSubstance(functionContext, 0.0D);
         if (state == null) {
-            return isDebugEnabled(carverConfiguration) ? carverConfiguration.debugSettings.getBarrierState() : null;
+            return debug ? carverConfiguration.debugSettings.getBarrierState() : null;
         }
 
-        return isDebugEnabled(carverConfiguration) ? getDebugState(carverConfiguration, state) : state;
+        return debug ? getDebugState(carverConfiguration, state) : state;
     }
 
     @Unique
-    private static final class GA$MutableFunctionContext implements DensityFunction.FunctionContext {
-        private int x;
-        private int y;
-        private int z;
-
-        void set(int x, int y, int z) {
-            this.x = x;
-            this.y = y;
-            this.z = z;
+    private MutableFunctionContext ga$getMutableFunctionContext() {
+        ThreadLocal<MutableFunctionContext> context = this.ga$mutableFunctionContext;
+        if (context == null) {
+            context = ThreadLocal.withInitial(MutableFunctionContext::new);
+            this.ga$mutableFunctionContext = context;
         }
+        return context.get();
+    }
 
-        @Override
-        public int blockX() {
-            return this.x;
+    @Unique
+    private CarveStateScratch ga$getCarveStateScratch() {
+        ThreadLocal<CarveStateScratch> scratch = this.ga$carveStateScratch;
+        if (scratch == null) {
+            scratch = ThreadLocal.withInitial(CarveStateScratch::new);
+            this.ga$carveStateScratch = scratch;
         }
+        return scratch.get();
+    }
 
-        @Override
-        public int blockY() {
-            return this.y;
+    @Unique
+    private CarverChunkWriter ga$getCarverChunkWriter() {
+        ThreadLocal<CarverChunkWriter> writer = this.ga$carverChunkWriter;
+        if (writer == null) {
+            writer = ThreadLocal.withInitial(CarverChunkWriter::new);
+            this.ga$carverChunkWriter = writer;
         }
-
-        @Override
-        public int blockZ() {
-            return this.z;
-        }
+        return writer.get();
     }
 }
