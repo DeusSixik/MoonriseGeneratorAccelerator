@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
 
 import java.util.Arrays;
+import java.util.Map;
 
 public class GAModernFixMixinPlugin extends GAMixinPlugin {
 
@@ -16,15 +17,16 @@ public class GAModernFixMixinPlugin extends GAMixinPlugin {
     @Override
     public void onLoad(String s) {
         final String modernFixFoldersMixin = "dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix";
-        final String[] modernFixMixins = {
-            "ModernFix$ChunkStatusTasksMixin",
-            "ModernFix$ChunkHolderReleaseProtoChunksMixin",
-            "ModernFix$GenerationChunkHolderAccessor",
-            "ModernFixChunkMapReleaseProtoChunksMixin"
-        };
+
+        Map<String, String> modernFixMap = Map.of(
+                "ModernFix$ChunkStatusTasksMixin", "org.embeddedt.modernfix.common.mixin.bugfix.chunk_deadlock.ChunkMapLoadMixin",
+                "ModernFix$ChunkHolderReleaseProtoChunksMixin", "",
+                "ModernFix$GenerationChunkHolderAccessor", "",
+                "ModernFixChunkMapReleaseProtoChunksMixin", ""
+        );
 
         create("org.embeddedt.modernfix.ModernFix",
-                Arrays.stream(modernFixMixins).map((value) -> new MixinApplier.Param(modernFixFoldersMixin + value, "")).toArray(MixinApplier.Param[]::new)
+                modernFixMap.entrySet().stream().map((entry) -> new MixinApplier.Param(modernFixFoldersMixin + entry.getKey(), entry.getValue())).toArray(MixinApplier.Param[]::new)
         );
     }
 }
