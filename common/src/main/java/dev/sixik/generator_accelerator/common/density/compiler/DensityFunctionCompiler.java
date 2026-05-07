@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.CommandDispatcher;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
@@ -65,6 +66,29 @@ public final class DensityFunctionCompiler {
                                             + (result.failed() == 0 ? "" : " (" + result.failed() + " failed)")),
                                     false);
                             return result.classesDumped();
+                        }))
+                .then(Commands.literal("cellfillparity")
+                        .executes(context -> {
+                            DfcCellFillParity.Stats stats = DfcCellFillParity.snapshotStats();
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "DFC cell-fill parity: enabled=" + stats.enabled()
+                                            + ", candidates=" + stats.candidates()
+                                            + ", fastEligible=" + stats.fastEligible()
+                                            + ", lazyFastEligible=" + stats.lazyFastEligible()
+                                            + ", fallbacks=" + stats.fallbacks()
+                                            + ", checks=" + stats.checks()
+                                            + ", passes=" + stats.passes()
+                                            + ", failures=" + stats.failures()
+                                            + ", skipped=" + stats.skipped()
+                                            + ", remaining=" + stats.remaining() + "/" + stats.maxChecks()
+                                            + ", epsilon=" + stats.epsilon()),
+                                    false);
+                            if (!stats.fallbackClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill fallback classes: " + String.join(", ", stats.fallbackClasses())),
+                                        false);
+                            }
+                            return (int) stats.failures();
                         })));
     }
 

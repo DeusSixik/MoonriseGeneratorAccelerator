@@ -182,6 +182,7 @@ public final class Codegen {
     static final String NOISE_CHUNK_INTERNAL = "net/minecraft/world/level/levelgen/NoiseChunk";
     /** Reference desc for a {@code NoiseChunk}. */
     static final String NOISE_CHUNK_DESC = "L" + NOISE_CHUNK_INTERNAL + ";";
+    private static final String CELL_FILL_DESC = "([D" + NOISE_CHUNK_DESC + ")V";
     private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_DESC =
             "L" + DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL + ";";
 
@@ -1073,6 +1074,64 @@ public final class Codegen {
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, COMPILED_BASE_INTERNAL, "fillArray", desc, false);
         mv.visitInsn(Opcodes.RETURN);
 
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        emitLatticeFillCellScalarOnly(cw, latticePlan);
+    }
+
+    private static void emitLatticeFillCellScalarOnly(ClassWriter cw, CellLatticeOption.LatticePlan latticePlan) {
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
+        mv.visitCode();
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellWidth", "I");
+        mv.visitVarInsn(Opcodes.ISTORE, 4);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
+        mv.visitVarInsn(Opcodes.ISTORE, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+
+        if (latticePlan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY) {
+            emitLatticeFillArrayScalarXZHoistLoops(mv, LATTICE_INNER_XZ_NAME);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitVarInsn(Opcodes.ILOAD, 4);
+            mv.visitVarInsn(Opcodes.ILOAD, 4);
+            mv.visitInsn(Opcodes.IMUL);
+            mv.visitVarInsn(Opcodes.ILOAD, 5);
+            mv.visitInsn(Opcodes.IMUL);
+            mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+            mv.visitInsn(Opcodes.RETURN);
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+            return;
+        }
+
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitInsn(Opcodes.ISUB);
+        mv.visitVarInsn(Opcodes.ISTORE, 6);
+        Label yLoopHead = new Label();
+        Label yLoopExit = new Label();
+        mv.visitLabel(yLoopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 6);
+        mv.visitJumpInsn(Opcodes.IFLT, yLoopExit);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, 6);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInvokeDynamicInsn(LATTICE_Y_NAME, HELPER_DESC, HELPER_BSM);
+        mv.visitVarInsn(Opcodes.DSTORE, 11);
+        emitLatticeFillArrayInnerScalarXZ(mv, LATTICE_INNER_NAME);
+        mv.visitIincInsn(6, -1);
+        mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
+        mv.visitLabel(yLoopExit);
+        mv.visitInsn(Opcodes.RETURN);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
     }
@@ -2003,6 +2062,16 @@ public final class Codegen {
         mv.visitInsn(Opcodes.RETURN);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+
+        MethodVisitor cell = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
+        cell.visitCode();
+        cell.visitVarInsn(Opcodes.ALOAD, 0);
+        cell.visitVarInsn(Opcodes.ALOAD, 1);
+        cell.visitVarInsn(Opcodes.ALOAD, 2);
+        cell.visitMethodInsn(Opcodes.INVOKESPECIAL, classInternalName, LATTICE_XZ_SLAB_FILL_BODY, bodyDesc, false);
+        cell.visitInsn(Opcodes.RETURN);
+        cell.visitMaxs(0, 0);
+        cell.visitEnd();
     }
 
     private static void emitLatticeFillArraySliceXzNativeFastPath(MethodVisitor mv,

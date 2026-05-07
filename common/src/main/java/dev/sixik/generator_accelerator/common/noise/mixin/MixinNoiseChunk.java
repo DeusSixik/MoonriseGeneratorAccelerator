@@ -5,6 +5,9 @@ import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -101,6 +104,14 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
     private NoiseChunk.CacheAllInCell[] bts$cellCachesArray;
+    @Unique
+    private DensityFunction[] bts$cellCacheFillers;
+    @Unique
+    private DfcCellFillAccess[] bts$cellCacheFastFillers;
+    @Unique
+    private boolean[] bts$cellCacheLazyFastFillers;
+    @Unique
+    private double[][] bts$cellCacheValues;
 
     @Unique
     private double[] bts$interpolatorSlice0Flat;
@@ -169,9 +180,10 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
         /*
             Converting lists to arrays for quick access
-         */
+        */
         this.bts$interpolatorsArray = this.interpolators.toArray(new NoiseChunk.NoiseInterpolator[0]);
         this.bts$cellCachesArray = this.cellCaches.toArray(new NoiseChunk.CacheAllInCell[0]);
+        this.bts$initCellCacheArrays();
         bts$initInterpolatorSoA();
 
         /*
@@ -189,6 +201,26 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.reusableContext = new CachedPointContext();
 
         this.sliceBuffer = new double[this.cellCountY + 1];
+    }
+
+    @Unique
+    private void bts$initCellCacheArrays() {
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final int length = caches.length;
+        this.bts$cellCacheFillers = new DensityFunction[length];
+        this.bts$cellCacheFastFillers = new DfcCellFillAccess[length];
+        this.bts$cellCacheLazyFastFillers = new boolean[length];
+        this.bts$cellCacheValues = new double[length][];
+
+        for (int i = 0; i < length; i++) {
+            final NoiseChunk.CacheAllInCell cache = caches[i];
+            final DensityFunction filler = cache.noiseFiller;
+            this.bts$cellCacheFillers[i] = filler;
+            this.bts$cellCacheValues[i] = cache.values;
+            if (filler instanceof DfcCellFillAccess access) {
+                this.bts$cellCacheFastFillers[i] = access;
+            }
+        }
     }
 
     @Unique
@@ -254,10 +286,37 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.cellStartBlockZ = (this.firstCellZ + zIndex) * this.cellWidth;
         ++this.arrayInterpolationCounter;
 
-        final var array = bts$cellCachesArray;
-        for (int i = 0; i < array.length; i++) {
-            final NoiseChunk.CacheAllInCell cache = array[i];
-            cache.noiseFiller.fillArray(cache.values, (NoiseChunk) (Object) this);
+        final NoiseChunk self = (NoiseChunk) (Object) this;
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final DensityFunction[] fillers = this.bts$cellCacheFillers;
+        final DfcCellFillAccess[] fastFillers = this.bts$cellCacheFastFillers;
+        final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
+        final double[][] valuesArray = this.bts$cellCacheValues;
+        for (int i = 0; i < fillers.length; i++) {
+            final DensityFunction filler = fillers[i];
+            DfcCellFillAccess fast = fastFillers[i];
+
+            if (fast == null && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
+                fast = access.dfc$getOrCompileCellFiller();
+                if (fast != null) {
+                    fastFillers[i] = fast;
+                    lazyFastFillers[i] = true;
+                }
+            }
+
+            final double[] values = valuesArray[i];
+            if (fast != null) {
+                fast.dfc$fillCell(values, self);
+                if (DfcCellFillParity.ENABLED) {
+                    DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
+                    DfcCellFillParity.check(filler, values, self);
+                }
+            } else {
+                if (DfcCellFillParity.ENABLED) {
+                    DfcCellFillParity.recordCandidate(filler, false, false);
+                }
+                filler.fillArray(values, self);
+            }
         }
 
         ++this.arrayInterpolationCounter;
