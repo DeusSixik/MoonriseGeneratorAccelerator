@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class DfcCellFillStats {
     public static final boolean ENABLED = Boolean.getBoolean("dfc.cellfill.stats");
+    public static final boolean RESIDUAL_CLASS_DEBUG_ENABLED =
+            ENABLED && Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug");
 
     private static final LongAdder CELL_SCALAR = new LongAdder();
     private static final LongAdder CELL_COMPILED = new LongAdder();
@@ -27,6 +29,7 @@ public final class DfcCellFillStats {
     private static final LongAdder COLUMNS_NATIVE_INNER = new LongAdder();
     private static final ConcurrentHashMap<String, ClassStatsCounter> FAST_FILLER_CLASSES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> SOURCE_FILLER_CLASSES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> RESIDUAL_EXTERN_FALLBACK_CLASSES = new ConcurrentHashMap<>();
 
     private DfcCellFillStats() {
     }
@@ -46,14 +49,16 @@ public final class DfcCellFillStats {
                         long cellExternAccumulate, long cellExternScalarResidual,
                         long columnsJavaBatched, long columnsNativeInner, boolean enabled,
                         List<ClassStats> fastFillerClasses, List<ClassDebugStats> fastFillerDebugClasses,
-                        List<String> sourceFillerClasses) {
+                        List<String> sourceFillerClasses,
+                        List<String> residualExternFallbackClasses) {
     }
 
     public static Stats snapshot() {
         return new Stats(CELL_SCALAR.sum(), CELL_COMPILED.sum(), CELL_NATIVE_SLAB_INNER.sum(), CELL_UNKNOWN.sum(),
                 CELL_XZ_SLAB.sum(), COLUMNS_SCALAR.sum(), CELL_EXTERN_ACCUMULATE.sum(), CELL_EXTERN_SCALAR_RESIDUAL.sum(),
                 COLUMNS_JAVA_BATCHED.sum(), COLUMNS_NATIVE_INNER.sum(), ENABLED,
-                snapshotFastFillerClasses(), snapshotFastFillerDebugClasses(), snapshotSourceFillerClasses());
+                snapshotFastFillerClasses(), snapshotFastFillerDebugClasses(), snapshotSourceFillerClasses(),
+                snapshotResidualExternFallbackClasses());
     }
 
     public static void recordCellFill(DfcCellFillAccess filler, DensityFunction sourceFiller) {
@@ -127,6 +132,20 @@ public final class DfcCellFillStats {
         return out;
     }
 
+    private static List<String> snapshotResidualExternFallbackClasses() {
+        List<SourceClassStats> raw = new ArrayList<>(RESIDUAL_EXTERN_FALLBACK_CLASSES.size());
+        RESIDUAL_EXTERN_FALLBACK_CLASSES.forEach((name, counter) -> raw.add(new SourceClassStats(name, counter.sum())));
+        raw.sort(Comparator.comparingLong(SourceClassStats::calls).reversed().thenComparing(SourceClassStats::className));
+        List<String> out = new ArrayList<>(raw.size());
+        for (SourceClassStats stat : raw) {
+            out.add(stat.className() + "=" + stat.calls());
+        }
+        if (out.size() > 8) {
+            return new ArrayList<>(out.subList(0, 8));
+        }
+        return out;
+    }
+
     public static void recordCellScalar() {
         CELL_SCALAR.increment();
     }
@@ -147,6 +166,15 @@ public final class DfcCellFillStats {
             return;
         }
         CELL_EXTERN_SCALAR_RESIDUAL.increment();
+    }
+
+    public static void recordCellExternScalarResidualClass(Object residualExtern) {
+        if (!RESIDUAL_CLASS_DEBUG_ENABLED || residualExtern == null) {
+            return;
+        }
+        RESIDUAL_EXTERN_FALLBACK_CLASSES
+                .computeIfAbsent(residualExtern.getClass().getName(), ignored -> new LongAdder())
+                .increment();
     }
 
     public static void recordColumnScalar() {

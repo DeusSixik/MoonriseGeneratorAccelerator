@@ -10,9 +10,8 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs "-Ddfc.cellfill.parity=true",
-                    "-Ddfc.cellfill.parity.maxChecks=2048",
-                    "-Ddfc.cellfill.stats=true"
+            vmArgs  "-Ddfc.cellfill.stats.residualClassDebug=false",
+                    "-Ddfc.cellfill.stats=false"
         }
     }
 }

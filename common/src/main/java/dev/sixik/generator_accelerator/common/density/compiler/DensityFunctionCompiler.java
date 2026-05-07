@@ -138,6 +138,12 @@ public final class DensityFunctionCompiler {
                                                 + String.join(", ", stats.sourceFillerClasses())),
                                         false);
                             }
+                            if (!stats.residualExternFallbackClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill residual extern fallback classes: "
+                                                + String.join(", ", stats.residualExternFallbackClasses())),
+                                        false);
+                            }
                             DfcNativePlanningStats.Stats nativeStats = DfcNativePlanningStats.snapshot();
                             context.getSource().sendSuccess(() -> Component.literal(
                                     "DFC native planning stats: latticeRoots=" + nativeStats.latticeRoots()
