@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.mixin;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -22,7 +23,7 @@ public abstract class NoiseChunkFlatCacheMixin
 
     @Shadow
     @Final
-    private DensityFunction noiseFiller;
+    private double[][] values;
 
     @Override
     public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
@@ -31,11 +32,21 @@ public abstract class NoiseChunkFlatCacheMixin
         final int k = (context.blockX() >> 2) - field_36611.firstNoiseX;
         final int l = (context.blockZ() >> 2) - field_36611.firstNoiseZ;
 
-        // Flat cache
         if (k >= 0 && l >= 0 && k < side && l < side) {
-            return bts$getArray()[k * side + l];
+            final double[] flat = bts$getArray();
+            if (flat != null) {
+                return flat[k * side + l];
+            }
+
+            final double[][] vanillaValues = this.values;
+            if (vanillaValues != null && k < vanillaValues.length) {
+                final double[] row = vanillaValues[k];
+                if (row != null && l < row.length) {
+                    return row[l];
+                }
+            }
         }
 
-        return this.noiseFiller.compute(context);
+        return DfcCacheFastPath.CACHE_MISS;
     }
 }
