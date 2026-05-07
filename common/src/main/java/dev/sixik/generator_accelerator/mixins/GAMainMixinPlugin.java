@@ -112,6 +112,17 @@ public class GAMainMixinPlugin extends GAMixinPlugin {
                         "net.countered.terrainslabs.mixin.feature.MixinOreFeature"
                 )
         );
+
+        create("net.sixik.sdmgenerationstages.SDMGenerationStages",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.mixins.common_mixin.biome.compat.sdm_stages.generation_stages.SDMGenerationStages$LevelChunkSectionMixin",
+                        "net.sixik.sdmgenerationstages.mixin.LevelChunkSectionMixin"
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.mixins.common_mixin.biome.compat.sdm_stages.generation_stages.SDMGenerationStages$StructureManagerMixin",
+                        "net.sixik.sdmgenerationstages.mixin.StructureManagerMixin "
+                )
+        );
     }
 
     @Override

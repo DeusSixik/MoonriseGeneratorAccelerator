@@ -31,6 +31,11 @@ dependencies {
     modCompileOnly ("curse.maven:yungs-extras-480006:4769514")
     modCompileOnly ("curse.maven:yungs-bridges-536660:4769518")
     modCompileOnly ("curse.maven:dynamictrees-252818:7502488")
+
+
+    modCompileOnly ("curse.maven:generation-stages-893457:5711163")
+    modCompileOnly ("curse.maven:sdm-gamestages-helper-1087504:5646993")
+    modCompileOnly ("curse.maven:game-stages-268655:5790361")
 }
 
 tasks.withType(JavaCompile).configureEach {

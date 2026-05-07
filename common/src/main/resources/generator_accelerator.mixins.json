@@ -20,6 +20,8 @@
     "biome.MixinClimate$ParameterList$redirect_vanilla_climate_container_to_custom_implement",
     "biome.MixinClimate$TargetPoint$optimize_allocation",
     "biome.MixinLevelChunkSection$optimize_biome_iteration",
+    "biome.compat.sdm_stages.generation_stages.SDMGenerationStages$LevelChunkSectionMixin",
+    "biome.compat.sdm_stages.generation_stages.SDMGenerationStages$StructureManagerMixin",
     "biome.compat.terrablender.Terrablender$MixinParameterList$redirect_search",
     "blender.MixinBlender$redirect_to_new_blender",
     "blender.MixinBlendingData",

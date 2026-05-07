@@ -143,7 +143,8 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                                 pLevel.setCurrentlyGenerating(supplier);
 
                                 // GENERATOR ACCELERATOR START
-                                final ObjectArrayList<StructureStart> structuresList = (ObjectArrayList<StructureStart>) pStructureManager.startsForStructure(sectionpos, structure);
+                                final List<StructureStart> structList = pStructureManager.startsForStructure(sectionpos, structure);
+                                final ObjectArrayList<StructureStart> structuresList = structList instanceof ObjectArrayList<StructureStart> ? (ObjectArrayList<StructureStart>) structList : new ObjectArrayList<>(structList);
                                 final Object[] primitiveArray = structuresList.elements();
                                 for (int structStartIndex = 0; structStartIndex < structuresList.size(); structStartIndex++) {
                                     ((StructureStart)primitiveArray[structStartIndex]).placeInChunk(pLevel, pStructureManager, thisObj, worldgenrandom, writableArea, chunkpos);

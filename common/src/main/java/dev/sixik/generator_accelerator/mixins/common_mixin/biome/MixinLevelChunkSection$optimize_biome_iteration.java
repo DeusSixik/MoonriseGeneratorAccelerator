@@ -25,6 +25,15 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
     @Unique
     private static final ThreadLocal<Holder<Biome>[]> BTS_BIOME_BUFFER = ThreadLocal.withInitial(() -> new Holder[64]);
 
+    /**
+     * Compat hook: возвращает true, если генерацию биомов нужно прервать
+     * для данного сэмпла. По умолчанию — никогда.
+     * SDMS-compat миксин перехватывает этот метод и подставляет свою логику.
+     */
+    @Unique
+    private boolean rms$shouldCancelBiome(Holder<Biome> biome) {
+        return false;
+    }
 
     /**
      * @author Sixik
@@ -50,6 +59,8 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
     @Overwrite
     public void fillBiomesFromNoise(BiomeResolver biomeResolver, Climate.Sampler climateSampler, int x, int y, int z) {
         final Holder<Biome> firstBiome = biomeResolver.getNoiseBiome(x, y, z, climateSampler);
+
+        if (rms$shouldCancelBiome(firstBiome)) return;
 
         boolean isUniform = true;
 
