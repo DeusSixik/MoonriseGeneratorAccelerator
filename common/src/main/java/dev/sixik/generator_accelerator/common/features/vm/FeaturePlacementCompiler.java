@@ -18,6 +18,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.CarvingMaskPlacement;
+import net.minecraft.world.level.levelgen.placement.BiomeFilter;
 import net.minecraft.world.level.levelgen.placement.CountOnEveryLayerPlacement;
 import net.minecraft.world.level.levelgen.placement.EnvironmentScanPlacement;
 import net.minecraft.world.level.levelgen.placement.FixedPlacement;
@@ -112,6 +113,7 @@ public final class FeaturePlacementCompiler {
         if (modifier instanceof HeightmapPlacement && modifier instanceof GA$HeightmapPlacementAccess) return FeatureOpcode.HEIGHTMAP;
         if (modifier instanceof RandomOffsetPlacement && modifier instanceof GA$RandomOffsetPlacementAccess) return FeatureOpcode.RANDOM_OFFSET;
         if (modifier instanceof RepeatingPlacement && modifier instanceof GA$RepeatingPlacementAccess) return FeatureOpcode.REPEATING;
+        if (modifier instanceof BiomeFilter) return FeatureOpcode.BIOME_FILTER;
         if (modifier instanceof PlacementFilter && modifier instanceof GA$PlacementFilterAccess) return FeatureOpcode.PLACEMENT_FILTER;
         if (modifier instanceof FixedPlacement && modifier instanceof GA$FixedPlacementAccess) return FeatureOpcode.FIXED;
         if (modifier instanceof CarvingMaskPlacement && modifier instanceof GA$CarvingMaskPlacementAccess) return FeatureOpcode.CARVING_MASK;
@@ -127,6 +129,7 @@ public final class FeaturePlacementCompiler {
                 || opcode == FeatureOpcode.HEIGHTMAP
                 || opcode == FeatureOpcode.RANDOM_OFFSET
                 || opcode == FeatureOpcode.PLACEMENT_FILTER
+                || opcode == FeatureOpcode.BIOME_FILTER
                 || opcode == FeatureOpcode.ENVIRONMENT_SCAN;
     }
 
@@ -137,7 +140,7 @@ public final class FeaturePlacementCompiler {
         if (opcodes[0] != FeatureOpcode.REPEATING || opcodes[1] != FeatureOpcode.IN_SQUARE) {
             return FeatureExecutorKind.GENERIC;
         }
-        if (opcodes.length == 4 && opcodes[3] == FeatureOpcode.PLACEMENT_FILTER) {
+        if (opcodes.length == 4 && isPlacementFilterOpcode(opcodes[3])) {
             if (opcodes[2] == FeatureOpcode.HEIGHT_RANGE) {
                 return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHT_RANGE_FILTER;
             }
@@ -157,6 +160,10 @@ public final class FeaturePlacementCompiler {
             return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHTMAP;
         }
         return FeatureExecutorKind.REPEATING_IN_SQUARE_LINEAR_TAIL;
+    }
+
+    private static boolean isPlacementFilterOpcode(int opcode) {
+        return opcode == FeatureOpcode.PLACEMENT_FILTER || opcode == FeatureOpcode.BIOME_FILTER;
     }
 
     private static void compileModifierData(

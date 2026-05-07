@@ -5,20 +5,23 @@ import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$EnvironmentScanPlacementAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementFilterAccess;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
+import net.minecraft.core.Holder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.valueproviders.IntProvider;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
 
 import java.util.Iterator;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 public final class FeatureVm {
@@ -105,8 +108,8 @@ public final class FeatureVm {
                     y += data.ySpread().sample(random);
                     z += data.xzSpread().sample(random);
                 }
-                case FeatureOpcode.PLACEMENT_FILTER -> {
-                    if (!passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch)) {
+                case FeatureOpcode.PLACEMENT_FILTER, FeatureOpcode.BIOME_FILTER -> {
+                    if (!passesPlacementFilter(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch)) {
                         FeatureVmMetrics.recordFastOpExecutions(executedOps);
                         return false;
                     }
@@ -317,8 +320,7 @@ public final class FeatureVm {
         }
 
         var heightProvider = program.heightProvider(2);
-        GA$PlacementFilterAccess filter = program.placementFilter(3);
-        BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
+        int filterOpcode = program.opcode(3);
         int baseX = BlockPos.getX(startPackedPos);
         int baseZ = BlockPos.getZ(startPackedPos);
         boolean success = false;
@@ -329,7 +331,7 @@ public final class FeatureVm {
             int x = baseX + random.nextInt(16);
             int z = baseZ + random.nextInt(16);
             int y = heightProvider.sample(random, context);
-            if (filter.ga$shouldPlaceRaw(context, random, x, y, z, filterPos)) {
+            if (passesPlacementFilter(program, filterOpcode, context, random, x, y, z, 3, scratch)) {
                 placeAttempts++;
                 if (placeFeatureAt(program, context, random, x, y, z, 5, scratch)) {
                     success = true;
@@ -348,8 +350,7 @@ public final class FeatureVm {
         }
 
         Heightmap.Types type = program.heightmapType(2);
-        GA$PlacementFilterAccess filter = program.placementFilter(3);
-        BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
+        int filterOpcode = program.opcode(3);
         int minBuildHeight = context.getMinBuildHeight();
         int baseX = BlockPos.getX(startPackedPos);
         int baseZ = BlockPos.getZ(startPackedPos);
@@ -361,7 +362,7 @@ public final class FeatureVm {
             int x = baseX + random.nextInt(16);
             int z = baseZ + random.nextInt(16);
             int y = fastHeight(context, type, x, z);
-            if (y > minBuildHeight && filter.ga$shouldPlaceRaw(context, random, x, y, z, filterPos)) {
+            if (y > minBuildHeight && passesPlacementFilter(program, filterOpcode, context, random, x, y, z, 3, scratch)) {
                 placeAttempts++;
                 if (placeFeatureAt(program, context, random, x, y, z, 5, scratch)) {
                     success = true;
@@ -393,8 +394,8 @@ public final class FeatureVm {
                     y += data.ySpread().sample(random);
                     z += data.xzSpread().sample(random);
                 }
-                case FeatureOpcode.PLACEMENT_FILTER -> {
-                    if (!passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch)) {
+                case FeatureOpcode.PLACEMENT_FILTER, FeatureOpcode.BIOME_FILTER -> {
+                    if (!passesPlacementFilter(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch)) {
                         return NO_POSITION;
                     }
                 }
@@ -428,6 +429,7 @@ public final class FeatureVm {
             case FeatureOpcode.HEIGHTMAP -> applyHeightmapLinear(program, context, x, z, opIndex);
             case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffsetLinear(program, random, x, y, z, opIndex);
             case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilterLinear(program, context, random, x, y, z, opIndex, scratch);
+            case FeatureOpcode.BIOME_FILTER -> passesBiomeFilter(context, x, y, z, opIndex, scratch) ? BlockPos.asLong(x, y, z) : NO_POSITION;
             case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScanLinear(program, context, x, y, z, opIndex, scratch);
             default -> {
                 LongScratchBuffer output = scratch.buffer(opIndex);
@@ -445,6 +447,7 @@ public final class FeatureVm {
             case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffset(program, random, packedPos, opIndex, output);
             case FeatureOpcode.REPEATING -> applyRepeating(program, random, packedPos, opIndex, output, scratch);
             case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilter(program, context, random, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.BIOME_FILTER -> applyBiomeFilter(context, packedPos, opIndex, output, scratch);
             case FeatureOpcode.FIXED -> applyFixed(program, packedPos, opIndex, output);
             case FeatureOpcode.CARVING_MASK -> applyCarvingMask(program, context, packedPos, opIndex, output);
             case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScan(program, context, packedPos, opIndex, output, scratch);
@@ -519,11 +522,34 @@ public final class FeatureVm {
     }
 
     private static long applyPlacementFilterLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
-        return passesPlacementFilter(program, context, random, x, y, z, opIndex, scratch) ? BlockPos.asLong(x, y, z) : NO_POSITION;
+        return passesPlacementFilter(program, FeatureOpcode.PLACEMENT_FILTER, context, random, x, y, z, opIndex, scratch) ? BlockPos.asLong(x, y, z) : NO_POSITION;
     }
 
-    private static boolean passesPlacementFilter(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+    private static boolean passesPlacementFilter(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        if (opcode == FeatureOpcode.BIOME_FILTER) {
+            return passesBiomeFilter(context, x, y, z, opIndex, scratch);
+        }
         return program.placementFilter(opIndex).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex));
+    }
+
+    private static void applyBiomeFilter(PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+        int x = BlockPos.getX(packedPos);
+        int y = BlockPos.getY(packedPos);
+        int z = BlockPos.getZ(packedPos);
+        if (passesBiomeFilter(context, x, y, z, opIndex, scratch)) {
+            output.add(packedPos);
+        }
+    }
+
+    private static boolean passesBiomeFilter(PlacementContext context, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        Optional<PlacedFeature> topFeature = context.topFeature();
+        if (topFeature.isEmpty()) {
+            throw new IllegalStateException("Tried to biome check an unregistered feature, or a feature that should not restrict the biome");
+        }
+
+        BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
+        Holder<Biome> biome = context.getLevel().getBiome(pos);
+        return scratch.biomeFilterScratch().hasFeature(context.generator(), biome, topFeature.get());
     }
 
     private static void applyFixed(FeatureProgram program, long packedPos, int opIndex, LongScratchBuffer output) {
@@ -725,14 +751,13 @@ public final class FeatureVm {
     }
 
     private static boolean placeFeatureUntracked(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
-        ConfiguredFeature<?, ?> configuredFeature = program.configuredFeature();
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
 
         if (FEATURE_PLACEMENT_COMPAT && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(packedPos))) {
             success = true;
         }
-        if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {
+        if (placeConfiguredFeature(program, context, random, pos, opIndex, scratch)) {
             success = true;
         }
 
@@ -740,17 +765,24 @@ public final class FeatureVm {
     }
 
     private static boolean placeFeatureAt(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
-        ConfiguredFeature<?, ?> configuredFeature = program.configuredFeature();
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
 
         if (FEATURE_PLACEMENT_COMPAT && FeaturePlacementCompat.beforePlace(program.feature(), context, random, scratch.mutablePos(opIndex + 1).set(x, y, z))) {
             success = true;
         }
-        if (configuredFeature.place(context.getLevel(), context.generator(), random, pos)) {
+        if (placeConfiguredFeature(program, context, random, pos, opIndex, scratch)) {
             success = true;
         }
 
         return success;
+    }
+
+    private static boolean placeConfiguredFeature(FeatureProgram program, PlacementContext context, RandomSource random, BlockPos.MutableBlockPos pos, int opIndex, FeatureScratch scratch) {
+        WorldGenLevel level = context.getLevel();
+        if (!level.ensureCanWrite(pos)) {
+            return false;
+        }
+        return program.featureImpl().place(scratch.featurePlaceContext(opIndex).set(level, context.generator(), random, pos, program.featureConfig()));
     }
 }

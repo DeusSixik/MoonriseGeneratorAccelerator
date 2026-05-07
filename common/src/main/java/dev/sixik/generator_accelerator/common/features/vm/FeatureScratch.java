@@ -15,6 +15,13 @@ public final class FeatureScratch {
             new BlockPos.MutableBlockPos(),
             new BlockPos.MutableBlockPos()
     };
+    private ReusableFeaturePlaceContext[] featurePlaceContexts = new ReusableFeaturePlaceContext[] {
+            new ReusableFeaturePlaceContext(),
+            new ReusableFeaturePlaceContext(),
+            new ReusableFeaturePlaceContext(),
+            new ReusableFeaturePlaceContext()
+    };
+    private final BiomeFilterScratch biomeFilterScratch = new BiomeFilterScratch();
 
     LongScratchBuffer buffer(int depth) {
         if (depth >= this.buffers.length) {
@@ -32,8 +39,20 @@ public final class FeatureScratch {
         return this.mutablePositions[depth];
     }
 
+    ReusableFeaturePlaceContext featurePlaceContext(int depth) {
+        if (depth >= this.featurePlaceContexts.length) {
+            grow(depth + 1);
+        }
+        return this.featurePlaceContexts[depth];
+    }
+
+    BiomeFilterScratch biomeFilterScratch() {
+        return this.biomeFilterScratch;
+    }
+
     void reset() {
         // Buffers clear on acquire by depth; release must stay zero-cost in hot path.
+        this.biomeFilterScratch.clear();
     }
 
     private void grow(int capacity) {
@@ -56,5 +75,12 @@ public final class FeatureScratch {
             nextPositions[i] = new BlockPos.MutableBlockPos();
         }
         this.mutablePositions = nextPositions;
+
+        ReusableFeaturePlaceContext[] nextContexts = new ReusableFeaturePlaceContext[nextLength];
+        System.arraycopy(this.featurePlaceContexts, 0, nextContexts, 0, this.featurePlaceContexts.length);
+        for (int i = this.featurePlaceContexts.length; i < nextLength; i++) {
+            nextContexts[i] = new ReusableFeaturePlaceContext();
+        }
+        this.featurePlaceContexts = nextContexts;
     }
 }

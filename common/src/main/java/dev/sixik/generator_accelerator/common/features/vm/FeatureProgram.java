@@ -9,6 +9,8 @@ import net.minecraft.util.valueproviders.IntProvider;
 import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
+import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfiguration;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 
@@ -19,6 +21,8 @@ public final class FeatureProgram {
     private final PlacementModifier[] modifiers;
     private final Holder<ConfiguredFeature<?, ?>> feature;
     private final ConfiguredFeature<?, ?> configuredFeature;
+    private final Feature<FeatureConfiguration> featureImpl;
+    private final FeatureConfiguration featureConfig;
     private final int fastOpCount;
     private final int fallbackOpCount;
     private final boolean linearFastOnly;
@@ -34,6 +38,7 @@ public final class FeatureProgram {
     private final IntProvider[] countProviders;
     private final GA$PlacementModifierExtension[] rawModifiers;
 
+    @SuppressWarnings("unchecked")
     FeatureProgram(
             int[] opcodes,
             PlacementModifier[] modifiers,
@@ -57,6 +62,8 @@ public final class FeatureProgram {
         this.modifiers = modifiers;
         this.feature = feature;
         this.configuredFeature = feature.value();
+        this.featureImpl = (Feature<FeatureConfiguration>) this.configuredFeature.feature();
+        this.featureConfig = this.configuredFeature.config();
         this.fastOpCount = fastOpCount;
         this.fallbackOpCount = fallbackOpCount;
         this.linearFastOnly = linearFastOnly;
@@ -99,6 +106,14 @@ public final class FeatureProgram {
 
     public ConfiguredFeature<?, ?> configuredFeature() {
         return this.configuredFeature;
+    }
+
+    public Feature<FeatureConfiguration> featureImpl() {
+        return this.featureImpl;
+    }
+
+    public FeatureConfiguration featureConfig() {
+        return this.featureConfig;
     }
 
     public boolean hasFallback() {

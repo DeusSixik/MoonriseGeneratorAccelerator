@@ -13,6 +13,7 @@ public final class FeatureOpcode {
     public static final int CARVING_MASK = 10;
     public static final int ENVIRONMENT_SCAN = 11;
     public static final int COUNT_ON_EVERY_LAYER = 12;
+    public static final int BIOME_FILTER = 13;
 
     private FeatureOpcode() {
     }
