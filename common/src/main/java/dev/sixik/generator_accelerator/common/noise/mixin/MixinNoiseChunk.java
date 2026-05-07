@@ -311,12 +311,12 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
                     DfcCellFillStats.recordCellFill(fast, filler);
                 }
                 fast.dfc$fillCell(values, self);
-                if (DfcCellFillParity.ENABLED) {
+                if (DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
                     DfcCellFillParity.check(filler, values, self);
                 }
             } else {
-                if (DfcCellFillParity.ENABLED) {
+                if (DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, false, false);
                 }
                 filler.fillArray(values, self);

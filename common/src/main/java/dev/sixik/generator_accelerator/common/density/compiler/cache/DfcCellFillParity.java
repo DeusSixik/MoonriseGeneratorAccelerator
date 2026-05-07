@@ -19,6 +19,7 @@ public final class DfcCellFillParity {
 
     private static final int MAX_CHECKS = Integer.getInteger("dfc.cellfill.parity.maxChecks", 1024);
     private static final double EPSILON = Double.parseDouble(System.getProperty("dfc.cellfill.parity.epsilon", "1.0E-9"));
+    private static volatile boolean ACTIVE = ENABLED && MAX_CHECKS > 0;
 
     private static final AtomicInteger REMAINING = new AtomicInteger(MAX_CHECKS);
     private static final LongAdder CHECKS = new LongAdder();
@@ -46,6 +47,10 @@ public final class DfcCellFillParity {
                 MAX_CHECKS, EPSILON);
     }
 
+    public static boolean isActive() {
+        return ACTIVE;
+    }
+
     public static void recordCandidate(DensityFunction filler, boolean fastEligible) {
         recordCandidate(filler, fastEligible, false);
     }
@@ -66,11 +71,10 @@ public final class DfcCellFillParity {
     }
 
     public static void check(DensityFunction filler, double[] fastValues, NoiseChunk chunk) {
-        if (!ENABLED) {
+        if (!ACTIVE) {
             return;
         }
         if (!claimCheck()) {
-            SKIPPED.increment();
             return;
         }
 
@@ -121,9 +125,14 @@ public final class DfcCellFillParity {
         while (true) {
             int current = REMAINING.get();
             if (current <= 0) {
+                ACTIVE = false;
                 return false;
             }
-            if (REMAINING.compareAndSet(current, current - 1)) {
+            int next = current - 1;
+            if (REMAINING.compareAndSet(current, next)) {
+                if (next <= 0) {
+                    ACTIVE = false;
+                }
                 return true;
             }
         }
