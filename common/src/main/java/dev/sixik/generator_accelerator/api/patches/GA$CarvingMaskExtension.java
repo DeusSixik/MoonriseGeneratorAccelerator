@@ -14,4 +14,6 @@ public interface GA$CarvingMaskExtension {
     void bts$addPositionsFast(ChunkPos chunkPos, LongArrayList output);
 
     void bts$addPositionsRaw(ChunkPos chunkPos, LongScratchBuffer output);
+
+    boolean ga$setIfAbsent(int x, int y, int z);
 }

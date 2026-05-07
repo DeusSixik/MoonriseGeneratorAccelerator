@@ -180,15 +180,12 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                         Object[] placedFeatures = featureCache.featuresByStep[k];
                         decorationScratch.beginStep(placedFeatures.length);
                         for (Holder<Biome> holder : set) {
-                            int[] indices = featureCache.indicesFor(holder, this.generationSettingsGetter, k);
-                            for (int idx = 0; idx < indices.length; idx++) {
-                                decorationScratch.addFeatureIndex(indices[idx]);
-                            }
+                            decorationScratch.addFeatureMask(featureCache.featureMaskFor(holder, this.generationSettingsGetter, k));
                         }
                         // GENERATOR ACCELERATOR END
 
+                        int[] aint = decorationScratch.collectFeatureIndices();
                         int j1 = decorationScratch.featureIndexCount();
-                        int[] aint = decorationScratch.sortedFeatureIndices();
 
                         for (int k1 = 0; k1 < j1; k1++) {
                             int l1 = aint[k1];

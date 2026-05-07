@@ -10,29 +10,32 @@ import java.util.Arrays;
 public final class BiomeDecorationScratch {
     public final ObjectArraySet<Holder<Biome>> biomes = new ObjectArraySet<>();
     private final IntArrayList featureIndices = new IntArrayList(128);
-    private int[] seenFeatureEpochs = new int[128];
-    private int epoch = 1;
+    private long[] featureMask = new long[2];
+    private int featureMaskWordCount;
 
     public void beginStep(int featureCount) {
         this.featureIndices.clear();
-        if (featureCount > this.seenFeatureEpochs.length) {
-            int next = this.seenFeatureEpochs.length;
-            while (next < featureCount) {
+        int requiredWords = (featureCount + Long.SIZE - 1) >>> 6;
+        if (requiredWords > this.featureMask.length) {
+            int next = this.featureMask.length;
+            while (next < requiredWords) {
                 next = next + (next >> 1) + 1;
             }
-            this.seenFeatureEpochs = Arrays.copyOf(this.seenFeatureEpochs, next);
+            this.featureMask = Arrays.copyOf(this.featureMask, next);
         }
-        this.epoch++;
-        if (this.epoch == 0) {
-            Arrays.fill(this.seenFeatureEpochs, 0);
-            this.epoch = 1;
+        if (requiredWords > 0) {
+            Arrays.fill(this.featureMask, 0, requiredWords, 0L);
         }
+        this.featureMaskWordCount = requiredWords;
     }
 
-    public void addFeatureIndex(int index) {
-        if (this.seenFeatureEpochs[index] != this.epoch) {
-            this.seenFeatureEpochs[index] = this.epoch;
-            this.featureIndices.add(index);
+    public void addFeatureMask(long[] mask) {
+        if (mask.length == 0) {
+            return;
+        }
+        int wordCount = Math.min(mask.length, this.featureMaskWordCount);
+        for (int i = 0; i < wordCount; i++) {
+            this.featureMask[i] |= mask[i];
         }
     }
 
@@ -40,10 +43,16 @@ public final class BiomeDecorationScratch {
         return this.featureIndices.size();
     }
 
-    public int[] sortedFeatureIndices() {
-        int size = this.featureIndices.size();
-        int[] indices = this.featureIndices.elements();
-        Arrays.sort(indices, 0, size);
-        return indices;
+    public int[] collectFeatureIndices() {
+        this.featureIndices.clear();
+        for (int wordIndex = 0; wordIndex < this.featureMaskWordCount; wordIndex++) {
+            long bits = this.featureMask[wordIndex];
+            while (bits != 0L) {
+                int bit = Long.numberOfTrailingZeros(bits);
+                this.featureIndices.add((wordIndex << 6) + bit);
+                bits &= bits - 1L;
+            }
+        }
+        return this.featureIndices.elements();
     }
 }

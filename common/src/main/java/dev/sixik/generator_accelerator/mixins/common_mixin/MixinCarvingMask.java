@@ -19,6 +19,7 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
     @Final
     private BitSet mask;
     @Shadow @Final private int minY;
+    @Shadow private CarvingMask.Mask additionalMask;
 
     @Override
     public void bts$addPositionsFast(ChunkPos chunkPos, LongArrayList output) {
@@ -28,6 +29,21 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
     @Override
     public void bts$addPositionsRaw(ChunkPos chunkPos, LongScratchBuffer output) {
         this.bts$addPositions(chunkPos, output::add);
+    }
+
+    @Override
+    public boolean ga$setIfAbsent(int x, int y, int z) {
+        if (this.additionalMask != null && this.additionalMask.test(x, y, z)) {
+            return false;
+        }
+
+        int index = this.ga$index(x, y, z);
+        if (this.mask.get(index)) {
+            return false;
+        }
+
+        this.mask.set(index);
+        return true;
     }
 
     private void bts$addPositions(ChunkPos chunkPos, PositionConsumer output) {
@@ -41,6 +57,10 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
 
             output.add(BlockPos.asLong(startX + lx, ly, startZ + lz));
         }
+    }
+
+    private int ga$index(int x, int y, int z) {
+        return (x & 15) | ((z & 15) << 4) | ((y - this.minY) << 8);
     }
 
     private interface PositionConsumer {
