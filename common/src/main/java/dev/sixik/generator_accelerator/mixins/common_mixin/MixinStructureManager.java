@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import com.google.common.collect.ImmutableList;
+import dev.sixik.generator_accelerator.common.structures.StructureStartCollector;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.SectionPos;
@@ -21,8 +22,8 @@ import java.util.function.Consumer;
 @Mixin(value = StructureManager.class, priority = 999)
 public abstract class MixinStructureManager {
     @Unique
-    private static final ThreadLocal<GA$StructureStartCollector> GA$START_COLLECTOR =
-            ThreadLocal.withInitial(GA$StructureStartCollector::new);
+    private static final ThreadLocal<StructureStartCollector> GA$START_COLLECTOR =
+            ThreadLocal.withInitial(StructureStartCollector::new);
 
     @Shadow
     @Final
@@ -39,23 +40,13 @@ public abstract class MixinStructureManager {
     public List<StructureStart> startsForStructure(SectionPos sectionPos, Structure structure) {
         LongSet longSet = this.level.getChunk(sectionPos.x(), sectionPos.z(), ChunkStatus.STRUCTURE_REFERENCES).getReferencesForStructure(structure);
         ObjectArrayList<StructureStart> fastList = new ObjectArrayList<>(longSet.size());
-        GA$StructureStartCollector collector = GA$START_COLLECTOR.get();
-        collector.target = fastList;
+        StructureStartCollector collector = GA$START_COLLECTOR.get();
+        collector.bind(fastList);
         try {
             this.fillStartsForStructure(structure, longSet, collector);
         } finally {
-            collector.target = null;
+            collector.clear();
         }
         return fastList;
-    }
-
-    @Unique
-    private static final class GA$StructureStartCollector implements Consumer<StructureStart> {
-        private ObjectArrayList<StructureStart> target;
-
-        @Override
-        public void accept(StructureStart structureStart) {
-            this.target.add(structureStart);
-        }
     }
 }

@@ -40,16 +40,9 @@ public abstract class MixinNoiseBasedChunkGenerator$optimize_apply_carvers {
     private Holder<NoiseGeneratorSettings> settings;
 
     @Shadow
-    @Final
-    protected BiomeSource biomeSource;
-
-    @Shadow
     private NoiseChunk createNoiseChunk(ChunkAccess chunkAccess, StructureManager structureManager, Blender blender, RandomState randomState) {
         throw new AssertionError();
     }
-
-    @Shadow
-    public abstract BiomeGenerationSettings getBiomeGenerationSettings(Holder<Biome> holder);
 
     /**
      * @author Sixik
@@ -65,7 +58,9 @@ public abstract class MixinNoiseBasedChunkGenerator$optimize_apply_carvers {
             ChunkAccess chunkAccess,
             GenerationStep.Carving carving
     ) {
-        BiomeManager biomeManagerWithSource = biomeManager.withDifferentSource((x, y, z) -> this.biomeSource.getNoiseBiome(x, y, z, randomState.sampler()));
+        NoiseBasedChunkGenerator generator = (NoiseBasedChunkGenerator) (Object) this;
+        BiomeSource biomeSource = generator.getBiomeSource();
+        BiomeManager biomeManagerWithSource = biomeManager.withDifferentSource((x, y, z) -> biomeSource.getNoiseBiome(x, y, z, randomState.sampler()));
         Function<net.minecraft.core.BlockPos, Holder<Biome>> biomeGetter = biomeManagerWithSource::getBiome;
         WorldgenRandom worldgenRandom = new WorldgenRandom(new LegacyRandomSource(RandomSupport.generateUniqueSeed()));
         ChunkPos centerPos = chunkAccess.getPos();
@@ -90,7 +85,7 @@ public abstract class MixinNoiseBasedChunkGenerator$optimize_apply_carvers {
                 int quartX = QuartPos.fromBlock(neighborPos.getMinBlockX());
                 int quartZ = QuartPos.fromBlock(neighborPos.getMinBlockZ());
                 BiomeGenerationSettings generationSettings = neighborChunk.carverBiome(
-                        () -> this.getBiomeGenerationSettings(this.biomeSource.getNoiseBiome(quartX, 0, quartZ, randomState.sampler()))
+                        () -> generator.getBiomeGenerationSettings(biomeSource.getNoiseBiome(quartX, 0, quartZ, randomState.sampler()))
                 );
 
                 int index = 0;
