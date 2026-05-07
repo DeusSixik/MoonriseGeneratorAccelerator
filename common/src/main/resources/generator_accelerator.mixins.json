@@ -8,9 +8,11 @@
     "MixinBlocks",
     "MixinBlockStateBase$Extension",
     "MixinCarvingMask",
+    "MixinNoiseBasedChunkGenerator$optimize_apply_carvers",
     "MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column",
     "MixinProtoChunk$fast_get_block",
     "MixinStructureManager",
+    "MixinWorldCarver",
     "MixinWorldGenRegion$fast_set_block",
     "utils.MixinHolderSet$Named"
   ],
