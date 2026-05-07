@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biomeswevegone;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import net.minecraft.world.level.block.Block;
@@ -42,7 +43,7 @@ public class VectorBandsRule implements VectorRule {
             );
 
             if (state != null) {
-                rawBlockData[i] = Block.getId(state);
+                rawBlockData[i] = GA$BlockStateExtension.get(state).bts$getFastId();
                 activeMask.clear(i);
             }
         }

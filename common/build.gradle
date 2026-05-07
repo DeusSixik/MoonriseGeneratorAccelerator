@@ -29,6 +29,8 @@ dependencies {
     modCompileOnly ("curse.maven:gregtechceu-modern-890405:7917773")
 
     modCompileOnly ("curse.maven:yungs-extras-480006:4769514")
+    modCompileOnly ("curse.maven:yungs-bridges-536660:4769518")
+    modCompileOnly ("curse.maven:dynamictrees-252818:7502488")
 }
 
 tasks.withType(JavaCompile).configureEach {

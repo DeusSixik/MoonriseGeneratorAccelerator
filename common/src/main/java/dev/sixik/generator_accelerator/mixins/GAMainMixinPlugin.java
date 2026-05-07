@@ -61,14 +61,14 @@ public class GAMainMixinPlugin extends GAMixinPlugin {
         MixinApplier.Param[] array = Arrays.stream(mixins).map((value) -> new MixinApplier.Param("", value)).toArray(MixinApplier.Param[]::new);
         create("ca.spottedleaf.moonrise.common.PlatformHooks", array);
 
-        create("net.caffeinemc.mods.lithium.common.LithiumMod",
+        create("me.jellysquid.mods.lithium.common.LithiumMod",
                 new MixinApplier.Param(
                         "",
-                        "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.SimpleBitStorageMixin"
+                        "me.jellysquid.mods.lithium.mixin.chunk.no_validation.EmptyPaletteStorageMixin"
                 ),
                 new MixinApplier.Param(
                         "",
-                        "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.ZeroBitStorageMixin"
+                        "me.jellysquid.mods.lithium.mixin.chunk.no_validation.PackedIntegerArrayMixin"
                 )
         );
 

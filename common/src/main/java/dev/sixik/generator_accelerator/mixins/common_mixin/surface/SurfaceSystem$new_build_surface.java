@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin.surface;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
@@ -107,7 +109,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 }
             }
 
-            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, Block.getId(this.defaultBlock), pContext, pRandomState, bts$this);
+            VectorChunkContext ctx = new VectorChunkContext(surfaceBiomes, this.defaultBlock, pContext, pRandomState, bts$this);
 
             ctx.buildDepthMap(pChunk);
             ctx.prepareNoiseCaches(bts$this, minBlockX, minBlockZ);
@@ -133,7 +135,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 ctx.calculateStoneDepths(rawBlockData, previousSectionBottomDepths);
 
                 stoneMask.clear();
-                int defaultBlockId = Block.getId(this.defaultBlock);
+                int defaultBlockId = GA$BlockStateExtension.get(this.defaultBlock).bts$getFastId();
 
                 for (int i = 0; i < 4096; i++) {
                     if (rawBlockData[i] == defaultBlockId) stoneMask.set(i);
@@ -150,7 +152,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 for (int i = stoneMask.nextSetBit(0); i >= 0; i = stoneMask.nextSetBit(i + 1)) {
                     int newBlockId = rawBlockData[i];
                     if (newBlockId != defaultBlockId) {
-                        BlockState newState = Block.stateById(newBlockId);
+                        BlockState newState = FastBlockStateCache.getBlockState(newBlockId);
                         if (!newState.getFluidState().isEmpty()) {
                             int lx = i & 15;
                             int lz = (i >> 4) & 15;
