@@ -11,7 +11,12 @@ import dev.sixik.generator_accelerator.api.patches.GA$PlacementFilterAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$RandomOffsetPlacementAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$RepeatingPlacementAccess;
 import net.minecraft.core.Holder;
+import net.minecraft.core.Direction;
+import net.minecraft.util.valueproviders.IntProvider;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
+import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.CarvingMaskPlacement;
 import net.minecraft.world.level.levelgen.placement.CountOnEveryLayerPlacement;
 import net.minecraft.world.level.levelgen.placement.EnvironmentScanPlacement;
@@ -37,12 +42,37 @@ public final class FeaturePlacementCompiler {
         int fastOps = 0;
         int fallbackOps = 0;
         boolean linearFastOnly = true;
+        HeightProvider[] heightProviders = new HeightProvider[size];
+        Heightmap.Types[] heightmapTypes = new Heightmap.Types[size];
+        FeatureProgram.RandomOffsetData[] randomOffsets = new FeatureProgram.RandomOffsetData[size];
+        GA$RepeatingPlacementAccess[] repeatingPlacements = new GA$RepeatingPlacementAccess[size];
+        GA$PlacementFilterAccess[] placementFilters = new GA$PlacementFilterAccess[size];
+        FeatureProgram.FixedPlacementData[] fixedPlacements = new FeatureProgram.FixedPlacementData[size];
+        GenerationStep.Carving[] carvingSteps = new GenerationStep.Carving[size];
+        FeatureProgram.EnvironmentScanData[] environmentScans = new FeatureProgram.EnvironmentScanData[size];
+        IntProvider[] countProviders = new IntProvider[size];
+        GA$PlacementModifierExtension[] rawModifiers = new GA$PlacementModifierExtension[size];
 
         for (int i = 0; i < size; i++) {
             PlacementModifier modifier = placement.get(i);
             modifiers[i] = modifier;
             int opcode = opcodeFor(modifier);
             opcodes[i] = opcode;
+            compileModifierData(
+                    modifier,
+                    opcode,
+                    i,
+                    heightProviders,
+                    heightmapTypes,
+                    randomOffsets,
+                    repeatingPlacements,
+                    placementFilters,
+                    fixedPlacements,
+                    carvingSteps,
+                    environmentScans,
+                    countProviders,
+                    rawModifiers
+            );
             if (opcode != FeatureOpcode.VANILLA_FALLBACK) {
                 fastOps++;
             } else {
@@ -55,7 +85,25 @@ public final class FeaturePlacementCompiler {
 
         FeatureVmMetrics.recordProgramCompiled(fastOps, fallbackOps);
         int specializedExecutor = selectSpecializedExecutor(opcodes, fallbackOps);
-        return new FeatureProgram(opcodes, modifiers, feature, fastOps, fallbackOps, linearFastOnly, specializedExecutor);
+        return new FeatureProgram(
+                opcodes,
+                modifiers,
+                feature,
+                fastOps,
+                fallbackOps,
+                linearFastOnly,
+                specializedExecutor,
+                heightProviders,
+                heightmapTypes,
+                randomOffsets,
+                repeatingPlacements,
+                placementFilters,
+                fixedPlacements,
+                carvingSteps,
+                environmentScans,
+                countProviders,
+                rawModifiers
+        );
     }
 
     private static int opcodeFor(PlacementModifier modifier) {
@@ -109,5 +157,48 @@ public final class FeaturePlacementCompiler {
             return FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHTMAP;
         }
         return FeatureExecutorKind.REPEATING_IN_SQUARE_LINEAR_TAIL;
+    }
+
+    private static void compileModifierData(
+            PlacementModifier modifier,
+            int opcode,
+            int index,
+            HeightProvider[] heightProviders,
+            Heightmap.Types[] heightmapTypes,
+            FeatureProgram.RandomOffsetData[] randomOffsets,
+            GA$RepeatingPlacementAccess[] repeatingPlacements,
+            GA$PlacementFilterAccess[] placementFilters,
+            FeatureProgram.FixedPlacementData[] fixedPlacements,
+            GenerationStep.Carving[] carvingSteps,
+            FeatureProgram.EnvironmentScanData[] environmentScans,
+            IntProvider[] countProviders,
+            GA$PlacementModifierExtension[] rawModifiers
+    ) {
+        switch (opcode) {
+            case FeatureOpcode.HEIGHT_RANGE -> heightProviders[index] = ((GA$HeightRangePlacementAccess) modifier).ga$heightProvider();
+            case FeatureOpcode.HEIGHTMAP -> heightmapTypes[index] = ((GA$HeightmapPlacementAccess) modifier).ga$heightmapType();
+            case FeatureOpcode.RANDOM_OFFSET -> {
+                GA$RandomOffsetPlacementAccess access = (GA$RandomOffsetPlacementAccess) modifier;
+                randomOffsets[index] = new FeatureProgram.RandomOffsetData(access.ga$xzSpread(), access.ga$ySpread());
+            }
+            case FeatureOpcode.REPEATING -> repeatingPlacements[index] = (GA$RepeatingPlacementAccess) modifier;
+            case FeatureOpcode.PLACEMENT_FILTER -> placementFilters[index] = (GA$PlacementFilterAccess) modifier;
+            case FeatureOpcode.FIXED -> fixedPlacements[index] = new FeatureProgram.FixedPlacementData(((GA$FixedPlacementAccess) modifier).ga$fixedPositions());
+            case FeatureOpcode.CARVING_MASK -> carvingSteps[index] = ((GA$CarvingMaskPlacementAccess) modifier).ga$carvingStep();
+            case FeatureOpcode.ENVIRONMENT_SCAN -> {
+                GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) modifier;
+                Direction direction = access.ga$directionOfSearch();
+                environmentScans[index] = new FeatureProgram.EnvironmentScanData(
+                        direction.getStepX(),
+                        direction.getStepY(),
+                        direction.getStepZ(),
+                        access.ga$maxSteps()
+                );
+            }
+            case FeatureOpcode.COUNT_ON_EVERY_LAYER -> countProviders[index] = ((GA$CountOnEveryLayerPlacementAccess) modifier).ga$countProvider();
+            case FeatureOpcode.RAW_MODIFIER -> rawModifiers[index] = GA$PlacementModifierExtension.get(modifier);
+            default -> {
+            }
+        }
     }
 }

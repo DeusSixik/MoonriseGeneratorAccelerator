@@ -2,20 +2,10 @@ package dev.sixik.generator_accelerator.common.features.vm;
 
 import dev.sixik.generator_accelerator.api.exceptions.MethodNotImplementedException;
 import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskExtension;
-import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskPlacementAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$CountOnEveryLayerPlacementAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$EnvironmentScanPlacementAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$FixedPlacementAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$HeightRangePlacementAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$HeightmapPlacementAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementFilterAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import dev.sixik.generator_accelerator.api.patches.GA$RandomOffsetPlacementAccess;
-import dev.sixik.generator_accelerator.api.patches.GA$RepeatingPlacementAccess;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.core.SectionPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.valueproviders.IntProvider;
 import net.minecraft.world.level.ChunkPos;
@@ -26,12 +16,9 @@ import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
-import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.PlacementContext;
-import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 
 import java.util.Iterator;
-import java.util.List;
 import java.util.stream.Stream;
 
 public final class FeatureVm {
@@ -73,14 +60,13 @@ public final class FeatureVm {
         }
 
         int opcode = program.opcode(opIndex);
-        PlacementModifier modifier = program.modifier(opIndex);
         if (opcode == FeatureOpcode.VANILLA_FALLBACK) {
-            return executeVanillaFallback(program, modifier, context, random, packedPos, opIndex, scratch);
+            return executeVanillaFallback(program, context, random, packedPos, opIndex, scratch);
         }
 
         FeatureVmMetrics.recordFastOpExecution();
         LongScratchBuffer output = scratch.buffer(opIndex);
-        applyOpcode(opcode, modifier, context, random, packedPos, opIndex, output, scratch);
+        applyOpcode(program, opcode, context, random, packedPos, opIndex, output, scratch);
 
         boolean success = false;
         long[] positions = output.elements();
@@ -96,14 +82,13 @@ public final class FeatureVm {
         FeatureVmMetrics.recordLinearFastExecution();
         int opCount = program.opCount();
         int[] opcodes = program.opcodes();
-        PlacementModifier[] modifiers = program.modifiers();
         int executedOps = 0;
         int x = BlockPos.getX(packedPos);
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);
         for (int opIndex = 0; opIndex < opCount; opIndex++) {
             executedOps++;
-            packedPos = applyLinearOpcode(opcodes[opIndex], modifiers[opIndex], context, random, x, y, z, opIndex, scratch);
+            packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
             if (packedPos == NO_POSITION) {
                 FeatureVmMetrics.recordFastOpExecutions(executedOps);
                 return false;
@@ -124,7 +109,6 @@ public final class FeatureVm {
 
         int opCount = program.opCount();
         int[] opcodes = program.opcodes();
-        PlacementModifier[] modifiers = program.modifiers();
         long executedOps = 0L;
         for (int opIndex = 0; opIndex < opCount; opIndex++) {
             if (current.isEmpty()) {
@@ -133,11 +117,10 @@ public final class FeatureVm {
             }
             next.clear();
             int opcode = opcodes[opIndex];
-            PlacementModifier modifier = modifiers[opIndex];
 
             long[] currentValues = current.elements();
             for (int i = 0, size = current.size(); i < size; i++) {
-                applyOpcode(opcode, modifier, context, random, currentValues[i], opIndex, next, scratch);
+                applyOpcode(program, opcode, context, random, currentValues[i], opIndex, next, scratch);
             }
             executedOps += current.size();
 
@@ -178,7 +161,7 @@ public final class FeatureVm {
 
     private static boolean executeRepeatingInSquareLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
-        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
         if (count <= 0) {
             return false;
         }
@@ -207,13 +190,12 @@ public final class FeatureVm {
 
     private static boolean executeRepeatingInSquareHeightRange(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
-        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
         if (count <= 0) {
             return false;
         }
 
-        GA$HeightRangePlacementAccess height = (GA$HeightRangePlacementAccess) program.modifier(2);
-        HeightProvider heightProvider = height.ga$heightProvider();
+        var heightProvider = program.heightProvider(2);
         boolean success = false;
         int baseX = BlockPos.getX(startPackedPos);
         int baseZ = BlockPos.getZ(startPackedPos);
@@ -241,13 +223,12 @@ public final class FeatureVm {
 
     private static boolean executeRepeatingInSquareHeightmap(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
-        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
         if (count <= 0) {
             return false;
         }
 
-        GA$HeightmapPlacementAccess heightmap = (GA$HeightmapPlacementAccess) program.modifier(2);
-        Heightmap.Types type = heightmap.ga$heightmapType();
+        Heightmap.Types type = program.heightmapType(2);
         int minBuildHeight = context.getMinBuildHeight();
         boolean success = false;
         int baseX = BlockPos.getX(startPackedPos);
@@ -280,13 +261,13 @@ public final class FeatureVm {
 
     private static boolean executeRepeatingInSquareHeightRangeFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
-        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
         if (count <= 0) {
             return false;
         }
 
-        HeightProvider heightProvider = ((GA$HeightRangePlacementAccess) program.modifier(2)).ga$heightProvider();
-        GA$PlacementFilterAccess filter = (GA$PlacementFilterAccess) program.modifier(3);
+        var heightProvider = program.heightProvider(2);
+        GA$PlacementFilterAccess filter = program.placementFilter(3);
         BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
         int baseX = BlockPos.getX(startPackedPos);
         int baseZ = BlockPos.getZ(startPackedPos);
@@ -311,13 +292,13 @@ public final class FeatureVm {
 
     private static boolean executeRepeatingInSquareHeightmapFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
-        int count = ((GA$RepeatingPlacementAccess) program.modifier(0)).ga$repeatingCount(random, startPos);
+        int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
         if (count <= 0) {
             return false;
         }
 
-        Heightmap.Types type = ((GA$HeightmapPlacementAccess) program.modifier(2)).ga$heightmapType();
-        GA$PlacementFilterAccess filter = (GA$PlacementFilterAccess) program.modifier(3);
+        Heightmap.Types type = program.heightmapType(2);
+        GA$PlacementFilterAccess filter = program.placementFilter(3);
         BlockPos.MutableBlockPos filterPos = scratch.mutablePos(3);
         int minBuildHeight = context.getMinBuildHeight();
         int baseX = BlockPos.getX(startPackedPos);
@@ -342,51 +323,52 @@ public final class FeatureVm {
     }
 
     private static long applySpecializedLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int startOpIndex, FeatureScratch scratch) {
+        int x = BlockPos.getX(packedPos);
+        int y = BlockPos.getY(packedPos);
+        int z = BlockPos.getZ(packedPos);
         int[] opcodes = program.opcodes();
-        PlacementModifier[] modifiers = program.modifiers();
         for (int opIndex = startOpIndex, opCount = opcodes.length; opIndex < opCount; opIndex++) {
-            packedPos = applyLinearOpcode(opcodes[opIndex], modifiers[opIndex], context, random, packedPos, opIndex, scratch);
+            packedPos = applyLinearOpcode(program, opcodes[opIndex], context, random, x, y, z, opIndex, scratch);
             if (packedPos == NO_POSITION) {
                 return NO_POSITION;
             }
+            x = BlockPos.getX(packedPos);
+            y = BlockPos.getY(packedPos);
+            z = BlockPos.getZ(packedPos);
         }
         return packedPos;
     }
 
-    private static long applyLinearOpcode(int opcode, PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
-        return applyLinearOpcode(opcode, modifier, context, random, BlockPos.getX(packedPos), BlockPos.getY(packedPos), BlockPos.getZ(packedPos), opIndex, scratch);
-    }
-
-    private static long applyLinearOpcode(int opcode, PlacementModifier modifier, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+    private static long applyLinearOpcode(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         return switch (opcode) {
             case FeatureOpcode.IN_SQUARE -> applyInSquareLinear(random, x, y, z);
-            case FeatureOpcode.HEIGHT_RANGE -> applyHeightRangeLinear(modifier, context, random, x, z);
-            case FeatureOpcode.HEIGHTMAP -> applyHeightmapLinear(modifier, context, x, z);
-            case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffsetLinear(modifier, random, x, y, z);
-            case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilterLinear(modifier, context, random, x, y, z, opIndex, scratch);
-            case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScanLinear(modifier, context, x, y, z, opIndex, scratch);
+            case FeatureOpcode.HEIGHT_RANGE -> applyHeightRangeLinear(program, context, random, x, z, opIndex);
+            case FeatureOpcode.HEIGHTMAP -> applyHeightmapLinear(program, context, x, z, opIndex);
+            case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffsetLinear(program, random, x, y, z, opIndex);
+            case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilterLinear(program, context, random, x, y, z, opIndex, scratch);
+            case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScanLinear(program, context, x, y, z, opIndex, scratch);
             default -> {
                 LongScratchBuffer output = scratch.buffer(opIndex);
-                applyOpcode(opcode, modifier, context, random, BlockPos.asLong(x, y, z), opIndex, output, scratch);
+                applyOpcode(program, opcode, context, random, BlockPos.asLong(x, y, z), opIndex, output, scratch);
                 yield output.size() == 1 ? output.getLong(0) : NO_POSITION;
             }
         };
     }
 
-    private static void applyOpcode(int opcode, PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void applyOpcode(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         switch (opcode) {
             case FeatureOpcode.IN_SQUARE -> applyInSquare(random, packedPos, output);
-            case FeatureOpcode.HEIGHT_RANGE -> applyHeightRange(modifier, context, random, packedPos, output);
-            case FeatureOpcode.HEIGHTMAP -> applyHeightmap(modifier, context, packedPos, output);
-            case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffset(modifier, random, packedPos, output);
-            case FeatureOpcode.REPEATING -> applyRepeating(modifier, random, packedPos, opIndex, output, scratch);
-            case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilter(modifier, context, random, packedPos, opIndex, output, scratch);
-            case FeatureOpcode.FIXED -> applyFixed(modifier, packedPos, output);
-            case FeatureOpcode.CARVING_MASK -> applyCarvingMask(modifier, context, packedPos, output);
-            case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScan(modifier, context, packedPos, opIndex, output, scratch);
-            case FeatureOpcode.COUNT_ON_EVERY_LAYER -> applyCountOnEveryLayer(modifier, context, random, packedPos, opIndex, output, scratch);
-            case FeatureOpcode.RAW_MODIFIER -> applyFastModifier(modifier, context, random, packedPos, opIndex, output, scratch);
-            default -> fillVanillaModifier(modifier, context, random, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.HEIGHT_RANGE -> applyHeightRange(program, context, random, packedPos, opIndex, output);
+            case FeatureOpcode.HEIGHTMAP -> applyHeightmap(program, context, packedPos, opIndex, output);
+            case FeatureOpcode.RANDOM_OFFSET -> applyRandomOffset(program, random, packedPos, opIndex, output);
+            case FeatureOpcode.REPEATING -> applyRepeating(program, random, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.PLACEMENT_FILTER -> applyPlacementFilter(program, context, random, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.FIXED -> applyFixed(program, packedPos, opIndex, output);
+            case FeatureOpcode.CARVING_MASK -> applyCarvingMask(program, context, packedPos, opIndex, output);
+            case FeatureOpcode.ENVIRONMENT_SCAN -> applyEnvironmentScan(program, context, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.COUNT_ON_EVERY_LAYER -> applyCountOnEveryLayer(program, context, random, packedPos, opIndex, output, scratch);
+            case FeatureOpcode.RAW_MODIFIER -> applyFastModifier(program, context, random, packedPos, opIndex, output, scratch);
+            default -> fillVanillaModifier(program, context, random, packedPos, opIndex, output, scratch);
         }
     }
 
@@ -406,114 +388,86 @@ public final class FeatureVm {
         return BlockPos.asLong(x + random.nextInt(16), y, z + random.nextInt(16));
     }
 
-    private static void applyHeightRange(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
-        GA$HeightRangePlacementAccess access = (GA$HeightRangePlacementAccess) modifier;
-        output.add(BlockPos.asLong(BlockPos.getX(packedPos), access.ga$heightProvider().sample(random, context), BlockPos.getZ(packedPos)));
+    private static void applyHeightRange(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output) {
+        output.add(BlockPos.asLong(BlockPos.getX(packedPos), program.heightProvider(opIndex).sample(random, context), BlockPos.getZ(packedPos)));
     }
 
-    private static long applyHeightRangeLinear(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos) {
-        GA$HeightRangePlacementAccess access = (GA$HeightRangePlacementAccess) modifier;
-        return BlockPos.asLong(BlockPos.getX(packedPos), access.ga$heightProvider().sample(random, context), BlockPos.getZ(packedPos));
+    private static long applyHeightRangeLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int z, int opIndex) {
+        return BlockPos.asLong(x, program.heightProvider(opIndex).sample(random, context), z);
     }
 
-    private static long applyHeightRangeLinear(PlacementModifier modifier, PlacementContext context, RandomSource random, int x, int z) {
-        GA$HeightRangePlacementAccess access = (GA$HeightRangePlacementAccess) modifier;
-        return BlockPos.asLong(x, access.ga$heightProvider().sample(random, context), z);
-    }
-
-    private static void applyHeightmap(PlacementModifier modifier, PlacementContext context, long packedPos, LongScratchBuffer output) {
-        GA$HeightmapPlacementAccess access = (GA$HeightmapPlacementAccess) modifier;
+    private static void applyHeightmap(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos);
         int z = BlockPos.getZ(packedPos);
-        int y = fastHeight(context, access.ga$heightmapType(), x, z);
+        int y = fastHeight(context, program.heightmapType(opIndex), x, z);
         if (y > context.getMinBuildHeight()) {
             output.add(BlockPos.asLong(x, y, z));
         }
     }
 
-    private static long applyHeightmapLinear(PlacementModifier modifier, PlacementContext context, long packedPos) {
-        GA$HeightmapPlacementAccess access = (GA$HeightmapPlacementAccess) modifier;
-        int x = BlockPos.getX(packedPos);
-        int z = BlockPos.getZ(packedPos);
-        int y = fastHeight(context, access.ga$heightmapType(), x, z);
+    private static long applyHeightmapLinear(FeatureProgram program, PlacementContext context, int x, int z, int opIndex) {
+        int y = fastHeight(context, program.heightmapType(opIndex), x, z);
         return y > context.getMinBuildHeight() ? BlockPos.asLong(x, y, z) : NO_POSITION;
     }
 
-    private static long applyHeightmapLinear(PlacementModifier modifier, PlacementContext context, int x, int z) {
-        GA$HeightmapPlacementAccess access = (GA$HeightmapPlacementAccess) modifier;
-        int y = fastHeight(context, access.ga$heightmapType(), x, z);
-        return y > context.getMinBuildHeight() ? BlockPos.asLong(x, y, z) : NO_POSITION;
-    }
-
-    private static void applyRandomOffset(PlacementModifier modifier, RandomSource random, long packedPos, LongScratchBuffer output) {
-        GA$RandomOffsetPlacementAccess access = (GA$RandomOffsetPlacementAccess) modifier;
-        int x = BlockPos.getX(packedPos) + access.ga$xzSpread().sample(random);
-        int y = BlockPos.getY(packedPos) + access.ga$ySpread().sample(random);
-        int z = BlockPos.getZ(packedPos) + access.ga$xzSpread().sample(random);
+    private static void applyRandomOffset(FeatureProgram program, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output) {
+        FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
+        int x = BlockPos.getX(packedPos) + data.xzSpread().sample(random);
+        int y = BlockPos.getY(packedPos) + data.ySpread().sample(random);
+        int z = BlockPos.getZ(packedPos) + data.xzSpread().sample(random);
         output.add(BlockPos.asLong(x, y, z));
     }
 
-    private static long applyRandomOffsetLinear(PlacementModifier modifier, RandomSource random, long packedPos) {
-        GA$RandomOffsetPlacementAccess access = (GA$RandomOffsetPlacementAccess) modifier;
-        int x = BlockPos.getX(packedPos) + access.ga$xzSpread().sample(random);
-        int y = BlockPos.getY(packedPos) + access.ga$ySpread().sample(random);
-        int z = BlockPos.getZ(packedPos) + access.ga$xzSpread().sample(random);
-        return BlockPos.asLong(x, y, z);
+    private static long applyRandomOffsetLinear(FeatureProgram program, RandomSource random, int x, int y, int z, int opIndex) {
+        FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
+        return BlockPos.asLong(x + data.xzSpread().sample(random), y + data.ySpread().sample(random), z + data.xzSpread().sample(random));
     }
 
-    private static long applyRandomOffsetLinear(PlacementModifier modifier, RandomSource random, int x, int y, int z) {
-        GA$RandomOffsetPlacementAccess access = (GA$RandomOffsetPlacementAccess) modifier;
-        return BlockPos.asLong(x + access.ga$xzSpread().sample(random), y + access.ga$ySpread().sample(random), z + access.ga$xzSpread().sample(random));
-    }
-
-    private static void applyRepeating(PlacementModifier modifier, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void applyRepeating(FeatureProgram program, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
-        int count = ((GA$RepeatingPlacementAccess) modifier).ga$repeatingCount(random, pos);
+        int count = program.repeatingPlacement(opIndex).ga$repeatingCount(random, pos);
         output.addRepeated(packedPos, count);
     }
 
-    private static void applyPlacementFilter(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void applyPlacementFilter(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
-        if (((GA$PlacementFilterAccess) modifier).ga$shouldPlace(context, random, pos)) {
+        if (program.placementFilter(opIndex).ga$shouldPlace(context, random, pos)) {
             output.add(packedPos);
         }
     }
 
-    private static long applyPlacementFilterLinear(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
-        BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
-        return ((GA$PlacementFilterAccess) modifier).ga$shouldPlace(context, random, pos) ? packedPos : NO_POSITION;
+    private static long applyPlacementFilterLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        return program.placementFilter(opIndex).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex)) ? BlockPos.asLong(x, y, z) : NO_POSITION;
     }
 
-    private static long applyPlacementFilterLinear(PlacementModifier modifier, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
-        return ((GA$PlacementFilterAccess) modifier).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex)) ? BlockPos.asLong(x, y, z) : NO_POSITION;
-    }
+    private static void applyFixed(FeatureProgram program, long packedPos, int opIndex, LongScratchBuffer output) {
+        int chunkX = BlockPos.getX(packedPos) >> 4;
+        int chunkZ = BlockPos.getZ(packedPos) >> 4;
+        FeatureProgram.FixedPlacementData data = program.fixedPlacement(opIndex);
+        long[] positions = data.positions();
+        int[] chunkXs = data.chunkXs();
+        int[] chunkZs = data.chunkZs();
 
-    private static void applyFixed(PlacementModifier modifier, long packedPos, LongScratchBuffer output) {
-        int chunkX = SectionPos.blockToSectionCoord(BlockPos.getX(packedPos));
-        int chunkZ = SectionPos.blockToSectionCoord(BlockPos.getZ(packedPos));
-        List<BlockPos> positions = ((GA$FixedPlacementAccess) modifier).ga$fixedPositions();
-
-        for (int i = 0; i < positions.size(); i++) {
-            BlockPos pos = positions.get(i);
-            if (chunkX == SectionPos.blockToSectionCoord(pos.getX())
-                    && chunkZ == SectionPos.blockToSectionCoord(pos.getZ())) {
-                output.add(pos.asLong());
+        for (int i = 0; i < positions.length; i++) {
+            if (chunkX == chunkXs[i] && chunkZ == chunkZs[i]) {
+                output.add(positions[i]);
             }
         }
     }
 
-    private static void applyCarvingMask(PlacementModifier modifier, PlacementContext context, long packedPos, LongScratchBuffer output) {
+    private static void applyCarvingMask(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output) {
         int bx = BlockPos.getX(packedPos);
         int bz = BlockPos.getZ(packedPos);
         ChunkPos chunkPos = new ChunkPos(bx >> 4, bz >> 4);
-        CarvingMask mask = context.getCarvingMask(chunkPos, ((GA$CarvingMaskPlacementAccess) modifier).ga$carvingStep());
+        CarvingMask mask = context.getCarvingMask(chunkPos, program.carvingStep(opIndex));
         if (mask != null) {
             ((GA$CarvingMaskExtension) mask).bts$addPositionsRaw(chunkPos, output);
         }
     }
 
-    private static void applyEnvironmentScan(PlacementModifier modifier, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
-        GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) modifier;
+    private static void applyEnvironmentScan(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+        GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) program.modifier(opIndex);
+        FeatureProgram.EnvironmentScanData data = program.environmentScan(opIndex);
         int x = BlockPos.getX(packedPos);
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);
@@ -524,20 +478,15 @@ public final class FeatureVm {
             return;
         }
 
-        Direction direction = access.ga$directionOfSearch();
-        int stepX = direction.getStepX();
-        int stepY = direction.getStepY();
-        int stepZ = direction.getStepZ();
-
-        for (int i = 0; i < access.ga$maxSteps(); i++) {
+        for (int i = 0; i < data.maxSteps(); i++) {
             if (access.ga$targetCondition().test(level, pos)) {
                 output.add(pos.asLong());
                 return;
             }
 
-            x += stepX;
-            y += stepY;
-            z += stepZ;
+            x += data.stepX();
+            y += data.stepY();
+            z += data.stepZ();
             pos.set(x, y, z);
 
             if (level.isOutsideBuildHeight(y)) {
@@ -554,12 +503,9 @@ public final class FeatureVm {
         }
     }
 
-    private static long applyEnvironmentScanLinear(PlacementModifier modifier, PlacementContext context, long packedPos, int opIndex, FeatureScratch scratch) {
-        return applyEnvironmentScanLinear(modifier, context, BlockPos.getX(packedPos), BlockPos.getY(packedPos), BlockPos.getZ(packedPos), opIndex, scratch);
-    }
-
-    private static long applyEnvironmentScanLinear(PlacementModifier modifier, PlacementContext context, int x, int y, int z, int opIndex, FeatureScratch scratch) {
-        GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) modifier;
+    private static long applyEnvironmentScanLinear(FeatureProgram program, PlacementContext context, int x, int y, int z, int opIndex, FeatureScratch scratch) {
+        GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) program.modifier(opIndex);
+        FeatureProgram.EnvironmentScanData data = program.environmentScan(opIndex);
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
         WorldGenLevel level = context.getLevel();
 
@@ -567,19 +513,14 @@ public final class FeatureVm {
             return NO_POSITION;
         }
 
-        Direction direction = access.ga$directionOfSearch();
-        int stepX = direction.getStepX();
-        int stepY = direction.getStepY();
-        int stepZ = direction.getStepZ();
-
-        for (int i = 0; i < access.ga$maxSteps(); i++) {
+        for (int i = 0; i < data.maxSteps(); i++) {
             if (access.ga$targetCondition().test(level, pos)) {
                 return pos.asLong();
             }
 
-            x += stepX;
-            y += stepY;
-            z += stepZ;
+            x += data.stepX();
+            y += data.stepY();
+            z += data.stepZ();
             pos.set(x, y, z);
 
             if (level.isOutsideBuildHeight(y)) {
@@ -594,10 +535,10 @@ public final class FeatureVm {
         return access.ga$targetCondition().test(level, pos) ? pos.asLong() : NO_POSITION;
     }
 
-    private static void applyCountOnEveryLayer(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void applyCountOnEveryLayer(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         int startX = BlockPos.getX(packedPos);
         int startZ = BlockPos.getZ(packedPos);
-        IntProvider count = ((GA$CountOnEveryLayerPlacementAccess) modifier).ga$countProvider();
+        IntProvider count = program.countProvider(opIndex);
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex);
 
         int layer = 0;
@@ -658,18 +599,18 @@ public final class FeatureVm {
         return context.getHeight(type, x, z);
     }
 
-    private static void applyFastModifier(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void applyFastModifier(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         try {
-            GA$PlacementModifierExtension.get(modifier).generatePositionsRaw(context, random, packedPos, output);
+            program.rawModifier(opIndex).generatePositionsRaw(context, random, packedPos, output);
         } catch (MethodNotImplementedException ignored) {
-            fillVanillaModifier(modifier, context, random, packedPos, opIndex, output, scratch);
+            fillVanillaModifier(program, context, random, packedPos, opIndex, output, scratch);
         }
     }
 
-    private static boolean executeVanillaFallback(FeatureProgram program, PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
+    private static boolean executeVanillaFallback(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
         FeatureVmMetrics.recordFallbackOpExecution();
         BlockPos.MutableBlockPos input = scratch.mutablePos(opIndex).set(packedPos);
-        try (Stream<BlockPos> positions = modifier.getPositions(context, random, input)) {
+        try (Stream<BlockPos> positions = program.modifier(opIndex).getPositions(context, random, input)) {
             Iterator<BlockPos> iterator = positions.iterator();
             boolean success = false;
             while (iterator.hasNext()) {
@@ -681,10 +622,10 @@ public final class FeatureVm {
         }
     }
 
-    private static void fillVanillaModifier(PlacementModifier modifier, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
+    private static void fillVanillaModifier(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         FeatureVmMetrics.recordFallbackOpExecution();
         BlockPos.MutableBlockPos input = scratch.mutablePos(opIndex).set(packedPos);
-        try (Stream<BlockPos> positions = modifier.getPositions(context, random, input)) {
+        try (Stream<BlockPos> positions = program.modifier(opIndex).getPositions(context, random, input)) {
             Iterator<BlockPos> iterator = positions.iterator();
             while (iterator.hasNext()) {
                 output.add(iterator.next().asLong());
