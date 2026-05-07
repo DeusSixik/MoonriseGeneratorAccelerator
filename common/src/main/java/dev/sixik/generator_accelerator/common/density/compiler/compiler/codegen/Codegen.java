@@ -201,6 +201,8 @@ public final class Codegen {
     public static final String LATTICE_INNER_BATCHED_NAME = "lattice_inner_batched";
     /** Batched inner for XZ lattice (same descriptor; different static body + indy name). */
     public static final String LATTICE_INNER_BATCHED_XZ_NAME = "lattice_inner_batched_xz";
+    /** Batched XZ inner for slice providers; native rows are addressed by {@code NoiseChunk.arrayIndex}. */
+    public static final String LATTICE_INNER_BATCHED_XZ_SLICE_NAME = "lattice_inner_batched_xz_slice";
 
     /**
      * Private XZ+slab {@code fillArray} body, split from the public override so one large CFG
@@ -209,6 +211,9 @@ public final class Codegen {
      * edge to the supertype.
      */
     private static final String LATTICE_XZ_SLAB_FILL_BODY = "dfc$latticeXzSlabFill";
+    private static final int SLAB_INDEX_XZ = 0;
+    private static final int SLAB_INDEX_Y_COLUMN = 1;
+    private static final int SLAB_INDEX_ARRAY_INDEX = 2;
 
     /** {@code (CompiledDensityFunction, FunctionContext, double, double[][]) -> double} */
     public static final String LATTICE_INNER_BATCHED_DESC =
@@ -314,6 +319,11 @@ public final class Codegen {
                 if (slabPlan != null) {
                     emitLatticeSlabCoordMethods(cw, classInternalName, helpers, slabPlan, plan.hoistAxis());
                     emitLatticeInnerBatchedHelper(cw, classInternalName, root, plan, helpers, slabPlan, batchedName);
+                    if (plan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY) {
+                        emitLatticeSliceSlabCoordMethods(cw, classInternalName, helpers, slabPlan);
+                        emitLatticeInnerBatchedHelper(cw, classInternalName, root, plan, helpers, slabPlan,
+                                LATTICE_INNER_BATCHED_XZ_SLICE_NAME, SLAB_INDEX_ARRAY_INDEX);
+                    }
                     var slabProg = SlabInnerNativeProgram.tryCompile(root, plan, slabPlan, extracted);
                     if (slabProg.isPresent()) {
                         slabInnerBc = slabProg.get().bytecode();
@@ -705,6 +715,10 @@ public final class Codegen {
         return "lattice_slab_coord_" + slotIndex;
     }
 
+    private static String latticeSliceSlabCoordMethodName(int slotIndex) {
+        return "lattice_slice_slab_coord_" + slotIndex;
+    }
+
     private static void emitLatticeSlabCoordMethods(ClassWriter cw, String classInternalName,
                                                     HelperRegistry helpers,
                                                     SlabNativeBatchPlan slabPlan,
@@ -781,12 +795,91 @@ public final class Codegen {
         }
     }
 
+    private static void emitLatticeSliceSlabCoordMethods(ClassWriter cw, String classInternalName,
+                                                         HelperRegistry helpers,
+                                                         SlabNativeBatchPlan slabPlan) {
+        String desc = "(L" + COMPILED_BASE_INTERNAL + ";" + NOISE_CHUNK_DESC + "I[D[D[D)V";
+        int i = 0;
+        for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
+            MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+                    latticeSliceSlabCoordMethodName(i), desc, null, null);
+            mv.visitCode();
+            mv.visitVarInsn(Opcodes.ILOAD, 2);
+            mv.visitVarInsn(Opcodes.ISTORE, 20);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitVarInsn(Opcodes.ASTORE, 21);
+            mv.visitVarInsn(Opcodes.ALOAD, 4);
+            mv.visitVarInsn(Opcodes.ASTORE, 22);
+            mv.visitVarInsn(Opcodes.ALOAD, 5);
+            mv.visitVarInsn(Opcodes.ASTORE, 23);
+
+            CoordinateSlotUse slotUse = switch (s) {
+                case SlabNativeBatchPlan.NormalSlot ns -> CoordinateSlotUse.analyzeCoordinates(
+                        helpers.extracted, ns.noise().coordX(), ns.noise().coordY(), ns.noise().coordZ());
+                case SlabNativeBatchPlan.BlendedSlot ignored -> CoordinateSlotUse.ALL;
+            };
+            emitCoordPrologue(mv, slotUse);
+            switch (s) {
+                case SlabNativeBatchPlan.NormalSlot ns -> {
+                    EmitState st = new EmitState(mv, classInternalName, helpers, true);
+                    mv.visitVarInsn(Opcodes.ALOAD, 21);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    st.emit(ns.noise().coordX());
+                    mv.visitInsn(Opcodes.DASTORE);
+                    mv.visitVarInsn(Opcodes.ALOAD, 22);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    st.emit(ns.noise().coordY());
+                    mv.visitInsn(Opcodes.DASTORE);
+                    mv.visitVarInsn(Opcodes.ALOAD, 23);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    st.emit(ns.noise().coordZ());
+                    mv.visitInsn(Opcodes.DASTORE);
+                }
+                case SlabNativeBatchPlan.BlendedSlot ignored -> {
+                    mv.visitVarInsn(Opcodes.ALOAD, 21);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    mv.visitVarInsn(Opcodes.ILOAD, 2);
+                    mv.visitInsn(Opcodes.I2D);
+                    mv.visitInsn(Opcodes.DASTORE);
+                    mv.visitVarInsn(Opcodes.ALOAD, 22);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    mv.visitVarInsn(Opcodes.ILOAD, 3);
+                    mv.visitInsn(Opcodes.I2D);
+                    mv.visitInsn(Opcodes.DASTORE);
+                    mv.visitVarInsn(Opcodes.ALOAD, 23);
+                    mv.visitVarInsn(Opcodes.ILOAD, 20);
+                    mv.visitVarInsn(Opcodes.ILOAD, 4);
+                    mv.visitInsn(Opcodes.I2D);
+                    mv.visitInsn(Opcodes.DASTORE);
+                }
+            }
+            mv.visitInsn(Opcodes.RETURN);
+            mv.visitMaxs(0, 0);
+            mv.visitEnd();
+            i++;
+        }
+    }
+
     private static void emitLatticeInnerBatchedHelper(ClassWriter cw, String classInternalName,
                                                       IRNode root,
                                                       CellLatticeOption.LatticePlan plan,
                                                       HelperRegistry helpers,
                                                       SlabNativeBatchPlan slabPlan,
                                                       String batchedMethodName) {
+        int slabIndexMode = plan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY
+                ? SLAB_INDEX_Y_COLUMN
+                : SLAB_INDEX_XZ;
+        emitLatticeInnerBatchedHelper(cw, classInternalName, root, plan, helpers, slabPlan,
+                batchedMethodName, slabIndexMode);
+    }
+
+    private static void emitLatticeInnerBatchedHelper(ClassWriter cw, String classInternalName,
+                                                      IRNode root,
+                                                      CellLatticeOption.LatticePlan plan,
+                                                      HelperRegistry helpers,
+                                                      SlabNativeBatchPlan slabPlan,
+                                                      String batchedMethodName,
+                                                      int slabIndexMode) {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 batchedMethodName, LATTICE_INNER_BATCHED_DESC, null, null);
         mv.visitCode();
@@ -816,8 +909,7 @@ public final class Codegen {
         }
         emitCoordPrologue(mv, CoordinateSlotUse.analyze(root, helpers.extracted, false,
                 CoordinateSlotUse.singletonIdentitySet(plan.hoistedSubtree()), slabMap));
-        boolean xzCol = plan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY;
-        EmitState st = new EmitState(mv, classInternalName, helpers, true, slabMap, slabOutLocal, xzCol);
+        EmitState st = new EmitState(mv, classInternalName, helpers, true, slabMap, slabOutLocal, slabIndexMode);
         st.preinstallSpill(plan.hoistedSubtree(), yPrecomputedSlot);
         st.reserveLocalsFrom(slabOutLocal + 1);
         st.emit(root);
@@ -1079,6 +1171,33 @@ public final class Codegen {
 
         mv.visitLabel(notSlice);
         mv.visitJumpInsn(Opcodes.GOTO, fallback);
+    }
+
+    private static void emitSliceRowContext(MethodVisitor mv, int rowLocal) {
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, rowLocal);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellNoiseMinY", "I");
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "cellStartBlockY", "I");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "interpolationCounter", "J");
+        mv.visitInsn(Opcodes.LCONST_1);
+        mv.visitInsn(Opcodes.LADD);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "interpolationCounter", "J");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
+
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, rowLocal);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
     }
 
     /**
@@ -1677,8 +1796,7 @@ public final class Codegen {
     }
 
     /**
-     * XZ-hoist native slab batch: outer (x,z), column batch along Y, same slot-row layout as
-     * {@link EmitState#slabFlatIndexYColumn}.
+     * XZ-hoist native slab batch: outer (x,z), column batch along Y.
      */
     private static void emitLatticeFillArrayWithOptionalSlabBatchXz(ClassWriter cw, String classInternalName,
                                                                     SlabNativeBatchPlan slabPlan,
@@ -1875,7 +1993,7 @@ public final class Codegen {
         mv.visitInsn(Opcodes.RETURN);
 
         mv.visitLabel(sliceCheck);
-        emitLatticeFillArraySliceFastPath(mv, CellLatticeOption.Axis.XZ_ONLY, fallback);
+        emitLatticeFillArraySliceXzNativeFastPath(mv, classInternalName, slabPlan, pool, fallback);
 
         mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -1885,6 +2003,150 @@ public final class Codegen {
         mv.visitInsn(Opcodes.RETURN);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+    }
+
+    private static void emitLatticeFillArraySliceXzNativeFastPath(MethodVisitor mv,
+                                                                  String classInternalName,
+                                                                  SlabNativeBatchPlan slabPlan,
+                                                                  ConstantPool pool,
+                                                                  Label fallback) {
+        Label notSlice = new Label();
+        Label scalarColumn = new Label();
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL);
+        mv.visitJumpInsn(Opcodes.IFEQ, notSlice);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL);
+        mv.visitVarInsn(Opcodes.ASTORE, 20);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 20);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL,
+                "noiseChunk", "()" + NOISE_CHUNK_DESC, true);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 20);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL,
+                "sliceSizeY", "()I", true);
+        mv.visitVarInsn(Opcodes.ISTORE, 4);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInvokeDynamicInsn(LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
+        mv.visitVarInsn(Opcodes.DSTORE, 11);
+
+        if (slabPlan.isEmpty()) {
+            mv.visitJumpInsn(Opcodes.GOTO, scalarColumn);
+        }
+
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IFLE, scalarColumn);
+
+        int nn = pool.noiseSpecCount();
+        for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
+            emitNativeHandleFieldLoad(mv, classInternalName, s.nativeHandleIndex(nn), false);
+            mv.visitInsn(Opcodes.LCONST_0);
+            mv.visitInsn(Opcodes.LCMP);
+            mv.visitJumpInsn(Opcodes.IFEQ, scalarColumn);
+        }
+
+        emitInitSlabScratchLocals(mv);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitVarInsn(Opcodes.ISTORE, 30);
+        emitAllocateSlabScratch(mv, slabPlan.slots().size());
+
+        String batchNormalDesc = "(J[D[D[D[DIZ)V";
+        String batchBlendedDesc = "(J[D[D[D[DIZ)V";
+        int si = 0;
+        for (SlabNativeBatchPlan.Slot ignored : slabPlan.slots()) {
+            mv.visitInsn(Opcodes.ICONST_0);
+            mv.visitVarInsn(Opcodes.ISTORE, 40);
+            Label prepHead = new Label();
+            Label prepEnd = new Label();
+            mv.visitLabel(prepHead);
+            mv.visitVarInsn(Opcodes.ILOAD, 40);
+            mv.visitVarInsn(Opcodes.ILOAD, 4);
+            mv.visitJumpInsn(Opcodes.IF_ICMPGE, prepEnd);
+
+            emitSliceRowContext(mv, 40);
+
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitVarInsn(Opcodes.ILOAD, 40);
+            mv.visitVarInsn(Opcodes.ALOAD, 33);
+            mv.visitVarInsn(Opcodes.ALOAD, 34);
+            mv.visitVarInsn(Opcodes.ALOAD, 35);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, classInternalName, latticeSliceSlabCoordMethodName(si),
+                    "(L" + COMPILED_BASE_INTERNAL + ";" + NOISE_CHUNK_DESC + "I[D[D[D)V", false);
+
+            mv.visitIincInsn(40, 1);
+            mv.visitJumpInsn(Opcodes.GOTO, prepHead);
+            mv.visitLabel(prepEnd);
+
+            emitNativeHandleFieldLoad(mv, classInternalName, slabPlan.slots().get(si).nativeHandleIndex(nn), false);
+            mv.visitVarInsn(Opcodes.ALOAD, 33);
+            mv.visitVarInsn(Opcodes.ALOAD, 34);
+            mv.visitVarInsn(Opcodes.ALOAD, 35);
+            mv.visitVarInsn(Opcodes.ALOAD, 32);
+            ldcIntStatic(mv, si);
+            mv.visitInsn(Opcodes.AALOAD);
+            mv.visitVarInsn(Opcodes.ILOAD, 30);
+            mv.visitVarInsn(Opcodes.ILOAD, 36);
+            String batchName = slabPlan.slots().get(si) instanceof SlabNativeBatchPlan.NormalSlot
+                    ? "normalNoiseStackBatch" : "blendedNoiseBatch";
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, NATIVE_BRIDGE_INTERNAL, batchName,
+                    slabPlan.slots().get(si) instanceof SlabNativeBatchPlan.NormalSlot
+                            ? batchNormalDesc : batchBlendedDesc, false);
+            si++;
+        }
+
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 40);
+        Label batchedHead = new Label();
+        Label batchedEnd = new Label();
+        mv.visitLabel(batchedHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 40);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, batchedEnd);
+        emitSliceRowContext(mv, 40);
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitVarInsn(Opcodes.ILOAD, 40);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.DLOAD, 11);
+        mv.visitVarInsn(Opcodes.ALOAD, 32);
+        mv.visitInvokeDynamicInsn(LATTICE_INNER_BATCHED_XZ_SLICE_NAME, LATTICE_INNER_BATCHED_DESC, HELPER_BSM);
+        mv.visitInsn(Opcodes.DASTORE);
+        mv.visitIincInsn(40, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, batchedHead);
+        mv.visitLabel(batchedEnd);
+        mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitLabel(scalarColumn);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 40);
+        Label scalarHead = new Label();
+        Label scalarEnd = new Label();
+        mv.visitLabel(scalarHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 40);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, scalarEnd);
+        emitSliceRowContext(mv, 40);
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitVarInsn(Opcodes.ILOAD, 40);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.DLOAD, 11);
+        mv.visitInvokeDynamicInsn(LATTICE_INNER_XZ_NAME, LATTICE_INNER_DESC, HELPER_BSM);
+        mv.visitInsn(Opcodes.DASTORE);
+        mv.visitIincInsn(40, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, scalarHead);
+        mv.visitLabel(scalarEnd);
+        mv.visitInsn(Opcodes.RETURN);
+
+        mv.visitLabel(notSlice);
+        mv.visitJumpInsn(Opcodes.GOTO, fallback);
     }
 
     private static void emitLatticeFillArrayInnerScalarColumnXz(MethodVisitor mv, String innerIndyName) {
@@ -2267,11 +2529,8 @@ public final class Codegen {
         private final IdentityHashMap<IRNode, Integer> slabBatchSlots;
         /** Local holding {@code double[][]} slab out rows; valid when {@link #slabBatchSlots} non-null. */
         private final int slabOutLocal;
-        /**
-         * When {@code true}, slab batch flat index is {@code cellHeight - 1 - inCellY} (XZ-hoist column);
-         * otherwise {@code inCellX * cellWidth + inCellZ} (Y-hoist xz slab).
-         */
-        private final boolean slabFlatIndexYColumn;
+        /** One of {@code SLAB_INDEX_*}: how a batched helper maps the current context to a slab row. */
+        private final int slabIndexMode;
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
                   boolean castSelfForSubclassNoiseFields) {
@@ -2282,7 +2541,7 @@ public final class Codegen {
                   boolean castSelfForSubclassNoiseFields,
                   CoordinateReusePlan coordinateReuse) {
             this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
-                    coordinateReuse, null, -1, false);
+                    coordinateReuse, null, -1, SLAB_INDEX_XZ);
         }
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
@@ -2290,16 +2549,16 @@ public final class Codegen {
                   IdentityHashMap<IRNode, Integer> slabBatchSlots,
                   int slabOutLocal) {
             this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
-                    CoordinateReusePlan.EMPTY, slabBatchSlots, slabOutLocal, false);
+                    CoordinateReusePlan.EMPTY, slabBatchSlots, slabOutLocal, SLAB_INDEX_XZ);
         }
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
                   boolean castSelfForSubclassNoiseFields,
                   IdentityHashMap<IRNode, Integer> slabBatchSlots,
                   int slabOutLocal,
-                  boolean slabFlatIndexYColumn) {
+                  int slabIndexMode) {
             this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
-                    CoordinateReusePlan.EMPTY, slabBatchSlots, slabOutLocal, slabFlatIndexYColumn);
+                    CoordinateReusePlan.EMPTY, slabBatchSlots, slabOutLocal, slabIndexMode);
         }
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
@@ -2307,7 +2566,7 @@ public final class Codegen {
                   CoordinateReusePlan coordinateReuse,
                   IdentityHashMap<IRNode, Integer> slabBatchSlots,
                   int slabOutLocal,
-                  boolean slabFlatIndexYColumn) {
+                  int slabIndexMode) {
             this.mv = mv;
             this.classInternalName = classInternalName;
             this.helpers = helpers;
@@ -2316,14 +2575,14 @@ public final class Codegen {
             this.castSelfForSubclassNoiseFields = castSelfForSubclassNoiseFields;
             this.slabBatchSlots = slabBatchSlots;
             this.slabOutLocal = slabOutLocal;
-            this.slabFlatIndexYColumn = slabFlatIndexYColumn;
+            this.slabIndexMode = slabIndexMode;
         }
 
         private void emitSlabNoiseSampleLoad(int batchSlotIndex) {
             mv.visitVarInsn(Opcodes.ALOAD, slabOutLocal);
             Codegen.ldcIntStatic(mv, batchSlotIndex);
             mv.visitInsn(Opcodes.AALOAD);
-            if (slabFlatIndexYColumn) {
+            if (slabIndexMode == SLAB_INDEX_Y_COLUMN) {
                 mv.visitVarInsn(Opcodes.ALOAD, 1);
                 mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
                 mv.visitInsn(Opcodes.ICONST_1);
@@ -2331,6 +2590,9 @@ public final class Codegen {
                 mv.visitVarInsn(Opcodes.ALOAD, 1);
                 mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
                 mv.visitInsn(Opcodes.ISUB);
+            } else if (slabIndexMode == SLAB_INDEX_ARRAY_INDEX) {
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
             } else {
                 mv.visitVarInsn(Opcodes.ALOAD, 1);
                 mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "inCellX", "I");
