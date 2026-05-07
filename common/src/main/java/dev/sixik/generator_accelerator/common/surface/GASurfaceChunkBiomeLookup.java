@@ -27,19 +27,19 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
             BiomeManager.NoiseBiomeSource source,
             long biomeZoomSeed,
             ChunkAccess chunk,
-            BiomeManager fallback) {
+            BiomeManager fallback,
+            int minQueryY,
+            int maxQueryY) {
         int chunkMinX = chunk.getPos().getMinBlockX();
         int chunkMinZ = chunk.getPos().getMinBlockZ();
-        int minBuildHeight = chunk.getMinBuildHeight();
-        int maxBuildHeight = minBuildHeight + chunk.getHeight();
 
         int biomeOffset = 2;
         int minBlockX = chunkMinX - biomeOffset;
         int maxBlockX = chunkMinX + 15 - biomeOffset;
         int minBlockZ = chunkMinZ - biomeOffset;
         int maxBlockZ = chunkMinZ + 15 - biomeOffset;
-        int minBlockY = minBuildHeight - biomeOffset;
-        int maxBlockY = maxBuildHeight - 1 - biomeOffset;
+        int minBlockY = minQueryY - biomeOffset;
+        int maxBlockY = maxQueryY - biomeOffset;
 
         this.qMinX = QuartPos.fromBlock(minBlockX);
         int qMaxX = QuartPos.fromBlock(maxBlockX) + 1;
@@ -75,7 +75,6 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
     }
 
     public void dispose() {
-        Arrays.fill(this.biomes, null);
         this.fallbackManager = null;
     }
 
