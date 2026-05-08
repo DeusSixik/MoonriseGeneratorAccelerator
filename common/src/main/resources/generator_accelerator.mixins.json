@@ -19,6 +19,7 @@
     "MixinWorldGenRegion$fast_set_block",
     "accessor.MixinCaveCarverConfigurationAccessor",
     "accessor.MixinLegacyRandomSourceAccessor",
+    "accessor.MixinNoiseBasedAquiferAccessor",
     "accessor.MixinWorldgenRandomAccessor",
     "utils.MixinHolderSet$Named"
   ],

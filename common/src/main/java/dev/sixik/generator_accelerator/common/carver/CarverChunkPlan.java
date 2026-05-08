@@ -26,28 +26,25 @@ import java.util.function.Function;
 public final class CarverChunkPlan {
 
     private static final long LEGACY_RANDOM_XOR = 0x5DEECE66DL;
+    private static final int REPLAY_ENTRY = -1;
 
     public static final CarverChunkPlan EMPTY = new CarverChunkPlan(
             new ConfiguredWorldCarver<?>[0],
             new long[0],
-            new ConfiguredWorldCarver<?>[0],
             new int[0]
     );
 
-    private final ConfiguredWorldCarver<?>[] replayCarvers;
+    private final ConfiguredWorldCarver<?>[] carvers;
     private final long[] replaySeeds;
-    private final ConfiguredWorldCarver<?>[] fallbackCarvers;
     private final int[] fallbackIndexes;
 
     private CarverChunkPlan(
-            ConfiguredWorldCarver<?>[] replayCarvers,
+            ConfiguredWorldCarver<?>[] carvers,
             long[] replaySeeds,
-            ConfiguredWorldCarver<?>[] fallbackCarvers,
             int[] fallbackIndexes
     ) {
-        this.replayCarvers = replayCarvers;
+        this.carvers = carvers;
         this.replaySeeds = replaySeeds;
-        this.fallbackCarvers = fallbackCarvers;
         this.fallbackIndexes = fallbackIndexes;
     }
 
@@ -69,12 +66,11 @@ public final class CarverChunkPlan {
 
         RandomSource randomSource = ((MixinWorldgenRandomAccessor) scratchRandom).ga$getRandomSource();
         boolean canReplaySeeds = randomSource instanceof MixinLegacyRandomSourceAccessor;
-        ConfiguredWorldCarver<?>[] replayCarvers = new ConfiguredWorldCarver[4];
+        // Keep replay and fallback entries interleaved; the carving mask makes first-writer order observable.
+        ConfiguredWorldCarver<?>[] carvers = new ConfiguredWorldCarver[4];
         long[] replaySeeds = new long[4];
-        int replayCount = 0;
-        ConfiguredWorldCarver<?>[] fallbackCarvers = new ConfiguredWorldCarver[2];
-        int[] fallbackIndexes = new int[2];
-        int fallbackCount = 0;
+        int[] fallbackIndexes = new int[4];
+        int count = 0;
         int index = 0;
 
         for (Holder<ConfiguredWorldCarver<?>> holder : generationSettings.getCarvers(step)) {
@@ -82,35 +78,37 @@ public final class CarverChunkPlan {
             if (canReplaySeeds && canReplayStartChunk(configuredWorldCarver)) {
                 scratchRandom.setLargeFeatureSeed(worldSeed + index, sourcePos.x, sourcePos.z);
                 if (configuredWorldCarver.isStartChunk(scratchRandom)) {
-                    if (replayCount == replayCarvers.length) {
-                        replayCarvers = growCarvers(replayCarvers);
+                    if (count == carvers.length) {
+                        carvers = growCarvers(carvers);
                         replaySeeds = growSeeds(replaySeeds);
+                        fallbackIndexes = growIndexes(fallbackIndexes);
                     }
-                    replayCarvers[replayCount] = configuredWorldCarver;
-                    replaySeeds[replayCount] = ((MixinLegacyRandomSourceAccessor) randomSource).ga$getSeed().get();
-                    replayCount++;
+                    carvers[count] = configuredWorldCarver;
+                    replaySeeds[count] = ((MixinLegacyRandomSourceAccessor) randomSource).ga$getSeed().get();
+                    fallbackIndexes[count] = REPLAY_ENTRY;
+                    count++;
                 }
             } else {
-                if (fallbackCount == fallbackCarvers.length) {
-                    fallbackCarvers = growCarvers(fallbackCarvers);
+                if (count == carvers.length) {
+                    carvers = growCarvers(carvers);
+                    replaySeeds = growSeeds(replaySeeds);
                     fallbackIndexes = growIndexes(fallbackIndexes);
                 }
-                fallbackCarvers[fallbackCount] = configuredWorldCarver;
-                fallbackIndexes[fallbackCount] = index;
-                fallbackCount++;
+                carvers[count] = configuredWorldCarver;
+                fallbackIndexes[count] = index;
+                count++;
             }
             index++;
         }
 
-        if (replayCount == 0 && fallbackCount == 0) {
+        if (count == 0) {
             return EMPTY;
         }
 
         return new CarverChunkPlan(
-                trimCarvers(replayCarvers, replayCount),
-                trimSeeds(replaySeeds, replayCount),
-                trimCarvers(fallbackCarvers, fallbackCount),
-                trimIndexes(fallbackIndexes, fallbackCount)
+                trimCarvers(carvers, count),
+                trimSeeds(replaySeeds, count),
+                trimIndexes(fallbackIndexes, count)
         );
     }
 
@@ -126,24 +124,11 @@ public final class CarverChunkPlan {
     ) {
         boolean carvedAny = false;
 
-        for (int i = 0; i < this.replayCarvers.length; i++) {
-            random.setSeed(this.replaySeeds[i] ^ LEGACY_RANDOM_XOR);
-            carvedAny |= this.replayCarvers[i].carve(
-                    carvingContext,
-                    targetChunk,
-                    biomeGetter,
-                    random,
-                    aquifer,
-                    sourcePos,
-                    carvingMask
-            );
-        }
-
-        for (int i = 0; i < this.fallbackCarvers.length; i++) {
-            int index = this.fallbackIndexes[i];
-            random.setLargeFeatureSeed(worldSeed + index, sourcePos.x, sourcePos.z);
-            ConfiguredWorldCarver<?> configuredWorldCarver = this.fallbackCarvers[i];
-            if (configuredWorldCarver.isStartChunk(random)) {
+        for (int i = 0; i < this.carvers.length; i++) {
+            ConfiguredWorldCarver<?> configuredWorldCarver = this.carvers[i];
+            int fallbackIndex = this.fallbackIndexes[i];
+            if (fallbackIndex == REPLAY_ENTRY) {
+                random.setSeed(this.replaySeeds[i] ^ LEGACY_RANDOM_XOR);
                 carvedAny |= configuredWorldCarver.carve(
                         carvingContext,
                         targetChunk,
@@ -153,6 +138,19 @@ public final class CarverChunkPlan {
                         sourcePos,
                         carvingMask
                 );
+            } else {
+                random.setLargeFeatureSeed(worldSeed + fallbackIndex, sourcePos.x, sourcePos.z);
+                if (configuredWorldCarver.isStartChunk(random)) {
+                    carvedAny |= configuredWorldCarver.carve(
+                            carvingContext,
+                            targetChunk,
+                            biomeGetter,
+                            random,
+                            aquifer,
+                            sourcePos,
+                            carvingMask
+                    );
+                }
             }
         }
 

@@ -8,6 +8,7 @@ import dev.sixik.generator_accelerator.common.carver.CarverReplaceableCache;
 import dev.sixik.generator_accelerator.common.carver.CanyonSkipChecker;
 import dev.sixik.generator_accelerator.common.carver.CaveSkipChecker;
 import dev.sixik.generator_accelerator.common.carver.MutableFunctionContext;
+import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinNoiseBasedAquiferAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.ChunkPos;
@@ -261,7 +262,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             }
         }
 
-        int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, chunkAccess, mutableBlockPos, carveStateScratch, debug);
+        int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, chunkAccess, mutableBlockPos, aquifer, carveStateScratch, debug);
         BlockState carvedState;
         if (carvedStateId != GA$NO_DIRECT_STATE) {
             carvedState = carvedStateId == GA$CAVE_AIR_STATE_ID ? GA$CAVE_AIR_BLOCK : GA$LAVA_BLOCK;
@@ -318,6 +319,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             C carverConfiguration,
             ChunkAccess chunkAccess,
             BlockPos blockPos,
+            Aquifer aquifer,
             CarveStateScratch carveStateScratch,
             boolean debug
     ) {
@@ -326,11 +328,28 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             return GA$LAVA_STATE_ID;
         }
 
-        if (GA$FAST_SIMPLE_CAVE_STATE && !debug && !ga$isBelowSurfaceFluid(chunkAccess, blockPos)) {
+        if (GA$FAST_SIMPLE_CAVE_STATE
+                && !debug
+                && !ga$isBelowGlobalWaterLevel(aquifer, blockPos)
+                && !ga$isBelowSurfaceFluid(chunkAccess, blockPos)) {
             return GA$CAVE_AIR_STATE_ID;
         }
 
         return GA$NO_DIRECT_STATE;
+    }
+
+    @Unique
+    private static boolean ga$isBelowGlobalWaterLevel(Aquifer aquifer, BlockPos blockPos) {
+        if (!(aquifer instanceof MixinNoiseBasedAquiferAccessor accessor)) {
+            return false;
+        }
+
+        Aquifer.FluidStatus fluidStatus = accessor.ga$getGlobalFluidPicker().computeFluid(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+        if (blockPos.getY() >= fluidStatus.fluidLevel) {
+            return false;
+        }
+
+        return fluidStatus.at(fluidStatus.fluidLevel - 1).is(Blocks.WATER);
     }
 
     @Unique
