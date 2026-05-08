@@ -91,14 +91,14 @@ public abstract class MixinSpringFeature extends Feature<SpringConfiguration> {
                 holeCount++;
             }
 
-            if (rockCount == springConfiguration.rockCount && holeCount == springConfiguration.holeCount) {
-                worldGenLevel.setBlock(blockPos, springConfiguration.state.createLegacyBlock(), 2);
-                worldGenLevel.scheduleTick(blockPos, springConfiguration.state.getType(), 0);
-                return true;
+            if (rockCount != springConfiguration.rockCount || holeCount != springConfiguration.holeCount) {
+                return false;
             }
         }
 
-        return false;
+        worldGenLevel.setBlock(blockPos, springConfiguration.state.createLegacyBlock(), 2);
+        worldGenLevel.scheduleTick(blockPos, springConfiguration.state.getType(), 0);
+        return true;
     }
 
     @Unique

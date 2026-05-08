@@ -297,7 +297,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
                             if (secX != lastSecX || secY != lastSecY || secZ != lastSecZ) {
                                 blockpos$mutableblockpos.set(currX, currY, currZ);
                                 cachedSection = bulksectionaccess.getSection(blockpos$mutableblockpos);
-                                cachedRaw = cachedSection == null ? null : LevelChunkSection$FlatBlockArray.get(cachedSection).bts$getRawBlockData();
+                                cachedRaw = cachedSection == null ? null : LevelChunkSection$FlatBlockArray.rawData(cachedSection);
                                 lastSecX = secX;
                                 lastSecY = secY;
                                 lastSecZ = secZ;
@@ -673,7 +673,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             return true;
         }
 
-        int[] neighborRaw = LevelChunkSection$FlatBlockArray.get(neighborSection).bts$getRawBlockData();
+        int[] neighborRaw = LevelChunkSection$FlatBlockArray.rawData(neighborSection);
         if (neighborRaw != null) {
             int index = ((globalY & 15) << 8) | ((globalZ & 15) << 4) | (globalX & 15);
             return airStates[neighborRaw[index]];

@@ -24,6 +24,11 @@ import java.util.Iterator;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+/**
+ * Legacy placement interpreter. New biome decoration work must target the Java
+ * data-oriented decoration pipeline instead.
+ */
+@Deprecated(forRemoval = false)
 public final class FeatureVm {
     private static final ThreadLocal<FeatureScratchStack> SCRATCH_STACK = ThreadLocal.withInitial(FeatureScratchStack::new);
     private static final long NO_POSITION = Long.MIN_VALUE;

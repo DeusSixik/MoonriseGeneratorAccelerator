@@ -6,7 +6,7 @@ public final class LongScratchBuffer {
     private long[] values;
     private int size;
 
-    LongScratchBuffer(int initialCapacity) {
+    public LongScratchBuffer(int initialCapacity) {
         this.values = new long[initialCapacity];
     }
 
