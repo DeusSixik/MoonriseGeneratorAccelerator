@@ -82,6 +82,11 @@ import java.util.Set;
  * </ul>
  */
 public final class Codegen {
+    enum SplineSearchMode {
+        AUTO,
+        LINEAR,
+        BINARY
+    }
 
     /**
      * Hard cap on the number of helper methods per generated class. The class
@@ -90,6 +95,15 @@ public final class Codegen {
      * is pathologically large and the JIT will hate it anyway.
      */
     public static final int MAX_HELPERS = 1024;
+    /**
+     * Small splines stay on the current straight-line ladder because the branch depth is
+     * already tiny and the bytecode is a little simpler. Larger splines switch to an exact
+     * binary-search decision tree for segment selection.
+     */
+    public static final int SPLINE_LINEAR_SEARCH_MAX_POINTS =
+            Math.max(2, Integer.getInteger("dfc.codegen.splineLinearSearchMaxPoints", 8));
+    static final SplineSearchMode SPLINE_SEARCH_MODE =
+            parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
 
     private static final String COMPILED_BASE_INTERNAL =
             Type.getInternalName(CompiledDensityFunction.class);
@@ -177,6 +191,33 @@ public final class Codegen {
      * {@code lattice_inner} ride indy.
      */
     public static final boolean CELL_LATTICE_ENABLED = true;
+
+    private static SplineSearchMode parseSplineSearchMode(String raw) {
+        if (raw == null) {
+            return SplineSearchMode.AUTO;
+        }
+        return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "auto" -> SplineSearchMode.AUTO;
+            case "linear" -> SplineSearchMode.LINEAR;
+            case "binary" -> SplineSearchMode.BINARY;
+            default -> SplineSearchMode.AUTO;
+        };
+    }
+
+    public static boolean useBinarySplineSearch(int pointCount) {
+        if (pointCount <= 2) {
+            return false;
+        }
+        return switch (SPLINE_SEARCH_MODE) {
+            case AUTO -> pointCount > SPLINE_LINEAR_SEARCH_MAX_POINTS;
+            case LINEAR -> false;
+            case BINARY -> true;
+        };
+    }
+
+    public static String splineSearchModeName() {
+        return SPLINE_SEARCH_MODE.name().toLowerCase(java.util.Locale.ROOT);
+    }
 
     private static final String NATIVE_BRIDGE_INTERNAL =
             "dev/sixik/generator_accelerator/common/density/compiler/natives/DfcNativeBridge";
@@ -4302,7 +4343,7 @@ public final class Codegen {
         /* ---------------- spline ---------------- */
 
         private void emitMultipointSpline(IRNode.Spline.Multipoint mp) {
-            // Compute coordinate, spill to slot, then walk the binary-search ladder.
+            // Compute coordinate, spill to slot, then dispatch to the right segment.
             emit(mp.coordinate());
             mv.visitInsn(Opcodes.D2F);
             int fSlot = allocFloatSlot();
@@ -4341,18 +4382,12 @@ public final class Codegen {
             mv.visitInsn(Opcodes.FCMPL);
             mv.visitJumpInsn(Opcodes.IFGE, rightExt);
 
-            for (int i = 0; i < n - 1; i++) {
-                mv.visitVarInsn(Opcodes.FLOAD, fSlot);
-                mv.visitLdcInsn(locs[i + 1]);
-                mv.visitInsn(Opcodes.FCMPG);
-                Label notThis = new Label();
-                mv.visitJumpInsn(Opcodes.IFGE, notThis);
-                restoreBranch(snap);
-                emitInterpolatedSegment(fSlot, mp, i);
-                restoreBranch(snap);
-                mv.visitJumpInsn(Opcodes.GOTO, end);
-                mv.visitLabel(notThis);
+            if (useBinarySplineSearch(n)) {
+                emitBinarySplineSegments(fSlot, mp, snap, end, 0, n - 2);
+            } else {
+                emitLinearSplineSegments(fSlot, mp, snap, end);
             }
+
             mv.visitJumpInsn(Opcodes.GOTO, rightExt);
 
             mv.visitLabel(leftExt);
@@ -4368,6 +4403,46 @@ public final class Codegen {
 
             mv.visitLabel(end);
             mv.visitInsn(Opcodes.F2D);
+        }
+
+        private void emitLinearSplineSegments(int fSlot, IRNode.Spline.Multipoint mp,
+                                              BranchScope snap, Label end) {
+            float[] locs = mp.locations();
+            for (int i = 0; i < locs.length - 1; i++) {
+                mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+                mv.visitLdcInsn(locs[i + 1]);
+                mv.visitInsn(Opcodes.FCMPG);
+                Label notThis = new Label();
+                mv.visitJumpInsn(Opcodes.IFGE, notThis);
+                restoreBranch(snap);
+                emitInterpolatedSegment(fSlot, mp, i);
+                restoreBranch(snap);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+                mv.visitLabel(notThis);
+            }
+        }
+
+        private void emitBinarySplineSegments(int fSlot, IRNode.Spline.Multipoint mp,
+                                              BranchScope snap, Label end,
+                                              int loSegment, int hiSegment) {
+            if (loSegment == hiSegment) {
+                restoreBranch(snap);
+                emitInterpolatedSegment(fSlot, mp, loSegment);
+                restoreBranch(snap);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+                return;
+            }
+
+            int midSegment = (loSegment + hiSegment) >>> 1;
+            Label right = new Label();
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(mp.locations()[midSegment + 1]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, right);
+            emitBinarySplineSegments(fSlot, mp, snap, end, loSegment, midSegment);
+            mv.visitLabel(right);
+            restoreBranch(snap);
+            emitBinarySplineSegments(fSlot, mp, snap, end, midSegment + 1, hiSegment);
         }
 
         private void emitInterpolatedSegment(int fSlot, IRNode.Spline.Multipoint mp, int i) {

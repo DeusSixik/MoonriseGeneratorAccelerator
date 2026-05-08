@@ -30,9 +30,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Public facade for the JIT compiler. {@link #compile(DensityFunction)} takes any
@@ -46,6 +50,17 @@ import java.util.Set;
  * cache still memoises as the "compiled" answer so we don't keep retrying.
  */
 public final class Compiler {
+    private static final boolean LOG_SPLINE_SEARCH =
+            Boolean.getBoolean("dfc.codegen.logSplineSearch");
+    private static final AtomicInteger SPLINE_LOGGED_ROOTS = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_MULTIPOINTS = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_BINARY_USED = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_AUTO_ELIGIBLE = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_MAX_POINTS = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_BUCKET_LE_2 = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_BUCKET_3_TO_4 = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_BUCKET_5_TO_8 = new AtomicInteger();
+    private static final AtomicInteger SPLINE_LOGGED_BUCKET_GE_9 = new AtomicInteger();
 
     private Compiler() {}
 
@@ -91,6 +106,8 @@ public final class Compiler {
                 root = postNoise.root();
                 optimizerRewrites += postNoise.rewrites();
             }
+
+            SplineSearchStats splineStats = LOG_SPLINE_SEARCH ? collectSplineSearchStats(root) : null;
 
             int uniqueNodes = builder.internedCount();
             int cseSavings = builder.cseSavings();
@@ -184,7 +201,7 @@ public final class Compiler {
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
             });
             return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
-                    cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled);
+                    cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats);
         } catch (Throwable t) {
             DensityFunctionCompiler.LOGGER.warn(
                     "Compilation failed for {} ({}): {} — falling back to vanilla evaluator",
@@ -263,7 +280,8 @@ public final class Compiler {
             int cseSavings,
             int optimizerRewrites,
             int noisesSpecialized,
-            int octavesUnrolled) {
+            int octavesUnrolled,
+            SplineSearchStats splineStats) {
         MethodHandle ctorMH = bundle.constructorHandle();
         MethodHandle[] helperHandles = bundle.helperHandles();
         long[] nativeHandles = NativeNoiseRegistry.buildHandles(pool.noiseSpecs(), pool.blendedNoiseSpecsList());
@@ -302,6 +320,7 @@ public final class Compiler {
         RouterPipeline.recordOptimizerRewrites(optimizerRewrites);
         RouterPipeline.recordNoiseInline(noisesSpecialized, octavesUnrolled);
         RouterPipeline.recordBlendedInline(pool.blendedNoiseSpecCount(), countBlendedNonNullOctaves(pool));
+        logSplineSearchIfInteresting(root, bundle, reusedClassFromCache, splineStats);
 
         return new Result(
                 compiled, root, rc, pool, bundle.bytecode(), bundle.classInternalName(),
@@ -324,6 +343,98 @@ public final class Compiler {
             }
         }
         return t;
+    }
+
+    private static SplineSearchStats collectSplineSearchStats(IRNode root) {
+        IdentityHashMap<IRNode, Boolean> seen = new IdentityHashMap<>();
+        Deque<IRNode> stack = new ArrayDeque<>();
+        stack.push(root);
+        int multipoints = 0;
+        int binaryUsed = 0;
+        int autoEligible = 0;
+        int maxPoints = 0;
+        int bucketLe2 = 0;
+        int bucket3To4 = 0;
+        int bucket5To8 = 0;
+        int bucketGe9 = 0;
+        while (!stack.isEmpty()) {
+            IRNode node = stack.pop();
+            if (seen.put(node, Boolean.TRUE) != null) {
+                continue;
+            }
+            if (node instanceof IRNode.Spline.Multipoint mp) {
+                multipoints++;
+                int points = mp.locations().length;
+                maxPoints = Math.max(maxPoints, points);
+                if (Codegen.useBinarySplineSearch(points)) {
+                    binaryUsed++;
+                }
+                if (points > Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS) {
+                    autoEligible++;
+                }
+                if (points <= 2) {
+                    bucketLe2++;
+                } else if (points <= 4) {
+                    bucket3To4++;
+                } else if (points <= 8) {
+                    bucket5To8++;
+                } else {
+                    bucketGe9++;
+                }
+            }
+            for (IRNode child : RefCount.children(node)) {
+                stack.push(child);
+            }
+        }
+        return new SplineSearchStats(
+                multipoints, binaryUsed, autoEligible, maxPoints,
+                bucketLe2, bucket3To4, bucket5To8, bucketGe9);
+    }
+
+    private static void logSplineSearchIfInteresting(IRNode root,
+                                                     GlobalCompileCache.CopiedClassBundle bundle,
+                                                     boolean reusedClassFromCache,
+                                                     SplineSearchStats stats) {
+        if (!LOG_SPLINE_SEARCH || stats == null || stats.multipoints() == 0) {
+            return;
+        }
+        int sessionRoots = SPLINE_LOGGED_ROOTS.incrementAndGet();
+        int sessionMultipoints = SPLINE_LOGGED_MULTIPOINTS.addAndGet(stats.multipoints());
+        int sessionBinaryUsed = SPLINE_LOGGED_BINARY_USED.addAndGet(stats.binaryUsed());
+        int sessionAutoEligible = SPLINE_LOGGED_AUTO_ELIGIBLE.addAndGet(stats.autoEligible());
+        int sessionMaxPoints = SPLINE_LOGGED_MAX_POINTS.accumulateAndGet(stats.maxPoints(), Math::max);
+        int sessionBucketLe2 = SPLINE_LOGGED_BUCKET_LE_2.addAndGet(stats.bucketLe2());
+        int sessionBucket3To4 = SPLINE_LOGGED_BUCKET_3_TO_4.addAndGet(stats.bucket3To4());
+        int sessionBucket5To8 = SPLINE_LOGGED_BUCKET_5_TO_8.addAndGet(stats.bucket5To8());
+        int sessionBucketGe9 = SPLINE_LOGGED_BUCKET_GE_9.addAndGet(stats.bucketGe9());
+        DensityFunctionCompiler.LOGGER.info(
+                "DFC spline search: mode={}, linearThreshold={}, root={}, helpers={}, reusedClass={}, "
+                        + "multipoints={}, binaryUsed={}, autoEligible={}, maxPoints={}, "
+                        + "buckets=[<=2:{},3..4:{},5..8:{},>=9:{}], sessionRoots={}, "
+                        + "sessionMultipoints={}, sessionBinaryUsed={}, sessionAutoEligible={}, "
+                        + "sessionMaxPoints={}, sessionBuckets=[<=2:{},3..4:{},5..8:{},>=9:{}]",
+                Codegen.splineSearchModeName(),
+                Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS,
+                root.getClass().getSimpleName(),
+                bundle.helpersEmitted(),
+                reusedClassFromCache,
+                stats.multipoints(),
+                stats.binaryUsed(),
+                stats.autoEligible(),
+                stats.maxPoints(),
+                stats.bucketLe2(),
+                stats.bucket3To4(),
+                stats.bucket5To8(),
+                stats.bucketGe9(),
+                sessionRoots,
+                sessionMultipoints,
+                sessionBinaryUsed,
+                sessionAutoEligible,
+                sessionMaxPoints,
+                sessionBucketLe2,
+                sessionBucket3To4,
+                sessionBucket5To8,
+                sessionBucketGe9);
     }
 
     private static String describeRootForCellFillDebug(IRNode root) {
@@ -357,6 +468,16 @@ public final class Compiler {
             int octavesUnrolled,
             double minValue,
             double maxValue) {}
+
+    private record SplineSearchStats(
+            int multipoints,
+            int binaryUsed,
+            int autoEligible,
+            int maxPoints,
+            int bucketLe2,
+            int bucket3To4,
+            int bucket5To8,
+            int bucketGe9) {}
 
     public record DumpResult(Path directory, int classesDumped, int skipped, int failed) {}
 }

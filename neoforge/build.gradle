@@ -10,8 +10,8 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs  "-Ddfc.cellfill.stats.residualClassDebug=false",
-                    "-Ddfc.cellfill.stats=false"
+            vmArgs  "-Ddfc.codegen.splineSearchMode=binary",
+                    "-Ddfc.codegen.logSplineSearch=true"
         }
     }
 }

@@ -20,7 +20,6 @@ public final class GeneratorAcceleratorNeoForge {
         DensityFunctionCompiler.init();
         var bus = NeoForge.EVENT_BUS;
         bus.addListener(this::onServerStarting);
-        bus.addListener(this::onServerStarted);
         bus.addListener(this::onDatapackSync);
         bus.addListener(this::onRegisterCommands);
 

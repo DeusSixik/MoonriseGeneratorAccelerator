@@ -250,14 +250,30 @@ final class SizeEstimator {
         for (IRNode.Spline v : mp.values()) {
             valueCost += sizeOfSubSpline(v);
         }
+        int ladder = Codegen.useBinarySplineSearch(n)
+                ? sizeOfBinarySplineDispatch(n, interpolatedSegment, valueCost)
+                : sizeOfLinearSplineDispatch(n, perInterval, interpolatedSegment, valueCost);
+        // Linear extensions on the left/right.
+        int extensions = 2 * (sizeOfSubSpline(mp.values().get(0)) + 12);
+        return prologue + dispatch + ladder + extensions;
+    }
+
+    private int sizeOfLinearSplineDispatch(int pointCount, int perInterval, int interpolatedSegment, int valueCost) {
         // Each interval pays for its own (l0,l1) ladder branch + the cubic
         // body, plus values for both endpoints. Endpoint values are shared
         // between adjacent intervals in the inlined emitter, but to stay
         // pessimistic we attribute the value cost to the interval pair.
-        int ladder = (n - 1) * (perInterval + interpolatedSegment) + 2 * valueCost;
-        // Linear extensions on the left/right.
-        int extensions = 2 * (sizeOfSubSpline(mp.values().get(0)) + 12);
-        return prologue + dispatch + ladder + extensions;
+        return (pointCount - 1) * (perInterval + interpolatedSegment) + 2 * valueCost;
+    }
+
+    private int sizeOfBinarySplineDispatch(int pointCount, int interpolatedSegment, int valueCost) {
+        int segmentCount = pointCount - 1;
+        int internalNodes = Math.max(0, segmentCount - 1);
+        int comparisonNode = 8; // FLOAD/LDC/FCMPG/IFGE + branch label
+        int leafJump = 3;       // GOTO end after each emitted segment
+        return internalNodes * comparisonNode
+                + segmentCount * (interpolatedSegment + leafJump)
+                + 2 * valueCost;
     }
 
     private int sizeOfSubSpline(IRNode.Spline s) {
