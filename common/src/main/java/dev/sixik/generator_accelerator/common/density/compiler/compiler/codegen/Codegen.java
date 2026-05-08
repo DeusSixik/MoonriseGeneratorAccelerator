@@ -199,8 +199,12 @@ public final class Codegen {
     public static final boolean CELL_FILL_DIRECT_EXTERN_RESIDUAL_ENABLED =
             Boolean.getBoolean("dfc.codegen.cellFillDirectExternResidual");
     /**
-     * The add-extern cell-fill override is currently conservative opt-in: some root shapes
-     * still trigger ASM frame merge failures in the generated override.
+     * Experimental add-extern cell-fill specialization.
+     *
+     * <p>Left disabled by default because real worldgen runs hit ASM 9.8 frame-merge
+     * failures ({@code Frame.merge} / {@code ArrayIndexOutOfBoundsException}) on some
+     * generated root shapes. Re-enable only when actively iterating on this path or when a
+     * future rewrite simplifies the CFG enough to make frame computation stable again.
      */
     public static final boolean CELL_FILL_ADD_EXTERN_OVERRIDE_ENABLED =
             Boolean.getBoolean("dfc.codegen.cellFillAddExternOverride");
