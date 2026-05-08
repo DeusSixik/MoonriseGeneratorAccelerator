@@ -10,8 +10,8 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs  "-Ddfc.codegen.splineSearchMode=binary",
-                    "-Ddfc.codegen.logSplineSearch=true"
+            vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
+                    "-Ddfc.codegen.splineSegmentLut=true"
         }
     }
 }
