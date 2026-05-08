@@ -10,7 +10,7 @@
   "contact": {
     "homepage": ""
   },
-  "license": "unlicense",
+  "license": "GPLv3",
   "icon": "assets/generator_accelerator/icon.png",
   "environment": "*",
   "entrypoints": {
