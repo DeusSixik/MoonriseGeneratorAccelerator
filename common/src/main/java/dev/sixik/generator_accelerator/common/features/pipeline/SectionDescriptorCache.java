@@ -9,13 +9,24 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import java.util.Arrays;
 
 public final class SectionDescriptorCache {
+    private static final int INITIAL_DESCRIPTOR_CAPACITY = 32;
     private static final short[] EMPTY_HEIGHTS = new short[SectionDescriptor.COLUMN_COUNT];
     private static final short NO_TOP_WATER = Short.MIN_VALUE;
+    private static final int UNKNOWN_PALETTE_FLAGS = SectionDescriptor.PALETTE_AIR
+            | SectionDescriptor.PALETTE_WATER
+            | SectionDescriptor.PALETTE_LAVA
+            | SectionDescriptor.PALETTE_SOLID;
+    private static final int UNKNOWN_BLOCK_CLASS_FLAGS = SectionDescriptor.CLASS_STONE_LIKE
+            | SectionDescriptor.CLASS_DIRT_LIKE
+            | SectionDescriptor.CLASS_REPLACEABLE
+            | SectionDescriptor.CLASS_ORE_TARGET
+            | SectionDescriptor.CLASS_SURFACE_CANDIDATE
+            | SectionDescriptor.CLASS_TREE_SOIL;
 
-    private ChunkAccess[] chunks = new ChunkAccess[16];
-    private long[] keys = new long[16];
-    private SectionDescriptor[] descriptors = new SectionDescriptor[16];
-    private final Long2IntOpenHashMap indexByKey = new Long2IntOpenHashMap(16);
+    private ChunkAccess[] chunks = new ChunkAccess[INITIAL_DESCRIPTOR_CAPACITY];
+    private long[] keys = new long[INITIAL_DESCRIPTOR_CAPACITY];
+    private SectionDescriptor[] descriptors = new SectionDescriptor[INITIAL_DESCRIPTOR_CAPACITY];
+    private final Long2IntOpenHashMap indexByKey = new Long2IntOpenHashMap(INITIAL_DESCRIPTOR_CAPACITY);
     private ChunkAccess[] heightChunks = new ChunkAccess[16];
     private long[] heightChunkKeys = new long[16];
     private short[][] worldSurfaceHeights = new short[16][];
@@ -32,6 +43,9 @@ public final class SectionDescriptorCache {
     private int lastSectionY = Integer.MIN_VALUE;
     private int lastSectionZ = Integer.MIN_VALUE;
     private int lastIndex = -1;
+    private ChunkAccess lazyChunk;
+    private int lazyChunkX;
+    private int lazyChunkZ;
 
     public SectionDescriptorCache() {
         this.indexByKey.defaultReturnValue(-1);
@@ -53,6 +67,9 @@ public final class SectionDescriptorCache {
         this.lastSectionY = Integer.MIN_VALUE;
         this.lastSectionZ = Integer.MIN_VALUE;
         this.lastIndex = -1;
+        this.lazyChunk = null;
+        this.lazyChunkX = 0;
+        this.lazyChunkZ = 0;
         this.indexByKey.clear();
         this.heightIndexByChunkKey.clear();
     }
@@ -80,7 +97,14 @@ public final class SectionDescriptorCache {
 
         int index = this.indexByKey.get(key(sectionX, sectionZ, sectionY));
         if (index < 0) {
-            return null;
+            ChunkAccess chunk = this.lazyChunk;
+            if (chunk == null || this.lazyChunkX != sectionX || this.lazyChunkZ != sectionZ) {
+                return null;
+            }
+            long start = DecorationPipelineMetrics.startTimer();
+            SectionDescriptor descriptor = this.getOrBuild(chunk, sectionY);
+            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
+            return descriptor;
         }
 
         this.lastSectionX = sectionX;
@@ -107,17 +131,32 @@ public final class SectionDescriptorCache {
     }
 
     public void buildChunk(ChunkAccess chunk) {
-        LevelChunkSection[] sections = chunk.getSections();
-        int minSection = chunk.getMinSection();
-        for (int i = 0; i < sections.length; i++) {
-            this.getOrBuild(chunk, minSection + i);
-        }
+        // Height prefill builds all section descriptors; avoid a duplicate getOrBuild pass here.
         this.ensureHeightEntry(chunk);
     }
 
+    public void prepareChunkLazy(ChunkAccess chunk) {
+        this.lazyChunk = chunk;
+        ChunkPos pos = chunk.getPos();
+        this.lazyChunkX = pos.x;
+        this.lazyChunkZ = pos.z;
+    }
+
     public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
-        SectionDescriptor descriptor = this.getOrBuild(chunk, blockY >> 4);
-        descriptor.rebuildColumn(blockX & 15, blockZ & 15);
+        int sectionY = blockY >> 4;
+        ChunkPos pos = chunk.getPos();
+        long sectionKey = key(pos, sectionY);
+        int index = this.indexByKey.get(sectionKey);
+        if (index >= 0 && this.chunks[index] == chunk) {
+            this.descriptors[index].rebuildColumn(blockX & 15, blockZ & 15);
+        } else if (index >= 0) {
+            this.rebuildAt(index, chunk, sectionY, sectionKey);
+        } else {
+            long chunkKey = pos.toLong();
+            if (this.heightEntryCount == 0 || this.heightIndexByChunkKey.get(chunkKey) < 0) {
+                return;
+            }
+        }
         this.updateHeightCachesAfterMutation(chunk, blockX & 15, blockZ & 15);
     }
 
@@ -158,7 +197,7 @@ public final class SectionDescriptorCache {
     public int chunkColumnPaletteFlags(int chunkX, int chunkZ, int localX, int localZ) {
         int[] flags = this.paletteFlagArray(chunkX, chunkZ);
         if (flags == null) {
-            return 0;
+            return this.isLazyChunk(chunkX, chunkZ) ? UNKNOWN_PALETTE_FLAGS : 0;
         }
         return flags[(localZ << 4) | localX];
     }
@@ -166,7 +205,7 @@ public final class SectionDescriptorCache {
     public int chunkColumnBlockClassFlags(int chunkX, int chunkZ, int localX, int localZ) {
         int[] flags = this.blockClassFlagArray(chunkX, chunkZ);
         if (flags == null) {
-            return 0;
+            return this.isLazyChunk(chunkX, chunkZ) ? UNKNOWN_BLOCK_CLASS_FLAGS : 0;
         }
         return flags[(localZ << 4) | localX];
     }
@@ -238,6 +277,9 @@ public final class SectionDescriptorCache {
     }
 
     private short[] heightArray(int chunkX, int chunkZ, Heightmap.Types type) {
+        if (this.heightEntryCount == 0) {
+            return EMPTY_HEIGHTS;
+        }
         int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
         if (index < 0) {
             return EMPTY_HEIGHTS;
@@ -466,6 +508,9 @@ public final class SectionDescriptorCache {
     }
 
     private short[] topWaterArray(int chunkX, int chunkZ) {
+        if (this.heightEntryCount == 0) {
+            return EMPTY_HEIGHTS;
+        }
         int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
         if (index < 0) {
             return EMPTY_HEIGHTS;
@@ -474,6 +519,9 @@ public final class SectionDescriptorCache {
     }
 
     private int[] paletteFlagArray(int chunkX, int chunkZ) {
+        if (this.heightEntryCount == 0) {
+            return null;
+        }
         int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
         if (index < 0) {
             return null;
@@ -482,11 +530,18 @@ public final class SectionDescriptorCache {
     }
 
     private int[] blockClassFlagArray(int chunkX, int chunkZ) {
+        if (this.heightEntryCount == 0) {
+            return null;
+        }
         int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
         if (index < 0) {
             return null;
         }
         return this.chunkColumnBlockClassFlags[index];
+    }
+
+    private boolean isLazyChunk(int chunkX, int chunkZ) {
+        return this.lazyChunk != null && this.lazyChunkX == chunkX && this.lazyChunkZ == chunkZ;
     }
 
     private static long key(ChunkPos pos, int sectionY) {

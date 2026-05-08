@@ -197,7 +197,7 @@ public final class DecorationPipelineExecutor {
         }
         scratch.descriptors.clear();
         long start = DecorationPipelineMetrics.startTimer();
-        scratch.descriptors.buildChunk(context.chunk);
+        scratch.descriptors.prepareChunkLazy(context.chunk);
         scratch.markDescriptorsPrepared(context.chunk);
         DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
     }
@@ -205,6 +205,8 @@ public final class DecorationPipelineExecutor {
     public static final class ExecutionContext {
         private final WorldGenLevel level;
         private final ChunkAccess chunk;
+        private final int chunkX;
+        private final int chunkZ;
         private final ChunkGenerator generator;
         private final WorldgenRandom random;
         private final BlockPos origin;
@@ -227,6 +229,9 @@ public final class DecorationPipelineExecutor {
         ) {
             this.level = level;
             this.chunk = chunk;
+            ChunkPos chunkPos = chunk.getPos();
+            this.chunkX = chunkPos.x;
+            this.chunkZ = chunkPos.z;
             this.generator = generator;
             this.random = random;
             this.origin = origin;
@@ -250,6 +255,14 @@ public final class DecorationPipelineExecutor {
 
         ChunkAccess chunk() {
             return this.chunk;
+        }
+
+        int chunkX() {
+            return this.chunkX;
+        }
+
+        int chunkZ() {
+            return this.chunkZ;
         }
 
         ChunkGenerator generator() {

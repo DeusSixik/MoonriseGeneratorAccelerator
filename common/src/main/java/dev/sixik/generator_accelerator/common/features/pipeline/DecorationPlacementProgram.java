@@ -85,7 +85,6 @@ import java.util.Iterator;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
-import java.util.BitSet;
 import java.util.stream.Stream;
 
 final class DecorationPlacementProgram {
@@ -360,7 +359,7 @@ final class DecorationPlacementProgram {
             case IN_SQUARE -> executeAt(kernel, context, scratch, placementContext, configuredFeature, opIndex + 1, x + context.random().nextInt(16), y, z + context.random().nextInt(16));
             case HEIGHT_RANGE -> executeAt(kernel, context, scratch, placementContext, configuredFeature, opIndex + 1, x, this.heightProviders[opIndex].sample(context.random(), placementContext), z);
             case HEIGHTMAP -> {
-                int height = fastHeight(context.level(), scratch, this.heightmapTypes[opIndex], x, z);
+                int height = fastHeight(context, scratch, this.heightmapTypes[opIndex], x, z);
                 if (height <= context.level().getMinBuildHeight()) {
                     yield false;
                 }
@@ -514,7 +513,7 @@ final class DecorationPlacementProgram {
             case IN_SQUARE -> executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x + context.random().nextInt(16), y, z + context.random().nextInt(16), simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
             case HEIGHT_RANGE -> executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, this.heightProviders[opIndex].sample(context.random(), placementContext), z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
             case HEIGHTMAP -> {
-                int height = fastHeight(context.level(), scratch, this.heightmapTypes[opIndex], x, z);
+                int height = fastHeight(context, scratch, this.heightmapTypes[opIndex], x, z);
                 if (height <= context.level().getMinBuildHeight()) {
                     yield false;
                 }
@@ -1190,7 +1189,7 @@ final class DecorationPlacementProgram {
         int width = 2 * (Mth.ceil(horizontalRadius) + heightRadius);
         int height = 2 * (2 + heightRadius);
 
-        if (!oreHasSurfaceBelow(context.level(), startX, startY, startZ, width)) {
+        if (!oreHasSurfaceBelow(context, scratch, startX, startY, startZ, width)) {
             return false;
         }
 
@@ -1213,7 +1212,15 @@ final class DecorationPlacementProgram {
         );
     }
 
-    private static boolean oreHasSurfaceBelow(WorldGenLevel level, int startX, int startY, int startZ, int width) {
+    private static boolean oreHasSurfaceBelow(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            int startX,
+            int startY,
+            int startZ,
+            int width
+    ) {
+        WorldGenLevel level = context.level();
         ChunkAccess cachedChunk = null;
         Heightmap cachedHeightmap = null;
         int lastChunkX = Integer.MIN_VALUE;
@@ -1224,9 +1231,10 @@ final class DecorationPlacementProgram {
                 int chunkX = x >> 4;
                 int chunkZ = z >> 4;
                 if (chunkX != lastChunkX || chunkZ != lastChunkZ) {
-                    cachedChunk = level.getChunk(chunkX, chunkZ);
-                    cachedHeightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized) cachedChunk)
-                            .bts$getOrCreateHeightmapUnsynchronized(Heightmap.Types.OCEAN_FLOOR_WG);
+                    cachedChunk = chunkX == context.chunkX() && chunkZ == context.chunkZ()
+                            ? context.chunk()
+                            : level.getChunk(chunkX, chunkZ);
+                    cachedHeightmap = scratch.cachedHeightmap(cachedChunk, Heightmap.Types.OCEAN_FLOOR_WG);
                     lastChunkX = chunkX;
                     lastChunkZ = chunkZ;
                 }
@@ -1261,7 +1269,8 @@ final class DecorationPlacementProgram {
             int height
     ) {
         int size = config.size;
-        BitSet visited = scratch.clearOreBitSet();
+        int visitedBitCount = width * height * width;
+        long[] visited = scratch.clearOreVisitedWords(visitedBitCount);
         double[] veinData = scratch.ensureOreVeinDataCapacity(size * 4);
         RandomSource random = context.random();
 
@@ -1377,10 +1386,12 @@ final class DecorationPlacementProgram {
                         int secZ = blockZ >> 4;
                         for (int blockX = minBlockX; blockX <= maxBlockX; blockX++) {
                             int bitIndex = (blockX - startX) + bitIndexYZ;
-                            if (visited.get(bitIndex)) {
+                            int wordIndex = bitIndex >>> 6;
+                            long bitMask = 1L << (bitIndex & 63);
+                            if ((visited[wordIndex] & bitMask) != 0L) {
                                 continue;
                             }
-                            visited.set(bitIndex);
+                            visited[wordIndex] |= bitMask;
 
                             int secX = blockX >> 4;
                             if (secX != lastSecX || secY != lastSecY || secZ != lastSecZ) {
@@ -1629,7 +1640,7 @@ final class DecorationPlacementProgram {
         for (int i = 0; i < count; i++) {
             int x = originX + context.random().nextInt(8) - context.random().nextInt(8);
             int z = originZ + context.random().nextInt(8) - context.random().nextInt(8);
-            int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
+            int y = fastHeight(context, scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
             pos.set(x, y, z);
 
             BlockState state = SEA_PICKLES[context.random().nextInt(4)];
@@ -1928,7 +1939,7 @@ final class DecorationPlacementProgram {
     ) {
         int x = originX + context.random().nextInt(8) - context.random().nextInt(8);
         int z = originZ + context.random().nextInt(8) - context.random().nextInt(8);
-        int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
+        int y = fastHeight(context, scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
         BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
         if (!context.level().ensureCanWrite(pos)) {
             return false;
@@ -1981,7 +1992,7 @@ final class DecorationPlacementProgram {
             int x,
             int z
     ) {
-        int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
+        int y = fastHeight(context, scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
         BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
         if (!context.level().ensureCanWrite(pos)) {
             return false;
@@ -2092,7 +2103,7 @@ final class DecorationPlacementProgram {
             int x = originX + dx;
             for (int dz = 0; dz < 16; dz++) {
                 int z = originZ + dz;
-                int y = fastHeight(level, scratch, Heightmap.Types.MOTION_BLOCKING, x, z);
+                int y = fastHeight(context, scratch, Heightmap.Types.MOTION_BLOCKING, x, z);
                 top.set(x, y, z);
                 below.set(x, y - 1, z);
                 Biome biome = level.getBiome(top).value();
@@ -2482,7 +2493,7 @@ final class DecorationPlacementProgram {
             int z
     ) {
         ChunkAccess centerChunk = context.chunk();
-        if ((x >> 4) == centerChunk.getPos().x && (z >> 4) == centerChunk.getPos().z) {
+        if ((x >> 4) == context.chunkX() && (z >> 4) == context.chunkZ()) {
             return centerChunk;
         }
         return context.level().getChunk(x >> 4, z >> 4);
@@ -2799,7 +2810,14 @@ final class DecorationPlacementProgram {
         return scratch.descriptorsPreparedFor(context.chunk()) ? scratch.descriptors : null;
     }
 
-    private static int fastHeight(WorldGenLevel level, DecorationPipelineScratch scratch, Heightmap.Types type, int x, int z) {
+    private static int fastHeight(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            Heightmap.Types type,
+            int x,
+            int z
+    ) {
+        WorldGenLevel level = context.level();
         int chunkX = x >> 4;
         int chunkZ = z >> 4;
         int descriptorHeight = scratch.descriptors.firstAvailableHeight(chunkX, chunkZ, type, x & 15, z & 15);
@@ -2809,8 +2827,10 @@ final class DecorationPlacementProgram {
             return descriptorHeight;
         }
         try {
-            ChunkAccess chunk = level.getChunk(chunkX, chunkZ);
-            Heightmap heightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized) chunk).bts$getOrCreateHeightmapUnsynchronized(type);
+            ChunkAccess chunk = chunkX == context.chunkX() && chunkZ == context.chunkZ()
+                    ? context.chunk()
+                    : level.getChunk(chunkX, chunkZ);
+            Heightmap heightmap = scratch.cachedHeightmap(chunk, type);
             if (heightmap != null) {
                 return heightmap.getFirstAvailable(x & 15, z & 15);
             }

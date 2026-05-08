@@ -17,6 +17,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.CarvingMask;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Aquifer;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.carver.CarverConfiguration;
 import net.minecraft.world.level.levelgen.carver.CarvingContext;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
@@ -260,7 +261,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             }
         }
 
-        int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, mutableBlockPos, carveStateScratch, debug);
+        int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, chunkAccess, mutableBlockPos, carveStateScratch, debug);
         BlockState carvedState;
         if (carvedStateId != GA$NO_DIRECT_STATE) {
             carvedState = carvedStateId == GA$CAVE_AIR_STATE_ID ? GA$CAVE_AIR_BLOCK : GA$LAVA_BLOCK;
@@ -315,6 +316,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     private int ga$getDirectCarveStateId(
             CarvingContext carvingContext,
             C carverConfiguration,
+            ChunkAccess chunkAccess,
             BlockPos blockPos,
             CarveStateScratch carveStateScratch,
             boolean debug
@@ -324,11 +326,23 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             return GA$LAVA_STATE_ID;
         }
 
-        if (GA$FAST_SIMPLE_CAVE_STATE && !debug) {
+        if (GA$FAST_SIMPLE_CAVE_STATE && !debug && !ga$isBelowSurfaceFluid(chunkAccess, blockPos)) {
             return GA$CAVE_AIR_STATE_ID;
         }
 
         return GA$NO_DIRECT_STATE;
+    }
+
+    @Unique
+    private static boolean ga$isBelowSurfaceFluid(ChunkAccess chunkAccess, BlockPos blockPos) {
+        int x = blockPos.getX() & 15;
+        int z = blockPos.getZ() & 15;
+        int surfaceY = chunkAccess.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z);
+        if (blockPos.getY() >= surfaceY) {
+            return false;
+        }
+
+        return surfaceY > chunkAccess.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z);
     }
 
     @Unique

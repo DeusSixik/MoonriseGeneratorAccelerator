@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.common.carver.CarverChunkWriter;
+import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.core.SectionPos;
@@ -10,16 +11,20 @@ import net.minecraft.world.level.block.SculkSpreader;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.Arrays;
-import java.util.BitSet;
 
 public final class DecorationPipelineScratch {
 
-    private static final int DEFAULT_CANDIDATE_CAPACITY = 256;
-    private static final int DEFAULT_SECTION_BUCKET_CAPACITY = 16;
+    private static final int DEFAULT_CANDIDATE_CAPACITY = 2048;
+    private static final int DEFAULT_SECTION_BUCKET_CAPACITY = 128;
     private static final int DEFAULT_MODIFIER_BUFFER_CAPACITY = 32;
     private static final int MAX_REUSED_ORE_BITSET_BITS = 262_144;
+    private static final int MAX_REUSED_ORE_VISITED_WORDS = MAX_REUSED_ORE_BITSET_BITS >>> 6;
+    private static final int HEIGHTMAP_CACHE_SLOTS = 8;
+    private static final int HEIGHTMAP_CACHE_SLOT_MASK = HEIGHTMAP_CACHE_SLOTS - 1;
+    private static final int HEIGHTMAP_TYPE_COUNT = Heightmap.Types.values().length;
     private static final int CANDIDATE_MODE_NONE = 0;
     private static final int CANDIDATE_MODE_SIMPLE_BLOCK = 1;
     private static final int CANDIDATE_MODE_WRITE_JOURNAL = 2;
@@ -55,7 +60,7 @@ public final class DecorationPipelineScratch {
     public int[] chunkBucketTail = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     public long[] chunkBucketKey = new long[DEFAULT_SECTION_BUCKET_CAPACITY];
     public int chunkBucketCount;
-    private BitSet oreBitSet = new BitSet();
+    private long[] oreVisitedWords = new long[MAX_REUSED_ORE_VISITED_WORDS];
     private double[] oreVeinData = new double[64 * 4];
     private boolean[] lakeMask = new boolean[16 * 16 * 8];
     private final SculkSpreader worldGenSculkSpreader = SculkSpreader.createWorldGenSpreader();
@@ -64,6 +69,9 @@ public final class DecorationPipelineScratch {
     private final Long2IntOpenHashMap chunkBucketIndexByKey = new Long2IntOpenHashMap(DEFAULT_SECTION_BUCKET_CAPACITY);
     private final Long2IntOpenHashMap writeIndexByPos = new Long2IntOpenHashMap(DEFAULT_CANDIDATE_CAPACITY);
     private final Long2IntOpenHashMap touchedMutationIndexByKey = new Long2IntOpenHashMap(DEFAULT_SECTION_BUCKET_CAPACITY);
+    private final ChunkAccess[] heightmapCacheChunks = new ChunkAccess[HEIGHTMAP_CACHE_SLOTS];
+    private final long[] heightmapCacheChunkPos = new long[HEIGHTMAP_CACHE_SLOTS];
+    private final Heightmap[] heightmapCache = new Heightmap[HEIGHTMAP_CACHE_SLOTS * HEIGHTMAP_TYPE_COUNT];
     private ChunkAccess[] touchedMutationChunk = new ChunkAccess[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationX = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationY = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
@@ -108,6 +116,8 @@ public final class DecorationPipelineScratch {
         this.descriptorCenterChunk = null;
         this.descriptorCenterPos = 0L;
         this.descriptorsPrepared = false;
+        Arrays.fill(this.heightmapCacheChunks, null);
+        Arrays.fill(this.heightmapCache, null);
         this.modifierBufferDepth = 0;
     }
 
@@ -123,13 +133,15 @@ public final class DecorationPipelineScratch {
         this.descriptorsPrepared = true;
     }
 
-    BitSet clearOreBitSet() {
-        if (this.oreBitSet.size() > MAX_REUSED_ORE_BITSET_BITS) {
-            this.oreBitSet = new BitSet();
+    long[] clearOreVisitedWords(int bitCount) {
+        int wordCount = (bitCount + Long.SIZE - 1) >>> 6;
+        if (this.oreVisitedWords.length < wordCount || this.oreVisitedWords.length > MAX_REUSED_ORE_VISITED_WORDS) {
+            this.oreVisitedWords = new long[Math.max(wordCount, MAX_REUSED_ORE_VISITED_WORDS)];
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
         } else {
-            this.oreBitSet.clear();
+            Arrays.fill(this.oreVisitedWords, 0, wordCount, 0L);
         }
-        return this.oreBitSet;
+        return this.oreVisitedWords;
     }
 
     double[] ensureOreVeinDataCapacity(int values) {
@@ -148,6 +160,25 @@ public final class DecorationPipelineScratch {
     SculkSpreader worldGenSculkSpreader() {
         this.worldGenSculkSpreader.clear();
         return this.worldGenSculkSpreader;
+    }
+
+    Heightmap cachedHeightmap(ChunkAccess chunk, Heightmap.Types type) {
+        long chunkPos = chunk.getPos().toLong();
+        int slot = ((int) (chunkPos ^ (chunkPos >>> 32))) & HEIGHTMAP_CACHE_SLOT_MASK;
+        int baseIndex = slot * HEIGHTMAP_TYPE_COUNT;
+        if (this.heightmapCacheChunks[slot] != chunk || this.heightmapCacheChunkPos[slot] != chunkPos) {
+            Arrays.fill(this.heightmapCache, baseIndex, baseIndex + HEIGHTMAP_TYPE_COUNT, null);
+            this.heightmapCacheChunks[slot] = chunk;
+            this.heightmapCacheChunkPos[slot] = chunkPos;
+        }
+
+        int index = baseIndex + type.ordinal();
+        Heightmap heightmap = this.heightmapCache[index];
+        if (heightmap == null) {
+            heightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized) chunk).bts$getOrCreateHeightmapUnsynchronized(type);
+            this.heightmapCache[index] = heightmap;
+        }
+        return heightmap;
     }
 
     LongScratchBuffer acquireModifierPositionBuffer() {
