@@ -34,9 +34,11 @@ public final class FeatureVm {
     private static final long NO_POSITION = Long.MIN_VALUE;
     private static final boolean FEATURE_PLACEMENT_COMPAT = FeaturePlacementCompat.enabled();
 
+    @Deprecated(forRemoval = false)
     private FeatureVm() {
     }
 
+    @Deprecated(forRemoval = false)
     public static boolean execute(FeatureProgram program, PlacementContext context, RandomSource random, BlockPos startPos) {
         long startNanos = FeatureVmMetrics.ENABLED ? System.nanoTime() : 0L;
         FeatureVmMetrics.recordProgramExecution();
@@ -63,6 +65,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeDepthFirst(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
         if (opIndex >= program.opCount()) {
             return placeFeature(program, context, random, packedPos, opIndex, scratch);
@@ -87,6 +90,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeLinearFast(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, FeatureScratch scratch) {
         FeatureVmMetrics.recordLinearFastExecution();
         int opCount = program.opCount();
@@ -146,6 +150,7 @@ public final class FeatureVm {
         return placeFeatureAt(program, context, random, x, y, z, opCount, scratch);
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeBufferFast(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         FeatureVmMetrics.recordBufferFastExecution();
         LongScratchBuffer current = scratch.buffer(0);
@@ -188,6 +193,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeSpecialized(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch, int executor) {
         return switch (executor) {
             case FeatureExecutorKind.REPEATING_IN_SQUARE_HEIGHT_RANGE ->
@@ -204,6 +210,7 @@ public final class FeatureVm {
         };
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeRepeatingInSquareLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
         int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
@@ -234,6 +241,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeRepeatingInSquareHeightRange(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
         int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
@@ -273,6 +281,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeRepeatingInSquareHeightmap(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
         int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
@@ -317,6 +326,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeRepeatingInSquareHeightRangeFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
         int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
@@ -347,6 +357,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeRepeatingInSquareHeightmapFilter(FeatureProgram program, PlacementContext context, RandomSource random, long startPackedPos, FeatureScratch scratch) {
         BlockPos.MutableBlockPos startPos = scratch.mutablePos(0).set(startPackedPos);
         int count = program.repeatingPlacement(0).ga$repeatingCount(random, startPos);
@@ -378,6 +389,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static long applySpecializedLinearTail(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int startOpIndex, FeatureScratch scratch) {
         int[] opcodes = program.opcodes();
         for (int opIndex = startOpIndex, opCount = opcodes.length; opIndex < opCount; opIndex++) {
@@ -427,6 +439,7 @@ public final class FeatureVm {
         return BlockPos.asLong(x, y, z);
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyLinearOpcode(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         return switch (opcode) {
             case FeatureOpcode.IN_SQUARE -> applyInSquareLinear(random, x, y, z);
@@ -444,6 +457,7 @@ public final class FeatureVm {
         };
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyOpcode(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         switch (opcode) {
             case FeatureOpcode.IN_SQUARE -> applyInSquare(random, packedPos, output);
@@ -462,30 +476,36 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyInSquare(RandomSource random, long packedPos, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos) + random.nextInt(16);
         int z = BlockPos.getZ(packedPos) + random.nextInt(16);
         output.add(BlockPos.asLong(x, BlockPos.getY(packedPos), z));
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyInSquareLinear(RandomSource random, long packedPos) {
         int x = BlockPos.getX(packedPos) + random.nextInt(16);
         int z = BlockPos.getZ(packedPos) + random.nextInt(16);
         return BlockPos.asLong(x, BlockPos.getY(packedPos), z);
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyInSquareLinear(RandomSource random, int x, int y, int z) {
         return BlockPos.asLong(x + random.nextInt(16), y, z + random.nextInt(16));
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyHeightRange(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output) {
         output.add(BlockPos.asLong(BlockPos.getX(packedPos), program.heightProvider(opIndex).sample(random, context), BlockPos.getZ(packedPos)));
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyHeightRangeLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int z, int opIndex) {
         return BlockPos.asLong(x, program.heightProvider(opIndex).sample(random, context), z);
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyHeightmap(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos);
         int z = BlockPos.getZ(packedPos);
@@ -495,11 +515,13 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyHeightmapLinear(FeatureProgram program, PlacementContext context, int x, int z, int opIndex) {
         int y = fastHeight(context, program.heightmapType(opIndex), x, z);
         return y > context.getMinBuildHeight() ? BlockPos.asLong(x, y, z) : NO_POSITION;
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyRandomOffset(FeatureProgram program, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output) {
         FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
         int x = BlockPos.getX(packedPos) + data.xzSpread().sample(random);
@@ -508,17 +530,20 @@ public final class FeatureVm {
         output.add(BlockPos.asLong(x, y, z));
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyRandomOffsetLinear(FeatureProgram program, RandomSource random, int x, int y, int z, int opIndex) {
         FeatureProgram.RandomOffsetData data = program.randomOffset(opIndex);
         return BlockPos.asLong(x + data.xzSpread().sample(random), y + data.ySpread().sample(random), z + data.xzSpread().sample(random));
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyRepeating(FeatureProgram program, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
         int count = program.repeatingPlacement(opIndex).ga$repeatingCount(random, pos);
         output.addRepeated(packedPos, count);
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyPlacementFilter(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
         if (program.placementFilter(opIndex).ga$shouldPlace(context, random, pos)) {
@@ -526,10 +551,12 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyPlacementFilterLinear(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         return passesPlacementFilter(program, FeatureOpcode.PLACEMENT_FILTER, context, random, x, y, z, opIndex, scratch) ? BlockPos.asLong(x, y, z) : NO_POSITION;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean passesPlacementFilter(FeatureProgram program, int opcode, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         if (opcode == FeatureOpcode.BIOME_FILTER) {
             return passesBiomeFilter(context, x, y, z, opIndex, scratch);
@@ -537,6 +564,7 @@ public final class FeatureVm {
         return program.placementFilter(opIndex).ga$shouldPlaceRaw(context, random, x, y, z, scratch.mutablePos(opIndex));
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyBiomeFilter(PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         int x = BlockPos.getX(packedPos);
         int y = BlockPos.getY(packedPos);
@@ -546,6 +574,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean passesBiomeFilter(PlacementContext context, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         Optional<PlacedFeature> topFeature = context.topFeature();
         if (topFeature.isEmpty()) {
@@ -557,6 +586,7 @@ public final class FeatureVm {
         return scratch.biomeFilterScratch().hasFeature(context.generator(), biome, topFeature.get());
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyFixed(FeatureProgram program, long packedPos, int opIndex, LongScratchBuffer output) {
         int chunkX = BlockPos.getX(packedPos) >> 4;
         int chunkZ = BlockPos.getZ(packedPos) >> 4;
@@ -572,6 +602,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyCarvingMask(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output) {
         int bx = BlockPos.getX(packedPos);
         int bz = BlockPos.getZ(packedPos);
@@ -582,6 +613,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyEnvironmentScan(FeatureProgram program, PlacementContext context, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) program.modifier(opIndex);
         FeatureProgram.EnvironmentScanData data = program.environmentScan(opIndex);
@@ -620,6 +652,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static long applyEnvironmentScanLinear(FeatureProgram program, PlacementContext context, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) program.modifier(opIndex);
         FeatureProgram.EnvironmentScanData data = program.environmentScan(opIndex);
@@ -652,6 +685,7 @@ public final class FeatureVm {
         return access.ga$targetCondition().test(level, pos) ? pos.asLong() : NO_POSITION;
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyCountOnEveryLayer(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         int startX = BlockPos.getX(packedPos);
         int startZ = BlockPos.getZ(packedPos);
@@ -678,6 +712,7 @@ public final class FeatureVm {
         } while (foundOnLayer);
     }
 
+    @Deprecated(forRemoval = false)
     private static int findOnGroundYPosition(PlacementContext context, int x, int y, int z, int targetLayer, BlockPos.MutableBlockPos pos) {
         pos.set(x, y, z);
         int currentLayer = 0;
@@ -699,10 +734,12 @@ public final class FeatureVm {
         return Integer.MAX_VALUE;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean isEmpty(BlockState state) {
         return state.isAir() || state.is(Blocks.WATER) || state.is(Blocks.LAVA);
     }
 
+    @Deprecated(forRemoval = false)
     private static int fastHeight(PlacementContext context, Heightmap.Types type, int x, int z) {
         try {
             ChunkAccess chunk = context.getLevel().getChunk(x >> 4, z >> 4);
@@ -716,6 +753,7 @@ public final class FeatureVm {
         return context.getHeight(type, x, z);
     }
 
+    @Deprecated(forRemoval = false)
     private static void applyFastModifier(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         try {
             program.rawModifier(opIndex).generatePositionsRaw(context, random, packedPos, output);
@@ -724,6 +762,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean executeVanillaFallback(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
         FeatureVmMetrics.recordFallbackOpExecution();
         BlockPos.MutableBlockPos input = scratch.mutablePos(opIndex).set(packedPos);
@@ -739,6 +778,7 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static void fillVanillaModifier(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, LongScratchBuffer output, FeatureScratch scratch) {
         FeatureVmMetrics.recordFallbackOpExecution();
         BlockPos.MutableBlockPos input = scratch.mutablePos(opIndex).set(packedPos);
@@ -750,11 +790,13 @@ public final class FeatureVm {
         }
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean placeFeature(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
         FeatureVmMetrics.recordFeaturePlaceCall();
         return placeFeatureUntracked(program, context, random, packedPos, opIndex, scratch);
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean placeFeatureUntracked(FeatureProgram program, PlacementContext context, RandomSource random, long packedPos, int opIndex, FeatureScratch scratch) {
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(packedPos);
@@ -769,6 +811,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean placeFeatureAt(FeatureProgram program, PlacementContext context, RandomSource random, int x, int y, int z, int opIndex, FeatureScratch scratch) {
         boolean success = false;
         BlockPos.MutableBlockPos pos = scratch.mutablePos(opIndex).set(x, y, z);
@@ -783,6 +826,7 @@ public final class FeatureVm {
         return success;
     }
 
+    @Deprecated(forRemoval = false)
     private static boolean placeConfiguredFeature(FeatureProgram program, PlacementContext context, RandomSource random, BlockPos.MutableBlockPos pos, int opIndex, FeatureScratch scratch) {
         WorldGenLevel level = context.getLevel();
         if (!level.ensureCanWrite(pos)) {

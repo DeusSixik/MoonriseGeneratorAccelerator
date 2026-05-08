@@ -9,6 +9,7 @@ import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.WeightedPlacedFeature;
 import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.CountConfiguration;
+import net.minecraft.world.level.levelgen.feature.LakeFeature;
 import net.minecraft.world.level.levelgen.feature.configurations.OreConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.RandomBooleanFeatureConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.RandomFeatureConfiguration;
@@ -18,21 +19,28 @@ import net.minecraft.world.level.levelgen.feature.configurations.SimpleRandomFea
 import net.minecraft.world.level.levelgen.feature.configurations.SpringConfiguration;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 
 public final class JavaDecorationCompiler {
     private static final int MAX_COMPILED_BRANCH_DEPTH = 6;
+    private final IdentityHashMap<PlacedFeature, DecorationPlacementProgram> placementProgramCache = new IdentityHashMap<>();
 
     public DecorationPlan compile(Object[][] featuresByStep) {
         if (featuresByStep == null || featuresByStep.length == 0) {
             return DecorationPlan.empty();
         }
 
-        DecorationStepPlan[] steps = new DecorationStepPlan[featuresByStep.length];
-        for (int step = 0; step < featuresByStep.length; step++) {
-            steps[step] = this.compileStep(step, featuresByStep[step]);
+        this.placementProgramCache.clear();
+        try {
+            DecorationStepPlan[] steps = new DecorationStepPlan[featuresByStep.length];
+            for (int step = 0; step < featuresByStep.length; step++) {
+                steps[step] = this.compileStep(step, featuresByStep[step]);
+            }
+            return new DecorationPlan(steps);
+        } finally {
+            this.placementProgramCache.clear();
         }
-        return new DecorationPlan(steps);
     }
 
     public DecorationStepPlan compileStep(int step, Object[] features) {
@@ -79,7 +87,7 @@ public final class JavaDecorationCompiler {
     }
 
     private DecorationKernelPlan compileFeature(PlacedFeature feature, int originalFeatureIndex, int remainingBranchDepth) {
-        DecorationPlacementProgram placementProgram = DecorationPlacementProgram.compile(feature);
+        DecorationPlacementProgram placementProgram = this.compilePlacement(feature);
         DecorationKernelKind kind = classify(feature);
         DecorationPlacementProgram nestedPlacementProgram = null;
         ConfiguredFeature<?, ?> nestedConfiguredFeature = null;
@@ -98,38 +106,61 @@ public final class JavaDecorationCompiler {
         if (kind == DecorationKernelKind.NATIVE_RANDOM_PATCH_SIMPLE) {
             PlacedFeature nestedPlacedFeature = nestedPlacedFeature(feature);
             nestedConfiguredFeature = nestedConfiguredFeature(nestedPlacedFeature);
-            nestedPlacementProgram = DecorationPlacementProgram.compile(nestedPlacedFeature);
-            if (nestedPlacementProgram.hasVanillaModifier() || nestedPlacementProgram.hasBiomeFilter()) {
+            if (nestedConfiguredFeature == null || nestedPlacedFeature == null) {
                 kind = DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
                 nestedConfiguredFeature = null;
                 nestedPlacementProgram = null;
+            } else {
+                nestedPlacementProgram = this.compilePlacement(nestedPlacedFeature);
             }
         }
         if (kind == DecorationKernelKind.NATIVE_RANDOM_PATCH_SELECTOR) {
             PlacedFeature nestedPlacedFeature = nestedPlacedFeature(feature);
             nestedConfiguredFeature = nestedConfiguredFeature(nestedPlacedFeature);
-            nestedPlacementProgram = DecorationPlacementProgram.compile(nestedPlacedFeature);
-            if (nestedPlacementProgram.hasVanillaModifier() || nestedPlacementProgram.hasBiomeFilter()) {
-                kind = DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
-                nestedConfiguredFeature = null;
-                nestedPlacementProgram = null;
-            } else {
-                selectorPlan = this.compileSelectorPlan(nestedConfiguredFeature, true, remainingBranchDepth);
-                if (selectorPlan == null) {
-                    kind = DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
-                    nestedConfiguredFeature = null;
-                    nestedPlacementProgram = null;
-                }
+            if (nestedConfiguredFeature == null || nestedPlacedFeature == null) {
+                return DecorationKernelPlan.partialNativeClassified(
+                        DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                        feature,
+                        originalFeatureIndex,
+                        placementProgram,
+                        DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG
+                );
+            }
+            nestedPlacementProgram = this.compilePlacement(nestedPlacedFeature);
+            selectorPlan = this.compileSelectorPlan(nestedConfiguredFeature, remainingBranchDepth);
+            if (selectorPlan == null) {
+                return DecorationKernelPlan.partialNativeClassified(
+                        DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                        feature,
+                        originalFeatureIndex,
+                        placementProgram,
+                        remainingBranchDepth <= 0
+                                ? DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP
+                                : DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG
+                );
             }
         }
         if (kind == DecorationKernelKind.NATIVE_SELECTOR_SIMPLE && remainingBranchDepth > 0) {
             ConfiguredFeature<?, ?> configuredFeature = feature.feature().value();
-            selectorPlan = this.compileSelectorPlan(configuredFeature, false, remainingBranchDepth);
+            selectorPlan = this.compileSelectorPlan(configuredFeature, remainingBranchDepth);
             if (selectorPlan == null) {
-                kind = DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
+                return DecorationKernelPlan.partialNativeClassified(
+                        DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                        feature,
+                        originalFeatureIndex,
+                        placementProgram,
+                        DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG
+                );
             }
         } else if (kind == DecorationKernelKind.NATIVE_SELECTOR_SIMPLE) {
-            kind = DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP);
+            return DecorationKernelPlan.partialNativeClassified(
+                    DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                    feature,
+                    originalFeatureIndex,
+                    placementProgram,
+                    DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP
+            );
         }
         if (kind.isNativeKernel()) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_KERNELS_COMPILED);
@@ -219,6 +250,11 @@ public final class JavaDecorationCompiler {
         if (feature == Feature.FREEZE_TOP_LAYER) {
             return DecorationKernelKind.NATIVE_SNOW_FREEZE;
         }
+        if (feature == Feature.LAKE) {
+            return config instanceof LakeFeature.Configuration
+                    ? DecorationKernelKind.NATIVE_LAKE
+                    : DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT;
+        }
         if (feature == Feature.SCULK_PATCH) {
             return config instanceof SculkPatchConfiguration
                     ? DecorationKernelKind.NATIVE_SCULK_PATCH
@@ -262,33 +298,34 @@ public final class JavaDecorationCompiler {
 
     private SelectorPlan compileSelectorPlan(
             ConfiguredFeature<?, ?> configuredFeature,
-            boolean requireNativeSimpleBlockBranches,
             int remainingBranchDepth
     ) {
         if (configuredFeature == null) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG);
             return null;
         }
         if (remainingBranchDepth <= 0) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP);
             return null;
         }
 
         Feature<?> feature = configuredFeature.feature();
         FeatureConfiguration config = configuredFeature.config();
         if (feature == Feature.RANDOM_SELECTOR && config instanceof RandomFeatureConfiguration randomFeature) {
-            return this.compileRandomSelectorPlan(randomFeature, requireNativeSimpleBlockBranches, remainingBranchDepth);
+            return this.compileRandomSelectorPlan(randomFeature, remainingBranchDepth);
         }
         if (feature == Feature.RANDOM_BOOLEAN_SELECTOR && config instanceof RandomBooleanFeatureConfiguration randomBoolean) {
-            return this.compileRandomBooleanSelectorPlan(randomBoolean, requireNativeSimpleBlockBranches, remainingBranchDepth);
+            return this.compileRandomBooleanSelectorPlan(randomBoolean, remainingBranchDepth);
         }
         if (feature == Feature.SIMPLE_RANDOM_SELECTOR && config instanceof SimpleRandomFeatureConfiguration simpleRandom) {
-            return this.compileSimpleRandomSelectorPlan(simpleRandom, requireNativeSimpleBlockBranches, remainingBranchDepth);
+            return this.compileSimpleRandomSelectorPlan(simpleRandom, remainingBranchDepth);
         }
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG);
         return null;
     }
 
     private SelectorPlan compileRandomSelectorPlan(
             RandomFeatureConfiguration config,
-            boolean requireNativeSimpleBlockBranches,
             int remainingBranchDepth
     ) {
         List<WeightedPlacedFeature> entries = config.features;
@@ -301,7 +338,6 @@ public final class JavaDecorationCompiler {
             DecorationKernelPlan branchKernel = this.compileSelectorBranch(
                     entry.feature.value(),
                     i,
-                    requireNativeSimpleBlockBranches,
                     remainingBranchDepth - 1
             );
             if (branchKernel == null) {
@@ -313,7 +349,6 @@ public final class JavaDecorationCompiler {
         DecorationKernelPlan defaultKernel = this.compileSelectorBranch(
                 config.defaultFeature.value(),
                 branchCount - 1,
-                requireNativeSimpleBlockBranches,
                 remainingBranchDepth - 1
         );
         if (defaultKernel == null) {
@@ -325,14 +360,12 @@ public final class JavaDecorationCompiler {
 
     private SelectorPlan compileRandomBooleanSelectorPlan(
             RandomBooleanFeatureConfiguration config,
-            boolean requireNativeSimpleBlockBranches,
             int remainingBranchDepth
     ) {
         DecorationKernelPlan[] branchKernels = new DecorationKernelPlan[2];
         branchKernels[0] = this.compileSelectorBranch(
                 config.featureTrue.value(),
                 0,
-                requireNativeSimpleBlockBranches,
                 remainingBranchDepth - 1
         );
         if (branchKernels[0] == null) {
@@ -341,7 +374,6 @@ public final class JavaDecorationCompiler {
         branchKernels[1] = this.compileSelectorBranch(
                 config.featureFalse.value(),
                 1,
-                requireNativeSimpleBlockBranches,
                 remainingBranchDepth - 1
         );
         if (branchKernels[1] == null) {
@@ -352,7 +384,6 @@ public final class JavaDecorationCompiler {
 
     private SelectorPlan compileSimpleRandomSelectorPlan(
             SimpleRandomFeatureConfiguration config,
-            boolean requireNativeSimpleBlockBranches,
             int remainingBranchDepth
     ) {
         HolderSet<PlacedFeature> features = config.features;
@@ -366,7 +397,6 @@ public final class JavaDecorationCompiler {
             DecorationKernelPlan branchKernel = this.compileSelectorBranch(
                     holder.value(),
                     i,
-                    requireNativeSimpleBlockBranches,
                     remainingBranchDepth - 1
             );
             if (branchKernel == null) {
@@ -380,7 +410,6 @@ public final class JavaDecorationCompiler {
     private DecorationKernelPlan compileSelectorBranch(
             PlacedFeature placedFeature,
             int index,
-            boolean requireNativeSimpleBlockBranches,
             int remainingBranchDepth
     ) {
         if (placedFeature == null) {
@@ -390,15 +419,9 @@ public final class JavaDecorationCompiler {
         if (configuredFeature == null) {
             return null;
         }
-        DecorationPlacementProgram placementProgram = DecorationPlacementProgram.compile(placedFeature);
-        if (requireNativeSimpleBlockBranches
-                && (placementProgram.hasVanillaModifier() || placementProgram.hasBiomeFilter())) {
-            return null;
-        }
+        DecorationPlacementProgram placementProgram = this.compilePlacement(placedFeature);
         Feature<?> branchFeature = configuredFeature.feature();
-        if (branchFeature == Feature.SIMPLE_BLOCK
-                && !placementProgram.hasVanillaModifier()
-                && !placementProgram.hasBiomeFilter()) {
+        if (branchFeature == Feature.SIMPLE_BLOCK) {
             return DecorationKernelPlan.nativeClassified(
                     DecorationKernelKind.NATIVE_SIMPLE_BLOCK,
                     placedFeature,
@@ -406,19 +429,46 @@ public final class JavaDecorationCompiler {
                     placementProgram
             );
         }
-        if (requireNativeSimpleBlockBranches || remainingBranchDepth <= 0) {
-            return null;
+        if (remainingBranchDepth <= 0) {
+            if (remainingBranchDepth <= 0) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP);
+            }
+            return DecorationKernelPlan.partialNativeClassified(
+                    DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                    placedFeature,
+                    index,
+                    placementProgram,
+                    DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP
+            );
         }
         if (isRandomPatchFeature(branchFeature) && configuredFeature.config() instanceof RandomPatchConfiguration randomPatch) {
             DecorationKernelKind kind = classifyRandomPatch(randomPatch);
             if (kind == DecorationKernelKind.NATIVE_RANDOM_PATCH_SIMPLE) {
-                return this.compileRandomPatchSimpleBranch(placedFeature, index, placementProgram);
+                DecorationKernelPlan branchKernel = this.compileRandomPatchSimpleBranch(placedFeature, index, placementProgram);
+                if (branchKernel != null) {
+                    return branchKernel;
+                }
             }
             if (kind == DecorationKernelKind.NATIVE_RANDOM_PATCH_SELECTOR) {
-                return this.compileRandomPatchSelectorBranch(placedFeature, index, placementProgram);
+                DecorationKernelPlan branchKernel = this.compileRandomPatchSelectorBranch(placedFeature, index, placementProgram, remainingBranchDepth);
+                if (branchKernel != null) {
+                    return branchKernel;
+                }
             }
         }
-        return this.compileFeature(placedFeature, index, remainingBranchDepth);
+        DecorationKernelPlan branchKernel = this.compileFeature(placedFeature, index, remainingBranchDepth);
+        if (branchKernel == null) {
+            return DecorationKernelPlan.partialNativeClassified(
+                    DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                    placedFeature,
+                    index,
+                    placementProgram
+            );
+        }
+        if (!branchKernel.kind().isNativeKernel()) {
+            return branchKernel;
+        }
+        return branchKernel;
     }
 
     private DecorationKernelPlan compileRandomPatchSimpleBranch(
@@ -431,10 +481,7 @@ public final class JavaDecorationCompiler {
         if (nestedConfiguredFeature == null || nestedConfiguredFeature.feature() != Feature.SIMPLE_BLOCK) {
             return null;
         }
-        DecorationPlacementProgram nestedPlacementProgram = DecorationPlacementProgram.compile(nestedPlacedFeature);
-        if (nestedPlacementProgram.hasVanillaModifier() || nestedPlacementProgram.hasBiomeFilter()) {
-            return null;
-        }
+        DecorationPlacementProgram nestedPlacementProgram = this.compilePlacement(nestedPlacedFeature);
         return DecorationKernelPlan.nativeRandomPatchSimple(
                 placedFeature,
                 index,
@@ -447,20 +494,27 @@ public final class JavaDecorationCompiler {
     private DecorationKernelPlan compileRandomPatchSelectorBranch(
             PlacedFeature placedFeature,
             int index,
-            DecorationPlacementProgram placementProgram
+            DecorationPlacementProgram placementProgram,
+            int remainingBranchDepth
     ) {
         PlacedFeature nestedPlacedFeature = nestedPlacedFeature(placedFeature);
         ConfiguredFeature<?, ?> nestedConfiguredFeature = nestedConfiguredFeature(nestedPlacedFeature);
         if (nestedConfiguredFeature == null || !isSelectorFeature(nestedConfiguredFeature.feature())) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG);
             return null;
         }
-        DecorationPlacementProgram nestedPlacementProgram = DecorationPlacementProgram.compile(nestedPlacedFeature);
-        if (nestedPlacementProgram.hasVanillaModifier() || nestedPlacementProgram.hasBiomeFilter()) {
-            return null;
-        }
-        SelectorPlan selectorPlan = this.compileSelectorPlan(nestedConfiguredFeature, true, MAX_COMPILED_BRANCH_DEPTH);
+        DecorationPlacementProgram nestedPlacementProgram = this.compilePlacement(nestedPlacedFeature);
+        SelectorPlan selectorPlan = this.compileSelectorPlan(nestedConfiguredFeature, remainingBranchDepth);
         if (selectorPlan == null) {
-            return null;
+            return DecorationKernelPlan.partialNativeClassified(
+                    DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT,
+                    placedFeature,
+                    index,
+                    placementProgram,
+                    remainingBranchDepth <= 0
+                            ? DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_DEPTH_CAP
+                            : DecorationPipelineMetrics.SELECTOR_UNSUPPORTED_CONFIG
+            );
         }
         return DecorationKernelPlan.nativeRandomPatchSelector(
                 placedFeature,
@@ -476,6 +530,20 @@ public final class JavaDecorationCompiler {
         return feature == Feature.RANDOM_SELECTOR
                 || feature == Feature.RANDOM_BOOLEAN_SELECTOR
                 || feature == Feature.SIMPLE_RANDOM_SELECTOR;
+    }
+
+    private DecorationPlacementProgram compilePlacement(PlacedFeature feature) {
+        DecorationPlacementProgram cached = this.placementProgramCache.get(feature);
+        if (cached != null) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PLACEMENT_PROGRAM_CACHE_HITS);
+            return cached;
+        }
+
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PLACEMENT_PROGRAM_CACHE_MISSES);
+        DecorationPlacementProgram compiled = DecorationPlacementProgram.compile(feature);
+        this.placementProgramCache.put(feature, compiled);
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PLACEMENT_PROGRAM_CACHE_STORES);
+        return compiled;
     }
 
     private static boolean canUseNativeOre(OreConfiguration config) {

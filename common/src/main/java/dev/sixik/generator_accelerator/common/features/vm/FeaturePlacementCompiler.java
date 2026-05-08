@@ -32,10 +32,13 @@ import net.minecraft.world.level.levelgen.placement.RepeatingPlacement;
 
 import java.util.List;
 
+@Deprecated(forRemoval = false)
 public final class FeaturePlacementCompiler {
+    @Deprecated(forRemoval = false)
     private FeaturePlacementCompiler() {
     }
 
+    @Deprecated(forRemoval = false)
     public static FeatureProgram compile(List<PlacementModifier> placement, Holder<ConfiguredFeature<?, ?>> feature) {
         int size = placement.size();
         int[] opcodes = new int[size];

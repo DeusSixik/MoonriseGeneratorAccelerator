@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.features.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$StructureManagerExtension;
 import dev.sixik.generator_accelerator.common.features.BiomeDecorationScratch;
+import dev.sixik.generator_accelerator.common.features.BiomeSignatureFeatureMaskCache;
 import dev.sixik.generator_accelerator.common.features.RegistryNameSupplier;
 import dev.sixik.generator_accelerator.common.features.StepFeatureCache;
 import dev.sixik.generator_accelerator.common.features.StructureStepCache;
@@ -85,6 +86,12 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     @Unique
     private volatile DecorationPlan ga$decorationPlan;
 
+    @Unique
+    private volatile StepFeatureCache ga$biomeSignatureFeatureCacheOwner;
+
+    @Unique
+    private volatile BiomeSignatureFeatureMaskCache ga$biomeSignatureMaskCache;
+
     @Shadow
     @Final
     protected BiomeSource biomeSource;
@@ -134,6 +141,10 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             ObjectArraySet<Holder<Biome>> set = decorationScratch.biomes;
             set.clear();
             Set<Holder<Biome>> possibleBiomes = this.biomeSource.possibleBiomes();
+            int featureDataSize = featureCache.stepCount;
+            if (featureDataSize > 0) {
+                decorationScratch.beginCombinedFeatureMasks(featureDataSize, featureCache.featureMaskWordsByStep);
+            }
 
 // GENERATOR ACCELERATOR START
             // REPLACE ChunkPos.rangeClosed
@@ -142,6 +153,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             int maxX = center.x + 1;
             int minZ = center.z - 1;
             int maxZ = center.z + 1;
+            long biomeScanStart = DecorationPipelineMetrics.startTimer();
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     ChunkAccess chunkaccess = pLevel.getChunk(x, z);
@@ -155,8 +167,22 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                     }
                 }
             }
+            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_BIOME_SCAN_NANOS, biomeScanStart);
+            if (featureDataSize > 0 && !set.isEmpty()) {
+                BiomeSignatureFeatureMaskCache maskCache = this.ga$getBiomeSignatureMaskCache(featureCache);
+                if (!maskCache.copyIfPresent(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep)) {
+                    long maskCombineStart = DecorationPipelineMetrics.startTimer();
+                    for (Holder<Biome> biome : set) {
+                        decorationScratch.addBiomeFeatureData(
+                                featureCache.featureDataFor(biome, this.generationSettingsGetter),
+                                featureCache.featureMaskWordsByStep
+                        );
+                    }
+                    DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_MASK_COMBINE_NANOS, maskCombineStart);
+                    maskCache.store(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep);
+                }
+            }
 // GENERATOR ACCELERATOR END
-            int featureDataSize = featureCache.stepCount;
 
 // GENERATOR ACCELERATOR START
             final BoundingBox writableArea = getWritableArea(pChunk);
@@ -179,15 +205,6 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 );
                 int i1 = Math.max(Math.max(GA$DECORATION_STEP_COUNT, featureDataSize), structureStepCache.stepCount());
                 final boolean generateStructures = pStructureManager.shouldGenerateStructures();
-                if (featureDataSize > 0 && !set.isEmpty()) {
-                    decorationScratch.beginCombinedFeatureMasks(featureDataSize, featureCache.featureMaskWordsByStep);
-                    for (Holder<Biome> holder : set) {
-                        decorationScratch.addBiomeFeatureMasks(
-                                featureCache.featureMasksFor(holder, this.generationSettingsGetter),
-                                featureCache.featureMaskWordsByStep
-                        );
-                    }
-                }
 
                 for (int k = 0; k < i1; k++) {
                     int l = 0;
@@ -225,7 +242,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
 
                     if (k < featureDataSize) {
                         // GENERATOR ACCELERATOR START
-                        if (featureCache.featuresByStep[k].length == 0 || set.isEmpty()) {
+                        if (featureCache.featuresByStep[k].length == 0 || set.isEmpty() || !decorationScratch.stepHasFeatures(k)) {
                             continue;
                         }
                         int wordCount = featureCache.featureMaskWordsByStep[k];
@@ -295,8 +312,19 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     }
 
     @Unique
+    private BiomeSignatureFeatureMaskCache ga$getBiomeSignatureMaskCache(StepFeatureCache featureCache) {
+        BiomeSignatureFeatureMaskCache cache = this.ga$biomeSignatureMaskCache;
+        if (cache == null || this.ga$biomeSignatureFeatureCacheOwner != featureCache) {
+            cache = new BiomeSignatureFeatureMaskCache();
+            this.ga$biomeSignatureFeatureCacheOwner = featureCache;
+            this.ga$biomeSignatureMaskCache = cache;
+        }
+        return cache;
+    }
+
+    @Unique
     @SuppressWarnings("unchecked")
-    private static void ga$collectSectionBiomes(
+    private void ga$collectSectionBiomes(
             LevelChunkSection section,
             ObjectArraySet<Holder<Biome>> biomesOut,
             Set<Holder<Biome>> possibleBiomes,
@@ -305,17 +333,13 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
         PalettedContainerRO<Holder<Biome>> biomes = section.getBiomes();
         if (!(biomes instanceof PalettedContainer<?> rawContainer)) {
             biomes.getAll(biome -> {
-                if (possibleBiomes.contains(biome)) {
-                    biomesOut.add(biome);
-                }
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
             });
             return;
         }
         if (rawContainer.getClass() != PalettedContainer.class) {
             biomes.getAll(biome -> {
-                if (possibleBiomes.contains(biome)) {
-                    biomesOut.add(biome);
-                }
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
             });
             return;
         }
@@ -325,10 +349,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
         Palette<Holder<Biome>> palette = data.palette();
         int paletteSize = palette.getSize();
         if (paletteSize == 1) {
-            Holder<Biome> biome = palette.valueFor(0);
-            if (possibleBiomes.contains(biome)) {
-                biomesOut.add(biome);
-            }
+            this.ga$recordBiome(palette.valueFor(0), biomesOut, possibleBiomes);
             return;
         }
 
@@ -336,7 +357,9 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
         int[] uniquePaletteIndices = scratch.biomePaletteIndices();
         int storageSize = storage.getSize();
         if (storageSize > uniquePaletteIndices.length) {
-            biomes.getAll(biomesOut::add);
+            biomes.getAll(biome -> {
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
+            });
             return;
         }
         int uniqueCount = 0;
@@ -352,14 +375,22 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             }
             if (!seen) {
                 uniquePaletteIndices[uniqueCount++] = paletteIndex;
-                Holder<Biome> biome = palette.valueFor(paletteIndex);
-                if (possibleBiomes.contains(biome)) {
-                    biomesOut.add(biome);
-                }
+                this.ga$recordBiome(palette.valueFor(paletteIndex), biomesOut, possibleBiomes);
                 if (uniqueCount == targetUniqueCount) {
                     return;
                 }
             }
+        }
+    }
+
+    @Unique
+    private void ga$recordBiome(
+            Holder<Biome> biome,
+            ObjectArraySet<Holder<Biome>> biomesOut,
+            Set<Holder<Biome>> possibleBiomes
+    ) {
+        if (possibleBiomes.contains(biome)) {
+            biomesOut.add(biome);
         }
     }
 

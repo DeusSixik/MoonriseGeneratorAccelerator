@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.features.vm;
 
 import java.util.concurrent.atomic.LongAdder;
 
+@Deprecated(forRemoval = false)
 public final class FeatureVmMetrics {
     public static final boolean ENABLED = Boolean.getBoolean("ga.featureVm.metrics");
 
@@ -16,6 +17,7 @@ public final class FeatureVmMetrics {
     private static final LongAdder FEATURE_PLACE_CALLS = new LongAdder();
     private static final LongAdder TOTAL_EXECUTION_NANOS = new LongAdder();
 
+    @Deprecated(forRemoval = false)
     private FeatureVmMetrics() {
     }
 
@@ -71,46 +73,57 @@ public final class FeatureVmMetrics {
         TOTAL_EXECUTION_NANOS.add(nanos);
     }
 
+    @Deprecated(forRemoval = false)
     public static long programsCompiled() {
         return PROGRAMS_COMPILED.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long fastOpsCompiled() {
         return FAST_OPS_COMPILED.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long fallbackOpsCompiled() {
         return FALLBACK_OPS_COMPILED.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long programExecutions() {
         return PROGRAM_EXECUTIONS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long linearFastExecutions() {
         return LINEAR_FAST_EXECUTIONS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long bufferFastExecutions() {
         return BUFFER_FAST_EXECUTIONS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long fastOpExecutions() {
         return FAST_OP_EXECUTIONS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long fallbackOpExecutions() {
         return FALLBACK_OP_EXECUTIONS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long featurePlaceCalls() {
         return FEATURE_PLACE_CALLS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static long totalExecutionNanos() {
         return TOTAL_EXECUTION_NANOS.sum();
     }
 
+    @Deprecated(forRemoval = false)
     public static String summary() {
         long executions = programExecutions();
         long nanos = totalExecutionNanos();

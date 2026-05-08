@@ -18,18 +18,21 @@ public final class PipelinePlacementContext extends PlacementContext {
     private WorldGenLevel level;
     private ChunkGenerator generator;
     private Optional<PlacedFeature> topFeature;
+    private SectionDescriptorCache descriptors;
 
     PipelinePlacementContext(WorldGenLevel level, ChunkGenerator generator) {
         super(level, generator, Optional.empty());
         this.level = level;
         this.generator = generator;
         this.topFeature = Optional.empty();
+        this.descriptors = null;
     }
 
-    PipelinePlacementContext set(WorldGenLevel level, ChunkGenerator generator, Optional<PlacedFeature> feature) {
+    PipelinePlacementContext set(WorldGenLevel level, ChunkGenerator generator, Optional<PlacedFeature> feature, SectionDescriptorCache descriptors) {
         this.level = level;
         this.generator = generator;
         this.topFeature = feature;
+        this.descriptors = descriptors;
         return this;
     }
 
@@ -40,6 +43,14 @@ public final class PipelinePlacementContext extends PlacementContext {
 
     @Override
     public int getHeight(Heightmap.Types types, int x, int z) {
+        if (this.descriptors != null) {
+            int descriptorHeight = this.descriptors.firstAvailableHeight(x >> 4, z >> 4, types, x & 15, z & 15);
+            if (descriptorHeight != Integer.MIN_VALUE) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_HEIGHTMAP_HITS);
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+                return descriptorHeight;
+            }
+        }
         return this.level.getHeight(types, x, z);
     }
 

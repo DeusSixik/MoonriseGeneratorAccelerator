@@ -108,10 +108,13 @@ public final class DecorationPipelineExecutor {
     ) {
         context.random.setFeatureSeed(context.decorationSeed, featureIndex, step);
         context.beforeFallback(featureIndex, kernel.fallbackFeature());
-        placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional());
+        placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
 
         long start = DecorationPipelineMetrics.startTimer();
         if (kernel.placementProgram() != null) {
+            if (kernel.selectorFallbackMetricCounter() >= 0) {
+                DecorationPipelineMetrics.increment(kernel.selectorFallbackMetricCounter());
+            }
             if (kernel.kind().isNativeKernel()) {
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_KERNELS_EXECUTED);
             } else if (kernel.kind().isPartialNative()) {
@@ -193,23 +196,8 @@ public final class DecorationPipelineExecutor {
             return;
         }
         scratch.descriptors.clear();
-        ChunkPos center = context.chunk.getPos();
         long start = DecorationPipelineMetrics.startTimer();
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                ChunkAccess chunk;
-                if (dx == 0 && dz == 0) {
-                    chunk = context.chunk;
-                } else {
-                    try {
-                        chunk = context.level.getChunk(center.x + dx, center.z + dz);
-                    } catch (RuntimeException ignored) {
-                        continue;
-                    }
-                }
-                scratch.descriptors.buildChunk(chunk);
-            }
-        }
+        scratch.descriptors.buildChunk(context.chunk);
         scratch.markDescriptorsPrepared(context.chunk);
         DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
     }
@@ -247,7 +235,7 @@ public final class DecorationPipelineExecutor {
             this.originZ = origin.getZ();
             this.decorationSeed = decorationSeed;
             this.fallbackHook = fallbackHook;
-            this.placementContext = placementContext.set(level, generator, java.util.Optional.empty());
+            this.placementContext = placementContext.set(level, generator, java.util.Optional.empty(), null);
         }
 
         private void beforeFallback(int featureIndex, PlacedFeature feature) {
@@ -291,6 +279,10 @@ public final class DecorationPipelineExecutor {
         PipelinePlacementContext placementContext() {
             return this.placementContext;
         }
+    }
+
+    private static SectionDescriptorCache activeDescriptors(ExecutionContext context, DecorationPipelineScratch scratch) {
+        return scratch.descriptorsPreparedFor(context.chunk) ? scratch.descriptors : null;
     }
 
     @FunctionalInterface

@@ -37,19 +37,26 @@ public final class StepFeatureCache {
     }
 
     public long[] featureMaskFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter, int step) {
-        long[][] byStep = this.featureMasksFor(biome, generationSettingsGetter);
+        long[][] byStep = this.featureDataFor(biome, generationSettingsGetter).masksByStep();
         long[] mask = byStep[step];
         return mask == null ? EMPTY_MASK : mask;
     }
 
     public long[][] featureMasksFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
-        return this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter)).masksByStep;
+        return this.featureDataFor(biome, generationSettingsGetter).masksByStep();
+    }
+
+    public BiomeFeatureData featureDataFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
+        return this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter));
     }
 
     private BiomeFeatureData buildFeatureData(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
         long[][] byStep = new long[this.stepCount][];
         List<HolderSet<PlacedFeature>> placedFeatureSets = generationSettingsGetter.apply(biome).features();
         int maxStep = Math.min(this.stepCount, placedFeatureSets.size());
+        int[] nonEmptySteps = new int[maxStep];
+        int nonEmptyStepCount = 0;
+        long nonEmptyStepBits = 0L;
 
         for (int step = 0; step < maxStep; step++) {
             HolderSet<PlacedFeature> holderSet = placedFeatureSets.get(step);
@@ -68,20 +75,57 @@ public final class StepFeatureCache {
             }
 
             long[] mask = new long[wordCount];
+            boolean stepNonEmpty = false;
 
             for (int holderIndex = 0; holderIndex < holderCount; holderIndex++) {
                 int featureIndex = indexMapper.applyAsInt(holderSet.get(holderIndex).value());
                 if (featureIndex >= 0 && featureIndex < featureCount) {
                     mask[featureIndex >>> 6] |= 1L << (featureIndex & 63);
+                    stepNonEmpty = true;
                 }
             }
 
-            byStep[step] = mask;
+            if (stepNonEmpty) {
+                byStep[step] = mask;
+                nonEmptySteps[nonEmptyStepCount++] = step;
+                if (step < Long.SIZE) {
+                    nonEmptyStepBits |= 1L << step;
+                }
+            } else {
+                byStep[step] = EMPTY_MASK;
+            }
         }
 
-        return new BiomeFeatureData(byStep);
+        return new BiomeFeatureData(byStep, copyOf(nonEmptySteps, nonEmptyStepCount), nonEmptyStepBits);
     }
 
-    private record BiomeFeatureData(long[][] masksByStep) {
+    private static int[] copyOf(int[] source, int size) {
+        int[] copy = new int[size];
+        System.arraycopy(source, 0, copy, 0, size);
+        return copy;
+    }
+
+    public static final class BiomeFeatureData {
+        private final long[][] masksByStep;
+        private final int[] nonEmptySteps;
+        private final long nonEmptyStepBits;
+
+        BiomeFeatureData(long[][] masksByStep, int[] nonEmptySteps, long nonEmptyStepBits) {
+            this.masksByStep = masksByStep;
+            this.nonEmptySteps = nonEmptySteps;
+            this.nonEmptyStepBits = nonEmptyStepBits;
+        }
+
+        public long[][] masksByStep() {
+            return this.masksByStep;
+        }
+
+        public int[] nonEmptySteps() {
+            return this.nonEmptySteps;
+        }
+
+        public long nonEmptyStepBits() {
+            return this.nonEmptyStepBits;
+        }
     }
 }

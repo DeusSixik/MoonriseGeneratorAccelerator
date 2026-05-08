@@ -36,8 +36,42 @@ public final class DecorationPipelineMetrics {
     public static final int ALLOC_FALLBACK_CONTEXT_OBJECTS = 24;
     public static final int SLOW_PATH_OBJECT_ALLOCATING_CALLS = 25;
     public static final int SLOW_PATH_GENERIC_COLLECTION_CALLS = 26;
+    public static final int DESCRIPTOR_SECTION_REJECTS = 27;
+    public static final int DESCRIPTOR_COLUMN_REJECTS = 28;
+    public static final int DESCRIPTOR_HEIGHTMAP_HITS = 29;
+    public static final int DESCRIPTOR_WORLD_READS_AVOIDED = 30;
+    public static final int SELECTOR_UNSUPPORTED_PLACEMENT_MODIFIER = 31;
+    public static final int SELECTOR_UNSUPPORTED_BIOME_FILTER = 32;
+    public static final int SELECTOR_UNSUPPORTED_DEPTH_CAP = 33;
+    public static final int SELECTOR_UNSUPPORTED_BRANCH_FAMILY = 34;
+    public static final int SELECTOR_UNSUPPORTED_CONFIG = 35;
+    public static final int JOURNAL_WRITE_CANDIDATES = 36;
+    public static final int JOURNAL_WRITES_COMMITTED = 37;
+    public static final int JOURNAL_COLLISIONS = 38;
+    public static final int JOURNAL_DEDUPED_WRITES = 39;
+    public static final int JOURNAL_TOUCHED_SECTION_COLUMNS = 40;
+    public static final int JOURNAL_COMMIT_BATCHES = 41;
+    public static final int OUTER_BIOME_SCAN_NANOS = 42;
+    public static final int OUTER_MASK_COMBINE_NANOS = 43;
+    public static final int BIOME_SIGNATURE_CACHE_HITS = 44;
+    public static final int BIOME_SIGNATURE_CACHE_MISSES = 45;
+    public static final int BIOME_SIGNATURE_CACHE_STORES = 46;
+    public static final int BIOME_SIGNATURE_MASK_WORDS_COPIED = 47;
+    public static final int BIOME_SIGNATURE_MASK_WORDS_AVOIDED = 48;
+    public static final int PLACEMENT_PROGRAM_CACHE_HITS = 49;
+    public static final int PLACEMENT_PROGRAM_CACHE_MISSES = 50;
+    public static final int PLACEMENT_PROGRAM_CACHE_STORES = 51;
+    public static final int DESCRIPTOR_SIMPLE_BLOCK_MICRO_REJECTS = 52;
+    public static final int SELECTOR_FUSED_SIMPLE_CALLS = 53;
+    public static final int SELECTOR_FUSED_PLACEMENT_CALLS = 54;
+    public static final int SELECTOR_FUSED_FAST_SIMPLE_CALLS = 55;
+    public static final int SELECTOR_FUSED_FAST_RANDOM_PATCH_SIMPLE_CALLS = 56;
+    public static final int SELECTOR_FUSED_FAST_RANDOM_PATCH_SELECTOR_CALLS = 57;
+    public static final int SELECTOR_FUSED_FAST_SELECTOR_CALLS = 58;
+    public static final int SELECTOR_FUSED_GENERIC_CALLS = 59;
+    public static final int SELECTOR_FUSED_DESCRIPTOR_REJECTS = 60;
 
-    public static final int COUNTER_COUNT = 27;
+    public static final int COUNTER_COUNT = 61;
 
     private static final String[] NAMES = {
             "decoration.totalNanos",
@@ -66,7 +100,41 @@ public final class DecorationPipelineMetrics {
             "alloc.bufferGrowths",
             "alloc.fallbackContextObjects",
             "slowPath.objectAllocatingCalls",
-            "slowPath.genericCollectionCalls"
+            "slowPath.genericCollectionCalls",
+            "descriptor.sectionRejects",
+            "descriptor.columnRejects",
+            "descriptor.heightmapHits",
+            "descriptor.worldReadsAvoided",
+            "selector.unsupportedPlacementModifier",
+            "selector.unsupportedBiomeFilter",
+            "selector.unsupportedDepthCap",
+            "selector.unsupportedBranchFamily",
+            "selector.unsupportedConfig",
+            "journal.writeCandidates",
+            "journal.writesCommitted",
+            "journal.collisions",
+            "journal.dedupedWrites",
+            "journal.touchedSectionColumns",
+            "journal.commitBatches",
+            "outer.biomeScanNanos",
+            "outer.maskCombineNanos",
+            "biomeSignature.cacheHits",
+            "biomeSignature.cacheMisses",
+            "biomeSignature.cacheStores",
+            "biomeSignature.maskWordsCopied",
+            "biomeSignature.maskWordsAvoided",
+            "placementProgram.cacheHits",
+            "placementProgram.cacheMisses",
+            "placementProgram.cacheStores",
+            "descriptor.simpleBlockMicroRejects",
+            "selector.fusedSimpleCalls",
+            "selector.fusedPlacementCalls",
+            "selector.fusedFastSimpleCalls",
+            "selector.fusedFastRandomPatchSimpleCalls",
+            "selector.fusedFastRandomPatchSelectorCalls",
+            "selector.fusedFastSelectorCalls",
+            "selector.fusedGenericCalls",
+            "selector.fusedDescriptorRejects"
     };
 
     private static final AtomicLongArray COUNTERS = new AtomicLongArray(COUNTER_COUNT);
@@ -183,6 +251,40 @@ public final class DecorationPipelineMetrics {
                 + ", allocFallbackContextObjects=" + value(ALLOC_FALLBACK_CONTEXT_OBJECTS)
                 + ", slowPathObjectAllocatingCalls=" + value(SLOW_PATH_OBJECT_ALLOCATING_CALLS)
                 + ", slowPathGenericCollectionCalls=" + value(SLOW_PATH_GENERIC_COLLECTION_CALLS)
+                + ", descriptorSectionRejects=" + value(DESCRIPTOR_SECTION_REJECTS)
+                + ", descriptorColumnRejects=" + value(DESCRIPTOR_COLUMN_REJECTS)
+                + ", descriptorHeightmapHits=" + value(DESCRIPTOR_HEIGHTMAP_HITS)
+                + ", descriptorWorldReadsAvoided=" + value(DESCRIPTOR_WORLD_READS_AVOIDED)
+                + ", selectorUnsupportedPlacementModifier=" + value(SELECTOR_UNSUPPORTED_PLACEMENT_MODIFIER)
+                + ", selectorUnsupportedBiomeFilter=" + value(SELECTOR_UNSUPPORTED_BIOME_FILTER)
+                + ", selectorUnsupportedDepthCap=" + value(SELECTOR_UNSUPPORTED_DEPTH_CAP)
+                + ", selectorUnsupportedBranchFamily=" + value(SELECTOR_UNSUPPORTED_BRANCH_FAMILY)
+                + ", selectorUnsupportedConfig=" + value(SELECTOR_UNSUPPORTED_CONFIG)
+                + ", journalWriteCandidates=" + value(JOURNAL_WRITE_CANDIDATES)
+                + ", journalWritesCommitted=" + value(JOURNAL_WRITES_COMMITTED)
+                + ", journalCollisions=" + value(JOURNAL_COLLISIONS)
+                + ", journalDedupedWrites=" + value(JOURNAL_DEDUPED_WRITES)
+                + ", journalTouchedSectionColumns=" + value(JOURNAL_TOUCHED_SECTION_COLUMNS)
+                + ", journalCommitBatches=" + value(JOURNAL_COMMIT_BATCHES)
+                + ", outerBiomeScanMs=" + millis(OUTER_BIOME_SCAN_NANOS)
+                + ", outerMaskCombineMs=" + millis(OUTER_MASK_COMBINE_NANOS)
+                + ", biomeSignatureCacheHits=" + value(BIOME_SIGNATURE_CACHE_HITS)
+                + ", biomeSignatureCacheMisses=" + value(BIOME_SIGNATURE_CACHE_MISSES)
+                + ", biomeSignatureCacheStores=" + value(BIOME_SIGNATURE_CACHE_STORES)
+                + ", biomeSignatureMaskWordsCopied=" + value(BIOME_SIGNATURE_MASK_WORDS_COPIED)
+                + ", biomeSignatureMaskWordsAvoided=" + value(BIOME_SIGNATURE_MASK_WORDS_AVOIDED)
+                + ", placementProgramCacheHits=" + value(PLACEMENT_PROGRAM_CACHE_HITS)
+                + ", placementProgramCacheMisses=" + value(PLACEMENT_PROGRAM_CACHE_MISSES)
+                + ", placementProgramCacheStores=" + value(PLACEMENT_PROGRAM_CACHE_STORES)
+                + ", descriptorSimpleBlockMicroRejects=" + value(DESCRIPTOR_SIMPLE_BLOCK_MICRO_REJECTS)
+                + ", selectorFusedSimpleCalls=" + value(SELECTOR_FUSED_SIMPLE_CALLS)
+                + ", selectorFusedPlacementCalls=" + value(SELECTOR_FUSED_PLACEMENT_CALLS)
+                + ", selectorFusedFastSimpleCalls=" + value(SELECTOR_FUSED_FAST_SIMPLE_CALLS)
+                + ", selectorFusedFastRandomPatchSimpleCalls=" + value(SELECTOR_FUSED_FAST_RANDOM_PATCH_SIMPLE_CALLS)
+                + ", selectorFusedFastRandomPatchSelectorCalls=" + value(SELECTOR_FUSED_FAST_RANDOM_PATCH_SELECTOR_CALLS)
+                + ", selectorFusedFastSelectorCalls=" + value(SELECTOR_FUSED_FAST_SELECTOR_CALLS)
+                + ", selectorFusedGenericCalls=" + value(SELECTOR_FUSED_GENERIC_CALLS)
+                + ", selectorFusedDescriptorRejects=" + value(SELECTOR_FUSED_DESCRIPTOR_REJECTS)
                 + ", kindBreakdown=" + kindBreakdown()
                 + ", featureBreakdown=" + featureBreakdown();
     }

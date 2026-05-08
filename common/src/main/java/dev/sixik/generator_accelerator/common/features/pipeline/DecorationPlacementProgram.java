@@ -17,11 +17,14 @@ import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSec
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.valueproviders.IntProvider;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SculkBehaviour;
 import net.minecraft.world.level.block.SculkShriekerBlock;
@@ -36,6 +39,7 @@ import net.minecraft.world.level.levelgen.feature.DripstoneClusterFeature;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.GeodeFeature;
 import net.minecraft.world.level.levelgen.feature.KelpFeature;
+import net.minecraft.world.level.levelgen.feature.LakeFeature;
 import net.minecraft.world.level.levelgen.feature.LargeDripstoneFeature;
 import net.minecraft.world.level.levelgen.feature.MonsterRoomFeature;
 import net.minecraft.world.level.levelgen.feature.MultifaceGrowthFeature;
@@ -55,11 +59,8 @@ import net.minecraft.world.level.levelgen.feature.configurations.DiskConfigurati
 import net.minecraft.world.level.levelgen.feature.configurations.BlockColumnConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.OreConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.ProbabilityFeatureConfiguration;
-import net.minecraft.world.level.levelgen.feature.configurations.RandomBooleanFeatureConfiguration;
-import net.minecraft.world.level.levelgen.feature.configurations.RandomFeatureConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.RandomPatchConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.SculkPatchConfiguration;
-import net.minecraft.world.level.levelgen.feature.configurations.SimpleRandomFeatureConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.SimpleBlockConfiguration;
 import net.minecraft.world.level.levelgen.feature.configurations.SpringConfiguration;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
@@ -91,9 +92,13 @@ final class DecorationPlacementProgram {
     private static final BlockState SEAGRASS_STATE = Blocks.SEAGRASS.defaultBlockState();
     private static final BlockState TALL_SEAGRASS_LOWER = Blocks.TALL_SEAGRASS.defaultBlockState();
     private static final BlockState TALL_SEAGRASS_UPPER = TALL_SEAGRASS_LOWER.setValue(TallSeagrassBlock.HALF, DoubleBlockHalf.UPPER);
+    private static final BlockState CAVE_AIR_STATE = Blocks.CAVE_AIR.defaultBlockState();
     private static final BlockState ICE_STATE = Blocks.ICE.defaultBlockState();
     private static final BlockState SNOW_STATE = Blocks.SNOW.defaultBlockState();
     private static final BlockState KELP_PLANT = Blocks.KELP_PLANT.defaultBlockState();
+    private static final BlockState SCULK_CATALYST_STATE = Blocks.SCULK_CATALYST.defaultBlockState();
+    private static final BlockState SCULK_SHRIEKER_SUMMON_STATE = Blocks.SCULK_SHRIEKER.defaultBlockState()
+            .setValue(SculkShriekerBlock.CAN_SUMMON, true);
     private static final BlockState[] SEA_PICKLES = {
             Blocks.SEA_PICKLE.defaultBlockState().setValue(SeaPickleBlock.PICKLES, 1),
             Blocks.SEA_PICKLE.defaultBlockState().setValue(SeaPickleBlock.PICKLES, 2),
@@ -225,6 +230,10 @@ final class DecorationPlacementProgram {
         return this.hasBiomeFilter;
     }
 
+    boolean isIdentity() {
+        return this.opcodes.length == 0;
+    }
+
     boolean execute(
             DecorationKernelPlan kernel,
             DecorationPipelineExecutor.ExecutionContext context,
@@ -252,6 +261,86 @@ final class DecorationPlacementProgram {
         return executeAt(kernel, context, scratch, placementContext, configuredFeature, 0, x, y, z);
     }
 
+    boolean executeSimpleBlockFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeSimpleBlockFused(kernel, context, scratch, placementContext, kernel.fallbackFeature(), simpleBlockConfiguration, x, y, z);
+    }
+
+    private boolean executeSimpleBlockFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, 0, x, y, z, simpleBlockConfiguration, null, null, SelectorPlan.FAST_BRANCH_SIMPLE_BLOCK);
+    }
+
+    boolean executeRandomPatchSimpleFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            RandomPatchConfiguration randomPatchConfiguration,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeFusedAt(kernel, context, scratch, placementContext, kernel.fallbackFeature(), 0, x, y, z, null, randomPatchConfiguration, null, SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SIMPLE);
+    }
+
+    boolean executeRandomPatchSelectorFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            RandomPatchConfiguration randomPatchConfiguration,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeFusedAt(kernel, context, scratch, placementContext, kernel.fallbackFeature(), 0, x, y, z, null, randomPatchConfiguration, null, SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SELECTOR);
+    }
+
+    boolean executeSelectorFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            SelectorPlan selectorPlan,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeSelectorFused(kernel, context, scratch, placementContext, kernel.fallbackFeature(), selectorPlan, x, y, z);
+    }
+
+    private boolean executeSelectorFused(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            SelectorPlan selectorPlan,
+            int x,
+            int y,
+            int z
+    ) {
+        return executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, 0, x, y, z, null, null, selectorPlan, SelectorPlan.FAST_BRANCH_SELECTOR);
+    }
+
     private boolean executeAt(
             DecorationKernelPlan kernel,
             DecorationPipelineExecutor.ExecutionContext context,
@@ -271,7 +360,7 @@ final class DecorationPlacementProgram {
             case IN_SQUARE -> executeAt(kernel, context, scratch, placementContext, configuredFeature, opIndex + 1, x + context.random().nextInt(16), y, z + context.random().nextInt(16));
             case HEIGHT_RANGE -> executeAt(kernel, context, scratch, placementContext, configuredFeature, opIndex + 1, x, this.heightProviders[opIndex].sample(context.random(), placementContext), z);
             case HEIGHTMAP -> {
-                int height = fastHeight(context.level(), this.heightmapTypes[opIndex], x, z);
+                int height = fastHeight(context.level(), scratch, this.heightmapTypes[opIndex], x, z);
                 if (height <= context.level().getMinBuildHeight()) {
                     yield false;
                 }
@@ -390,6 +479,228 @@ final class DecorationPlacementProgram {
         }
     }
 
+    private boolean executeFusedAt(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            int opIndex,
+            int x,
+            int y,
+            int z,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            RandomPatchConfiguration randomPatchConfiguration,
+            SelectorPlan selectorPlan,
+            int fastMode
+    ) {
+        if (opIndex >= this.opcodes.length) {
+            return executeFusedLeaf(
+                    kernel,
+                    context,
+                    scratch,
+                    placementContext,
+                    x,
+                    y,
+                    z,
+                    simpleBlockConfiguration,
+                    randomPatchConfiguration,
+                    selectorPlan,
+                    fastMode
+            );
+        }
+
+        return switch (this.opcodes[opIndex]) {
+            case IN_SQUARE -> executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x + context.random().nextInt(16), y, z + context.random().nextInt(16), simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            case HEIGHT_RANGE -> executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, this.heightProviders[opIndex].sample(context.random(), placementContext), z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            case HEIGHTMAP -> {
+                int height = fastHeight(context.level(), scratch, this.heightmapTypes[opIndex], x, z);
+                if (height <= context.level().getMinBuildHeight()) {
+                    yield false;
+                }
+                yield executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, height, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            }
+            case RANDOM_OFFSET -> executeFusedAt(
+                    kernel,
+                    context,
+                    scratch,
+                    placementContext,
+                    biomeFilterFeature,
+                    opIndex + 1,
+                    x + this.randomOffsetXz[opIndex].sample(context.random()),
+                    y + this.randomOffsetY[opIndex].sample(context.random()),
+                    z + this.randomOffsetXz[opIndex].sample(context.random()),
+                    simpleBlockConfiguration,
+                    randomPatchConfiguration,
+                    selectorPlan,
+                    fastMode
+            );
+            case REPEATING -> executeFusedRepeating(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            case PLACEMENT_FILTER -> this.placementFilters[opIndex].ga$shouldPlaceRaw(placementContext, context.random(), x, y, z, scratch.mutablePos)
+                    && executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            case BIOME_FILTER -> passesBiomeFilter(biomeFilterFeature, context, scratch, x, y, z)
+                    && executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            case FAST_POSITIONS -> executeFusedFastModifier(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+            default -> executeFusedVanillaModifier(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode);
+        };
+    }
+
+    private boolean executeFusedRepeating(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            int opIndex,
+            int x,
+            int y,
+            int z,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            RandomPatchConfiguration randomPatchConfiguration,
+            SelectorPlan selectorPlan,
+            int fastMode
+    ) {
+        int count = this.repeatingPlacements[opIndex].ga$repeatingCount(context.random(), scratch.mutablePos.set(x, y, z));
+        boolean success = false;
+        for (int i = 0; i < count; i++) {
+            if (executeFusedAt(kernel, context, scratch, placementContext, biomeFilterFeature, opIndex + 1, x, y, z, simpleBlockConfiguration, randomPatchConfiguration, selectorPlan, fastMode)) {
+                success = true;
+            }
+        }
+        return success;
+    }
+
+    private boolean executeFusedFastModifier(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            int opIndex,
+            int x,
+            int y,
+            int z,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            RandomPatchConfiguration randomPatchConfiguration,
+            SelectorPlan selectorPlan,
+            int fastMode
+    ) {
+        LongScratchBuffer positions = scratch.acquireModifierPositionBuffer();
+        try {
+            GA$PlacementModifierExtension.get(this.modifiers[opIndex]).generatePositionsRaw(
+                    placementContext,
+                    context.random(),
+                    BlockPos.asLong(x, y, z),
+                    positions
+            );
+
+            boolean success = false;
+            long[] values = positions.elements();
+            for (int i = 0, size = positions.size(); i < size; i++) {
+                long packedPos = values[i];
+                if (executeFusedAt(
+                        kernel,
+                        context,
+                        scratch,
+                        placementContext,
+                        biomeFilterFeature,
+                        opIndex + 1,
+                        BlockPos.getX(packedPos),
+                        BlockPos.getY(packedPos),
+                        BlockPos.getZ(packedPos),
+                        simpleBlockConfiguration,
+                        randomPatchConfiguration,
+                        selectorPlan,
+                        fastMode
+                )) {
+                    success = true;
+                }
+            }
+            return success;
+        } finally {
+            scratch.releaseModifierPositionBuffer();
+        }
+    }
+
+    private boolean executeFusedVanillaModifier(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            PlacedFeature biomeFilterFeature,
+            int opIndex,
+            int x,
+            int y,
+            int z,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            RandomPatchConfiguration randomPatchConfiguration,
+            SelectorPlan selectorPlan,
+            int fastMode
+    ) {
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SLOW_PATH_OBJECT_ALLOCATING_CALLS);
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SLOW_PATH_GENERIC_COLLECTION_CALLS);
+        boolean success = false;
+        BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
+        try (Stream<BlockPos> positions = this.modifiers[opIndex].getPositions(placementContext, context.random(), pos)) {
+            Iterator<BlockPos> iterator = positions.iterator();
+            while (iterator.hasNext()) {
+                BlockPos next = iterator.next();
+                if (executeFusedAt(
+                        kernel,
+                        context,
+                        scratch,
+                        placementContext,
+                        biomeFilterFeature,
+                        opIndex + 1,
+                        next.getX(),
+                        next.getY(),
+                        next.getZ(),
+                        simpleBlockConfiguration,
+                        randomPatchConfiguration,
+                        selectorPlan,
+                        fastMode
+                )) {
+                    success = true;
+                }
+            }
+        }
+        return success;
+    }
+
+    private static boolean executeFusedLeaf(
+            DecorationKernelPlan kernel,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            int x,
+            int y,
+            int z,
+            SimpleBlockConfiguration simpleBlockConfiguration,
+            RandomPatchConfiguration randomPatchConfiguration,
+            SelectorPlan selectorPlan,
+            int fastMode
+    ) {
+        return switch (fastMode) {
+            case SelectorPlan.FAST_BRANCH_SIMPLE_BLOCK -> simpleBlockConfiguration != null
+                    && placeSimpleBlockNative(simpleBlockConfiguration, context, scratch, x, y, z);
+            case SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SIMPLE -> {
+                Boolean placed = randomPatchConfiguration == null
+                        ? null
+                        : tryPlaceRandomPatchSimpleBlockNative(kernel, randomPatchConfiguration, context, scratch, placementContext, x, y, z);
+                yield placed != null && placed;
+            }
+            case SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SELECTOR -> {
+                Boolean placed = randomPatchConfiguration == null
+                        ? null
+                        : tryPlaceRandomPatchSelectorNative(kernel, randomPatchConfiguration, context, scratch, placementContext, x, y, z);
+                yield placed != null && placed;
+            }
+            case SelectorPlan.FAST_BRANCH_SELECTOR -> selectorPlan != null
+                    && executeFusedSelectorAny(selectorPlan, context, scratch, placementContext, x, y, z);
+            default -> false;
+        };
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static boolean placeConfigured(
             DecorationKernelPlan kernel,
@@ -468,6 +779,11 @@ final class DecorationPlacementProgram {
                 && feature == Feature.FREEZE_TOP_LAYER) {
             return placeSnowAndFreezeNative(context, scratch, x, z);
         }
+        if (kernel.kind() == DecorationKernelKind.NATIVE_LAKE
+                && feature == Feature.LAKE
+                && config instanceof LakeFeature.Configuration lakeConfiguration) {
+            return placeLakeNative(lakeConfiguration, context, scratch, x, y, z);
+        }
         if (kernel.kind() == DecorationKernelKind.NATIVE_SCULK_PATCH
                 && feature == Feature.SCULK_PATCH
                 && config instanceof SculkPatchConfiguration sculkPatchConfiguration) {
@@ -514,17 +830,18 @@ final class DecorationPlacementProgram {
     ) {
         ConfiguredFeature<?, ?> nestedConfigured = kernel.nestedConfiguredFeature();
         DecorationPlacementProgram nestedProgram = kernel.nestedPlacementProgram();
-        if (nestedConfigured == null || nestedProgram == null) {
+        PlacedFeature nestedPlacedFeature = config.feature().value();
+        if (nestedConfigured == null || nestedProgram == null || nestedPlacedFeature == null) {
             return null;
         }
-        if (nestedConfigured.feature() != Feature.SIMPLE_BLOCK || !(nestedConfigured.config() instanceof SimpleBlockConfiguration)) {
+        if (nestedConfigured.feature() != Feature.SIMPLE_BLOCK || !(nestedConfigured.config() instanceof SimpleBlockConfiguration simpleBlockConfiguration)) {
             return null;
         }
 
         int spreadXZ = config.xzSpread() + 1;
         int spreadY = config.ySpread() + 1;
         int tries = config.tries();
-        boolean useBatch = tries >= SIMPLE_BLOCK_BATCH_TRY_THRESHOLD;
+        boolean useBatch = tries >= SIMPLE_BLOCK_BATCH_TRY_THRESHOLD && !scratch.isCollectingWriteJournal();
         long candidateStart = DecorationPipelineMetrics.startTimer();
         Optional<PlacedFeature> previousTopFeature = placementContext.topFeature();
         placementContext.clearTopFeature();
@@ -537,15 +854,18 @@ final class DecorationPlacementProgram {
                 int candidateX = x + context.random().nextInt(spreadXZ) - context.random().nextInt(spreadXZ);
                 int candidateY = y + context.random().nextInt(spreadY) - context.random().nextInt(spreadY);
                 int candidateZ = z + context.random().nextInt(spreadXZ) - context.random().nextInt(spreadXZ);
-                if (nestedProgram.executeConfigured(kernel, context, scratch, placementContext, nestedConfigured, candidateX, candidateY, candidateZ)) {
+                boolean placed = nestedProgram.isIdentity()
+                        ? placeSimpleBlockNative(simpleBlockConfiguration, context, scratch, candidateX, candidateY, candidateZ)
+                        : nestedProgram.executeSimpleBlockFused(kernel, context, scratch, placementContext, nestedPlacedFeature, simpleBlockConfiguration, candidateX, candidateY, candidateZ);
+                if (placed) {
                     placedAny = true;
                 }
             }
         } finally {
-            placementContext.set(context.level(), context.generator(), previousTopFeature);
+            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch));
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_CANDIDATE_NANOS, candidateStart);
         }
-        return useBatch ? flushSimpleBlockBatch(context, scratch) : placedAny;
+        return useBatch ? flushWriteJournal(context, scratch) : placedAny;
     }
 
     private static Boolean tryPlaceRandomPatchSelectorNative(
@@ -561,21 +881,42 @@ final class DecorationPlacementProgram {
         ConfiguredFeature<?, ?> nestedConfigured = kernel.nestedConfiguredFeature();
         DecorationPlacementProgram nestedProgram = kernel.nestedPlacementProgram();
         SelectorPlan selectorPlan = kernel.selectorPlan();
-        if (nestedConfigured == null || nestedProgram == null || selectorPlan == null) {
+        PlacedFeature nestedPlacedFeature = config.feature().value();
+        if (nestedConfigured == null || nestedProgram == null || selectorPlan == null || nestedPlacedFeature == null) {
             return null;
         }
-        FeatureConfiguration nestedConfig = nestedConfigured.config();
-        Feature<?> nestedFeature = nestedConfigured.feature();
-        if ((nestedFeature != Feature.RANDOM_SELECTOR || !(nestedConfig instanceof RandomFeatureConfiguration))
-                && (nestedFeature != Feature.RANDOM_BOOLEAN_SELECTOR || !(nestedConfig instanceof RandomBooleanFeatureConfiguration))
-                && (nestedFeature != Feature.SIMPLE_RANDOM_SELECTOR || !(nestedConfig instanceof SimpleRandomFeatureConfiguration))) {
-            return null;
-        }
+        return tryPlaceRandomPatchFusedSimpleSelectorNative(
+                kernel,
+                nestedProgram,
+                nestedPlacedFeature,
+                selectorPlan,
+                config,
+                context,
+                scratch,
+                placementContext,
+                x,
+                y,
+                z
+        );
+    }
 
+    private static Boolean tryPlaceRandomPatchFusedSimpleSelectorNative(
+            DecorationKernelPlan kernel,
+            DecorationPlacementProgram nestedProgram,
+            PlacedFeature nestedPlacedFeature,
+            SelectorPlan selectorPlan,
+            RandomPatchConfiguration config,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            PipelinePlacementContext placementContext,
+            int x,
+            int y,
+            int z
+    ) {
         int spreadXZ = config.xzSpread() + 1;
         int spreadY = config.ySpread() + 1;
         int tries = config.tries();
-        boolean useBatch = tries >= SIMPLE_BLOCK_BATCH_TRY_THRESHOLD;
+        boolean useBatch = tries >= SIMPLE_BLOCK_BATCH_TRY_THRESHOLD && !scratch.isCollectingWriteJournal();
         long candidateStart = DecorationPipelineMetrics.startTimer();
         Optional<PlacedFeature> previousTopFeature = placementContext.topFeature();
         placementContext.clearTopFeature();
@@ -588,15 +929,18 @@ final class DecorationPlacementProgram {
                 int candidateX = x + context.random().nextInt(spreadXZ) - context.random().nextInt(spreadXZ);
                 int candidateY = y + context.random().nextInt(spreadY) - context.random().nextInt(spreadY);
                 int candidateZ = z + context.random().nextInt(spreadXZ) - context.random().nextInt(spreadXZ);
-                if (nestedProgram.executeConfigured(kernel, context, scratch, placementContext, nestedConfigured, candidateX, candidateY, candidateZ)) {
+                boolean placed = nestedProgram.isIdentity()
+                        ? executeFusedSelectorAny(selectorPlan, context, scratch, placementContext, candidateX, candidateY, candidateZ)
+                        : nestedProgram.executeSelectorFused(kernel, context, scratch, placementContext, nestedPlacedFeature, selectorPlan, candidateX, candidateY, candidateZ);
+                if (placed) {
                     placedAny = true;
                 }
             }
         } finally {
-            placementContext.set(context.level(), context.generator(), previousTopFeature);
+            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch));
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_CANDIDATE_NANOS, candidateStart);
         }
-        return useBatch ? flushSimpleBlockBatch(context, scratch) : placedAny;
+        return useBatch ? flushWriteJournal(context, scratch) : placedAny;
     }
 
     private static Boolean tryPlaceSelectorNative(
@@ -613,25 +957,12 @@ final class DecorationPlacementProgram {
         if (selectorPlan == null) {
             return null;
         }
-        FeatureConfiguration config = configuredFeature.config();
-        Feature<?> feature = configuredFeature.feature();
-        if ((feature != Feature.RANDOM_SELECTOR || !(config instanceof RandomFeatureConfiguration))
-                && (feature != Feature.RANDOM_BOOLEAN_SELECTOR || !(config instanceof RandomBooleanFeatureConfiguration))
-                && (feature != Feature.SIMPLE_RANDOM_SELECTOR || !(config instanceof SimpleRandomFeatureConfiguration))) {
-            return null;
-        }
 
-        return switch (selectorPlan.mode()) {
-            case SelectorPlan.MODE_RANDOM_FEATURE -> placeRandomSelectorNative(selectorPlan, kernel, context, scratch, placementContext, x, y, z);
-            case SelectorPlan.MODE_RANDOM_BOOLEAN -> placeRandomBooleanSelectorNative(selectorPlan, kernel, context, scratch, placementContext, x, y, z);
-            case SelectorPlan.MODE_SIMPLE_RANDOM -> placeSimpleRandomSelectorNative(selectorPlan, kernel, context, scratch, placementContext, x, y, z);
-            default -> null;
-        };
+        return executeFusedSelectorAny(selectorPlan, context, scratch, placementContext, x, y, z);
     }
 
-    private static boolean placeRandomSelectorNative(
+    private static boolean executeFusedSelectorAny(
             SelectorPlan selectorPlan,
-            DecorationKernelPlan kernel,
             DecorationPipelineExecutor.ExecutionContext context,
             DecorationPipelineScratch scratch,
             PipelinePlacementContext placementContext,
@@ -639,72 +970,12 @@ final class DecorationPlacementProgram {
             int y,
             int z
     ) {
-        DecorationKernelPlan[] branchKernels = selectorPlan.branchKernels();
-        float[] chances = selectorPlan.branchChances();
-        RandomSource random = context.random();
-        int branchIndex = branchKernels.length - 1;
-        for (int i = 0; i < chances.length; i++) {
-            if (random.nextFloat() < chances[i]) {
-                branchIndex = i;
-                break;
-            }
-        }
-        return executeSelectorBranch(branchKernels, branchIndex, context, scratch, placementContext, x, y, z);
+        int branchIndex = selectSelectorBranch(selectorPlan, context.random());
+        return executeFusedSelectorBranch(selectorPlan, branchIndex, context, scratch, placementContext, x, y, z);
     }
 
-    private static boolean placeRandomBooleanSelectorNative(
+    private static boolean executeFusedSelectorBranch(
             SelectorPlan selectorPlan,
-            DecorationKernelPlan kernel,
-            DecorationPipelineExecutor.ExecutionContext context,
-            DecorationPipelineScratch scratch,
-            PipelinePlacementContext placementContext,
-            int x,
-            int y,
-            int z
-    ) {
-        int branchIndex = context.random().nextBoolean() ? 0 : 1;
-        return executeSelectorBranch(
-                selectorPlan.branchKernels(),
-                branchIndex,
-                context,
-                scratch,
-                placementContext,
-                x,
-                y,
-                z
-        );
-    }
-
-    private static boolean placeSimpleRandomSelectorNative(
-            SelectorPlan selectorPlan,
-            DecorationKernelPlan kernel,
-            DecorationPipelineExecutor.ExecutionContext context,
-            DecorationPipelineScratch scratch,
-            PipelinePlacementContext placementContext,
-            int x,
-            int y,
-            int z
-    ) {
-        DecorationKernelPlan[] branchKernels = selectorPlan.branchKernels();
-        int branchCount = branchKernels.length;
-        if (branchCount == 0) {
-            return false;
-        }
-        int branchIndex = context.random().nextInt(branchCount);
-        return executeSelectorBranch(
-                branchKernels,
-                branchIndex,
-                context,
-                scratch,
-                placementContext,
-                x,
-                y,
-                z
-        );
-    }
-
-    private static boolean executeSelectorBranch(
-            DecorationKernelPlan[] branchKernels,
             int branchIndex,
             DecorationPipelineExecutor.ExecutionContext context,
             DecorationPipelineScratch scratch,
@@ -713,16 +984,77 @@ final class DecorationPlacementProgram {
             int y,
             int z
     ) {
-        if (branchIndex < 0 || branchIndex >= branchKernels.length) {
+        if (branchIndex < 0 || branchIndex >= selectorPlan.branchKernels().length) {
             return false;
         }
-        DecorationKernelPlan branchKernel = branchKernels[branchIndex];
-        if (branchKernel == null || branchKernel.placementProgram() == null || branchKernel.configuredFeature() == null) {
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_PLACEMENT_CALLS);
+        int fastMode = selectorPlan.branchFastModes()[branchIndex];
+        DecorationKernelPlan branchKernel = selectorPlan.branchKernels()[branchIndex];
+        DecorationPlacementProgram branchProgram = selectorPlan.branchPlacementPrograms()[branchIndex];
+        ConfiguredFeature<?, ?> branchConfiguredFeature = selectorPlan.branchConfiguredFeatures()[branchIndex];
+        if (branchKernel == null || branchProgram == null) {
             return false;
         }
-        ConfiguredFeature<?, ?> branchConfiguredFeature = branchKernel.configuredFeature().value();
-        return branchConfiguredFeature != null
-                && branchKernel.placementProgram().executeConfigured(branchKernel, context, scratch, placementContext, branchConfiguredFeature, x, y, z);
+        if (fastMode != SelectorPlan.FAST_BRANCH_NONE) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_SIMPLE_CALLS);
+            return switch (fastMode) {
+                case SelectorPlan.FAST_BRANCH_SIMPLE_BLOCK -> {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_FAST_SIMPLE_CALLS);
+                    SimpleBlockConfiguration simpleConfig = selectorPlan.branchSimpleBlockConfigurations()[branchIndex];
+                    yield simpleConfig != null && branchProgram.executeSimpleBlockFused(branchKernel, context, scratch, placementContext, simpleConfig, x, y, z);
+                }
+                case SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SIMPLE -> {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_FAST_RANDOM_PATCH_SIMPLE_CALLS);
+                    RandomPatchConfiguration randomPatchConfig = selectorPlan.branchRandomPatchConfigurations()[branchIndex];
+                    yield randomPatchConfig != null && branchProgram.executeRandomPatchSimpleFused(branchKernel, context, scratch, placementContext, randomPatchConfig, x, y, z);
+                }
+                case SelectorPlan.FAST_BRANCH_RANDOM_PATCH_SELECTOR -> {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_FAST_RANDOM_PATCH_SELECTOR_CALLS);
+                    RandomPatchConfiguration randomPatchConfig = selectorPlan.branchRandomPatchConfigurations()[branchIndex];
+                    yield randomPatchConfig != null && branchProgram.executeRandomPatchSelectorFused(branchKernel, context, scratch, placementContext, randomPatchConfig, x, y, z);
+                }
+                case SelectorPlan.FAST_BRANCH_SELECTOR -> {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_FAST_SELECTOR_CALLS);
+                    SelectorPlan nestedSelectorPlan = branchKernel.selectorPlan();
+                    yield nestedSelectorPlan != null && branchProgram.executeSelectorFused(branchKernel, context, scratch, placementContext, nestedSelectorPlan, x, y, z);
+                }
+                default -> false;
+            };
+        }
+
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_GENERIC_CALLS);
+        int descriptorGate = selectorPlan.branchDescriptorGates()[branchIndex];
+        if (descriptorGate != GATE_NONE
+                && branchConfiguredFeature != null
+                && !passesDescriptorGate(descriptorGate, branchConfiguredFeature.feature(), scratch, x, y, z)) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.SELECTOR_FUSED_DESCRIPTOR_REJECTS);
+            return false;
+        }
+        if (branchConfiguredFeature == null) {
+            return false;
+        }
+        noteSelectorFallbackReason(branchKernel);
+        return branchProgram.executeConfigured(branchKernel, context, scratch, placementContext, branchConfiguredFeature, x, y, z);
+    }
+
+    private static int selectSelectorBranch(SelectorPlan selectorPlan, RandomSource random) {
+        return switch (selectorPlan.mode()) {
+            case SelectorPlan.MODE_RANDOM_FEATURE -> {
+                DecorationKernelPlan[] branchKernels = selectorPlan.branchKernels();
+                float[] chances = selectorPlan.branchChances();
+                int branchIndex = branchKernels.length - 1;
+                for (int i = 0; i < chances.length; i++) {
+                    if (random.nextFloat() < chances[i]) {
+                        branchIndex = i;
+                        break;
+                    }
+                }
+                yield branchIndex;
+            }
+            case SelectorPlan.MODE_RANDOM_BOOLEAN -> random.nextBoolean() ? 0 : 1;
+            case SelectorPlan.MODE_SIMPLE_RANDOM -> random.nextInt(selectorPlan.branchKernels().length);
+            default -> 0;
+        };
     }
 
     private static boolean placeScatteredOreNative(
@@ -1297,12 +1629,24 @@ final class DecorationPlacementProgram {
         for (int i = 0; i < count; i++) {
             int x = originX + context.random().nextInt(8) - context.random().nextInt(8);
             int z = originZ + context.random().nextInt(8) - context.random().nextInt(8);
-            int y = fastHeight(context.level(), Heightmap.Types.OCEAN_FLOOR, x, z);
+            int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
             pos.set(x, y, z);
 
             BlockState state = SEA_PICKLES[context.random().nextInt(4)];
-            if (context.level().getBlockState(pos).is(Blocks.WATER) && state.canSurvive(context.level(), pos)) {
-                context.level().setBlock(pos, state, 2);
+            if (!descriptorHasWaterAt(scratch, x, y, z, true)) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+                noteDescriptorColumnReject(1L);
+                continue;
+            }
+            boolean exactWater = descriptorHasExactWaterAt(scratch, x, y, z);
+            if (!exactWater && !context.level().getBlockState(pos).is(Blocks.WATER)) {
+                continue;
+            }
+            if (exactWater) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+            }
+            if (state.canSurvive(context.level(), pos)) {
+                setBlockTracked(context, scratch, pos, state, 2);
                 placed++;
             }
         }
@@ -1372,7 +1716,7 @@ final class DecorationPlacementProgram {
             return false;
         }
 
-        level.setBlock(pos, config.state.createLegacyBlock(), 2);
+        setBlockTracked(context, scratch, pos, config.state.createLegacyBlock(), 2);
         level.scheduleTick(pos, config.state.getType(), 0);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
         return true;
@@ -1492,7 +1836,7 @@ final class DecorationPlacementProgram {
                 if (!context.level().ensureCanWrite(placePos)) {
                     return placedAny;
                 }
-                context.level().setBlock(placePos, layer.state().getState(context.random(), placePos), 2);
+                setBlockTracked(context, scratch, placePos, layer.state().getState(context.random(), placePos), 2);
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                 placedAny = true;
                 placePos.move(direction);
@@ -1584,13 +1928,22 @@ final class DecorationPlacementProgram {
     ) {
         int x = originX + context.random().nextInt(8) - context.random().nextInt(8);
         int z = originZ + context.random().nextInt(8) - context.random().nextInt(8);
-        int y = fastHeight(context.level(), Heightmap.Types.OCEAN_FLOOR, x, z);
+        int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
         BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
         if (!context.level().ensureCanWrite(pos)) {
             return false;
         }
-        if (!context.level().getBlockState(pos).is(Blocks.WATER)) {
+        if (!descriptorHasWaterAt(scratch, x, y, z, true)) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+            noteDescriptorColumnReject(1L);
             return false;
+        }
+        boolean exactWater = descriptorHasExactWaterAt(scratch, x, y, z);
+        if (!exactWater && !context.level().getBlockState(pos).is(Blocks.WATER)) {
+            return false;
+        }
+        if (exactWater) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
         }
 
         boolean tall = context.random().nextDouble() < config.probability;
@@ -1601,16 +1954,23 @@ final class DecorationPlacementProgram {
 
         if (tall) {
             BlockPos.MutableBlockPos above = scratch.secondMutablePos.set(x, y + 1, z);
-            if (!context.level().getBlockState(above).is(Blocks.WATER)) {
+            if (!descriptorHasWaterAt(scratch, x, y + 1, z, false)) {
                 return false;
             }
-            context.level().setBlock(pos, state, 2);
-            context.level().setBlock(above, TALL_SEAGRASS_UPPER, 2);
+            boolean exactAboveWater = descriptorHasExactWaterAt(scratch, x, y + 1, z);
+            if (!exactAboveWater && !context.level().getBlockState(above).is(Blocks.WATER)) {
+                return false;
+            }
+            if (exactAboveWater) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+            }
+            setBlockTracked(context, scratch, pos, state, 2);
+            setBlockTracked(context, scratch, above, TALL_SEAGRASS_UPPER, 2);
             DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_WRITES, 2L);
             return true;
         }
 
-        context.level().setBlock(pos, state, 2);
+        setBlockTracked(context, scratch, pos, state, 2);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
         return true;
     }
@@ -1621,13 +1981,22 @@ final class DecorationPlacementProgram {
             int x,
             int z
     ) {
-        int y = fastHeight(context.level(), Heightmap.Types.OCEAN_FLOOR, x, z);
+        int y = fastHeight(context.level(), scratch, Heightmap.Types.OCEAN_FLOOR, x, z);
         BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
         if (!context.level().ensureCanWrite(pos)) {
             return false;
         }
-        if (!context.level().getBlockState(pos).is(Blocks.WATER)) {
+        if (!descriptorHasWaterAt(scratch, x, y, z, true)) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+            noteDescriptorColumnReject(1L);
             return false;
+        }
+        boolean exactWater = descriptorHasExactWaterAt(scratch, x, y, z);
+        if (!exactWater && !context.level().getBlockState(pos).is(Blocks.WATER)) {
+            return false;
+        }
+        if (exactWater) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
         }
 
         BlockPos.MutableBlockPos temp = scratch.secondMutablePos;
@@ -1636,17 +2005,27 @@ final class DecorationPlacementProgram {
         for (int step = 0; step <= maxHeight; step++) {
             int posY = pos.getY();
             temp.set(x, posY + 1, z);
-            if (context.level().getBlockState(pos).is(Blocks.WATER)
-                    && context.level().getBlockState(temp).is(Blocks.WATER)
+            boolean exactColumnWater = descriptorHasExactWaterAt(scratch, x, posY, z);
+            boolean exactAboveWater = descriptorHasExactWaterAt(scratch, x, posY + 1, z);
+            if (descriptorHasWaterAt(scratch, x, posY, z, false)
+                    && (exactColumnWater || context.level().getBlockState(pos).is(Blocks.WATER))
+                    && descriptorHasWaterAt(scratch, x, posY + 1, z, false)
+                    && (exactAboveWater || context.level().getBlockState(temp).is(Blocks.WATER))
                     && KELP_PLANT.canSurvive(context.level(), pos)) {
+                if (exactColumnWater) {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+                }
+                if (exactAboveWater) {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+                }
                 if (step == maxHeight) {
-                    context.level().setBlock(pos, KELP_HEADS[context.random().nextInt(4)], 2);
+                    setBlockTracked(context, scratch, pos, KELP_HEADS[context.random().nextInt(4)], 2);
                     DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                     placedHeads++;
                     break;
                 }
 
-                context.level().setBlock(pos, KELP_PLANT, 2);
+                setBlockTracked(context, scratch, pos, KELP_PLANT, 2);
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
             } else if (step > 0) {
                 int belowY = posY - 1;
@@ -1655,7 +2034,7 @@ final class DecorationPlacementProgram {
                     temp.set(x, belowY - 1, z);
                     if (!context.level().getBlockState(temp).is(Blocks.KELP)) {
                         temp.set(x, belowY, z);
-                        context.level().setBlock(temp, KELP_HEADS[context.random().nextInt(4)], 2);
+                        setBlockTracked(context, scratch, temp, KELP_HEADS[context.random().nextInt(4)], 2);
                         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                         placedHeads++;
                     }
@@ -1685,6 +2064,10 @@ final class DecorationPlacementProgram {
         }
         BlockPos.MutableBlockPos origin = scratch.mutablePos.set(x, y, z);
         BlockState state = config.toPlace().getState(context.random(), origin);
+        if (!passesSimpleBlockMicroGate(state, scratch, x, y, z)) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+            return false;
+        }
         if (scratch.isCollectingSimpleBlockBatch()) {
             scratch.addSimpleBlockCandidate(state, x, y, z);
             return true;
@@ -1709,21 +2092,21 @@ final class DecorationPlacementProgram {
             int x = originX + dx;
             for (int dz = 0; dz < 16; dz++) {
                 int z = originZ + dz;
-                int y = fastHeight(level, Heightmap.Types.MOTION_BLOCKING, x, z);
+                int y = fastHeight(level, scratch, Heightmap.Types.MOTION_BLOCKING, x, z);
                 top.set(x, y, z);
                 below.set(x, y - 1, z);
                 Biome biome = level.getBiome(top).value();
 
                 if (biome.shouldFreeze(level, below, false)) {
-                    scratch.chunkWriter.setBlockState(below, ICE_STATE);
+                    setChunkWriterBlockTracked(context, scratch, below, ICE_STATE);
                     writes++;
                 }
                 if (biome.shouldSnow(level, top)) {
-                    scratch.chunkWriter.setBlockState(top, SNOW_STATE);
+                    setChunkWriterBlockTracked(context, scratch, top, SNOW_STATE);
                     writes++;
                     BlockState belowState = scratch.chunkWriter.getBlockState(below);
                     if (belowState.hasProperty(SnowyDirtBlock.SNOWY)) {
-                        scratch.chunkWriter.setBlockState(below, belowState.setValue(SnowyDirtBlock.SNOWY, true));
+                        setChunkWriterBlockTracked(context, scratch, below, belowState.setValue(SnowyDirtBlock.SNOWY, true));
                         writes++;
                     }
                 }
@@ -1732,6 +2115,143 @@ final class DecorationPlacementProgram {
 
         DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_WRITES, writes);
         return true;
+    }
+
+    private static boolean placeLakeNative(
+            LakeFeature.Configuration config,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            int originX,
+            int originY,
+            int originZ
+    ) {
+        WorldGenLevel level = context.level();
+        if (originY <= level.getMinBuildHeight() + 4) {
+            return false;
+        }
+
+        BlockPos origin = new BlockPos(originX, originY - 4, originZ);
+        boolean[] mask = scratch.clearLakeMask();
+        RandomSource random = context.random();
+
+        int ellipsoidCount = random.nextInt(4) + 4;
+        for (int i = 0; i < ellipsoidCount; i++) {
+            double sizeX = random.nextDouble() * 6.0D + 3.0D;
+            double sizeY = random.nextDouble() * 4.0D + 2.0D;
+            double sizeZ = random.nextDouble() * 6.0D + 3.0D;
+            double centerX = random.nextDouble() * (16.0D - sizeX - 2.0D) + 1.0D + sizeX / 2.0D;
+            double centerY = random.nextDouble() * (8.0D - sizeY - 4.0D) + 2.0D + sizeY / 2.0D;
+            double centerZ = random.nextDouble() * (16.0D - sizeZ - 2.0D) + 1.0D + sizeZ / 2.0D;
+
+            for (int x = 1; x < 15; x++) {
+                double normX = (x - centerX) / (sizeX / 2.0D);
+                for (int z = 1; z < 15; z++) {
+                    double normZ = (z - centerZ) / (sizeZ / 2.0D);
+                    for (int y = 1; y < 7; y++) {
+                        double normY = (y - centerY) / (sizeY / 2.0D);
+                        if (normX * normX + normY * normY + normZ * normZ < 1.0D) {
+                            mask[lakeIndex(x, z, y)] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        BlockState fluidState = config.fluid().getState(random, origin);
+        BlockPos.MutableBlockPos pos = scratch.mutablePos;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                for (int y = 0; y < 8; y++) {
+                    if (mask[lakeIndex(x, z, y)] || !hasLakeNeighbour(mask, x, z, y)) {
+                        continue;
+                    }
+
+                    pos.set(originX + x, origin.getY() + y, originZ + z);
+                    BlockState state = level.getBlockState(pos);
+                    if (y >= 4) {
+                        if (state.liquid()) {
+                            return false;
+                        }
+                    } else if (!state.isSolid() && state != fluidState) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        long writes = 0L;
+        boolean placedAny = false;
+        BlockPos.MutableBlockPos markPos = scratch.secondMutablePos;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                for (int y = 0; y < 8; y++) {
+                    if (!mask[lakeIndex(x, z, y)]) {
+                        continue;
+                    }
+
+                    pos.set(originX + x, origin.getY() + y, originZ + z);
+                    if (!lakeCanReplaceBlock(level.getBlockState(pos))) {
+                        continue;
+                    }
+
+                    boolean upperHalf = y >= 4;
+                    if (setBlockTracked(context, scratch, pos, upperHalf ? CAVE_AIR_STATE : fluidState, 2)) {
+                        writes++;
+                        placedAny = true;
+                    }
+                    if (upperHalf) {
+                        level.scheduleTick(pos, CAVE_AIR_STATE.getBlock(), 0);
+                        markAboveForPostProcessing(level, markPos.set(pos));
+                    }
+                }
+            }
+        }
+
+        BlockState barrierState = config.barrier().getState(random, origin);
+        if (!barrierState.isAir()) {
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int y = 0; y < 8; y++) {
+                        if (mask[lakeIndex(x, z, y)] || !hasLakeNeighbour(mask, x, z, y)) {
+                            continue;
+                        }
+                        if (y >= 4 && random.nextInt(2) == 0) {
+                            continue;
+                        }
+
+                        pos.set(originX + x, origin.getY() + y, originZ + z);
+                        BlockState state = level.getBlockState(pos);
+                        if (!state.isSolid() || state.is(BlockTags.LAVA_POOL_STONE_CANNOT_REPLACE)) {
+                            continue;
+                        }
+
+                        if (setBlockTracked(context, scratch, pos, barrierState, 2)) {
+                            writes++;
+                            placedAny = true;
+                        }
+                        markAboveForPostProcessing(level, markPos.set(pos));
+                    }
+                }
+            }
+        }
+
+        if (fluidState.getFluidState().is(FluidTags.WATER)) {
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    pos.set(originX + x, origin.getY() + 4, originZ + z);
+                    Biome biome = level.getBiome(pos).value();
+                    if (biome.shouldFreeze(level, pos, false)
+                            && lakeCanReplaceBlock(level.getBlockState(pos))
+                            && setBlockTracked(context, scratch, pos, ICE_STATE, 2)) {
+                        writes++;
+                        placedAny = true;
+                    }
+                }
+            }
+        }
+
+        DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_WRITES, writes);
+        return placedAny;
     }
 
     private static boolean placeSculkPatchNative(
@@ -1751,7 +2271,7 @@ final class DecorationPlacementProgram {
         }
 
         RandomSource random = context.random();
-        SculkSpreader spreader = SculkSpreader.createWorldGenSpreader();
+        SculkSpreader spreader = scratch.worldGenSculkSpreader();
         int chargeCount = config.chargeCount();
         int amountPerCharge = config.amountPerCharge();
         int spreadAttempts = config.spreadAttempts();
@@ -1774,7 +2294,7 @@ final class DecorationPlacementProgram {
         if (random.nextFloat() <= config.catalystChance()) {
             BlockState belowState = level.getBlockState(probe);
             if (belowState.isCollisionShapeFullBlock(level, probe)
-                    && level.setBlock(origin, Blocks.SCULK_CATALYST.defaultBlockState(), 3)) {
+                    && setBlockTracked(context, scratch, origin, SCULK_CATALYST_STATE, 3)) {
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
             }
         }
@@ -1794,24 +2314,20 @@ final class DecorationPlacementProgram {
                 continue;
             }
 
-            if (level.setBlock(
-                    candidatePos,
-                    Blocks.SCULK_SHRIEKER.defaultBlockState().setValue(SculkShriekerBlock.CAN_SUMMON, true),
-                    3
-            )) {
+            if (setBlockTracked(context, scratch, candidatePos, SCULK_SHRIEKER_SUMMON_STATE, 3)) {
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
             }
         }
         return true;
     }
 
-    private static boolean flushSimpleBlockBatch(
+    private static boolean flushWriteJournal(
             DecorationPipelineExecutor.ExecutionContext context,
             DecorationPipelineScratch scratch
     ) {
         int count = scratch.candidateCount;
         if (count <= 0) {
-            scratch.finishSimpleBlockBatch();
+            scratch.finishWriteJournal();
             return false;
         }
 
@@ -1827,32 +2343,62 @@ final class DecorationPlacementProgram {
                 if (firstCandidate < 0) {
                     continue;
                 }
-                scratch.chunkWriter.begin(chunkFor(
+                ChunkAccess currentChunk = chunkFor(
                         context,
                         scratch.candidateX[firstCandidate],
                         scratch.candidateZ[firstCandidate]
-                ));
+                );
+                scratch.chunkWriter.begin(currentChunk);
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.JOURNAL_COMMIT_BATCHES);
                 for (int bucket = firstSectionBucket; bucket >= 0; bucket = scratch.sectionBucketNextInChunk[bucket]) {
                     DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_SECTION_BATCHES);
                     for (int candidate = scratch.sectionBucketHead[bucket]; candidate >= 0; candidate = scratch.candidateNext[candidate]) {
-                        if (placeSimpleBlockPrepared(
-                                scratch.candidateSimpleBlockState[candidate],
-                                context,
-                                scratch,
-                                scratch.candidateX[candidate],
-                                scratch.candidateY[candidate],
-                                scratch.candidateZ[candidate]
-                        )) {
+                        if (commitJournalWrite(context, scratch, currentChunk, candidate)) {
                             placedAny = true;
                         }
                     }
                 }
             }
+            scratch.flushJournalDescriptorMutations();
         } finally {
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, commitStart);
-            scratch.finishSimpleBlockBatch();
+            scratch.finishWriteJournal();
         }
         return placedAny;
+    }
+
+    private static boolean commitJournalWrite(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            ChunkAccess currentChunk,
+            int candidate
+    ) {
+        int flags = scratch.candidateWriteFlags[candidate];
+        if ((flags & DecorationPipelineScratch.WRITE_FLAG_SIMPLE_BLOCK_SURVIVAL) != 0) {
+            return placeSimpleBlockPrepared(
+                    scratch.candidateSimpleBlockState[candidate],
+                    context,
+                    scratch,
+                    scratch.candidateX[candidate],
+                    scratch.candidateY[candidate],
+                    scratch.candidateZ[candidate],
+                    true,
+                    currentChunk
+            );
+        }
+
+        BlockPos.MutableBlockPos pos = scratch.mutablePos.set(
+                scratch.candidateX[candidate],
+                scratch.candidateY[candidate],
+                scratch.candidateZ[candidate]
+        );
+        setChunkWriterBlockJournaled(scratch, currentChunk, pos, scratch.candidateSimpleBlockState[candidate]);
+        if ((flags & DecorationPipelineScratch.WRITE_FLAG_MARK_ABOVE_FOR_POSTPROCESSING) != 0) {
+            markAboveForPostProcessing(scratch, scratch.secondMutablePos.set(pos));
+        }
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.JOURNAL_WRITES_COMMITTED);
+        return true;
     }
 
     private static boolean placeSimpleBlockPrepared(
@@ -1863,6 +2409,31 @@ final class DecorationPlacementProgram {
             int y,
             int z
     ) {
+        return placeSimpleBlockPrepared(state, context, scratch, x, y, z, false);
+    }
+
+    private static boolean placeSimpleBlockPrepared(
+            BlockState state,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            int x,
+            int y,
+            int z,
+            boolean journaled
+    ) {
+        return placeSimpleBlockPrepared(state, context, scratch, x, y, z, journaled, null);
+    }
+
+    private static boolean placeSimpleBlockPrepared(
+            BlockState state,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            int x,
+            int y,
+            int z,
+            boolean journaled,
+            ChunkAccess journalChunk
+    ) {
         BlockPos.MutableBlockPos origin = scratch.mutablePos.set(x, y, z);
         if (!context.level().ensureCanWrite(origin)) {
             return false;
@@ -1872,17 +2443,35 @@ final class DecorationPlacementProgram {
         }
 
         if (state.getBlock() instanceof DoublePlantBlock) {
+            SectionDescriptor aboveDescriptor = scratch.descriptors.findByBlockPos(x, y + 1, z);
+            if (aboveDescriptor != null && !aboveDescriptor.columnHasOpenAt(x, y + 1, z)) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+                noteDescriptorColumnReject(1L);
+                return false;
+            }
             BlockPos.MutableBlockPos above = scratch.secondMutablePos.set(x, y + 1, z);
             if (!context.level().ensureCanWrite(above) || !scratch.chunkWriter.getBlockState(above).isAir()) {
                 return false;
             }
-            scratch.chunkWriter.setBlockState(origin, state);
-            scratch.chunkWriter.setBlockState(above, state.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
+            if (journaled) {
+                ChunkAccess chunk = journalChunk != null ? journalChunk : chunkFor(context, x, z);
+                setChunkWriterBlockJournaled(scratch, chunk, origin, state);
+                setChunkWriterBlockJournaled(scratch, chunk, above, state.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
+                DecorationPipelineMetrics.add(DecorationPipelineMetrics.JOURNAL_WRITES_COMMITTED, 2L);
+            } else {
+                setChunkWriterBlockTracked(context, scratch, origin, state);
+                setChunkWriterBlockTracked(context, scratch, above, state.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
+            }
             DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_WRITES, 2L);
             return true;
         }
 
-        scratch.chunkWriter.setBlockState(origin, state);
+        if (journaled) {
+            setChunkWriterBlockJournaled(scratch, journalChunk != null ? journalChunk : chunkFor(context, x, z), origin, state);
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.JOURNAL_WRITES_COMMITTED);
+        } else {
+            setChunkWriterBlockTracked(context, scratch, origin, state);
+        }
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
         return true;
     }
@@ -1899,14 +2488,115 @@ final class DecorationPlacementProgram {
         return context.level().getChunk(x >> 4, z >> 4);
     }
 
+    private static boolean passesSimpleBlockMicroGate(BlockState state, DecorationPipelineScratch scratch, int x, int y, int z) {
+        if (state.getBlock() instanceof DoublePlantBlock) {
+            SectionDescriptor aboveDescriptor = scratch.descriptors.findByBlockPos(x, y + 1, z);
+            if (aboveDescriptor != null && !aboveDescriptor.columnHasOpenAt(x, y + 1, z)) {
+                noteDescriptorColumnReject(1L);
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_SIMPLE_BLOCK_MICRO_REJECTS);
+                return false;
+            }
+        }
+        if (!isGroundSimpleBlockCandidate(state)) {
+            return true;
+        }
+        SectionDescriptor supportDescriptor = scratch.descriptors.findByBlockPos(x, y - 1, z);
+        if (supportDescriptor == null) {
+            return true;
+        }
+        if (!supportDescriptor.columnHasGroundSupportAt(x, y - 1, z)) {
+            noteDescriptorColumnReject(2L);
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_SIMPLE_BLOCK_MICRO_REJECTS);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isGroundSimpleBlockCandidate(BlockState state) {
+        if (state.is(BlockTags.SMALL_FLOWERS)
+                || state.is(BlockTags.TALL_FLOWERS)
+                || state.is(BlockTags.SAPLINGS)
+                || state.is(BlockTags.CROPS)) {
+            return true;
+        }
+        Block block = state.getBlock();
+        return block == Blocks.SHORT_GRASS
+                || block == Blocks.TALL_GRASS
+                || block == Blocks.FERN
+                || block == Blocks.LARGE_FERN
+                || block == Blocks.BROWN_MUSHROOM
+                || block == Blocks.RED_MUSHROOM
+                || block == Blocks.CRIMSON_FUNGUS
+                || block == Blocks.WARPED_FUNGUS
+                || block == Blocks.CRIMSON_ROOTS
+                || block == Blocks.WARPED_ROOTS
+                || block == Blocks.NETHER_SPROUTS;
+    }
+
     private static boolean passesPlantDescriptorGate(DecorationPipelineScratch scratch, int x, int y, int z) {
         SectionDescriptor descriptor = scratch.descriptors.findByBlockPos(x, y, z);
-        return descriptor == null || descriptor.hasSurfaceCandidate || descriptor.hasDirtLike || descriptor.hasAir;
+        if (descriptor == null) {
+            return true;
+        }
+        int chunkPaletteFlags = scratch.descriptors.chunkColumnPaletteFlags(x >> 4, z >> 4, x & 15, z & 15);
+        int chunkBlockClassFlags = scratch.descriptors.chunkColumnBlockClassFlags(x >> 4, z >> 4, x & 15, z & 15);
+        if ((chunkBlockClassFlags & (SectionDescriptor.CLASS_SURFACE_CANDIDATE | SectionDescriptor.CLASS_DIRT_LIKE | SectionDescriptor.CLASS_REPLACEABLE)) == 0
+                && (chunkPaletteFlags & SectionDescriptor.PALETTE_AIR) == 0) {
+            noteDescriptorColumnReject(1L);
+            return false;
+        }
+        if (!descriptor.hasSurfaceCandidate && !descriptor.hasDirtLike && !descriptor.hasAir && !descriptor.hasReplaceable) {
+            noteDescriptorSectionReject(1L);
+            return false;
+        }
+        int localX = x & 15;
+        int localZ = z & 15;
+        if (!descriptor.columnHasBlockClassFlag(localX, localZ, SectionDescriptor.CLASS_SURFACE_CANDIDATE | SectionDescriptor.CLASS_DIRT_LIKE | SectionDescriptor.CLASS_REPLACEABLE)
+                && !descriptor.columnHasPaletteFlag(localX, localZ, SectionDescriptor.PALETTE_AIR)) {
+            noteDescriptorColumnReject(1L);
+            return false;
+        }
+        return true;
     }
 
     private static boolean passesSpringDescriptorGate(DecorationPipelineScratch scratch, int x, int y, int z) {
         SectionDescriptor descriptor = scratch.descriptors.findByBlockPos(x, y, z);
-        return descriptor == null || descriptor.hasAir || descriptor.hasStoneLike || descriptor.hasDirtLike;
+        if (descriptor == null) {
+            return true;
+        }
+        int chunkPaletteFlags = scratch.descriptors.chunkColumnPaletteFlags(x >> 4, z >> 4, x & 15, z & 15);
+        int chunkBlockClassFlags = scratch.descriptors.chunkColumnBlockClassFlags(x >> 4, z >> 4, x & 15, z & 15);
+        if ((chunkPaletteFlags & (SectionDescriptor.PALETTE_AIR | SectionDescriptor.PALETTE_SOLID | SectionDescriptor.PALETTE_WATER | SectionDescriptor.PALETTE_LAVA)) == 0
+                && (chunkBlockClassFlags & (SectionDescriptor.CLASS_STONE_LIKE | SectionDescriptor.CLASS_DIRT_LIKE | SectionDescriptor.CLASS_REPLACEABLE)) == 0) {
+            noteDescriptorColumnReject(7L);
+            return false;
+        }
+        if (!descriptor.hasAir && !descriptor.hasStoneLike && !descriptor.hasDirtLike) {
+            noteDescriptorSectionReject(7L);
+            return false;
+        }
+        int localX = x & 15;
+        int localZ = z & 15;
+        if (!descriptor.columnHasPaletteFlag(localX, localZ, SectionDescriptor.PALETTE_AIR | SectionDescriptor.PALETTE_SOLID | SectionDescriptor.PALETTE_WATER | SectionDescriptor.PALETTE_LAVA)
+                && !descriptor.columnHasBlockClassFlag(localX, localZ, SectionDescriptor.CLASS_STONE_LIKE | SectionDescriptor.CLASS_DIRT_LIKE | SectionDescriptor.CLASS_REPLACEABLE)) {
+            noteDescriptorColumnReject(7L);
+            return false;
+        }
+        if (descriptor.columnHasFluidAt(x, y, z)) {
+            noteDescriptorColumnReject(7L);
+            return false;
+        }
+        SectionDescriptor aboveDescriptor = scratch.descriptors.findByBlockPos(x, y + 1, z);
+        if (aboveDescriptor != null && !aboveDescriptor.columnHasSolidAt(x, y + 1, z)) {
+            noteDescriptorColumnReject(7L);
+            return false;
+        }
+        SectionDescriptor belowDescriptor = scratch.descriptors.findByBlockPos(x, y - 1, z);
+        if (belowDescriptor != null && !belowDescriptor.columnHasAirAt(x, y - 1, z) && !belowDescriptor.columnHasSolidAt(x, y - 1, z)) {
+            noteDescriptorColumnReject(7L);
+            return false;
+        }
+        return true;
     }
 
     private static boolean passesTreeDescriptorGate(DecorationPipelineScratch scratch, int x, int y, int z) {
@@ -1914,16 +2604,52 @@ final class DecorationPlacementProgram {
         if (originDescriptor == null) {
             return true;
         }
+        int chunkBlockClassFlags = scratch.descriptors.chunkColumnBlockClassFlags(x >> 4, z >> 4, x & 15, z & 15);
+        int chunkPaletteFlags = scratch.descriptors.chunkColumnPaletteFlags(x >> 4, z >> 4, x & 15, z & 15);
+        if ((chunkPaletteFlags & SectionDescriptor.PALETTE_AIR) == 0
+                && (chunkBlockClassFlags & SectionDescriptor.CLASS_REPLACEABLE) == 0) {
+            noteDescriptorColumnReject(2L);
+            return false;
+        }
+        if ((chunkBlockClassFlags & (SectionDescriptor.CLASS_TREE_SOIL | SectionDescriptor.CLASS_SURFACE_CANDIDATE)) == 0) {
+            noteDescriptorColumnReject(2L);
+            return false;
+        }
         if (!originDescriptor.mayContainTreeVolume()) {
+            noteDescriptorSectionReject(2L);
+            return false;
+        }
+        int localX = x & 15;
+        int localZ = z & 15;
+        if (!originDescriptor.columnMayContainTreeVolume(localX, localZ)) {
+            noteDescriptorColumnReject(2L);
             return false;
         }
 
         SectionDescriptor supportDescriptor = scratch.descriptors.findByBlockPos(x, y - 1, z);
-        return supportDescriptor == null || supportDescriptor.maySupportTreeBase();
+        if (supportDescriptor == null) {
+            return true;
+        }
+        if (!supportDescriptor.maySupportTreeBase()) {
+            noteDescriptorSectionReject(2L);
+            return false;
+        }
+        if (!supportDescriptor.columnMaySupportTreeBase(localX, localZ)) {
+            noteDescriptorColumnReject(2L);
+            return false;
+        }
+        return true;
     }
 
     private static boolean passesDescriptorGate(Feature<?> feature, DecorationPipelineScratch scratch, int x, int y, int z) {
-        int gate = descriptorGate(feature);
+        int gate = descriptorGateForFeature(feature);
+        if (gate == GATE_NONE) {
+            return true;
+        }
+        return passesDescriptorGate(gate, feature, scratch, x, y, z);
+    }
+
+    private static boolean passesDescriptorGate(int gate, Feature<?> feature, DecorationPipelineScratch scratch, int x, int y, int z) {
         if (gate == GATE_NONE) {
             return true;
         }
@@ -1933,18 +2659,61 @@ final class DecorationPlacementProgram {
             return true;
         }
 
+        int localX = x & 15;
+        int localZ = z & 15;
         return switch (gate) {
-            case GATE_ORE -> descriptor.hasOreTarget || descriptor.hasStoneLike;
-            case GATE_PLANT -> descriptor.hasSurfaceCandidate || descriptor.hasDirtLike || descriptor.hasAir;
-            case GATE_WATER_PLANT -> descriptor.hasWater;
+            case GATE_ORE -> {
+                if (!descriptor.hasOreTarget && !descriptor.hasStoneLike) {
+                    noteDescriptorSectionReject(1L);
+                    yield false;
+                }
+                if (!descriptor.columnHasBlockClassFlag(localX, localZ, SectionDescriptor.CLASS_ORE_TARGET | SectionDescriptor.CLASS_STONE_LIKE)) {
+                    noteDescriptorColumnReject(1L);
+                    yield false;
+                }
+                yield true;
+            }
+            case GATE_PLANT -> passesPlantDescriptorGate(scratch, x, y, z);
+            case GATE_WATER_PLANT -> {
+                if (!descriptor.hasWater) {
+                    noteDescriptorSectionReject(1L);
+                    yield false;
+                }
+                if (!descriptor.columnHasPaletteFlag(localX, localZ, SectionDescriptor.PALETTE_WATER)) {
+                    noteDescriptorColumnReject(1L);
+                    yield false;
+                }
+                yield true;
+            }
             case GATE_TREE -> passesTreeDescriptorGate(scratch, x, y, z);
-            case GATE_STONE_OR_DIRT -> descriptor.hasStoneLike || descriptor.hasDirtLike;
-            case GATE_CAVE_SOLID -> descriptor.hasAir && (descriptor.hasStoneLike || descriptor.hasDirtLike);
+            case GATE_STONE_OR_DIRT -> {
+                if (!descriptor.hasStoneLike && !descriptor.hasDirtLike) {
+                    noteDescriptorSectionReject(1L);
+                    yield false;
+                }
+                if (!descriptor.columnHasBlockClassFlag(localX, localZ, SectionDescriptor.CLASS_STONE_LIKE | SectionDescriptor.CLASS_DIRT_LIKE)) {
+                    noteDescriptorColumnReject(1L);
+                    yield false;
+                }
+                yield true;
+            }
+            case GATE_CAVE_SOLID -> {
+                if (!descriptor.hasAir || (!descriptor.hasStoneLike && !descriptor.hasDirtLike)) {
+                    noteDescriptorSectionReject(2L);
+                    yield false;
+                }
+                if (!descriptor.columnHasPaletteFlag(localX, localZ, SectionDescriptor.PALETTE_AIR)
+                        || !descriptor.columnHasBlockClassFlag(localX, localZ, SectionDescriptor.CLASS_STONE_LIKE | SectionDescriptor.CLASS_DIRT_LIKE)) {
+                    noteDescriptorColumnReject(2L);
+                    yield false;
+                }
+                yield true;
+            }
             default -> true;
         };
     }
 
-    private static int descriptorGate(Feature<?> feature) {
+    static int descriptorGateForFeature(Feature<?> feature) {
         if (feature instanceof OreFeature || feature instanceof ScatteredOreFeature) {
             return GATE_ORE;
         }
@@ -1968,6 +2737,23 @@ final class DecorationPlacementProgram {
             return GATE_PLANT;
         }
         return GATE_NONE;
+    }
+
+    private static int lakeIndex(int x, int z, int y) {
+        return ((x << 4) + z) * 8 + y;
+    }
+
+    private static boolean hasLakeNeighbour(boolean[] mask, int x, int z, int y) {
+        return (x < 15 && mask[lakeIndex(x + 1, z, y)])
+                || (x > 0 && mask[lakeIndex(x - 1, z, y)])
+                || (z < 15 && mask[lakeIndex(x, z + 1, y)])
+                || (z > 0 && mask[lakeIndex(x, z - 1, y)])
+                || (y < 7 && mask[lakeIndex(x, z, y + 1)])
+                || (y > 0 && mask[lakeIndex(x, z, y - 1)]);
+    }
+
+    private static boolean lakeCanReplaceBlock(BlockState state) {
+        return !state.is(BlockTags.FEATURES_CANNOT_REPLACE);
     }
 
     private static boolean canSpreadSculkFrom(WorldGenLevel level, BlockPos pos, BlockPos.MutableBlockPos neighborPos) {
@@ -2006,9 +2792,24 @@ final class DecorationPlacementProgram {
         return scratch.biomeFeatureCache.hasFeature(context.generator(), biome, feature);
     }
 
-    private static int fastHeight(WorldGenLevel level, Heightmap.Types type, int x, int z) {
+    private static SectionDescriptorCache activeDescriptors(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch
+    ) {
+        return scratch.descriptorsPreparedFor(context.chunk()) ? scratch.descriptors : null;
+    }
+
+    private static int fastHeight(WorldGenLevel level, DecorationPipelineScratch scratch, Heightmap.Types type, int x, int z) {
+        int chunkX = x >> 4;
+        int chunkZ = z >> 4;
+        int descriptorHeight = scratch.descriptors.firstAvailableHeight(chunkX, chunkZ, type, x & 15, z & 15);
+        if (descriptorHeight != Integer.MIN_VALUE) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_HEIGHTMAP_HITS);
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED);
+            return descriptorHeight;
+        }
         try {
-            ChunkAccess chunk = level.getChunk(x >> 4, z >> 4);
+            ChunkAccess chunk = level.getChunk(chunkX, chunkZ);
             Heightmap heightmap = ((ChunkAccess$getOrCreateHeightmapUnsynchronized) chunk).bts$getOrCreateHeightmapUnsynchronized(type);
             if (heightmap != null) {
                 return heightmap.getFirstAvailable(x & 15, z & 15);
@@ -2017,6 +2818,78 @@ final class DecorationPlacementProgram {
             // Modded worldgen contexts can virtualize chunk access.
         }
         return level.getHeight(type, x, z);
+    }
+
+    private static boolean descriptorHasWaterAt(DecorationPipelineScratch scratch, int x, int y, int z, boolean useTopWaterHeight) {
+        if (useTopWaterHeight) {
+            int topWaterY = scratch.descriptors.topWaterHeight(x >> 4, z >> 4, x & 15, z & 15);
+            if (topWaterY != Integer.MIN_VALUE && topWaterY < y) {
+                return false;
+            }
+        }
+        SectionDescriptor descriptor = scratch.descriptors.findByBlockPos(x, y, z);
+        return descriptor == null || descriptor.columnHasWaterAt(x, y, z);
+    }
+
+    private static boolean descriptorHasExactWaterAt(DecorationPipelineScratch scratch, int x, int y, int z) {
+        SectionDescriptor descriptor = scratch.descriptors.findByBlockPos(x, y, z);
+        return descriptor != null && descriptor.columnHasWaterAt(x, y, z);
+    }
+
+    private static void noteDescriptorSectionReject(long avoidedReads) {
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_SECTION_REJECTS);
+        DecorationPipelineMetrics.add(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED, avoidedReads);
+    }
+
+    private static void noteDescriptorColumnReject(long avoidedReads) {
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.DESCRIPTOR_COLUMN_REJECTS);
+        DecorationPipelineMetrics.add(DecorationPipelineMetrics.DESCRIPTOR_WORLD_READS_AVOIDED, avoidedReads);
+    }
+
+    private static void noteSelectorFallbackReason(DecorationKernelPlan kernel) {
+        int counter = kernel.selectorFallbackMetricCounter();
+        if (counter >= 0) {
+            DecorationPipelineMetrics.increment(counter);
+        }
+    }
+
+    private static boolean setBlockTracked(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            BlockPos pos,
+            BlockState state,
+            int flags
+    ) {
+        WorldGenLevel level = context.level();
+        boolean changed = level.setBlock(pos, state, flags);
+        if (changed) {
+            noteBlockMutation(chunkFor(context, pos.getX(), pos.getZ()), scratch, pos.getX(), pos.getY(), pos.getZ());
+        }
+        return changed;
+    }
+
+    private static void setChunkWriterBlockTracked(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            BlockPos pos,
+            BlockState state
+    ) {
+        scratch.chunkWriter.setBlockState(pos, state);
+        noteBlockMutation(chunkFor(context, pos.getX(), pos.getZ()), scratch, pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    private static void setChunkWriterBlockJournaled(
+            DecorationPipelineScratch scratch,
+            ChunkAccess chunk,
+            BlockPos pos,
+            BlockState state
+    ) {
+        scratch.chunkWriter.setBlockState(pos, state);
+        scratch.noteJournalMutation(chunk, pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    private static void noteBlockMutation(ChunkAccess chunk, DecorationPipelineScratch scratch, int blockX, int blockY, int blockZ) {
+        scratch.descriptors.noteBlockMutation(chunk, blockX, blockY, blockZ);
     }
 
     private static int opcodeFor(PlacementModifier modifier) {

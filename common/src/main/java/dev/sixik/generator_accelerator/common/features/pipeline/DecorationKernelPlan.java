@@ -18,6 +18,7 @@ public final class DecorationKernelPlan {
     private final DecorationPlacementProgram nestedPlacementProgram;
     private final OreTargetPlan oreTargetPlan;
     private final SelectorPlan selectorPlan;
+    private final int selectorFallbackMetricCounter;
     private final String metricsName;
     private final int originalFeatureIndex;
     private final int orderingGroup;
@@ -45,6 +46,7 @@ public final class DecorationKernelPlan {
                 nestedPlacementProgram,
                 null,
                 null,
+                -1,
                 originalFeatureIndex,
                 orderingGroup,
                 canBatch,
@@ -61,6 +63,7 @@ public final class DecorationKernelPlan {
             DecorationPlacementProgram nestedPlacementProgram,
             OreTargetPlan oreTargetPlan,
             SelectorPlan selectorPlan,
+            int selectorFallbackMetricCounter,
             int originalFeatureIndex,
             int orderingGroup,
             boolean canBatch,
@@ -75,6 +78,7 @@ public final class DecorationKernelPlan {
         this.nestedPlacementProgram = nestedPlacementProgram;
         this.oreTargetPlan = oreTargetPlan;
         this.selectorPlan = selectorPlan;
+        this.selectorFallbackMetricCounter = selectorFallbackMetricCounter;
         this.metricsName = metricsName(kind, configuredFeature);
         this.originalFeatureIndex = originalFeatureIndex;
         this.orderingGroup = orderingGroup;
@@ -102,6 +106,16 @@ public final class DecorationKernelPlan {
     }
 
     public static DecorationKernelPlan partialNativeClassified(DecorationKernelKind kind, PlacedFeature feature, int originalFeatureIndex, DecorationPlacementProgram placementProgram) {
+        return partialNativeClassified(kind, feature, originalFeatureIndex, placementProgram, -1);
+    }
+
+    public static DecorationKernelPlan partialNativeClassified(
+            DecorationKernelKind kind,
+            PlacedFeature feature,
+            int originalFeatureIndex,
+            DecorationPlacementProgram placementProgram,
+            int selectorFallbackMetricCounter
+    ) {
         return new DecorationKernelPlan(
                 kind,
                 feature,
@@ -109,10 +123,13 @@ public final class DecorationKernelPlan {
                 placementProgram,
                 null,
                 null,
+                null,
+                null,
+                selectorFallbackMetricCounter,
                 originalFeatureIndex,
                 originalFeatureIndex,
-                true,
-                true
+                false,
+                false
         );
     }
 
@@ -126,8 +143,8 @@ public final class DecorationKernelPlan {
                 null,
                 originalFeatureIndex,
                 originalFeatureIndex,
-                true,
-                true
+                kind.canSectionBatch(),
+                kind.canSectionBatch()
         );
     }
 
@@ -146,6 +163,7 @@ public final class DecorationKernelPlan {
                 null,
                 oreTargetPlan,
                 null,
+                -1,
                 originalFeatureIndex,
                 originalFeatureIndex,
                 true,
@@ -168,6 +186,7 @@ public final class DecorationKernelPlan {
                 null,
                 oreTargetPlan,
                 null,
+                -1,
                 originalFeatureIndex,
                 originalFeatureIndex,
                 true,
@@ -191,6 +210,7 @@ public final class DecorationKernelPlan {
                 nestedPlacementProgram,
                 null,
                 null,
+                -1,
                 originalFeatureIndex,
                 originalFeatureIndex,
                 true,
@@ -215,6 +235,7 @@ public final class DecorationKernelPlan {
                 nestedPlacementProgram,
                 null,
                 selectorPlan,
+                -1,
                 originalFeatureIndex,
                 originalFeatureIndex,
                 true,
@@ -237,6 +258,7 @@ public final class DecorationKernelPlan {
                 null,
                 null,
                 selectorPlan,
+                -1,
                 originalFeatureIndex,
                 originalFeatureIndex,
                 true,
@@ -278,6 +300,10 @@ public final class DecorationKernelPlan {
 
     public SelectorPlan selectorPlan() {
         return this.selectorPlan;
+    }
+
+    public int selectorFallbackMetricCounter() {
+        return this.selectorFallbackMetricCounter;
     }
 
     public String metricsName() {

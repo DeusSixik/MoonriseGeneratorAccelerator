@@ -18,7 +18,6 @@ public final class CarverChunkWriter {
 
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
     private static final BlockState VOID_AIR = Blocks.VOID_AIR.defaultBlockState();
-    private static final int AIR_STATE_ID = GA$BlockStateExtension.get(AIR).bts$getFastId();
 
     private final Heightmap[] heightmaps = new Heightmap[Heightmap.Types.values().length];
     private final int[][] rawSections = new int[32][];
@@ -80,7 +79,7 @@ public final class CarverChunkWriter {
 
         LevelChunkSection section = this.getSectionByIndex(sectionIndex);
         if (section.hasOnlyAir()) {
-            return AIR_STATE_ID;
+            return airStateId();
         }
 
         return GA$BlockStateExtension.get(section.getBlockState(blockPos.getX() & 15, y & 15, blockPos.getZ() & 15)).bts$getFastId();
@@ -102,7 +101,7 @@ public final class CarverChunkWriter {
         }
 
         LevelChunkSection section = this.getSection(y);
-        if (section.hasOnlyAir() && stateId == AIR_STATE_ID) {
+        if (section.hasOnlyAir() && stateId == airStateId()) {
             return;
         }
 
@@ -198,5 +197,9 @@ public final class CarverChunkWriter {
 
     private int sectionIndex(int y) {
         return (y >> 4) - this.minSection;
+    }
+
+    private static int airStateId() {
+        return GA$BlockStateExtension.get(AIR).bts$getFastId();
     }
 }

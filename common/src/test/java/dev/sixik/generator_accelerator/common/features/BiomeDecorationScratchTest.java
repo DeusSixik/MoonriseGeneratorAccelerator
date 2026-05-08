@@ -2,28 +2,58 @@ package dev.sixik.generator_accelerator.common.features;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BiomeDecorationScratchTest {
+
     @Test
-    void collectsSortedFeatureIndicesFromUnionedMasks() {
+    void tracksOnlyStepsThatActuallyReceivedFeatureBits() {
         BiomeDecorationScratch scratch = new BiomeDecorationScratch();
+        scratch.beginCombinedFeatureMasks(3, new int[]{1, 1, 1});
 
-        scratch.beginStep(130);
-        scratch.addFeatureMask(new long[] {
-                (1L << 3) | (1L << 9),
-                (1L << 2)
-        });
-        scratch.addFeatureMask(new long[] {
-                (1L << 9) | (1L << 12),
-                (1L << 1),
-                (1L << 1)
-        });
+        scratch.addBiomeFeatureMasks(
+                new long[][]{
+                        {0L},
+                        {1L << 5},
+                        {0L}
+                },
+                new int[]{1, 1, 1}
+        );
 
-        int[] indices = scratch.collectFeatureIndices();
+        assertFalse(scratch.stepHasFeatures(0));
+        assertTrue(scratch.stepHasFeatures(1));
+        assertFalse(scratch.stepHasFeatures(2));
 
-        assertEquals(6, scratch.featureIndexCount());
-        assertArrayEquals(new int[] {3, 9, 12, 65, 66, 129}, java.util.Arrays.copyOf(indices, scratch.featureIndexCount()));
+        scratch.clearBiomeFeatureMasks();
+
+        assertFalse(scratch.stepHasFeatures(0));
+        assertFalse(scratch.stepHasFeatures(1));
+        assertFalse(scratch.stepHasFeatures(2));
+    }
+
+    @Test
+    void mergesSparseBiomeFeatureDataWithoutScanningEmptySteps() {
+        BiomeDecorationScratch scratch = new BiomeDecorationScratch();
+        scratch.beginCombinedFeatureMasks(4, new int[]{1, 1, 1, 1});
+
+        scratch.addBiomeFeatureData(
+                new StepFeatureCache.BiomeFeatureData(
+                        new long[][]{
+                                {0L},
+                                {1L << 3},
+                                {0L},
+                                {1L << 7}
+                        },
+                        new int[]{1, 3},
+                        (1L << 1) | (1L << 3)
+                ),
+                new int[]{1, 1, 1, 1}
+        );
+
+        assertFalse(scratch.stepHasFeatures(0));
+        assertTrue(scratch.stepHasFeatures(1));
+        assertFalse(scratch.stepHasFeatures(2));
+        assertTrue(scratch.stepHasFeatures(3));
     }
 }
