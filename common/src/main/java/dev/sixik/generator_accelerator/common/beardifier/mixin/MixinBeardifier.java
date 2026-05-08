@@ -3,15 +3,17 @@ package dev.sixik.generator_accelerator.common.beardifier.mixin;
 import com.google.common.collect.Iterators;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import org.spongepowered.asm.mixin.*;
 
 @Mixin(Beardifier.class)
-public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker {
+public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker, DfcCellFillAccess {
 
     @Shadow
     @Final
@@ -41,19 +43,12 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         this.junctionIterator.back(Integer.MAX_VALUE);
     }
 
-    /**
-     * @author Sixik
-     * @reason
-     */
-    @Overwrite
-    public double compute(FunctionContext context) {
+    @Unique
+    private double c2me$computeAt(int i, int j, int k) {
         if (this.c2me$pieceArray == null || this.c2me$junctionArray == null) {
             this.c2me$initArrays();
         }
 
-        final int i = context.blockX();
-        final int j = context.blockY();
-        final int k = context.blockZ();
         double d = 0.0;
 
         Beardifier.Rigid[] me$pieceArray = this.c2me$pieceArray;
@@ -66,7 +61,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             final int o = blockBox.minY() + l;
             final int p = j - o;
 
-            d += switch (piece.terrainAdjustment()) { // 2 switch statement merged
+            d += switch (piece.terrainAdjustment()) {
                 case NONE -> 0.0;
                 case BURY -> getBuryContribution(m, (double) p / 2.0, n);
                 case BEARD_THIN -> getBeardContribution(m, p, n, p) * 0.8;
@@ -87,6 +82,57 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         }
 
         return d;
+    }
+
+    /**
+     * @author Sixik
+     * @reason
+     */
+    @Overwrite
+    public double compute(FunctionContext context) {
+        return this.c2me$computeAt(context.blockX(), context.blockY(), context.blockZ());
+    }
+
+    @Override
+    public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellX = 0; inCellX < cellW; inCellX++) {
+            chunk.inCellX = inCellX;
+            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                chunk.inCellZ = inCellZ;
+                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                    chunk.inCellY = inCellY;
+                    chunk.arrayIndex = idx;
+                    out[idx] = this.c2me$computeAt(chunk.blockX(), chunk.blockY(), chunk.blockZ());
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
+    }
+
+    @Override
+    public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellX = 0; inCellX < cellW; inCellX++) {
+            chunk.inCellX = inCellX;
+            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                chunk.inCellZ = inCellZ;
+                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                    chunk.inCellY = inCellY;
+                    chunk.arrayIndex = idx;
+                    out[idx] += this.c2me$computeAt(chunk.blockX(), chunk.blockY(), chunk.blockZ());
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
     }
 
     /**

@@ -7,6 +7,15 @@ architectury {
     neoForge()
 }
 
+loom {
+    runs {
+        client {
+            vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
+                    "-Ddfc.codegen.splineSegmentLut=true"
+        }
+    }
+}
+
 configurations {
     common {
         canBeResolved = true
@@ -42,6 +51,7 @@ dependencies {
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
+    modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     compileOnlyApi "curse.maven:confluence-1209464:7677430"
 
     modRuntimeOnly "curse.maven:shadow-config-1421861:8010596"
@@ -53,6 +63,10 @@ dependencies {
 
     if(project.hasProperty('withC2ME')) {
         modRuntimeOnly "curse.maven:c2me-533097:7694225"
+    }
+
+    if(project.hasProperty('withModernFix')) {
+        modRuntimeOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     }
 
     modCompileOnly "curse.maven:zeta-968868:7980010"

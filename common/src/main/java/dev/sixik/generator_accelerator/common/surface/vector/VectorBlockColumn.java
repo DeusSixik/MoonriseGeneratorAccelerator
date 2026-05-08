@@ -1,9 +1,10 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.BlockColumn;
@@ -41,7 +42,7 @@ public class VectorBlockColumn implements BlockColumn {
         if (raw != null) {
             int localY = y & 15;
             int index = (localY << 8) | ((this.columnPos.getZ() & 15) << 4) | (this.columnPos.getX() & 15);
-            return Block.stateById(raw[index]);
+            return FastBlockStateCache.getBlockState(raw[index]);
         }
         return this.pChunk.getBlockState(this.columnPos.setY(y));
     }
@@ -61,7 +62,7 @@ public class VectorBlockColumn implements BlockColumn {
                 int localY = y & 15;
                 int index = (localY << 8) | ((this.columnPos.getZ() & 15) << 4) | (this.columnPos.getX() & 15);
 
-                BlockState oldState = Block.stateById(raw[index]);
+                BlockState oldState = FastBlockStateCache.getBlockState(raw[index]);
                 if (!oldState.isAir() && state.isAir()) {
                     section.nonEmptyBlockCount--;
                 }
@@ -69,7 +70,7 @@ public class VectorBlockColumn implements BlockColumn {
                     section.nonEmptyBlockCount++;
                 }
 
-                raw[index] = Block.getId(state);
+                raw[index] = GA$BlockStateExtension.get(state).bts$getFastId();
 
                 if (!state.getFluidState().isEmpty()) {
                     this.pChunk.markPosForPostprocessing(this.columnPos.setY(y));

@@ -1,8 +1,10 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen;
 
 import net.minecraft.util.KeyDispatchDataCodec;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.lang.invoke.CallSite;
@@ -31,7 +33,7 @@ import java.util.concurrent.atomic.LongAdder;
  * without recompiling — the bytecode and IR live on the class, the bindings live on the
  * instance.
  */
-public abstract class CompiledDensityFunction implements DensityFunction {
+public abstract class CompiledDensityFunction implements DensityFunction, DfcCellFillAccess {
 
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
@@ -198,6 +200,36 @@ public abstract class CompiledDensityFunction implements DensityFunction {
     @Override
     public void fillArray(double[] out, DensityFunction.ContextProvider provider) {
         provider.fillAllDirectly(out, this);
+    }
+
+    @Override
+    public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        fillArray(out, chunk);
+    }
+
+    @Override
+    public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellX = 0; inCellX < cellW; inCellX++) {
+            chunk.inCellX = inCellX;
+            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                chunk.inCellZ = inCellZ;
+                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                    chunk.inCellY = inCellY;
+                    chunk.arrayIndex = idx;
+                    out[idx] += this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
+    }
+
+    public final boolean dfc$hasNativeSlabInnerProgram() {
+        return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
     }
 
     /**

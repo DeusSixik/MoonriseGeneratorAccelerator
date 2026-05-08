@@ -1,9 +1,14 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -18,7 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 
 @Mixin(NoiseChunk.class)
-public abstract class MixinNoiseChunk implements NoiseChunkPatch {
+public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$InterpolatorSoA {
 
     @Shadow
     @Final
@@ -100,6 +105,53 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
     @Unique
     private NoiseChunk.CacheAllInCell[] bts$cellCachesArray;
+    @Unique
+    private DensityFunction[] bts$cellCacheFillers;
+    @Unique
+    private DfcCellFillAccess[] bts$cellCacheFastFillers;
+    @Unique
+    private boolean[] bts$cellCacheLazyFastFillers;
+    @Unique
+    private double[][] bts$cellCacheValues;
+
+    @Unique
+    private double[] bts$interpolatorSlice0Flat;
+    @Unique
+    private double[] bts$interpolatorSlice1Flat;
+    @Unique
+    private int bts$interpolatorSizeY;
+    @Unique
+    private int bts$interpolatorPlaneSize;
+    @Unique
+    private double[] bts$noise000;
+    @Unique
+    private double[] bts$noise100;
+    @Unique
+    private double[] bts$noise010;
+    @Unique
+    private double[] bts$noise110;
+    @Unique
+    private double[] bts$noise001;
+    @Unique
+    private double[] bts$noise101;
+    @Unique
+    private double[] bts$noise011;
+    @Unique
+    private double[] bts$noise111;
+    @Unique
+    private double[] bts$valueXZ00;
+    @Unique
+    private double[] bts$valueXZ10;
+    @Unique
+    private double[] bts$valueXZ01;
+    @Unique
+    private double[] bts$valueXZ11;
+    @Unique
+    private double[] bts$valueZ0;
+    @Unique
+    private double[] bts$valueZ1;
+    @Unique
+    private double[] bts$value;
 
     @Unique
     public double bts$inverseCellWidth;
@@ -129,9 +181,11 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
 
         /*
             Converting lists to arrays for quick access
-         */
+        */
         this.bts$interpolatorsArray = this.interpolators.toArray(new NoiseChunk.NoiseInterpolator[0]);
         this.bts$cellCachesArray = this.cellCaches.toArray(new NoiseChunk.CacheAllInCell[0]);
+        this.bts$initCellCacheArrays();
+        bts$initInterpolatorSoA();
 
         /*
             Caching 1/size
@@ -150,16 +204,82 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         this.sliceBuffer = new double[this.cellCountY + 1];
     }
 
+    @Unique
+    private void bts$initCellCacheArrays() {
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final int length = caches.length;
+        this.bts$cellCacheFillers = new DensityFunction[length];
+        this.bts$cellCacheFastFillers = new DfcCellFillAccess[length];
+        this.bts$cellCacheLazyFastFillers = new boolean[length];
+        this.bts$cellCacheValues = new double[length][];
+
+        for (int i = 0; i < length; i++) {
+            final NoiseChunk.CacheAllInCell cache = caches[i];
+            final DensityFunction filler = cache.noiseFiller;
+            this.bts$cellCacheFillers[i] = filler;
+            this.bts$cellCacheValues[i] = cache.values;
+            if (filler instanceof DfcCellFillAccess access) {
+                this.bts$cellCacheFastFillers[i] = access;
+            }
+        }
+    }
+
+    @Unique
+    private void bts$initInterpolatorSoA() {
+        final NoiseChunk.NoiseInterpolator[] array = this.bts$interpolatorsArray;
+        final int length = array.length;
+
+        this.bts$interpolatorSizeY = this.cellCountY + 1;
+        this.bts$interpolatorPlaneSize = (this.cellCountXZ + 1) * this.bts$interpolatorSizeY;
+        this.bts$interpolatorSlice0Flat = new double[length * this.bts$interpolatorPlaneSize];
+        this.bts$interpolatorSlice1Flat = new double[length * this.bts$interpolatorPlaneSize];
+
+        this.bts$noise000 = new double[length];
+        this.bts$noise100 = new double[length];
+        this.bts$noise010 = new double[length];
+        this.bts$noise110 = new double[length];
+        this.bts$noise001 = new double[length];
+        this.bts$noise101 = new double[length];
+        this.bts$noise011 = new double[length];
+        this.bts$noise111 = new double[length];
+        this.bts$valueXZ00 = new double[length];
+        this.bts$valueXZ10 = new double[length];
+        this.bts$valueXZ01 = new double[length];
+        this.bts$valueXZ11 = new double[length];
+        this.bts$valueZ0 = new double[length];
+        this.bts$valueZ1 = new double[length];
+        this.bts$value = new double[length];
+
+        for (int i = 0; i < length; i++) {
+            NoiseChunk$NoiseInterpolatorPatch patch = (NoiseChunk$NoiseInterpolatorPatch) array[i];
+            patch.bts$setSoAIndex(i);
+        }
+    }
+
     /**
      * @author Sixik
      * @reason Optimize List iteration -> Array iteration
      */
     @Overwrite
     public void selectCellYZ(int yIndex, int zIndex) {
-        final NoiseChunk.NoiseInterpolator[] simpleArray = bts$interpolatorsArray;
+        final int base0 = zIndex * this.bts$interpolatorSizeY + yIndex;
+        final int base1 = base0 + this.bts$interpolatorSizeY;
+        final int planeSize = this.bts$interpolatorPlaneSize;
+        final double[] slice0 = this.bts$interpolatorSlice0Flat;
+        final double[] slice1 = this.bts$interpolatorSlice1Flat;
 
-        for (int i = 0; i < simpleArray.length; i++) {
-            simpleArray[i].selectCellYZ(yIndex, zIndex);
+        for (int i = 0, sliceBase = 0; i < this.bts$noise000.length; i++, sliceBase += planeSize) {
+            final int idx0 = sliceBase + base0;
+            final int idx1 = sliceBase + base1;
+
+            this.bts$noise000[i] = slice0[idx0];
+            this.bts$noise001[i] = slice0[idx1];
+            this.bts$noise100[i] = slice1[idx0];
+            this.bts$noise101[i] = slice1[idx1];
+            this.bts$noise010[i] = slice0[idx0 + 1];
+            this.bts$noise011[i] = slice0[idx1 + 1];
+            this.bts$noise110[i] = slice1[idx0 + 1];
+            this.bts$noise111[i] = slice1[idx1 + 1];
         }
 
         this.fillingCell = true;
@@ -167,10 +287,40 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
         this.cellStartBlockZ = (this.firstCellZ + zIndex) * this.cellWidth;
         ++this.arrayInterpolationCounter;
 
-        final var array = bts$cellCachesArray;
-        for (int i = 0; i < array.length; i++) {
-            final NoiseChunk.CacheAllInCell cache = array[i];
-            cache.noiseFiller.fillArray(cache.values, (NoiseChunk) (Object) this);
+        final NoiseChunk self = (NoiseChunk) (Object) this;
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final DensityFunction[] fillers = this.bts$cellCacheFillers;
+        final DfcCellFillAccess[] fastFillers = this.bts$cellCacheFastFillers;
+        final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
+        final double[][] valuesArray = this.bts$cellCacheValues;
+        for (int i = 0; i < fillers.length; i++) {
+            final DensityFunction filler = fillers[i];
+            DfcCellFillAccess fast = fastFillers[i];
+
+            if (fast == null && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
+                fast = access.dfc$getOrCompileCellFiller();
+                if (fast != null) {
+                    fastFillers[i] = fast;
+                    lazyFastFillers[i] = true;
+                }
+            }
+
+            final double[] values = valuesArray[i];
+            if (fast != null) {
+                if (DfcCellFillStats.ENABLED) {
+                    DfcCellFillStats.recordCellFill(fast, filler);
+                }
+                fast.dfc$fillCell(values, self);
+                if (DfcCellFillParity.isActive()) {
+                    DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
+                    DfcCellFillParity.check(filler, values, self);
+                }
+            } else {
+                if (DfcCellFillParity.isActive()) {
+                    DfcCellFillParity.recordCandidate(filler, false, false);
+                }
+                filler.fillArray(values, self);
+            }
         }
 
         ++this.arrayInterpolationCounter;
@@ -185,9 +335,17 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     public void updateForY(int blockY, double delta) {
         this.inCellY = blockY - this.cellStartBlockY;
 
-        final NoiseChunk.NoiseInterpolator[] array = bts$interpolatorsArray;
-        for (int i = 0; i < array.length; i++) {
-            array[i].updateForY(delta);
+        final double[] noise000 = this.bts$noise000;
+        for (int i = 0; i < noise000.length; i++) {
+            final double n000 = noise000[i];
+            final double n100 = this.bts$noise100[i];
+            final double n001 = this.bts$noise001[i];
+            final double n101 = this.bts$noise101[i];
+
+            this.bts$valueXZ00[i] = n000 + delta * (this.bts$noise010[i] - n000);
+            this.bts$valueXZ10[i] = n100 + delta * (this.bts$noise110[i] - n100);
+            this.bts$valueXZ01[i] = n001 + delta * (this.bts$noise011[i] - n001);
+            this.bts$valueXZ11[i] = n101 + delta * (this.bts$noise111[i] - n101);
         }
     }
 
@@ -198,9 +356,12 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     @Overwrite
     public void updateForX(int i, double d) {
         this.inCellX = i - this.cellStartBlockX;
-        final NoiseChunk.NoiseInterpolator[] array = bts$interpolatorsArray;
-        for (int j = 0; j < array.length; j++) {
-            array[j].updateForX(d);
+        final double[] valueXZ00 = this.bts$valueXZ00;
+        for (int j = 0; j < valueXZ00.length; j++) {
+            final double v0 = valueXZ00[j];
+            final double v1 = this.bts$valueXZ01[j];
+            this.bts$valueZ0[j] = v0 + d * (this.bts$valueXZ10[j] - v0);
+            this.bts$valueZ1[j] = v1 + d * (this.bts$valueXZ11[j] - v1);
         }
     }
 
@@ -212,9 +373,10 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
     public void updateForZ(int i, double d) {
         this.inCellZ = i - this.cellStartBlockZ;
         ++this.interpolationCounter;
-        final NoiseChunk.NoiseInterpolator[] array = bts$interpolatorsArray;
-        for (int j = 0; j < array.length; j++) {
-            array[j].updateForZ(d);
+        final double[] valueZ0 = this.bts$valueZ0;
+        for (int j = 0; j < valueZ0.length; j++) {
+            final double v = valueZ0[j];
+            this.bts$value[j] = v + d * (this.bts$valueZ1[j] - v);
         }
     }
 
@@ -224,10 +386,40 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
      */
     @Overwrite
     public void swapSlices() {
-        final NoiseChunk.NoiseInterpolator[] array = bts$interpolatorsArray;
-        for (int i = 0; i < array.length; i++) {
-            array[i].swapSlices();
-        }
+        double[] tmp = this.bts$interpolatorSlice0Flat;
+        this.bts$interpolatorSlice0Flat = this.bts$interpolatorSlice1Flat;
+        this.bts$interpolatorSlice1Flat = tmp;
+    }
+
+    @Override
+    public double bts$getInterpolatorValue(int index) {
+        return this.bts$value[index];
+    }
+
+    @Override
+    public double bts$getInterpolatorFillingValue(int index) {
+        final double deltaX = this.inCellX * this.bts$inverseCellWidth;
+        final double deltaY = this.inCellY * this.bts$inverseCellHeight;
+        final double deltaZ = this.inCellZ * this.bts$inverseCellWidth;
+
+        final double n000 = this.bts$noise000[index];
+        final double n100 = this.bts$noise100[index];
+        final double n010 = this.bts$noise010[index];
+        final double n110 = this.bts$noise110[index];
+        final double n001 = this.bts$noise001[index];
+        final double n101 = this.bts$noise101[index];
+        final double n011 = this.bts$noise011[index];
+        final double n111 = this.bts$noise111[index];
+
+        final double lerpY00 = n000 + deltaY * (n010 - n000);
+        final double lerpY10 = n100 + deltaY * (n110 - n100);
+        final double lerpY01 = n001 + deltaY * (n011 - n001);
+        final double lerpY11 = n101 + deltaY * (n111 - n101);
+
+        final double lerpX0 = lerpY00 + deltaX * (lerpY10 - lerpY00);
+        final double lerpX1 = lerpY01 + deltaX * (lerpY11 - lerpY01);
+
+        return lerpX0 + deltaZ * (lerpX1 - lerpX0);
     }
 
     /**
@@ -369,13 +561,19 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch {
             this.inCellZ = 0;
             this.arrayInterpolationCounter++;
 
-            for (NoiseChunk.NoiseInterpolator noisechunk$noiseinterpolator : this.interpolators) {
+            final NoiseChunk.NoiseInterpolator[] interpolatorsArray = this.bts$interpolatorsArray;
+            final double[] target = pIsSlice0 ? this.bts$interpolatorSlice0Flat : this.bts$interpolatorSlice1Flat;
+            final int zOffset = i * sizeY;
+            final int planeSize = this.bts$interpolatorPlaneSize;
 
+            for (int k = 0; k < interpolatorsArray.length; k++) {
+                NoiseChunk.NoiseInterpolator noisechunk$noiseinterpolator = interpolatorsArray[k];
                 noisechunk$noiseinterpolator.fillArray(this.sliceBuffer, this.sliceFillingContextProvider);
-                ((NoiseChunk$NoiseInterpolatorPatch)noisechunk$noiseinterpolator).bts$copyData(
+                System.arraycopy(
                         this.sliceBuffer,
-                        pIsSlice0,
-                        i * sizeY,
+                        0,
+                        target,
+                        k * planeSize + zOffset,
                         sizeY
                 );
 

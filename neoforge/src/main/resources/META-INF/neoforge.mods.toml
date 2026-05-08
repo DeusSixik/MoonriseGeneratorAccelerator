@@ -1,7 +1,7 @@
 modLoader = "javafml"
 loaderVersion = "[2,)"
 #issueTrackerURL = ""
-license = "Unlicense"
+license = "GPLv3"
 
 [[mods]]
 modId = "generator_accelerator"
@@ -72,6 +72,9 @@ config = "generator_accelerator_structures.mixins.json"
 
 [[mixins]]
 config = "generator_accelerator_features.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_modernfix.mixins.json"
 
 
 [[accessTransformers]]

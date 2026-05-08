@@ -21,9 +21,11 @@ public class NoiseChunkCache2dMixin implements DfcCellCacheAccess {
 
     @Override
     public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
-        int bx = context.blockX();
-        int bz = context.blockZ();
-        if (this.lastPos2D == ChunkPos.asLong(bx, bz)) {
+        final int bx = context.blockX();
+        final int bz = context.blockZ();
+        final long key = (long)bx & 0xFFFFFFFFL | ((long)bz << 32);
+
+        if (this.lastPos2D == key) {
             return this.lastValue;
         }
         return DfcCacheFastPath.CACHE_MISS;

@@ -6,7 +6,7 @@ import dev.sixik.generator_accelerator.config.GAConfig;
 public class GANativeNoiseMixinPlugin extends GAMixinPlugin {
     @Override
     public boolean isConfigEnable(GAConfig config) {
-        return config.enableNoiseNativePatch;
+        return false;
     }
 
     @Override

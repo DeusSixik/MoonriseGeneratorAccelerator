@@ -18,6 +18,7 @@
     "blockpredicates.MixinAllOfPredicate$primitive_array",
     "blockpredicates.MixinAnyOfPredicate$primitive_array",
     "blockpredicates.MixinCombiningPredicate$convert_to_primitive_array",
+    "compats.biolith.Mixin$Biolith$SurfaceSystem",
     "compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
     "compats.natures_spirit.NaturesSpirit$SurfaceBuilderMixin$fix_compat"
   ],

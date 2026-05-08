@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import net.minecraft.world.level.block.Block;
@@ -27,7 +28,7 @@ public class VectorBandlandsRule implements VectorRule {
             int globalZ = ctx.sectionStartZ + localZ;
 
             BlockState bandState = surfaceSystem.getBand(globalX, globalY, globalZ);
-            rawBlockData[i] = (char) Block.getId(bandState);
+            rawBlockData[i] = GA$BlockStateExtension.get(bandState).bts$getFastId();
         }
 
         activeMask.clear();

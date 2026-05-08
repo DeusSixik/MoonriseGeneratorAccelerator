@@ -1,10 +1,10 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import net.minecraft.core.Holder;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
@@ -42,8 +42,8 @@ public class VectorChunkContext {
     public void reset(Holder<Biome>[] surfaceBiomes, int defaultBlockId, WorldGenerationContext worldContext, RandomState randomState, SurfaceSystem surfaceSystem) {
         this.surfaceBiomes = surfaceBiomes;
         this.STONE_ID = defaultBlockId;
-        this.AIR_ID = Block.getId(Blocks.AIR.defaultBlockState());
-        this.WATER_ID = Block.getId(Blocks.WATER.defaultBlockState());
+        this.AIR_ID = GA$BlockStateExtension.get(Blocks.AIR.defaultBlockState()).bts$getFastId();
+        this.WATER_ID = GA$BlockStateExtension.get(Blocks.WATER.defaultBlockState()).bts$getFastId();
         this.worldContext = worldContext;
         this.randomState = randomState;
         this.surfaceSystem = surfaceSystem;

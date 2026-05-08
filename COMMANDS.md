@@ -40,9 +40,11 @@
 ### Client
 - Vanilla `./gradlew :neoforge:runClient`
 - Moonrise `./gradlew :neoforge:runClient -PwithMoonrise`
+- ModernFix `./gradlew :neoforge:runClient -PwithModernFix`
 
 ### Server
 - Vanilla `./gradlew :neoforge:runServer`
 - Moonrise `./gradlew :neoforge:runServer -PwithMoonrise`
+- ModernFix `./gradlew :neoforge:runServer -PwithModernFix`
 
 [//]: # (- C2ME `./gradlew :neoforge:runClient -PwithC2ME`)

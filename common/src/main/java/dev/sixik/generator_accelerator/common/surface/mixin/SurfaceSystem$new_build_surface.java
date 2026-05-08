@@ -1,13 +1,16 @@
 package dev.sixik.generator_accelerator.common.surface.mixin;
 
+import dev.sixik.generator_accelerator.api.mixin.InjectHelper;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceExecutor;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgram;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgramCache;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceRequirements;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceScratch;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
@@ -19,13 +22,16 @@ import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.Biomes;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.BlockColumn;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.*;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 import java.util.Arrays;
 
@@ -85,7 +91,7 @@ public abstract class SurfaceSystem$new_build_surface {
             final int minBlockZ = chunkpos.getMinBlockZ();
 
             Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
-            int defaultBlockId = Block.getId(this.defaultBlock);
+            int defaultBlockId = GA$BlockStateExtension.get(this.defaultBlock).bts$getFastId();
             VectorChunkContext ctx = BTS$VECTOR_CONTEXT.get();
             if (ctx == null) {
                 ctx = new VectorChunkContext(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
@@ -107,16 +113,12 @@ public abstract class SurfaceSystem$new_build_surface {
             }
 
             long biomePrepStart = SurfaceMetrics.startTimer();
+            ctx.buildDepthMap(pChunk);
             short[] surfaceHeights = ctx.surfaceHeights;
-            int[] waterHeights = ctx.waterHeights;
             int minQueryY = Integer.MAX_VALUE;
             int maxQueryY = Integer.MIN_VALUE;
             for (int idx = 0; idx < 256; idx++) {
-                int x = idx & 15;
-                int z = idx >> 4;
-                int surfaceY = pChunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1;
-                surfaceHeights[idx] = (short) surfaceY;
-                waterHeights[idx] = Integer.MIN_VALUE;
+                int surfaceY = surfaceHeights[idx];
                 int queryY = pUseLegacyRandomSource ? 0 : surfaceY;
                 if (queryY < minQueryY) {
                     minQueryY = queryY;
@@ -234,7 +236,7 @@ public abstract class SurfaceSystem$new_build_surface {
                             int i = (wordIndex << 6) + bit;
                             int newBlockId = rawBlockData[i];
                             if (newBlockId != defaultBlockId) {
-                                BlockState newState = Block.stateById(newBlockId);
+                                BlockState newState = FastBlockStateCache.getBlockState(newBlockId);
                                 if (!newState.getFluidState().isEmpty()) {
                                     int lx = i & 15;
                                     int lz = (i >> 4) & 15;
@@ -268,6 +270,8 @@ public abstract class SurfaceSystem$new_build_surface {
                 }
                 SurfaceMetrics.recordFrozenOceanTime(frozenOceanStart);
             }
+
+            InjectHelper.inject();
         } finally {
             bts$chunkBiome.dispose();
         }

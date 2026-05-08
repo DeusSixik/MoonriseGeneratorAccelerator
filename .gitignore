@@ -16,3 +16,6 @@
 /.densitycompiler/
 *.log
 *.gz
+TASK.md
+/common/natives/dfc/build/
+common/src/main/resources/natives/dfc_native.dll

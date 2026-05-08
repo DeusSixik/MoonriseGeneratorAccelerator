@@ -10,7 +10,7 @@
   "contact": {
     "homepage": ""
   },
-  "license": "unlicense",
+  "license": "GPLv3",
   "icon": "assets/generator_accelerator/icon.png",
   "environment": "*",
   "entrypoints": {
@@ -34,7 +34,8 @@
     "generator_accelerator_beardifier.mixins.json",
     "generator_accelerator_paletted_container.mixins.json",
     "generator_accelerator_surface.mixins.json",
-    "generator_accelerator_structures.mixins.json"
+    "generator_accelerator_structures.mixins.json",
+    "generator_accelerator_modernfix.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

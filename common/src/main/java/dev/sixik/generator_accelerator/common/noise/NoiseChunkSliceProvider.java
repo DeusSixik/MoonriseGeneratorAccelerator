@@ -3,7 +3,13 @@ package dev.sixik.generator_accelerator.common.noise;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 
-public record NoiseChunkSliceProvider(NoiseChunk noiseChunk) implements DensityFunction.ContextProvider {
+public record NoiseChunkSliceProvider(NoiseChunk noiseChunk)
+        implements DensityFunction.ContextProvider, DfcNoiseChunkSliceAccess {
+
+    @Override
+    public int sliceSizeY() {
+        return noiseChunk.cellCountY + 1;
+    }
 
     @Override
     public DensityFunction.FunctionContext forIndex(int i) {

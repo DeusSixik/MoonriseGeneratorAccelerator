@@ -202,57 +202,26 @@ JNIEXPORT jdouble JNICALL Java_dev_sixik_generator_1accelerator_common_density_c
 }
 
 JNIEXPORT void JNICALL Java_dev_sixik_generator_1accelerator_common_density_compiler_natives_DfcNativeBridge_nativeSlabInnerEval(
-    JNIEnv *env, jclass clazz, jbyteArray bc, jdoubleArray consts, jobjectArray slotRows, jint first_noise_x,
+    JNIEnv *env, jclass clazz, jbyteArray bc, jdoubleArray consts, jdoubleArray slot_rows_flat, jint slot_count, jint first_noise_x,
     jint first_noise_z, jint block_y, jint cell_w, jint slab_layout, jint col_xi, jint col_zi, jint cell_height,
     jdouble y_hoist, jdoubleArray out, jint n) {
   (void) clazz;
-  if (!bc || !consts || !slotRows || !out || n <= 0 || cell_w <= 0) return;
+  if (!bc || !consts || !slot_rows_flat || !out || n <= 0 || cell_w <= 0 || slot_count < 0) return;
   jsize bc_len = (*env)->GetArrayLength(env, bc);
   if (bc_len <= 0) return;
   jbyte *pbc = (*env)->GetByteArrayElements(env, bc, NULL);
   jdouble *pconst = (*env)->GetDoubleArrayElements(env, consts, NULL);
+  jdouble *pslots = (*env)->GetDoubleArrayElements(env, slot_rows_flat, NULL);
   jdouble *pout = (*env)->GetDoubleArrayElements(env, out, NULL);
-  if (!pbc || !pconst || !pout) goto done;
-
-  jsize n_slots = (*env)->GetArrayLength(env, slotRows);
-  const double **rows = (const double **) calloc((size_t) n_slots, sizeof(double *));
-  jdouble **pinned = (jdouble **) calloc((size_t) n_slots, sizeof(jdouble *));
-  jobject *row_objs = (jobject *) calloc((size_t) n_slots, sizeof(jobject));
-  if (!rows || !pinned || !row_objs) goto done2;
-
-  int ok = 1;
-  for (jsize s = 0; s < n_slots; s++) {
-    row_objs[s] = (*env)->GetObjectArrayElement(env, slotRows, s);
-    if (!row_objs[s]) {
-      ok = 0;
-      break;
-    }
-    pinned[s] = (*env)->GetDoubleArrayElements(env, (jdoubleArray) row_objs[s], NULL);
-    if (!pinned[s]) {
-      ok = 0;
-      break;
-    }
-    rows[s] = pinned[s];
-  }
-  if (ok) {
-    jsize nconst = (*env)->GetArrayLength(env, consts);
-    dfc_slab_inner_eval_batch((const uint8_t *) pbc, (int) bc_len, pconst, (int) nconst, rows, (int) n_slots,
-                              (int) first_noise_x, (int) first_noise_z, (int) block_y, (int) cell_w,
-                              (double) y_hoist, (int) slab_layout, (int) col_xi, (int) col_zi,
-                              (int) cell_height, pout, (int) n);
-  }
-  for (jsize s = 0; s < n_slots; s++) {
-    if (pinned[s] && row_objs[s]) {
-      (*env)->ReleaseDoubleArrayElements(env, (jdoubleArray) row_objs[s], pinned[s], JNI_ABORT);
-    }
-    if (row_objs[s]) (*env)->DeleteLocalRef(env, row_objs[s]);
-  }
-  free(row_objs);
-  free(rows);
-  free(pinned);
-done2:
+  if (!pbc || !pconst || !pslots || !pout) goto done;
+  jsize nconst = (*env)->GetArrayLength(env, consts);
+  dfc_slab_inner_eval_batch((const uint8_t *) pbc, (int) bc_len, pconst, (int) nconst, pslots, (int) slot_count,
+                            (int) n, (int) first_noise_x, (int) first_noise_z, (int) block_y, (int) cell_w,
+                            (double) y_hoist, (int) slab_layout, (int) col_xi, (int) col_zi,
+                            (int) cell_height, pout, (int) n);
 done:
   if (pbc) (*env)->ReleaseByteArrayElements(env, bc, pbc, JNI_ABORT);
   if (pconst) (*env)->ReleaseDoubleArrayElements(env, consts, pconst, JNI_ABORT);
+  if (pslots) (*env)->ReleaseDoubleArrayElements(env, slot_rows_flat, pslots, JNI_ABORT);
   if (pout) (*env)->ReleaseDoubleArrayElements(env, out, pout, 0);
 }
