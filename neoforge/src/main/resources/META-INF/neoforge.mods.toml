@@ -1,7 +1,7 @@
 modLoader = "javafml"
 loaderVersion = "[2,)"
 #issueTrackerURL = ""
-license = "Unlicense"
+license = "GPLv3"
 
 [[mods]]
 modId = "generator_accelerator"
