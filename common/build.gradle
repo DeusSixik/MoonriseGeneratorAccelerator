@@ -51,140 +51,406 @@ dependencies {
     modCompileOnly "curse.maven:dynamictrees-252818:7661136"
 }
 
-def dfcNativeDir = file("natives/dfc")
-def dfcNativeBuildDir = layout.buildDirectory.dir("dfcNative/cmake").get().asFile
+def dfcNativeRootDir = file("natives")
 def dfcNativeArtifactsDir = layout.buildDirectory.dir("dfcNative/nativeArtifacts").get().asFile
+def dfcNativeModulesBuildRootDir = layout.buildDirectory.dir("dfcNative/modules").get().asFile
+def dfcNativeStatusDir = rootProject.layout.buildDirectory.dir("dfcNative/status").get().asFile
+def dfcNativeMissingMarker = new File(dfcNativeStatusDir, "no-natives.marker")
+def dfcNativeFailureReport = new File(dfcNativeStatusDir, "failures.txt")
 def dfcOsName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
 def dfcOsArch = System.getProperty("os.arch").toLowerCase(java.util.Locale.ROOT)
 def dfcHostClassifier = dfcOsName.contains("windows") ? "windows_amd64"
         : dfcOsName.contains("mac") ? (dfcOsArch.contains("aarch64") || dfcOsArch.contains("arm64") ? "macos_aarch64" : "macos_x64")
         : "linux_x64"
-def dfcNativeClassifiers = ["windows_amd64", "linux_x64"]
-def dfcLibFileForClassifier = { String classifier ->
-    classifier == "windows_amd64" ? "dfc_native.dll" : classifier.startsWith("macos") ? "libdfc_native.dylib" : "libdfc_native.so"
-}
-def dfcBuildNatives = findProperty("dfc.buildNatives") == "true"
-        || System.getenv("DFC_BUILD_NATIVES") == "1"
-        || dfcNativeClassifiers.contains(dfcHostClassifier)
-def dfcRequireAllNatives = findProperty("dfc.requireAllNatives") == "true"
-def dfcCmakeExecutable = findProperty("dfc.cmake")?.toString() ?: "cmake"
-def dfcCmakeGenerator = findProperty("dfc.cmakeGenerator")?.toString()
 def dfcJavaHome = System.getProperty("java.home") ?: System.getenv("JAVA_HOME")
-def dfcHostPrebuiltFile = { -> new File(dfcNativeDir, "prebuilts/${dfcHostClassifier}/${dfcLibFileForClassifier(dfcHostClassifier)}") }
-
-tasks.register("dfcCmakeConfigure", Exec) {
-    group = "native"
-    description = "Configure DensityFunctionCompiler native library for the host platform."
-    onlyIf { dfcBuildNatives && !dfcHostPrebuiltFile().isFile() }
-    workingDir = dfcNativeDir
-    inputs.file(new File(dfcNativeDir, "CMakeLists.txt"))
-    inputs.files(fileTree(new File(dfcNativeDir, "c")).matching {
-        include "**/*.c"
-        include "**/*.h"
-    })
-    outputs.dir(dfcNativeBuildDir)
-    doFirst {
-        dfcNativeBuildDir.mkdirs()
-    }
-    def args = [dfcCmakeExecutable, "-B", dfcNativeBuildDir.absolutePath, "-S", dfcNativeDir.absolutePath,
-                "-DCMAKE_BUILD_TYPE=Release"]
-    if (dfcJavaHome) {
-        args += "-DJAVA_HOME=${dfcJavaHome}"
-    }
-    if (dfcCmakeGenerator) {
-        args += ["-G", dfcCmakeGenerator]
-    }
-    commandLine = args
+def dfcCmakeExecutable = findProperty("native.cmake")?.toString()
+        ?: findProperty("dfc.cmake")?.toString()
+        ?: "cmake"
+def dfcCmakeGenerator = findProperty("native.cmakeGenerator")?.toString()
+        ?: findProperty("dfc.cmakeGenerator")?.toString()
+def dfcWslDistribution = findProperty("native.wslDistribution")?.toString()
+        ?: findProperty("dfc.wslDistribution")?.toString()
+def dfcLinuxJavaHome = findProperty("native.linuxJavaHome")?.toString()
+        ?: findProperty("dfc.linuxJavaHome")?.toString()
+        ?: System.getenv("NATIVE_LINUX_JAVA_HOME")
+        ?: System.getenv("DFC_LINUX_JAVA_HOME")
+def dfcNativeLibFileForClassifier = { String libraryBaseName, String classifier ->
+    classifier == "windows_amd64" ? "${libraryBaseName}.dll"
+            : classifier.startsWith("macos") ? "lib${libraryBaseName}.dylib" : "lib${libraryBaseName}.so"
 }
-
-tasks.register("dfcCmakeBuild", Exec) {
-    group = "native"
-    description = "Build DensityFunctionCompiler native shared library for the host platform."
-    dependsOn "dfcCmakeConfigure"
-    onlyIf { dfcBuildNatives && !dfcHostPrebuiltFile().isFile() }
-    workingDir = dfcNativeDir
-    inputs.dir(new File(dfcNativeDir, "c"))
-    outputs.dir(dfcNativeArtifactsDir)
-    if (org.gradle.internal.os.OperatingSystem.current().windows) {
-        commandLine = [dfcCmakeExecutable, "--build", dfcNativeBuildDir.absolutePath, "--config", "Release", "--parallel"]
-    } else {
-        commandLine = [dfcCmakeExecutable, "--build", dfcNativeBuildDir.absolutePath, "--parallel"]
+def dfcToWslPath = { File file ->
+    def normalized = file.absolutePath.replace('\\', '/')
+    if (normalized.length() > 1 && normalized.charAt(1) == ':') {
+        def drive = Character.toLowerCase(normalized.charAt(0))
+        return "/mnt/${drive}${normalized.substring(2)}"
     }
-    doLast {
-        def builtLib = org.gradle.internal.os.OperatingSystem.current().windows
-                ? new File(dfcNativeBuildDir, "Release/dfc_native.dll")
-                : dfcOsName.contains("mac")
-                ? new File(dfcNativeBuildDir, "libdfc_native.dylib")
-                : new File(dfcNativeBuildDir, "libdfc_native.so")
-        if (!builtLib.isFile()) {
-            throw new GradleException("DFC native library was not produced: ${builtLib}")
-        }
-        def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
-        targetDir.mkdirs()
-        java.nio.file.Files.copy(builtLib.toPath(), new File(targetDir, dfcLibFileForClassifier(dfcHostClassifier)).toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-    }
+    throw new GradleException("Unable to convert Windows path to WSL path: ${file}")
 }
-
-tasks.register("dfcStageHostNative") {
-    group = "native"
-    description = "Stage the DensityFunctionCompiler native library for the host platform."
-    dependsOn "dfcCmakeBuild"
-    onlyIf { dfcBuildNatives }
-    doLast {
-        def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
-        targetDir.mkdirs()
-        def target = new File(targetDir, dfcLibFileForClassifier(dfcHostClassifier))
-        if (target.isFile()) {
-            return
-        }
-        def prebuilt = dfcHostPrebuiltFile()
-        if (prebuilt.isFile()) {
-            java.nio.file.Files.copy(prebuilt.toPath(), target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            logger.lifecycle("DFC native: staged host prebuilt ${prebuilt}")
-            return
-        }
-        throw new GradleException("DFC native library was not staged for ${dfcHostClassifier}: ${target}")
-    }
+def dfcShellQuote = { String value ->
+    return "'${value.replace("'", "'\"'\"'")}'"
 }
-
-tasks.register("dfcStageForeignNatives") {
-    group = "native"
-    description = "Stage prebuilt DensityFunctionCompiler native libraries for non-host Windows/Linux platforms."
-    onlyIf { dfcBuildNatives }
-    doLast {
-        dfcNativeClassifiers.each { classifier ->
-            if (classifier == dfcHostClassifier) {
-                return
-            }
-            def lib = dfcLibFileForClassifier(classifier)
-            def prebuilt = new File(dfcNativeDir, "prebuilts/${classifier}/${lib}")
-            if (!prebuilt.isFile()) {
-                logger.lifecycle("DFC native: no prebuilt for ${classifier} at ${prebuilt}")
-                return
-            }
-            def targetDir = new File(dfcNativeArtifactsDir, classifier)
-            targetDir.mkdirs()
-            java.nio.file.Files.copy(prebuilt.toPath(), new File(targetDir, lib).toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-    }
+def dfcParseCsv = { String raw ->
+    raw == null ? [] : raw.split(",").collect { it.trim() }.findAll { !it.isEmpty() }
 }
-
-tasks.register("dfcAssembleNatives") {
-    group = "native"
-    description = "Build/stage DensityFunctionCompiler Windows/Linux native resources."
-    dependsOn "dfcStageHostNative", "dfcStageForeignNatives"
-    onlyIf { dfcBuildNatives }
-    doLast {
-        if (dfcRequireAllNatives) {
-            dfcNativeClassifiers.each { classifier ->
-                def lib = dfcLibFileForClassifier(classifier)
-                def staged = new File(dfcNativeArtifactsDir, "${classifier}/${lib}")
-                if (!staged.isFile()) {
-                    throw new GradleException("dfc.requireAllNatives: missing ${classifier} native at ${staged}")
+def dfcToTaskToken = { String moduleName ->
+    moduleName.split(/[^A-Za-z0-9]+/).findAll { !it.isEmpty() }.collect { String token ->
+        token.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + token.substring(1)
+    }.join("")
+}
+def dfcModuleProp = { Map module, String suffix, String legacySuffix = null ->
+    def value = findProperty("native.${module.name}.${suffix}")?.toString()
+    if (value != null) {
+        return value
+    }
+    if (module.name == "dfc" && legacySuffix != null) {
+        return findProperty("dfc.${legacySuffix}")?.toString()
+    }
+    return null
+}
+def dfcModuleEnv = { Map module, String suffix, String legacyName = null ->
+    def prefix = module.name.replaceAll(/[^A-Za-z0-9]+/, "_").toUpperCase(java.util.Locale.ROOT)
+    def value = System.getenv("NATIVE_${prefix}_${suffix}")
+    if (value != null) {
+        return value
+    }
+    if (module.name == "dfc" && legacyName != null) {
+        return System.getenv(legacyName)
+    }
+    return null
+}
+def dfcModuleBoolean = { Map module, String suffix, boolean defaultValue, String legacySuffix = null, String legacyEnv = null ->
+    def raw = dfcModuleProp(module, suffix, legacySuffix)
+    if (raw != null) {
+        return raw.toBoolean()
+    }
+    raw = dfcModuleEnv(module, suffix.replaceAll(/[^A-Za-z0-9]+/, "_").toUpperCase(java.util.Locale.ROOT), legacyEnv)
+    if (raw != null) {
+        return raw == "1" || raw.equalsIgnoreCase("true")
+    }
+    return defaultValue
+}
+def dfcNativeModules = []
+def dfcSkippedNativeModules = []
+if (dfcNativeRootDir.isDirectory()) {
+    dfcNativeRootDir.listFiles()
+            .findAll { it.isDirectory() && new File(it, "CMakeLists.txt").isFile() }
+            .sort { it.name }
+            .each { File moduleDir ->
+                def propsFile = new File(moduleDir, "native.properties")
+                if (!propsFile.isFile()) {
+                    dfcSkippedNativeModules << [
+                            name: moduleDir.name,
+                            dir : moduleDir
+                    ]
+                    return
                 }
+                def props = new Properties()
+                propsFile.withInputStream { props.load(it) }
+                def libraryBaseName = props.getProperty("libraryBaseName", moduleDir.name).trim()
+                def configuredClassifiers = dfcParseCsv(props.getProperty("classifiers"))
+                def supportedClassifiers = configuredClassifiers.isEmpty() ? [dfcHostClassifier] : configuredClassifiers
+                def defaultBuildLinuxOnWindows = props.getProperty("buildLinuxOnWindows")?.toBoolean() ?: false
+                def module = [
+                        name                     : moduleDir.name,
+                        dir                      : moduleDir,
+                        libraryBaseName          : libraryBaseName,
+                        supportedClassifiers     : supportedClassifiers,
+                        defaultBuildLinuxOnWindows: defaultBuildLinuxOnWindows,
+                        taskStem                 : moduleDir.name == "dfc" ? "dfc" : "native${dfcToTaskToken(moduleDir.name)}"
+                ]
+                module.hostSupported = module.supportedClassifiers.contains(dfcHostClassifier)
+                module.buildEnabled = dfcModuleBoolean(module, "build", module.hostSupported, "buildNatives", "DFC_BUILD_NATIVES")
+                module.requireAll = dfcModuleBoolean(module, "requireAll", false, "requireAllNatives", null)
+                module.buildLinuxOnWindows = dfcHostClassifier == "windows_amd64"
+                        && module.supportedClassifiers.contains("linux_x64")
+                        && dfcModuleBoolean(module, "buildLinuxOnWindows", module.defaultBuildLinuxOnWindows, "buildLinuxOnWindows", null)
+                module.nativeBuildDir = new File(dfcNativeModulesBuildRootDir, "${module.name}/cmake")
+                module.linuxBuildDir = new File(dfcNativeModulesBuildRootDir, "${module.name}/cmake-linux")
+                module.linuxWslScriptFile = new File(dfcNativeModulesBuildRootDir, "${module.name}/build-linux-from-wsl.sh")
+                dfcNativeModules << module
+            }
+}
+dfcSkippedNativeModules.each { skipped ->
+    logger.lifecycle("Bundled natives: skipping module '${skipped.name}' at ${skipped.dir} because native.properties is missing.")
+}
+def dfcBuildNatives = dfcNativeModules.any { it.buildEnabled }
+def dfcResetNativeStateFiles = {
+    delete(dfcNativeArtifactsDir)
+    delete(dfcNativeModulesBuildRootDir)
+    delete(dfcNativeMissingMarker)
+    delete(dfcNativeFailureReport)
+    dfcNativeStatusDir.mkdirs()
+}
+def dfcMarkNativeUnavailable = { String message, Throwable ex ->
+    dfcNativeStatusDir.mkdirs()
+    if (!dfcNativeMissingMarker.exists()) {
+        dfcNativeMissingMarker.text = "missing native outputs${System.lineSeparator()}"
+    }
+    def reportMessage = ex == null ? message : "${message}${System.lineSeparator()}Cause: ${ex.message}"
+    dfcNativeFailureReport << reportMessage + System.lineSeparator() + System.lineSeparator()
+    logger.error(message)
+    if (ex != null && ex.message) {
+        logger.error("DFC native cause: ${ex.message}")
+    }
+}
+def dfcTryExec = { List args, File execDir, String failureMessage ->
+    try {
+        exec {
+            workingDir = execDir
+            commandLine args
+        }
+        return true
+    } catch (Exception ex) {
+        dfcMarkNativeUnavailable(failureMessage, ex)
+        return false
+    }
+}
+def dfcModuleLibFile = { Map module, String classifier ->
+    dfcNativeLibFileForClassifier(module.libraryBaseName as String, classifier)
+}
+def dfcModulePrebuiltFile = { Map module, String classifier ->
+    new File(module.dir as File, "prebuilts/${classifier}/${dfcModuleLibFile(module, classifier)}")
+}
+def dfcModuleExpectedClassifiers = { Map module ->
+    def expected = []
+    if (module.hostSupported) {
+        expected << dfcHostClassifier
+    }
+    if (module.buildLinuxOnWindows) {
+        expected << "linux_x64"
+    }
+    if (module.requireAll) {
+        expected = new ArrayList(module.supportedClassifiers)
+    }
+    return expected.unique()
+}
+
+tasks.register("dfcResetNativeState") {
+    group = "native"
+    description = "Reset staged native outputs and status markers."
+    doLast {
+        dfcResetNativeStateFiles()
+    }
+}
+
+dfcNativeModules.each { Map module ->
+    def moduleLabel = module.name == "dfc" ? "DFC native" : "Native ${module.name}"
+    def configureTaskName = "${module.taskStem}CmakeConfigure"
+    def buildTaskName = "${module.taskStem}CmakeBuild"
+    def stageHostTaskName = "${module.taskStem}StageHostNative"
+    def stageForeignTaskName = "${module.taskStem}StageForeignNatives"
+    def buildLinuxTaskName = "${module.taskStem}BuildLinuxNativeOnWindows"
+    def assembleTaskName = "${module.taskStem}AssembleNatives"
+
+    tasks.register(configureTaskName) {
+        group = "native"
+        description = "Configure ${module.name} native library for the host platform."
+        dependsOn "dfcResetNativeState"
+        onlyIf { module.buildEnabled && module.hostSupported && !dfcModulePrebuiltFile(module, dfcHostClassifier).isFile() }
+        inputs.file(new File(module.dir as File, "CMakeLists.txt"))
+        inputs.files(fileTree(new File(module.dir as File, "c")).matching {
+            include "**/*.c"
+            include "**/*.h"
+        })
+        outputs.dir(module.nativeBuildDir)
+        doLast {
+            module.nativeBuildDir.mkdirs()
+            def args = [dfcCmakeExecutable, "-B", module.nativeBuildDir.absolutePath, "-S", (module.dir as File).absolutePath,
+                        "-DCMAKE_BUILD_TYPE=Release"]
+            if (dfcJavaHome) {
+                args += "-DJAVA_HOME=${dfcJavaHome}"
+            }
+            if (dfcCmakeGenerator) {
+                args += ["-G", dfcCmakeGenerator]
+            }
+            dfcTryExec(args, module.dir as File, "${moduleLabel}: failed to configure host native for ${dfcHostClassifier}.")
+        }
+    }
+
+    tasks.register(buildTaskName) {
+        group = "native"
+        description = "Build ${module.name} native shared library for the host platform."
+        dependsOn configureTaskName
+        onlyIf { module.buildEnabled && module.hostSupported && !dfcModulePrebuiltFile(module, dfcHostClassifier).isFile() }
+        inputs.dir(new File(module.dir as File, "c"))
+        outputs.dir(dfcNativeArtifactsDir)
+        doLast {
+            def cacheFile = new File(module.nativeBuildDir, "CMakeCache.txt")
+            if (!cacheFile.isFile()) {
+                dfcMarkNativeUnavailable("${moduleLabel}: host configure step did not produce ${cacheFile}.", null)
+                return
+            }
+
+            def buildArgs = org.gradle.internal.os.OperatingSystem.current().windows
+                    ? [dfcCmakeExecutable, "--build", module.nativeBuildDir.absolutePath, "--config", "Release", "--parallel"]
+                    : [dfcCmakeExecutable, "--build", module.nativeBuildDir.absolutePath, "--parallel"]
+            if (!dfcTryExec(buildArgs, module.dir as File, "${moduleLabel}: failed to build host native for ${dfcHostClassifier}.")) {
+                return
+            }
+
+            def builtLib = org.gradle.internal.os.OperatingSystem.current().windows
+                    ? new File(module.nativeBuildDir, "Release/${dfcModuleLibFile(module, dfcHostClassifier)}")
+                    : new File(module.nativeBuildDir, dfcModuleLibFile(module, dfcHostClassifier))
+            if (!builtLib.isFile()) {
+                dfcMarkNativeUnavailable("${moduleLabel}: native library was not produced: ${builtLib}", null)
+                return
+            }
+
+            def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
+            targetDir.mkdirs()
+            java.nio.file.Files.copy(builtLib.toPath(), new File(targetDir, dfcModuleLibFile(module, dfcHostClassifier)).toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    tasks.register(stageHostTaskName) {
+        group = "native"
+        description = "Stage the ${module.name} native library for the host platform."
+        dependsOn "dfcResetNativeState", buildTaskName
+        onlyIf { module.buildEnabled && module.hostSupported }
+        doLast {
+            def targetDir = new File(dfcNativeArtifactsDir, dfcHostClassifier)
+            targetDir.mkdirs()
+            def target = new File(targetDir, dfcModuleLibFile(module, dfcHostClassifier))
+            if (target.isFile()) {
+                return
+            }
+            def prebuilt = dfcModulePrebuiltFile(module, dfcHostClassifier)
+            if (prebuilt.isFile()) {
+                java.nio.file.Files.copy(prebuilt.toPath(), target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                logger.lifecycle("${moduleLabel}: staged host prebuilt ${prebuilt}")
+                return
+            }
+            dfcMarkNativeUnavailable("${moduleLabel}: native library was not staged for ${dfcHostClassifier}: ${target}", null)
+        }
+    }
+
+    tasks.register(stageForeignTaskName) {
+        group = "native"
+        description = "Stage prebuilt ${module.name} native libraries for non-host platforms."
+        dependsOn "dfcResetNativeState"
+        onlyIf { module.buildEnabled }
+        doLast {
+            module.supportedClassifiers.each { String classifier ->
+                if (classifier == dfcHostClassifier) {
+                    return
+                }
+                def lib = dfcModuleLibFile(module, classifier)
+                def prebuilt = dfcModulePrebuiltFile(module, classifier)
+                if (!prebuilt.isFile()) {
+                    logger.lifecycle("${moduleLabel}: no prebuilt for ${classifier} at ${prebuilt}")
+                    return
+                }
+                def targetDir = new File(dfcNativeArtifactsDir, classifier)
+                targetDir.mkdirs()
+                java.nio.file.Files.copy(prebuilt.toPath(), new File(targetDir, lib).toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
+
+    tasks.register(buildLinuxTaskName) {
+        group = "native"
+        description = "Build the Linux ${module.name} native library via WSL when running on Windows."
+        dependsOn "dfcResetNativeState"
+        onlyIf { module.buildEnabled && module.buildLinuxOnWindows }
+        inputs.file(new File(module.dir as File, "CMakeLists.txt"))
+        inputs.files(fileTree(new File(module.dir as File, "c")).matching {
+            include "**/*.c"
+            include "**/*.h"
+        })
+        outputs.file(new File(dfcNativeArtifactsDir, "linux_x64/${dfcModuleLibFile(module, 'linux_x64')}"))
+        doLast {
+            def classifier = "linux_x64"
+            def lib = dfcModuleLibFile(module, classifier)
+            def targetDir = new File(dfcNativeArtifactsDir, classifier)
+            def target = new File(targetDir, lib)
+            if (target.isFile()) {
+                return
+            }
+
+            def prebuilt = dfcModulePrebuiltFile(module, classifier)
+            if (prebuilt.isFile()) {
+                targetDir.mkdirs()
+                java.nio.file.Files.copy(prebuilt.toPath(), target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                logger.lifecycle("${moduleLabel}: staged Linux prebuilt ${prebuilt}")
+                return
+            }
+
+            def wslExecutable = "wsl.exe"
+            def distroArgs = dfcWslDistribution ? ["-d", dfcWslDistribution] : []
+            def wslSourceDir = dfcToWslPath(module.dir as File)
+            def wslBuildDir = dfcToWslPath(module.linuxBuildDir as File)
+            def wslArtifactsDir = dfcToWslPath(targetDir)
+            def wslScriptPath = dfcToWslPath(module.linuxWslScriptFile as File)
+            def wslJavaHomeExpr = dfcLinuxJavaHome ? dfcShellQuote(dfcLinuxJavaHome) : "''"
+            module.linuxWslScriptFile.parentFile.mkdirs()
+            module.linuxWslScriptFile.setText("""#!/usr/bin/env bash
+set -e
+
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "${moduleLabel}: cmake is not installed in WSL; skipping Linux build." >&2
+  exit 20
+fi
+
+JAVA_HOME_CANDIDATE=${wslJavaHomeExpr}
+if [ -z "\$JAVA_HOME_CANDIDATE" ] && command -v javac >/dev/null 2>&1; then
+  JAVA_BIN="\$(readlink -f "\$(command -v javac)")"
+  JAVA_HOME_CANDIDATE="\$(dirname "\$(dirname "\$JAVA_BIN")")"
+fi
+if [ -z "\$JAVA_HOME_CANDIDATE" ] && [ -d /usr/lib/jvm/default-java ]; then
+  JAVA_HOME_CANDIDATE=/usr/lib/jvm/default-java
+fi
+if [ -z "\$JAVA_HOME_CANDIDATE" ] || [ ! -d "\$JAVA_HOME_CANDIDATE/include/linux" ]; then
+  echo "${moduleLabel}: set -Pnative.linuxJavaHome=/path/to/linux/jdk (or -Pdfc.linuxJavaHome for DFC) to build linux_x64." >&2
+  exit 21
+fi
+
+mkdir -p ${dfcShellQuote(wslBuildDir)} ${dfcShellQuote(wslArtifactsDir)}
+cmake -S ${dfcShellQuote(wslSourceDir)} -B ${dfcShellQuote(wslBuildDir)} -DCMAKE_BUILD_TYPE=Release -DJAVA_HOME="\$JAVA_HOME_CANDIDATE"
+cmake --build ${dfcShellQuote(wslBuildDir)} --parallel
+cp ${dfcShellQuote("${wslBuildDir}/${lib}")} ${dfcShellQuote("${wslArtifactsDir}/${lib}")}
+""", "UTF-8")
+
+            if (!dfcTryExec([wslExecutable] + distroArgs + ["bash", wslScriptPath], module.dir as File,
+                    "${moduleLabel}: failed to build linux_x64 via WSL.")) {
+                return
+            }
+
+            if (!target.isFile()) {
+                dfcMarkNativeUnavailable("${moduleLabel}: Linux WSL build completed without producing ${target}", null)
+            }
+        }
+    }
+
+    tasks.register(assembleTaskName) {
+        group = "native"
+        description = "Build/stage ${module.name} native resources."
+        dependsOn stageHostTaskName, stageForeignTaskName, buildLinuxTaskName
+        onlyIf { module.buildEnabled }
+        doLast {
+            dfcModuleExpectedClassifiers(module).each { String classifier ->
+                def staged = new File(dfcNativeArtifactsDir, "${classifier}/${dfcModuleLibFile(module, classifier)}")
+                if (!staged.isFile()) {
+                    dfcMarkNativeUnavailable("${moduleLabel}: missing staged ${classifier} native at ${staged}", null)
+                }
+            }
+        }
+    }
+}
+
+tasks.register("assembleBundledNatives") {
+    group = "native"
+    description = "Build/stage native resources from every common/natives/* module."
+    onlyIf { dfcBuildNatives }
+    dependsOn dfcNativeModules.collect { "${it.taskStem}AssembleNatives" }
+    doLast {
+        if (dfcNativeMissingMarker.isFile()) {
+            logger.error("Bundled natives: build finished without the full native bundle. Jars will be marked with -nn.")
+            if (dfcNativeFailureReport.isFile()) {
+                logger.error("Bundled native failure report: ${dfcNativeFailureReport}")
             }
         }
     }
@@ -192,10 +458,17 @@ tasks.register("dfcAssembleNatives") {
 
 tasks.named("processResources", ProcessResources) {
     exclude "META-INF/natives/**"
+    exclude "natives/**"
     if (dfcBuildNatives) {
-        dependsOn "dfcAssembleNatives"
+        dependsOn "assembleBundledNatives"
         from(dfcNativeArtifactsDir) {
-            into "META-INF/natives"
+            into "natives"
         }
+    }
+}
+
+tasks.named("assemble") {
+    if (dfcBuildNatives) {
+        dependsOn "assembleBundledNatives"
     }
 }

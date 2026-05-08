@@ -12,7 +12,7 @@ import java.util.Objects;
  * Loads {@code dfc_native} from (in order):
  * <ol>
  *   <li>Absolute path in env {@code DFC_NATIVE_LIBRARY} (dev / broken classpath).</li>
- *   <li>Resource {@code META-INF/natives/&lt;platform&gt;/&lt;lib&gt;} from several class loaders.</li>
+ *   <li>Resource {@code natives/&lt;platform&gt;/&lt;lib&gt;} from several class loaders.</li>
  * </ol>
  * Safe to call from multiple threads; extraction happens once.
  */
@@ -75,7 +75,7 @@ public final class NativeLibraryLoader {
                 platform = "linux_x64";
                 libFile = "libdfc_native.so";
             }
-            String noSlash = "META-INF/natives/" + platform + "/" + libFile;
+            String noSlash = "natives/" + platform + "/" + libFile;
             String withSlash = "/" + noSlash;
 
             try (InputStream in = openBundledStream(withSlash, noSlash)) {

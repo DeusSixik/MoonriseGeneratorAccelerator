@@ -72,6 +72,14 @@ subprojects {
     apply plugin: 'architectury-plugin'
     apply plugin: 'maven-publish'
 
+    def dfcNativeMissingMarker = rootProject.layout.buildDirectory.file("dfcNative/status/no-natives.marker").get().asFile
+    def dfcArchiveFileName = { AbstractArchiveTask archiveTask ->
+        def classifier = archiveTask.archiveClassifier.orNull
+        def classifierSuffix = classifier ? "-${classifier}" : ""
+        def nativeSuffix = dfcNativeMissingMarker.isFile() && classifier != "sources" ? "-nn" : ""
+        return "[${project.version}] ${rootProject.archives_name}-${project.name}${classifierSuffix}${nativeSuffix}.${archiveTask.archiveExtension.get()}"
+    }
+
     base {
         // Set up a suffixed format for the mod jar names, e.g. `example-fabric`.
         archivesName = "$rootProject.archives_name-$project.name"
@@ -81,16 +89,11 @@ subprojects {
         accessWidenerPath = file("../common/src/main/resources/btsengineconcurrent.accesswidener")
     }
 
-    tasks.withType(AbstractArchiveTask).configureEach {
-        archiveFileName.set(provider {
-            def classifier = archiveClassifier.get()
-            def classifierSuffix = classifier ? "-${classifier}" : ""
-
-            // project.version             => Версия мода
-            // rootProject.archives_name   => Имя мода
-            // project.name                => Лоадер (fabric, neoforge, common)
-            return "[${project.version}] ${rootProject.archives_name}-${project.name}${classifierSuffix}.${archiveExtension.get()}"
-        })
+    tasks.withType(AbstractArchiveTask).configureEach { archiveTask ->
+        archiveFileName.set(provider { dfcArchiveFileName(archiveTask) })
+        doFirst {
+            archiveFileName.set(dfcArchiveFileName(archiveTask))
+        }
     }
 
     repositories {

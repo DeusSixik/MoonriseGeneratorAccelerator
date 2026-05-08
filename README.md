@@ -48,6 +48,11 @@ This module acts as a complete replacement for vanilla placement methods:
 
 The project is open-source and distributed under the **GPLv3** license.
 
+### Documentation
+
+- `docs/DENSITY_FUNCTION_COMPILER.md` - deep technical write-up for the Density Function Compiler.
+- `docs/NATIVE_MODULES.md` - how bundled native modules are discovered, configured, built, and packaged.
+
 ### Version Support Policy
 Please note that we do not plan to blindly chase every new Minecraft update. Given the invasive, low-level nature of our engine rewrites, porting is highly resource-intensive. Therefore, our development will strictly focus on versions that become established hubs for the modding community (e.g., major modding "LTS" versions). We update where the ecosystem thrives, not just where the version number goes.
 
