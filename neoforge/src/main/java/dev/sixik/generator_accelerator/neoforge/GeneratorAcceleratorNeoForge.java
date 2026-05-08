@@ -31,10 +31,6 @@ public final class GeneratorAcceleratorNeoForge {
         DensityFunctionCompiler.onServerStarting(event.getServer());
     }
 
-    private void onServerStarted(ServerStartedEvent event) {
-        DensityFunctionCompiler.onServerStarted(event.getServer());
-    }
-
     private void onDatapackSync(OnDatapackSyncEvent event) {
         if (event.getPlayer() != null) {
             return;

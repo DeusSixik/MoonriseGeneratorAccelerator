@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.density.compiler;
 
-import com.mojang.logging.LogUtils;
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
@@ -14,12 +13,12 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 
 public final class DensityFunctionCompiler {
-    public static final String MODID = "generator_accelerator";
-    public static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LoggerFactory.getLogger(DensityFunctionCompiler.class);
 
     private static volatile boolean initialized;
 
@@ -47,9 +46,6 @@ public final class DensityFunctionCompiler {
 
     public static void onServerStarting(MinecraftServer server) {
         RegistryWarmer.warmAll(server);
-    }
-
-    public static void onServerStarted(MinecraftServer server) {
     }
 
     public static void onDatapackReload(MinecraftServer server) {
