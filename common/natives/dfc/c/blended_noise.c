@@ -74,11 +74,11 @@ static void blended_noise_one(const DfcBlendedSpec *s, double bx, double by, dou
   double d0 = bx * s->xz_multiplier;
   double d1 = by * s->y_multiplier;
   double d2 = bz * s->xz_multiplier;
-  double d3 = d0 / s->xz_factor;
-  double d4 = d1 / s->y_factor;
-  double d5 = d2 / s->xz_factor;
-  double d6 = s->y_multiplier * s->smear_scale_multiplier;
-  double d7 = d6 / s->y_factor;
+  double d3 = d0 * s->inv_xz_factor;
+  double d4 = d1 * s->inv_y_factor;
+  double d5 = d2 * s->inv_xz_factor;
+  double d6 = s->limit_y_scale_base;
+  double d7 = s->main_y_scale_base;
 
   double d10 = 0.0;
   for (int oi = 0; oi < 8; oi++) {
@@ -169,12 +169,12 @@ void dfc_blended_noise_batch(const DfcBlendedSpec *s, const double *xs, const do
     d0[i] = xs[i] * s->xz_multiplier;
     d1[i] = ys[i] * s->y_multiplier;
     d2[i] = zs[i] * s->xz_multiplier;
-    d3[i] = d0[i] / s->xz_factor;
-    d4[i] = d1[i] / s->y_factor;
-    d5[i] = d2[i] / s->xz_factor;
+    d3[i] = d0[i] * s->inv_xz_factor;
+    d4[i] = d1[i] * s->inv_y_factor;
+    d5[i] = d2[i] * s->inv_xz_factor;
   }
-  const double d6 = s->y_multiplier * s->smear_scale_multiplier;
-  const double d7 = d6 / s->y_factor;
+  const double d6 = s->limit_y_scale_base;
+  const double d7 = s->main_y_scale_base;
   for (int i = 0; i < n; i++) d10[i] = 0.0;
 
   /* Main: octave-outer, AVX2 wrap, fused mad_add. */
@@ -254,11 +254,16 @@ DfcBlendedSpec *dfc_blended_spec_alloc_heap(const double *doubles6, const uint8_
   b->xz_factor = doubles6[2];
   b->y_factor = doubles6[3];
   b->smear_scale_multiplier = doubles6[4];
+  b->inv_xz_factor = 1.0 / doubles6[2];
+  b->inv_y_factor = 1.0 / doubles6[3];
+  b->limit_y_scale_base = doubles6[1] * doubles6[4];
+  b->main_y_scale_base = b->limit_y_scale_base * b->inv_y_factor;
   b->max_value = doubles6[5];
   for (int i = 0; i < 8; i++) {
     b->main_present[i] = main_pres[i];
     if (b->main_present[i]) {
       memcpy(b->main_octaves[i].p, main_perm + (size_t) i * 256, 256);
+      memcpy(b->main_octaves[i].p + 256, b->main_octaves[i].p, 256);
       b->main_octaves[i].xo = main_orig[(size_t) i * 3];
       b->main_octaves[i].yo = main_orig[(size_t) i * 3 + 1];
       b->main_octaves[i].zo = main_orig[(size_t) i * 3 + 2];
@@ -268,6 +273,7 @@ DfcBlendedSpec *dfc_blended_spec_alloc_heap(const double *doubles6, const uint8_
     b->min_present[i] = min_pres[i];
     if (b->min_present[i]) {
       memcpy(b->min_octaves[i].p, min_perm + (size_t) i * 256, 256);
+      memcpy(b->min_octaves[i].p + 256, b->min_octaves[i].p, 256);
       b->min_octaves[i].xo = min_orig[(size_t) i * 3];
       b->min_octaves[i].yo = min_orig[(size_t) i * 3 + 1];
       b->min_octaves[i].zo = min_orig[(size_t) i * 3 + 2];
@@ -277,6 +283,7 @@ DfcBlendedSpec *dfc_blended_spec_alloc_heap(const double *doubles6, const uint8_
     b->max_present[i] = max_pres[i];
     if (b->max_present[i]) {
       memcpy(b->max_octaves[i].p, max_perm + (size_t) i * 256, 256);
+      memcpy(b->max_octaves[i].p + 256, b->max_octaves[i].p, 256);
       b->max_octaves[i].xo = max_orig[(size_t) i * 3];
       b->max_octaves[i].yo = max_orig[(size_t) i * 3 + 1];
       b->max_octaves[i].zo = max_orig[(size_t) i * 3 + 2];

@@ -277,6 +277,29 @@ public final class IROptimizer {
             case MIN, MAX -> {
                 // After interning, structurally-identical operands share identity.
                 if (l == r) return l;
+                if (bin.op() == IRNode.BinOp.MIN) {
+                    if (isConst(l, Double.POSITIVE_INFINITY)) return r;
+                    if (isConst(r, Double.POSITIVE_INFINITY)) return l;
+                    IRNode clamp = clampFromMinMax(bin.left(), bin.right());
+                    if (clamp != null) return clamp;
+                    clamp = clampFromMinMax(bin.right(), bin.left());
+                    if (clamp != null) return clamp;
+                    IRNode collapsed = collapseNestedMinConst(l, r);
+                    if (collapsed != null) return collapsed;
+                    collapsed = collapseNestedMinConst(r, l);
+                    if (collapsed != null) return collapsed;
+                } else {
+                    if (isConst(l, Double.NEGATIVE_INFINITY)) return r;
+                    if (isConst(r, Double.NEGATIVE_INFINITY)) return l;
+                    IRNode clamp = clampFromMaxMin(bin.left(), bin.right());
+                    if (clamp != null) return clamp;
+                    clamp = clampFromMaxMin(bin.right(), bin.left());
+                    if (clamp != null) return clamp;
+                    IRNode collapsed = collapseNestedMaxConst(l, r);
+                    if (collapsed != null) return collapsed;
+                    collapsed = collapseNestedMaxConst(r, l);
+                    if (collapsed != null) return collapsed;
+                }
             }
         }
         return bin;
@@ -300,6 +323,36 @@ public final class IROptimizer {
                 case SQUEEZE -> Bounds.squeeze(v);
             };
             return intern(new IRNode.Const(folded));
+        }
+
+        // Bounds-proven ABS simplifications. Using Double.isFinite keeps us
+        // conservative around opaque/unbounded inputs.
+        if (u.op() == IRNode.UnaryOp.ABS) {
+            try {
+                double[] iv = Bounds.interval(in, pool);
+                if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
+                    return in;
+                }
+                if (Double.isFinite(iv[1]) && iv[1] <= 0.0) {
+                    return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, in));
+                }
+            } catch (RuntimeException ignore) {
+            }
+        }
+        if (u.op() == IRNode.UnaryOp.HALF_NEGATIVE || u.op() == IRNode.UnaryOp.QUARTER_NEGATIVE) {
+            try {
+                double[] iv = Bounds.interval(in, pool);
+                if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
+                    return in;
+                }
+            } catch (RuntimeException ignore) {
+            }
+        }
+        if (u.op() == IRNode.UnaryOp.SQUEEZE
+                && in instanceof IRNode.Clamp cl
+                && cl.min() <= -1.0
+                && cl.max() >= 1.0) {
+            return intern(new IRNode.Unary(IRNode.UnaryOp.SQUEEZE, cl.input()));
         }
 
         // Nested-unary collapses. abs(square(x)) is valid because square(NaN) = NaN
@@ -333,6 +386,21 @@ public final class IROptimizer {
             double v = Math.max(cl.min(), Math.min(cl.max(), c.value()));
             return intern(new IRNode.Const(v));
         }
+        // Clamp(x, -INF, +INF) is an exact no-op, including for NaN:
+        // min(+INF, NaN) = NaN and max(-INF, NaN) = NaN.
+        if (cl.min() == Double.NEGATIVE_INFINITY && cl.max() == Double.POSITIVE_INFINITY) {
+            return cl.input();
+        }
+        // One-sided infinite clamps are exactly min/max wrappers and can be
+        // expressed with the cheaper binary nodes.
+        if (cl.min() == Double.NEGATIVE_INFINITY) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MIN, cl.input(),
+                    intern(new IRNode.Const(cl.max()))));
+        }
+        if (cl.max() == Double.POSITIVE_INFINITY) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MAX, cl.input(),
+                    intern(new IRNode.Const(cl.min()))));
+        }
         // Degenerate range: vanilla Clamp.compute returns max(min, min(max, v)),
         // and when min >= max the outer Math.max forces the result to min for any
         // v. That collapse is safe for every input.
@@ -347,7 +415,34 @@ public final class IROptimizer {
                     && iv[0] >= cl.min() && iv[1] <= cl.max()) {
                 return cl.input();
             }
+            double tightenedMin = cl.min();
+            double tightenedMax = cl.max();
+            if (Double.isFinite(iv[0]) && iv[0] > tightenedMin) {
+                tightenedMin = iv[0];
+            }
+            if (Double.isFinite(iv[1]) && iv[1] < tightenedMax) {
+                tightenedMax = iv[1];
+            }
+            if ((tightenedMin != cl.min() || tightenedMax != cl.max())
+                    && tightenedMin < tightenedMax) {
+                return intern(new IRNode.Clamp(cl.input(), tightenedMin, tightenedMax));
+            }
         } catch (RuntimeException ignore) {
+        }
+        // Clamp(min(x, c), a, b) == Clamp(x, a, c) when c <= b, because the inner
+        // min already enforces the upper cap. Likewise Clamp(max(x, c), a, b) ==
+        // Clamp(x, c, b) when c >= a. Avoid creating degenerate clamps.
+        if (cl.input() instanceof IRNode.Bin bin && bin.op() == IRNode.BinOp.MIN) {
+            IRNode rewritten = peelClampMinSaturator(bin.left(), bin.right(), cl);
+            if (rewritten != null) return rewritten;
+            rewritten = peelClampMinSaturator(bin.right(), bin.left(), cl);
+            if (rewritten != null) return rewritten;
+        }
+        if (cl.input() instanceof IRNode.Bin bin && bin.op() == IRNode.BinOp.MAX) {
+            IRNode rewritten = peelClampMaxSaturator(bin.left(), bin.right(), cl);
+            if (rewritten != null) return rewritten;
+            rewritten = peelClampMaxSaturator(bin.right(), bin.left(), cl);
+            if (rewritten != null) return rewritten;
         }
         // Coalesce nested clamps: Clamp(Clamp(x, a, b), c, d) is just the
         // intersection of the two intervals. If they don't overlap the inner
@@ -367,6 +462,34 @@ public final class IROptimizer {
         if (rc.whenInRange() == rc.whenOutOfRange()) {
             return rc.whenInRange();
         }
+        // Empty half-open interval [min, max) can never match, so RangeChoice
+        // always takes the out-of-range arm.
+        if (rc.min() >= rc.max()) {
+            return rc.whenOutOfRange();
+        }
+        // Constant condition -> resolve the branch exactly with the runtime's
+        // comparison semantics, including NaN behaviour (always out of range).
+        if (rc.input() instanceof IRNode.Const c) {
+            double v = c.value();
+            return v >= rc.min() && v < rc.max() ? rc.whenInRange() : rc.whenOutOfRange();
+        }
+        // Saturating wrappers around the condition can sometimes be peeled away
+        // exactly. If the tested interval excludes the saturation value, the
+        // clamp/min/max wrapper cannot change the branch outcome and only adds
+        // compare work in the generated code.
+        IRNode peeled = peelRangeChoiceInputSaturator(rc);
+        if (peeled != null) {
+            return peeled;
+        }
+        // A few monotone unary wrappers have exact unwrap cases:
+        // - HALF/QUARTER_NEGATIVE are identity for strictly-positive tested ranges,
+        //   and also for all ranges when Bounds prove the wrapped input is >= 0.
+        // - ABS is identity when Bounds prove the wrapped input is >= 0, and equal
+        //   to NEG when Bounds prove the wrapped input is <= 0.
+        peeled = peelRangeChoiceMonotoneUnary(rc);
+        if (peeled != null) {
+            return peeled;
+        }
         // Bounds-driven short-circuit. If the input's interval-arithmetic bounds
         // prove it can never leave (or always leaves) [min, max), one arm becomes
         // dead. Bounds.interval can throw for opaque externs without finite
@@ -384,11 +507,145 @@ public final class IROptimizer {
                 if (lo >= rc.min() && hi < rc.max()) {
                     return rc.whenInRange();
                 }
+                double tightenedMin = rc.min();
+                double tightenedMax = rc.max();
+                if (lo > tightenedMin) {
+                    tightenedMin = lo;
+                }
+                if (hi < tightenedMax) {
+                    tightenedMax = Math.min(tightenedMax, Math.nextUp(hi));
+                }
+                if (tightenedMin != rc.min() || tightenedMax != rc.max()) {
+                    return intern(new IRNode.RangeChoice(rc.input(), tightenedMin, tightenedMax,
+                            rc.whenInRange(), rc.whenOutOfRange()));
+                }
             }
         } catch (RuntimeException ex) {
             // Bounds bailout — keep the node as-is and let runtime evaluate.
         }
         return rc;
+    }
+
+    private IRNode peelRangeChoiceInputSaturator(IRNode.RangeChoice rc) {
+        IRNode input = rc.input();
+        // Clamp(x, a, b) can be peeled when the lower saturation value a is
+        // strictly below the tested interval and the upper saturation value b is
+        // outside it by half-open semantics. Then membership in [min, max) is
+        // identical before/after the clamp for every x, including infinities/NaN.
+        if (input instanceof IRNode.Clamp cl) {
+            if (rc.min() > cl.min() && rc.max() <= cl.max()) {
+                return intern(new IRNode.RangeChoice(cl.input(), rc.min(), rc.max(),
+                        rc.whenInRange(), rc.whenOutOfRange()));
+            }
+            return null;
+        }
+        // max(x, c): if c is strictly below the tested interval then the
+        // saturation plateau always maps to OUT, so only x itself matters.
+        if (input instanceof IRNode.Bin bin && bin.op() == IRNode.BinOp.MAX) {
+            IRNode peeled = peelRangeChoiceMaxSaturator(bin.left(), bin.right(), rc);
+            if (peeled != null) return peeled;
+            return peelRangeChoiceMaxSaturator(bin.right(), bin.left(), rc);
+        }
+        // min(x, c): if c is at-or-above max then the upper saturation plateau is
+        // always OUT (half-open upper bound), so the branch depends only on x.
+        if (input instanceof IRNode.Bin bin && bin.op() == IRNode.BinOp.MIN) {
+            IRNode peeled = peelRangeChoiceMinSaturator(bin.left(), bin.right(), rc);
+            if (peeled != null) return peeled;
+            return peelRangeChoiceMinSaturator(bin.right(), bin.left(), rc);
+        }
+        return null;
+    }
+
+    private IRNode peelRangeChoiceMonotoneUnary(IRNode.RangeChoice rc) {
+        if (!(rc.input() instanceof IRNode.Unary u)) {
+            return null;
+        }
+        switch (u.op()) {
+            case HALF_NEGATIVE, QUARTER_NEGATIVE -> {
+                // Strictly-positive tested ranges are unaffected by the negative
+                // branch: wrapped negatives stay <= 0, so only the original input
+                // can ever satisfy the RangeChoice.
+                if (rc.min() > 0.0) {
+                    return intern(new IRNode.RangeChoice(u.input(), rc.min(), rc.max(),
+                            rc.whenInRange(), rc.whenOutOfRange()));
+                }
+                try {
+                    double[] iv = Bounds.interval(u.input(), pool);
+                    if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
+                        return intern(new IRNode.RangeChoice(u.input(), rc.min(), rc.max(),
+                                rc.whenInRange(), rc.whenOutOfRange()));
+                    }
+                } catch (RuntimeException ignore) {
+                }
+            }
+            case SQUEEZE -> {
+                // SQUEEZE already clamps its input to [-1, 1] internally. A wider
+                // explicit Clamp around the input cannot affect the branch result.
+                if (u.input() instanceof IRNode.Clamp cl
+                        && cl.min() <= -1.0
+                        && cl.max() >= 1.0) {
+                    return intern(new IRNode.RangeChoice(
+                            intern(new IRNode.Unary(IRNode.UnaryOp.SQUEEZE, cl.input())),
+                            rc.min(), rc.max(), rc.whenInRange(), rc.whenOutOfRange()));
+                }
+            }
+            case ABS -> {
+                try {
+                    double[] iv = Bounds.interval(u.input(), pool);
+                    if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
+                        return intern(new IRNode.RangeChoice(u.input(), rc.min(), rc.max(),
+                                rc.whenInRange(), rc.whenOutOfRange()));
+                    }
+                    if (Double.isFinite(iv[1]) && iv[1] <= 0.0) {
+                        return intern(new IRNode.RangeChoice(
+                                intern(new IRNode.Unary(IRNode.UnaryOp.NEG, u.input())),
+                                rc.min(), rc.max(), rc.whenInRange(), rc.whenOutOfRange()));
+                    }
+                } catch (RuntimeException ignore) {
+                }
+            }
+            default -> {
+            }
+        }
+        return null;
+    }
+
+    private IRNode peelRangeChoiceMaxSaturator(IRNode maybeConst, IRNode x, IRNode.RangeChoice rc) {
+        if (maybeConst instanceof IRNode.Const c && rc.min() > c.value()) {
+            return intern(new IRNode.RangeChoice(x, rc.min(), rc.max(),
+                    rc.whenInRange(), rc.whenOutOfRange()));
+        }
+        return null;
+    }
+
+    private IRNode peelRangeChoiceMinSaturator(IRNode maybeConst, IRNode x, IRNode.RangeChoice rc) {
+        if (maybeConst instanceof IRNode.Const c && rc.max() <= c.value()) {
+            return intern(new IRNode.RangeChoice(x, rc.min(), rc.max(),
+                    rc.whenInRange(), rc.whenOutOfRange()));
+        }
+        return null;
+    }
+
+    private IRNode peelClampMinSaturator(IRNode maybeConst, IRNode x, IRNode.Clamp cl) {
+        if (!(maybeConst instanceof IRNode.Const c)) {
+            return null;
+        }
+        double cappedMax = c.value();
+        if (cappedMax <= cl.max() && cl.min() < cappedMax) {
+            return intern(new IRNode.Clamp(x, cl.min(), cappedMax));
+        }
+        return null;
+    }
+
+    private IRNode peelClampMaxSaturator(IRNode maybeConst, IRNode x, IRNode.Clamp cl) {
+        if (!(maybeConst instanceof IRNode.Const c)) {
+            return null;
+        }
+        double raisedMin = c.value();
+        if (raisedMin >= cl.min() && raisedMin < cl.max()) {
+            return intern(new IRNode.Clamp(x, raisedMin, cl.max()));
+        }
+        return null;
     }
 
     /**
@@ -409,6 +666,12 @@ public final class IROptimizer {
     }
 
     private IRNode foldMinConstAndExpr(double c, IRNode x) {
+        if (x instanceof IRNode.Clamp cl
+                && Double.isFinite(c)
+                && cl.min() < c
+                && c < cl.max()) {
+            return intern(new IRNode.Clamp(cl.input(), cl.min(), c));
+        }
         try {
             double[] iv = Bounds.interval(x, pool);
             double lo = iv[0];
@@ -439,6 +702,12 @@ public final class IROptimizer {
     }
 
     private IRNode foldMaxConstAndExpr(double c, IRNode x) {
+        if (x instanceof IRNode.Clamp cl
+                && Double.isFinite(c)
+                && cl.min() < c
+                && c < cl.max()) {
+            return intern(new IRNode.Clamp(cl.input(), c, cl.max()));
+        }
         try {
             double[] iv = Bounds.interval(x, pool);
             double lo = iv[0];
@@ -453,6 +722,82 @@ public final class IROptimizer {
                 return intern(new IRNode.Const(c));
             }
         } catch (RuntimeException ignore) {
+        }
+        return null;
+    }
+
+    private IRNode collapseNestedMinConst(IRNode maybeNestedMin, IRNode maybeConst) {
+        if (!(maybeConst instanceof IRNode.Const outerConst)) {
+            return null;
+        }
+        if (!(maybeNestedMin instanceof IRNode.Bin inner) || inner.op() != IRNode.BinOp.MIN) {
+            return null;
+        }
+        if (inner.left() instanceof IRNode.Const innerLeft) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MIN, inner.right(),
+                    intern(new IRNode.Const(Math.min(innerLeft.value(), outerConst.value())))));
+        }
+        if (inner.right() instanceof IRNode.Const innerRight) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MIN, inner.left(),
+                    intern(new IRNode.Const(Math.min(innerRight.value(), outerConst.value())))));
+        }
+        return null;
+    }
+
+    private IRNode clampFromMinMax(IRNode maybeMax, IRNode maybeUpperConst) {
+        if (!(maybeUpperConst instanceof IRNode.Const upper)) {
+            return null;
+        }
+        if (!(maybeMax instanceof IRNode.Bin inner) || inner.op() != IRNode.BinOp.MAX) {
+            return null;
+        }
+        if (inner.left() instanceof IRNode.Const lower) {
+            return lower.value() <= upper.value()
+                    ? intern(new IRNode.Clamp(inner.right(), lower.value(), upper.value()))
+                    : null;
+        }
+        if (inner.right() instanceof IRNode.Const lower) {
+            return lower.value() <= upper.value()
+                    ? intern(new IRNode.Clamp(inner.left(), lower.value(), upper.value()))
+                    : null;
+        }
+        return null;
+    }
+
+    private IRNode collapseNestedMaxConst(IRNode maybeNestedMax, IRNode maybeConst) {
+        if (!(maybeConst instanceof IRNode.Const outerConst)) {
+            return null;
+        }
+        if (!(maybeNestedMax instanceof IRNode.Bin inner) || inner.op() != IRNode.BinOp.MAX) {
+            return null;
+        }
+        if (inner.left() instanceof IRNode.Const innerLeft) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MAX, inner.right(),
+                    intern(new IRNode.Const(Math.max(innerLeft.value(), outerConst.value())))));
+        }
+        if (inner.right() instanceof IRNode.Const innerRight) {
+            return intern(new IRNode.Bin(IRNode.BinOp.MAX, inner.left(),
+                    intern(new IRNode.Const(Math.max(innerRight.value(), outerConst.value())))));
+        }
+        return null;
+    }
+
+    private IRNode clampFromMaxMin(IRNode maybeMin, IRNode maybeLowerConst) {
+        if (!(maybeLowerConst instanceof IRNode.Const lower)) {
+            return null;
+        }
+        if (!(maybeMin instanceof IRNode.Bin inner) || inner.op() != IRNode.BinOp.MIN) {
+            return null;
+        }
+        if (inner.left() instanceof IRNode.Const upper) {
+            return lower.value() <= upper.value()
+                    ? intern(new IRNode.Clamp(inner.right(), lower.value(), upper.value()))
+                    : null;
+        }
+        if (inner.right() instanceof IRNode.Const upper) {
+            return lower.value() <= upper.value()
+                    ? intern(new IRNode.Clamp(inner.left(), lower.value(), upper.value()))
+                    : null;
         }
         return null;
     }

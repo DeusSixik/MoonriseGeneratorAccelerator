@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCo
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 
 public final class GeneratorAcceleratorFabric implements ModInitializer {
     @Override
@@ -14,10 +15,9 @@ public final class GeneratorAcceleratorFabric implements ModInitializer {
         // Proceed with mild caution.
 
         // Run our common setup.
-        GeneratorAccelerator.init(GeneratorAccelerator.Platform.FABRIC);
+        GeneratorAccelerator.init(GeneratorAccelerator.Platform.FABRIC, FabricLoader.getInstance().isDevelopmentEnvironment());
         DensityFunctionCompiler.init();
         ServerLifecycleEvents.SERVER_STARTING.register(DensityFunctionCompiler::onServerStarting);
-        ServerLifecycleEvents.SERVER_STARTED.register(DensityFunctionCompiler::onServerStarted);
         CommandRegistrationCallback.EVENT.register(
                 (dispatcher, registryAccess, environment) -> DensityFunctionCompiler.registerCommands(dispatcher));
     }

@@ -7,6 +7,15 @@ architectury {
     neoForge()
 }
 
+loom {
+    runs {
+        client {
+            vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
+                    "-Ddfc.codegen.splineSegmentLut=true"
+        }
+    }
+}
+
 configurations {
     common {
         canBeResolved = true

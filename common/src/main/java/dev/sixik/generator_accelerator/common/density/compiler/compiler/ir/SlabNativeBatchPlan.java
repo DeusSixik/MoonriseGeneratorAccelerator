@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -15,7 +17,7 @@ import java.util.Optional;
  */
 public final class SlabNativeBatchPlan {
 
-    public sealed interface Slot permits NormalSlot, BlendedSlot {
+    public sealed interface Slot permits NormalSlot, BlendedSlot, MarkerSlot {
         /** Index into {@code nativeSlabOut[slotIndex]} in {@code lattice_inner_batched}. */
         int slotIndex();
 
@@ -34,6 +36,13 @@ public final class SlabNativeBatchPlan {
         @Override
         public int nativeHandleIndex(int noiseSpecCount) {
             return noiseSpecCount + noise.blendedSpecIndex();
+        }
+    }
+
+    public record MarkerSlot(int slotIndex, IRNode.Marker marker) implements Slot {
+        @Override
+        public int nativeHandleIndex(int noiseSpecCount) {
+            return -1;
         }
     }
 
@@ -70,21 +79,28 @@ public final class SlabNativeBatchPlan {
 
         collectSlots(root, hoisted, out, assigned, nextIdx);
         if (out.isEmpty()) {
+            DfcNativePlanningStats.recordSlabPlanMissingNoSlots();
             return Optional.empty();
         }
         for (Slot s : out) {
             if (s instanceof NormalSlot ns) {
                 if (!coordExprSlabSafe(ns.noise())) {
+                    DfcNativePlanningStats.recordSlabPlanMissingUnsafeCoords();
                     return Optional.empty();
                 }
                 if (ns.noise().specPoolIndex() < 0 || ns.noise().specPoolIndex() >= noiseSpecCount) {
+                    DfcNativePlanningStats.recordSlabPlanMissingBadHandleIndex();
                     return Optional.empty();
                 }
             } else if (s instanceof BlendedSlot bs) {
                 int j = bs.noise().blendedSpecIndex();
                 if (j < 0 || j >= blendedNoiseSpecCount) {
+                    DfcNativePlanningStats.recordSlabPlanMissingBadHandleIndex();
                     return Optional.empty();
                 }
+            } else if (!(s instanceof MarkerSlot)) {
+                DfcNativePlanningStats.recordSlabPlanMissingBadHandleIndex();
+                return Optional.empty();
             }
         }
         return Optional.of(new SlabNativeBatchPlan(out));
@@ -106,6 +122,10 @@ public final class SlabNativeBatchPlan {
         } else if (n instanceof IRNode.InlinedBlendedNoise ib) {
             if (assigned.put(ib, Boolean.TRUE) == null) {
                 out.add(new BlendedSlot(nextIdx[0]++, ib));
+            }
+        } else if (n instanceof IRNode.Marker marker) {
+            if (assigned.put(marker, Boolean.TRUE) == null) {
+                out.add(new MarkerSlot(nextIdx[0]++, marker));
             }
         }
         for (IRNode c : RefCount.children(n)) {
@@ -131,6 +151,10 @@ public final class SlabNativeBatchPlan {
             case IRNode.Spline.Constant ignoredSplineC -> true;
             case IRNode.Spline.Multipoint mp ->
                     slabSafe(mp.coordinate()) && mp.values().stream().allMatch(SlabNativeBatchPlan::slabSafeSpline);
+            case IRNode.InlinedNoise in ->
+                    slabSafe(in.coordX()) && slabSafe(in.coordY()) && slabSafe(in.coordZ());
+            case IRNode.InlinedBlendedNoise ignoredBlended -> true;
+            case IRNode.WeirdRarity wr -> slabSafe(wr.input());
             default -> false;
         };
     }

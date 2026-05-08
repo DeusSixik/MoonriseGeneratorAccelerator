@@ -12,6 +12,8 @@ public final class DfcNativeBridge {
 
     private static final boolean LIB_OK;
     private static final int CPU_AVX2;
+    private static final ThreadLocal<double[]> SLAB_SLOT_PACKED_SCRATCH =
+            ThreadLocal.withInitial(() -> new double[0]);
 
     static {
         boolean ok = NativeLibraryLoader.loadBundled();
@@ -93,17 +95,36 @@ public final class DfcNativeBridge {
                                      int firstNoiseBlockZ, int blockY, int cellWidth,
                                      int slabLayout, int columnXi, int columnZi, int columnCellHeight,
                                      double hoistValue, double[] out, int n) {
-        if (!LIB_OK || bytecode == null || bytecode.length == 0 || out == null || n <= 0) {
+        if (!LIB_OK || bytecode == null || bytecode.length == 0 || out == null || n <= 0 || slotRows == null) {
             return;
         }
         if (constants == null) {
             constants = new double[0];
         }
-        nativeSlabInnerEval(bytecode, constants, slotRows, firstNoiseBlockX, firstNoiseBlockZ, blockY, cellWidth,
+        int slotCount = slotRows.length;
+        double[] packedRows = packSlabSlotRows(slotRows, slotCount, n);
+        nativeSlabInnerEval(bytecode, constants, packedRows, slotCount, firstNoiseBlockX, firstNoiseBlockZ, blockY, cellWidth,
                 slabLayout, columnXi, columnZi, columnCellHeight, hoistValue, out, n);
     }
 
-    private static native void nativeSlabInnerEval(byte[] bytecode, double[] constants, double[][] slotRows,
+    private static double[] packSlabSlotRows(double[][] slotRows, int slotCount, int rowLength) {
+        int needed = slotCount * rowLength;
+        double[] packed = SLAB_SLOT_PACKED_SCRATCH.get();
+        if (packed.length < needed) {
+            packed = new double[needed];
+            SLAB_SLOT_PACKED_SCRATCH.set(packed);
+        }
+        for (int slot = 0; slot < slotCount; slot++) {
+            double[] row = slotRows[slot];
+            if (row == null || row.length < rowLength) {
+                throw new IllegalArgumentException("slotRows[" + slot + "] is null or shorter than " + rowLength);
+            }
+            System.arraycopy(row, 0, packed, slot * rowLength, rowLength);
+        }
+        return packed;
+    }
+
+    private static native void nativeSlabInnerEval(byte[] bytecode, double[] constants, double[] packedSlotRows, int slotCount,
                                                    int firstNoiseBlockX, int firstNoiseBlockZ, int blockY, int cellWidth,
                                                    int slabLayout, int columnXi, int columnZi, int columnCellHeight,
                                                    double hoistValue, double[] out, int n);

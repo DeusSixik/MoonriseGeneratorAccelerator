@@ -9,6 +9,11 @@ import java.util.Map;
 
 public class GAModernFixMixinPlugin extends GAMixinPlugin {
 
+    private static final String PACKAGE = "dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix.";
+    private static final String MODERNFIX = "org.embeddedt.modernfix.ModernFix";
+    private static final String CHUNK_MAP_LOAD = "org.embeddedt.modernfix.common.mixin.bugfix.chunk_deadlock.ChunkMapLoadMixin";
+
+
     @Override
     public boolean isConfigEnable(GAConfig config) {
         return true;
@@ -16,17 +21,19 @@ public class GAModernFixMixinPlugin extends GAMixinPlugin {
 
     @Override
     public void onLoad(String s) {
-        final String modernFixFoldersMixin = "dev.sixik.generator_accelerator.common.chunks.mixin.compats.modernfix";
-
-        Map<String, String> modernFixMap = Map.of(
-                "ModernFix$ChunkStatusTasksMixin", "org.embeddedt.modernfix.common.mixin.bugfix.chunk_deadlock.ChunkMapLoadMixin",
-                "ModernFix$ChunkHolderReleaseProtoChunksMixin", "",
-                "ModernFix$GenerationChunkHolderAccessor", "",
-                "ModernFixChunkMapReleaseProtoChunksMixin", ""
+        create(MODERNFIX,
+                param("ModernFix$ChunkStatusTasksMixin", CHUNK_MAP_LOAD),
+                param("ModernFix$ChunkHolderReleaseProtoChunksMixin"),
+                param("ModernFix$GenerationChunkHolderAccessor"),
+                param("ModernFixChunkMapReleaseProtoChunksMixin")
         );
+    }
 
-        create("org.embeddedt.modernfix.ModernFix",
-                modernFixMap.entrySet().stream().map((entry) -> new MixinApplier.Param(modernFixFoldersMixin + entry.getKey(), entry.getValue())).toArray(MixinApplier.Param[]::new)
-        );
+    private static MixinApplier.Param param(String mixinClass, String mixinDisable) {
+        return new MixinApplier.Param(PACKAGE + mixinClass, mixinDisable);
+    }
+
+    private static MixinApplier.Param param(String mixinClass) {
+        return new MixinApplier.Param(PACKAGE + mixinClass, "");
     }
 }

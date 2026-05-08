@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "plugin": "dev.sixik.generator_accelerator.common.density.compiler.GADensityCompilerMixinPlugin",
   "mixins": [
+    "NoiseBasedChunkGeneratorMixin",
     "ClimateSamplerFabricDfcFapiSupportMixin",
     "NoiseChunkCache2dMixin",
     "NoiseChunkCacheAllInCellMixin",

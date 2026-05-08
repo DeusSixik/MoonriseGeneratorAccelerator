@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -37,7 +39,7 @@ public final class SlabInnerNativeProgram {
 
     private static final int VM_STACK_LIMIT = 192;
 
-    public record Result(byte[] bytecode, double[] constants) {}
+    public record Result(byte[] bytecode, double[] constants, boolean applyBlendDensity) {}
 
     private SlabInnerNativeProgram() {}
 
@@ -51,22 +53,28 @@ public final class SlabInnerNativeProgram {
             IRNode key = switch (s) {
                 case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
                 case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
+                case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
             };
             slabSlots.put(key, s.slotIndex());
         }
+        boolean applyBlendDensity = root instanceof IRNode.BlendDensity;
+        IRNode compileRoot = applyBlendDensity ? ((IRNode.BlendDensity) root).input() : root;
         var b = new Builder();
         try {
-            if (!b.compile(root, plan.hoistedSubtree(), extracted, slabSlots)) {
+            if (!b.compile(compileRoot, plan.hoistedSubtree(), extracted, slabSlots)) {
+                b.recordFailure();
                 return Optional.empty();
             }
         } catch (IOException e) {
+            DfcNativePlanningStats.recordSlabInnerMissingIo();
             return Optional.empty();
         }
         byte[] bytecode = b.bytes();
         if (!isValidStackProgram(bytecode, b.constCount())) {
+            DfcNativePlanningStats.recordSlabInnerMissingInvalidProgram();
             return Optional.empty();
         }
-        return Optional.of(new Result(bytecode, b.consts()));
+        return Optional.of(new Result(bytecode, b.consts(), applyBlendDensity));
     }
 
     private static boolean isValidStackProgram(byte[] bc, int constCount) {
@@ -154,6 +162,8 @@ public final class SlabInnerNativeProgram {
     private static final class Builder {
         private final ByteArrayOutputStream raw = new ByteArrayOutputStream();
         private final List<Double> constList = new ArrayList<>();
+        private String unsupportedClass;
+        private boolean failedOnExtracted;
 
         byte[] bytes() {
             return raw.toByteArray();
@@ -192,6 +202,15 @@ public final class SlabInnerNativeProgram {
             raw.write(slot);
         }
 
+        void recordFailure() {
+            if (this.failedOnExtracted) {
+                DfcNativePlanningStats.recordSlabInnerMissingExtracted();
+            } else {
+                DfcNativePlanningStats.recordSlabInnerMissingUnsupportedNode(
+                        this.unsupportedClass != null ? this.unsupportedClass : "unknown");
+            }
+        }
+
         boolean compile(IRNode node, IRNode hoisted, Set<IRNode> extracted,
                         IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
             if (node == hoisted) {
@@ -199,6 +218,8 @@ public final class SlabInnerNativeProgram {
                 return true;
             }
             if (extracted.contains(node)) {
+                this.failedOnExtracted = true;
+                this.unsupportedClass = node.getClass().getName();
                 return false;
             }
             Integer slab = slabSlots.get(node);
@@ -227,6 +248,9 @@ public final class SlabInnerNativeProgram {
             }
             if (node instanceof IRNode.RangeChoice rc) {
                 return emitRangeChoice(rc, hoisted, extracted, slabSlots);
+            }
+            if (node instanceof IRNode.WeirdRarity wr) {
+                return emitWeirdRarity(wr, hoisted, extracted, slabSlots);
             }
             if (node instanceof IRNode.Bin bin) {
                 if (!compile(bin.left(), hoisted, extracted, slabSlots)) {
@@ -285,6 +309,7 @@ public final class SlabInnerNativeProgram {
                                 writeLeU16(addConst(0.25));
                             }
                             default -> {
+                                this.unsupportedClass = "UnaryOp." + u.op().name();
                                 return false;
                             }
                         }
@@ -302,6 +327,7 @@ public final class SlabInnerNativeProgram {
                 raw.write(OP_MAX);
                 return true;
             }
+            this.unsupportedClass = node.getClass().getName();
             return false;
         }
 
@@ -336,6 +362,59 @@ public final class SlabInnerNativeProgram {
             raw.write(OP_RANGE_CHOICE);
             writeLeU16(addConst(rc.min()));
             writeLeU16(addConst(rc.max()));
+            return true;
+        }
+
+        private boolean emitWeirdRarity(IRNode.WeirdRarity wr, IRNode hoisted, Set<IRNode> extracted,
+                                        IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            IRNode input = wr.input();
+            if (wr.rarityValueMapperOrdinal() == 0) {
+                return emitPiecewiseRangeChoice(input, hoisted, extracted, slabSlots,
+                        new double[]{-Double.MAX_VALUE, -0.5D, -0.5D, 0.0D, 0.0D, 0.5D},
+                        new double[]{0.75D, 1.0D, 1.5D, 2.0D});
+            }
+            return emitPiecewiseRangeChoice(input, hoisted, extracted, slabSlots,
+                    new double[]{-Double.MAX_VALUE, -0.75D, -0.75D, -0.5D, -0.5D, 0.5D, 0.5D, 0.75D},
+                    new double[]{0.5D, 0.75D, 1.0D, 2.0D, 3.0D});
+        }
+
+        /**
+         * Emits nested range choices over the same input:
+         * [b0,b1)->v0 else [b2,b3)->v1 else ... else vLast.
+         * bounds contains 2 * (values.length - 1) entries.
+         */
+        private boolean emitPiecewiseRangeChoice(IRNode input, IRNode hoisted, Set<IRNode> extracted,
+                                                 IdentityHashMap<IRNode, Integer> slabSlots,
+                                                 double[] bounds, double[] values) throws IOException {
+            int branches = values.length - 1;
+            if (bounds.length != branches * 2) {
+                return false;
+            }
+            return emitPiecewiseRangeChoiceArm(input, hoisted, extracted, slabSlots, bounds, values, 0);
+        }
+
+        private boolean emitPiecewiseRangeChoiceArm(IRNode input, IRNode hoisted, Set<IRNode> extracted,
+                                                    IdentityHashMap<IRNode, Integer> slabSlots,
+                                                    double[] bounds, double[] values, int arm) throws IOException {
+            if (arm >= values.length - 1) {
+                emitConst(values[values.length - 1]);
+                return true;
+            }
+            double min = bounds[arm * 2];
+            double max = bounds[arm * 2 + 1];
+            if (!Double.isFinite(min) || !Double.isFinite(max) || !(min < max)) {
+                return false;
+            }
+            if (!compile(input, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            emitConst(values[arm]);
+            if (!emitPiecewiseRangeChoiceArm(input, hoisted, extracted, slabSlots, bounds, values, arm + 1)) {
+                return false;
+            }
+            raw.write(OP_RANGE_CHOICE);
+            writeLeU16(addConst(min));
+            writeLeU16(addConst(max));
             return true;
         }
     }

@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 typedef struct {
-  uint8_t p[256];
+  uint8_t p[512];
   double xo;
   double yo;
   double zo;
@@ -13,8 +13,7 @@ typedef struct {
 
 typedef struct {
   int n;
-  double input_coord_scale;
-  double *input_factors;
+  double *coord_factors;
   double *amp_factors;
   DfcImprovedNoise *octaves;
 } DfcPerlinBranch;
@@ -31,6 +30,10 @@ typedef struct {
   double xz_factor;
   double y_factor;
   double smear_scale_multiplier;
+  double inv_xz_factor;
+  double inv_y_factor;
+  double limit_y_scale_base;
+  double main_y_scale_base;
   double max_value;
   DfcImprovedNoise main_octaves[8];
   uint8_t main_present[8];
@@ -68,7 +71,8 @@ void dfc_normal_noise_stack_batch(const DfcNormalNoiseStack *s, const double *xs
                                   const double *zs, double *outs, int n, int use_avx2);
 
 void dfc_slab_inner_eval_batch(const uint8_t *bc, int bc_len, const double *consts, int nconst,
-                               const double *const *slot_rows, int n_slots, int cell_start_x, int cell_start_z,
+                               const double *slot_rows_flat, int n_slots, int slot_row_stride,
+                               int cell_start_x, int cell_start_z,
                                int block_y, int cell_w, double y_hoist, int slab_layout, int col_xi, int col_zi,
                                int cell_height, double *out, int n);
 

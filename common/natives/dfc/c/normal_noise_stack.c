@@ -9,22 +9,13 @@ static _Thread_local double dfc_nstack_tls_wxyz[DFC_NSTACK_WXYZ_CAP * 3];
 static void branch_sum_batch_add(const DfcPerlinBranch *b, const double *xs, const double *ys, const double *zs,
                                  double *acc, int n, int use_avx2, double *wx, double *wy, double *wz) {
   if (!b || b->n <= 0 || n <= 0) return;
-  double sc = b->input_coord_scale;
   for (int o = 0; o < b->n; o++) {
-    double inf = b->input_factors[o];
+    double cf = b->coord_factors[o];
     double amp = b->amp_factors[o];
-    if (sc != 1.0) {
-      for (int i = 0; i < n; i++) {
-        wx[i] = xs[i] * sc * inf;
-        wy[i] = ys[i] * sc * inf;
-        wz[i] = zs[i] * sc * inf;
-      }
-    } else {
-      for (int i = 0; i < n; i++) {
-        wx[i] = xs[i] * inf;
-        wy[i] = ys[i] * inf;
-        wz[i] = zs[i] * inf;
-      }
+    for (int i = 0; i < n; i++) {
+      wx[i] = xs[i] * cf;
+      wy[i] = ys[i] * cf;
+      wz[i] = zs[i] * cf;
     }
     dfc_wrap_axis_batch(wx, wx, n, use_avx2);
     dfc_wrap_axis_batch(wy, wy, n, use_avx2);
@@ -34,20 +25,12 @@ static void branch_sum_batch_add(const DfcPerlinBranch *b, const double *xs, con
 }
 
 static double branch_sum(const DfcPerlinBranch *b, double cx, double cy, double cz) {
-  double x = cx;
-  double y = cy;
-  double z = cz;
-  if (b->input_coord_scale != 1.0) {
-    x *= b->input_coord_scale;
-    y *= b->input_coord_scale;
-    z *= b->input_coord_scale;
-  }
   double sum = 0.0;
   for (int i = 0; i < b->n; i++) {
-    double inf = b->input_factors[i];
-    double wx = dfc_wrap_axis(x * inf);
-    double wy = dfc_wrap_axis(y * inf);
-    double wz = dfc_wrap_axis(z * inf);
+    double cf = b->coord_factors[i];
+    double wx = dfc_wrap_axis(cx * cf);
+    double wy = dfc_wrap_axis(cy * cf);
+    double wz = dfc_wrap_axis(cz * cf);
     double amp = b->amp_factors[i];
     sum += amp * dfc_improved_eval5(&b->octaves[i], wx, wy, wz, 0.0, 0.0);
   }
@@ -103,16 +86,16 @@ DfcNormalNoiseStack *dfc_normal_stack_alloc_heap(double value_factor,
   s->value_factor = value_factor;
 
   s->first.n = n0;
-  s->first.input_coord_scale = scale0;
   if (n0 > 0) {
-    s->first.input_factors = (double *) malloc((size_t) n0 * sizeof(double));
+    s->first.coord_factors = (double *) malloc((size_t) n0 * sizeof(double));
     s->first.amp_factors = (double *) malloc((size_t) n0 * sizeof(double));
     s->first.octaves = (DfcImprovedNoise *) malloc((size_t) n0 * sizeof(DfcImprovedNoise));
-    if (!s->first.input_factors || !s->first.amp_factors || !s->first.octaves) goto fail;
-    memcpy(s->first.input_factors, in0, (size_t) n0 * sizeof(double));
+    if (!s->first.coord_factors || !s->first.amp_factors || !s->first.octaves) goto fail;
     memcpy(s->first.amp_factors, amp0, (size_t) n0 * sizeof(double));
     for (int i = 0; i < n0; i++) {
+      s->first.coord_factors[i] = scale0 * in0[i];
       memcpy(s->first.octaves[i].p, perm0 + (size_t) i * 256, 256);
+      memcpy(s->first.octaves[i].p + 256, s->first.octaves[i].p, 256);
       s->first.octaves[i].xo = orig0[(size_t) i * 3];
       s->first.octaves[i].yo = orig0[(size_t) i * 3 + 1];
       s->first.octaves[i].zo = orig0[(size_t) i * 3 + 2];
@@ -120,16 +103,16 @@ DfcNormalNoiseStack *dfc_normal_stack_alloc_heap(double value_factor,
   }
 
   s->second.n = n1;
-  s->second.input_coord_scale = scale1;
   if (n1 > 0) {
-    s->second.input_factors = (double *) malloc((size_t) n1 * sizeof(double));
+    s->second.coord_factors = (double *) malloc((size_t) n1 * sizeof(double));
     s->second.amp_factors = (double *) malloc((size_t) n1 * sizeof(double));
     s->second.octaves = (DfcImprovedNoise *) malloc((size_t) n1 * sizeof(DfcImprovedNoise));
-    if (!s->second.input_factors || !s->second.amp_factors || !s->second.octaves) goto fail;
-    memcpy(s->second.input_factors, in1, (size_t) n1 * sizeof(double));
+    if (!s->second.coord_factors || !s->second.amp_factors || !s->second.octaves) goto fail;
     memcpy(s->second.amp_factors, amp1, (size_t) n1 * sizeof(double));
     for (int i = 0; i < n1; i++) {
+      s->second.coord_factors[i] = scale1 * in1[i];
       memcpy(s->second.octaves[i].p, perm1 + (size_t) i * 256, 256);
+      memcpy(s->second.octaves[i].p + 256, s->second.octaves[i].p, 256);
       s->second.octaves[i].xo = orig1[(size_t) i * 3];
       s->second.octaves[i].yo = orig1[(size_t) i * 3 + 1];
       s->second.octaves[i].zo = orig1[(size_t) i * 3 + 2];
@@ -144,10 +127,10 @@ fail:
 
 void dfc_normal_stack_free(DfcNormalNoiseStack *s) {
   if (!s) return;
-  free(s->first.input_factors);
+  free(s->first.coord_factors);
   free(s->first.amp_factors);
   free(s->first.octaves);
-  free(s->second.input_factors);
+  free(s->second.coord_factors);
   free(s->second.amp_factors);
   free(s->second.octaves);
   free(s);

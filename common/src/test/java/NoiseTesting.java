@@ -18,12 +18,6 @@ public class NoiseTesting
         GeneratorAccelerator.tryLoadNatives();
     }
 
-    @Test
-    void testStream() {
-
-    }
-
-    @Test
     void testNatives() {
         XoroshiroRandomSource xoroshiroRandomSource = new XoroshiroRandomSource(32);
 
