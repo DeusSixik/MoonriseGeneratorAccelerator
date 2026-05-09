@@ -82,7 +82,10 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
         final int l = (functionContext.blockZ() >> 2) - field_36611.firstNoiseZ;
 
         if (k >= 0 && l >= 0 && k < side && l < side) {
-            return bts$array[k * side + l];
+            double[] flat = this.bts$array;
+            if (flat != null && flat.length >= side * side) {
+                return flat[k * side + l];
+            }
         }
 
         return this.noiseFiller.compute(functionContext);

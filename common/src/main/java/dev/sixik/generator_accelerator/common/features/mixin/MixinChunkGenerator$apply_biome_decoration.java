@@ -200,6 +200,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                         worldgenrandom,
                         blockpos,
                         i,
+                        registry1,
                         (featureIndex, feature) -> pLevel.setCurrentlyGenerating(nameSupplier.set(registry1, feature)),
                         pipelineScratch.placementContext(pLevel, thisObj)
                 );

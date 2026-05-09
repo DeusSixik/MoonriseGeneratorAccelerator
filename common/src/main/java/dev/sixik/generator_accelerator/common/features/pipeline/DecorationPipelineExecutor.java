@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Registry;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -18,6 +20,11 @@ import net.minecraft.world.level.levelgen.feature.SimpleBlockFeature;
 import net.minecraft.world.level.levelgen.feature.VegetationPatchFeature;
 import net.minecraft.world.level.levelgen.feature.WaterloggedVegetationPatchFeature;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
+import net.minecraft.world.level.levelgen.placement.PlacementModifier;
+
+import java.util.Iterator;
+import java.util.List;
+import java.util.stream.Stream;
 
 public final class DecorationPipelineExecutor {
     public void executeFallbacks(DecorationStepPlan stepPlan, ExecutionContext context) {
@@ -111,28 +118,100 @@ public final class DecorationPipelineExecutor {
         placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
 
         long start = DecorationPipelineMetrics.startTimer();
-        if (kernel.placementProgram() != null) {
-            if (kernel.selectorFallbackMetricCounter() >= 0) {
-                DecorationPipelineMetrics.increment(kernel.selectorFallbackMetricCounter());
+        int elapsedCounter = elapsedCounter(kernel.kind());
+        try {
+            if (DecorationPipelineCompatibility.shouldUseSafeVanilla(kernel.fallbackFeature())) {
+                elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
+                this.executeSafeVanilla(kernel, context, placementContext);
+                return;
             }
-            if (kernel.kind().isNativeKernel()) {
-                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_KERNELS_EXECUTED);
-            } else if (kernel.kind().isPartialNative()) {
-                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PARTIAL_NATIVE_KERNELS_EXECUTED);
-            } else {
-                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
+
+            if (kernel.placementProgram() != null) {
+                if (kernel.selectorFallbackMetricCounter() >= 0) {
+                    DecorationPipelineMetrics.increment(kernel.selectorFallbackMetricCounter());
+                }
+                if (kernel.kind().isNativeKernel()) {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_KERNELS_EXECUTED);
+                } else if (kernel.kind().isPartialNative()) {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PARTIAL_NATIVE_KERNELS_EXECUTED);
+                } else {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
+                }
+                kernel.placementProgram().execute(kernel, context, scratch, placementContext);
+                return;
             }
-            kernel.placementProgram().execute(kernel, context, scratch, placementContext);
-            DecorationPipelineMetrics.addElapsed(elapsedCounter(kernel.kind()), start);
+
+            elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
+            this.executeSafeVanilla(kernel, context, placementContext);
+        } catch (RuntimeException failure) {
+            DecorationPipelineCompatibility.quarantine(
+                    context.placedFeatureRegistry(),
+                    kernel.fallbackFeature(),
+                    kernel,
+                    step,
+                    featureIndex,
+                    failure
+            );
+            context.random.setFeatureSeed(context.decorationSeed, featureIndex, step);
+            placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
+            try {
+                elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
+                this.executeSafeVanilla(kernel, context, placementContext);
+                return;
+            } catch (RuntimeException fallbackFailure) {
+                failure.addSuppressed(fallbackFailure);
+                throw failure;
+            }
+        } finally {
+            DecorationPipelineMetrics.addElapsed(elapsedCounter, start);
             DecorationPipelineMetrics.addKindElapsed(kernel.kind(), start);
             DecorationPipelineMetrics.addFeatureElapsed(kernel.metricsName(), start);
-            return;
+        }
+    }
+
+    private void executeSafeVanilla(
+            DecorationKernelPlan kernel,
+            ExecutionContext context,
+            PipelinePlacementContext placementContext
+    ) {
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
+        executeVanillaPlacedFeature(kernel.fallbackFeature(), placementContext, context.random(), context.origin());
+    }
+
+    private static boolean executeVanillaPlacedFeature(
+            PlacedFeature feature,
+            PipelinePlacementContext context,
+            WorldgenRandom random,
+            BlockPos startPos
+    ) {
+        if (feature == null) {
+            return false;
+        }
+        return executeVanillaPlacedFeature(feature, context, random, startPos, 0);
+    }
+
+    private static boolean executeVanillaPlacedFeature(
+            PlacedFeature feature,
+            PipelinePlacementContext context,
+            WorldgenRandom random,
+            BlockPos pos,
+            int modifierIndex
+    ) {
+        List<PlacementModifier> placement = feature.placement();
+        if (modifierIndex >= placement.size()) {
+            return feature.feature().value().place(context.getLevel(), context.generator(), random, pos);
         }
 
-        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
-        DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS, start);
-        DecorationPipelineMetrics.addKindElapsed(kernel.kind(), start);
-        DecorationPipelineMetrics.addFeatureElapsed(kernel.metricsName(), start);
+        boolean success = false;
+        try (Stream<BlockPos> positions = placement.get(modifierIndex).getPositions(context, random, pos)) {
+            Iterator<BlockPos> iterator = positions.iterator();
+            while (iterator.hasNext()) {
+                if (executeVanillaPlacedFeature(feature, context, random, iterator.next(), modifierIndex + 1)) {
+                    success = true;
+                }
+            }
+        }
+        return success;
     }
 
     private static int elapsedCounter(DecorationKernelKind kind) {
@@ -197,9 +276,22 @@ public final class DecorationPipelineExecutor {
         }
         scratch.descriptors.clear();
         long start = DecorationPipelineMetrics.startTimer();
-        scratch.descriptors.prepareChunkLazy(context.chunk);
-        scratch.markDescriptorsPrepared(context.chunk);
-        DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
+        try {
+            scratch.descriptors.prepareChunkLazy(context.chunk);
+            scratch.markDescriptorsPrepared(context.chunk);
+        } catch (RuntimeException failure) {
+            scratch.descriptors.clear();
+            if (DecorationPipelineCompatibility.shouldLogDescriptorFailure(failure)) {
+                GeneratorAccelerator.LOGGER.warn(
+                        "GA decoration pipeline failed to prepare descriptor cache for chunk [{}, {}]; descriptor-gated kernels will fall back to live reads for this pass.",
+                        context.chunkX(),
+                        context.chunkZ(),
+                        failure
+                );
+            }
+        } finally {
+            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
+        }
     }
 
     public static final class ExecutionContext {
@@ -214,6 +306,7 @@ public final class DecorationPipelineExecutor {
         private final int originY;
         private final int originZ;
         private final long decorationSeed;
+        private final Registry<PlacedFeature> placedFeatureRegistry;
         private final FallbackHook fallbackHook;
         private final PipelinePlacementContext placementContext;
 
@@ -224,6 +317,7 @@ public final class DecorationPipelineExecutor {
                 WorldgenRandom random,
                 BlockPos origin,
                 long decorationSeed,
+                Registry<PlacedFeature> placedFeatureRegistry,
                 FallbackHook fallbackHook,
                 PipelinePlacementContext placementContext
         ) {
@@ -239,6 +333,7 @@ public final class DecorationPipelineExecutor {
             this.originY = origin.getY();
             this.originZ = origin.getZ();
             this.decorationSeed = decorationSeed;
+            this.placedFeatureRegistry = placedFeatureRegistry;
             this.fallbackHook = fallbackHook;
             this.placementContext = placementContext.set(level, generator, java.util.Optional.empty(), null);
         }
@@ -287,6 +382,10 @@ public final class DecorationPipelineExecutor {
 
         int originZ() {
             return this.originZ;
+        }
+
+        Registry<PlacedFeature> placedFeatureRegistry() {
+            return this.placedFeatureRegistry;
         }
 
         PipelinePlacementContext placementContext() {
