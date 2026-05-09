@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 
 import net.minecraft.util.KeyDispatchDataCodec;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -385,7 +386,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             DensityFunction newInner = mapExtern(wrapped, session);
             DensityFunction effective = (newInner == wrapped)
                     ? src
-                    : new DensityFunctions.Marker(marker.type(), newInner);
+                    : MarkerRewriter.rebuild(marker.type(), newInner);
             result = session.apply(effective);
         } else {
             result = src.mapAll(session);

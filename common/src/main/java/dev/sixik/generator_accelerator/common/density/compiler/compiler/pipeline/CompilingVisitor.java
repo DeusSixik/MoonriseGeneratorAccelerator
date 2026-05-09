@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipelin
 
 import com.google.common.collect.MapMaker;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -95,7 +96,7 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
             DensityFunction compiledInner = apply(inner);
             DensityFunction result = (compiledInner == inner)
                     ? df
-                    : new DensityFunctions.Marker(marker.type(), compiledInner);
+                    : MarkerRewriter.rebuild(marker.type(), compiledInner);
             DensityFunction prior = cache.putIfAbsent(df, result);
             return prior != null ? prior : result;
         }

@@ -2,13 +2,10 @@ package dev.sixik.generator_accelerator.api.structures;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-
-import java.util.List;
 
 public class FastBlockStateCache {
 
@@ -19,75 +16,84 @@ public class FastBlockStateCache {
     private static int size;
 
     public static void init(GeneratorAccelerator.Platform platform) {
-        if (initialized) return;
+        int registrySize = Block.BLOCK_STATE_REGISTRY.size();
+        if (initialized && size == registrySize && STATES != null && AIR_STATES != null) {
+            return;
+        }
         synchronized (FastBlockStateCache.class) {
-            if (initialized) return;
+            registrySize = Block.BLOCK_STATE_REGISTRY.size();
+            if (initialized && size == registrySize && STATES != null && AIR_STATES != null) {
+                return;
+            }
 
-            if (platform != GeneratorAccelerator.Platform.NEOFORGE) {
-                int maxId = Block.BLOCK_STATE_REGISTRY.size();
-                STATES = new BlockState[maxId];
-                AIR_STATES = new boolean[maxId];
-
-                for (int i = 0; i < maxId; i++) {
-                    final BlockState state = Block.BLOCK_STATE_REGISTRY.byId(i);
-
-                    if (state == null) {
-                        STATES[i] = Blocks.AIR.defaultBlockState();
-                        AIR_STATES[i] = true;
-                        continue;
-                    }
-                    STATES[i] = state;
-                    AIR_STATES[i] = state.isAir();
-                    GA$BlockStateExtension.get(state).bts$setFastId(i);
-                }
-            } else {
-                List<BlockState> statesList = new ObjectArrayList<>();
-                List<Boolean> airList = new ObjectArrayList<>();
-
-                int i = 0;
-                for (Block block : BuiltInRegistries.BLOCK) {
-                    for (BlockState possibleState : block.getStateDefinition().getPossibleStates()) {
-
-                        BlockState actualState = possibleState;
-
-                        if (actualState != null) {
-                            GA$BlockStateExtension.get(actualState).bts$setFastId(i);
-                        } else {
-                            actualState = Blocks.AIR.defaultBlockState();
-                        }
-
-                        statesList.add(actualState);
-                        airList.add(actualState.isAir());
-                        i++;
-                    }
-                }
-                STATES = statesList.toArray(new BlockState[0]);
-                AIR_STATES = new boolean[airList.size()];
-                for (int idx = 0; idx < airList.size(); idx++) {
-                    AIR_STATES[idx] = airList.get(idx);
+            BlockState air = Blocks.AIR.defaultBlockState();
+            int maxStateId = 0;
+            for (Block block : BuiltInRegistries.BLOCK) {
+                for (BlockState possibleState : block.getStateDefinition().getPossibleStates()) {
+                    maxStateId = Math.max(maxStateId, Block.getId(possibleState));
                 }
             }
-            size = STATES.length;
+
+            int capacity = Math.max(registrySize, maxStateId + 1);
+            BlockState[] states = new BlockState[capacity];
+            boolean[] airStates = new boolean[capacity];
+
+            for (int i = 0; i < capacity; i++) {
+                states[i] = air;
+                airStates[i] = true;
+            }
+
+            for (Block block : BuiltInRegistries.BLOCK) {
+                for (BlockState possibleState : block.getStateDefinition().getPossibleStates()) {
+                    int fastId = Block.getId(possibleState);
+                    if (fastId < 0 || fastId >= capacity) {
+                        continue;
+                    }
+                    states[fastId] = possibleState;
+                    airStates[fastId] = possibleState.isAir();
+                    GA$BlockStateExtension.get(possibleState).bts$setFastId(fastId);
+                }
+            }
+
+            STATES = states;
+            AIR_STATES = airStates;
+            size = registrySize;
 
             GeneratorAccelerator.LOGGER.info("PLATFORM: {}", platform);
-            GeneratorAccelerator.LOGGER.info("STATES SIZE: {}", size);
+            GeneratorAccelerator.LOGGER.info("STATE REGISTRY SIZE: {}", size);
+            GeneratorAccelerator.LOGGER.info("STATE CACHE CAPACITY: {}", capacity);
 
             initialized = true;
         }
     }
 
     public static BlockState getBlockState(int id) {
-        if (STATES == null)
-            init(GeneratorAccelerator.platform);
+        ensureInitialized();
+        if (id < 0) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        if (id >= STATES.length) {
+            return Block.stateById(id);
+        }
 
         return STATES[id];
     }
 
     public static boolean isAir(int id) {
-        if (AIR_STATES == null) {
-            init(GeneratorAccelerator.platform);
+        ensureInitialized();
+        if (id < 0) {
+            return true;
+        }
+        if (id >= AIR_STATES.length) {
+            return Block.stateById(id).isAir();
         }
 
         return AIR_STATES[id];
+    }
+
+    private static void ensureInitialized() {
+        if (STATES == null || AIR_STATES == null || size != Block.BLOCK_STATE_REGISTRY.size()) {
+            init(GeneratorAccelerator.platform);
+        }
     }
 }
