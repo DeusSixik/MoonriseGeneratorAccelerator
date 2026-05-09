@@ -12,6 +12,7 @@ import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 
+import java.util.Arrays;
 import java.util.EnumSet;
 
 public final class CarverChunkWriter {
@@ -41,6 +42,19 @@ public final class CarverChunkWriter {
 
     public void end() {
         this.active = false;
+        this.chunk = null;
+        this.protoChunk = null;
+        this.sections = null;
+        this.chunkStatus = null;
+        this.fastPath = false;
+        this.minY = 0;
+        this.maxY = 0;
+        this.minSection = 0;
+        this.heightmapCount = 0;
+        this.cachedSectionIndex = Integer.MIN_VALUE;
+        this.cachedSection = null;
+        Arrays.fill(this.heightmaps, null);
+        Arrays.fill(this.rawSections, null);
     }
 
     public boolean isActive() {

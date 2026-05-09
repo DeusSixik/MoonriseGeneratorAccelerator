@@ -17,6 +17,10 @@ public final class CarveStateScratch {
 
     public void clear() {
         this.active = false;
+        this.debug = false;
+        this.restoreSurface = false;
+        this.lavaLevel = 0;
+        this.replaceableStateIds = null;
     }
 
     public boolean isActive() {

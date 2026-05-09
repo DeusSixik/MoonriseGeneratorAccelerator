@@ -32,6 +32,10 @@ public final class DfcCompiledClassRegistry {
         return ENTRIES.get(normalize(runtimeClassName));
     }
 
+    public static void clear() {
+        ENTRIES.clear();
+    }
+
     private static String normalize(String name) {
         if (name == null) {
             return "";

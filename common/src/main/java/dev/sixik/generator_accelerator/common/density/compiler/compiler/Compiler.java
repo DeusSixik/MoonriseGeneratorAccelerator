@@ -178,7 +178,7 @@ public final class Compiler {
                             double[].class, NormalNoise[].class, Object[].class, Object[].class,
                             DensityFunction[].class,
                             double.class, double.class,
-                            MethodHandle[].class, long[].class,
+                            MethodHandle[].class, NativeNoiseRegistry.HandleSet.class,
                             byte[].class, double[].class,
                             MethodHandle.class);
                     ctorMH = lookup.findConstructor(cls, ctorType)
@@ -186,7 +186,7 @@ public final class Compiler {
                                     double[].class, NormalNoise[].class, Object[].class, Object[].class,
                                     DensityFunction[].class,
                                     double.class, double.class,
-                                    MethodHandle[].class, long[].class,
+                                    MethodHandle[].class, NativeNoiseRegistry.HandleSet.class,
                                     byte[].class, double[].class,
                                     MethodHandle.class));
                 } catch (NoSuchMethodException | IllegalAccessException e) {
@@ -284,7 +284,8 @@ public final class Compiler {
             SplineSearchStats splineStats) {
         MethodHandle ctorMH = bundle.constructorHandle();
         MethodHandle[] helperHandles = bundle.helperHandles();
-        long[] nativeHandles = NativeNoiseRegistry.buildHandles(pool.noiseSpecs(), pool.blendedNoiseSpecsList());
+        NativeNoiseRegistry.HandleSet nativeHandles =
+                NativeNoiseRegistry.buildHandleSet(pool.noiseSpecs(), pool.blendedNoiseSpecsList());
         byte[] slabBc = bundle.slabNativeProgram();
         double[] slabC = bundle.slabNativeConstants();
         CompiledDensityFunction compiled;

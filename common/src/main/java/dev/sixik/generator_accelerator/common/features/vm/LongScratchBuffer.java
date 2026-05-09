@@ -3,10 +3,15 @@ package dev.sixik.generator_accelerator.common.features.vm;
 import java.util.Arrays;
 
 public final class LongScratchBuffer {
+    private static final int MAX_RETAINED_CAPACITY = 262_144;
+    private static final int SHRUNK_CAPACITY = 65_536;
+
     private long[] values;
+    private final int initialCapacity;
     private int size;
 
     public LongScratchBuffer(int initialCapacity) {
+        this.initialCapacity = initialCapacity;
         this.values = new long[initialCapacity];
     }
 
@@ -50,6 +55,9 @@ public final class LongScratchBuffer {
 
     public void clear() {
         this.size = 0;
+        if (this.values.length > MAX_RETAINED_CAPACITY) {
+            this.values = new long[Math.max(this.initialCapacity, SHRUNK_CAPACITY)];
+        }
     }
 
     private void grow(int capacity) {

@@ -1,12 +1,13 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 
+import com.google.common.collect.MapMaker;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.BlendedNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -17,7 +18,8 @@ public final class BlendedNoiseSpecCache {
     public static final AtomicLong MIXIN_BIND_FAILURES = new AtomicLong();
 
     private static final Object FAILED = new Object();
-    private static final ConcurrentHashMap<BlendedNoise, Object> CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<BlendedNoise, Object> CACHE =
+            new MapMaker().weakKeys().concurrencyLevel(4).makeMap();
 
     private BlendedNoiseSpecCache() {}
 

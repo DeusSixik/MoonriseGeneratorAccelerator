@@ -1,10 +1,11 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 
+import com.google.common.collect.MapMaker;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.NormalNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -41,7 +42,8 @@ public final class NoiseSpecCache {
 
     private static final Object FAILED = new Object();
 
-    private static final ConcurrentHashMap<NormalNoise, Object> CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<NormalNoise, Object> CACHE =
+            new MapMaker().weakKeys().concurrencyLevel(4).makeMap();
 
     private NoiseSpecCache() {}
 

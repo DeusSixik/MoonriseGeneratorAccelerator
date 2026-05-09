@@ -12,7 +12,6 @@
     "MixinChunkStatusTasks$generate_features",
     "compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
     "compats.confluence.Confluence$FeaturePlacementCompatMixin",
-    "compats.confluence.Confluence$PlacedFeatureMixin$fix",
     "compats.confluence.Confluence$SecretFlagPlacementMixin",
     "compats.dynamictrees.DynamicTrees$CaveRootedTreePlacementMixin",
     "compats.neofogre.MixinChunkGenerator",

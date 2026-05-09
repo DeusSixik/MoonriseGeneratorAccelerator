@@ -63,6 +63,19 @@ public final class RegistryWarmer {
 
     private RegistryWarmer() {}
 
+    public static void clear() {
+        WARMED_GENERATIONS.clear();
+        WARMED_NOISE_SETTINGS.clear();
+        WARMED_DENSITY_FUNCTIONS.clear();
+        CALLS.set(0L);
+        SKIPPED_DUPLICATE_CALLS.set(0L);
+        SKIPPED_DUPLICATE_ENTRIES.set(0L);
+        WARMED_ROUTERS.set(0L);
+        WARMED_DENSITY_FUNCTIONS_COUNT.set(0L);
+        FAILED_ENTRIES.set(0L);
+        BUDGET_SKIPS.set(0L);
+    }
+
     public static void warmAll(MinecraftServer server) {
         if (server == null) {
             return;

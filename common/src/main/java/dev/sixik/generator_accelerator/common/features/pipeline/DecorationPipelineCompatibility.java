@@ -21,12 +21,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Tracks features that broke the optimized decoration pipeline so they can be
  * routed through a conservative vanilla-style path for the rest of the session.
  */
-final class DecorationPipelineCompatibility {
+public final class DecorationPipelineCompatibility {
     private static final Map<PlacedFeature, Boolean> QUARANTINED_FEATURES = new IdentityHashMap<>();
     private static final ConcurrentHashMap<String, AtomicInteger> QUARANTINED_NAMESPACES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> DESCRIPTOR_FAILURES = new ConcurrentHashMap<>();
 
     private DecorationPipelineCompatibility() {
+    }
+
+    public static void clearSessionCaches() {
+        synchronized (QUARANTINED_FEATURES) {
+            QUARANTINED_FEATURES.clear();
+        }
+        QUARANTINED_NAMESPACES.clear();
+        DESCRIPTOR_FAILURES.clear();
     }
 
     static boolean shouldUseSafeVanilla(@Nullable PlacedFeature feature) {

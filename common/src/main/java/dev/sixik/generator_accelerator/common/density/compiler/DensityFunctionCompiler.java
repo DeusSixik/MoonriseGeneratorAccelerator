@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
+import dev.sixik.generator_accelerator.GARuntimeCaches;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
@@ -47,7 +48,7 @@ public final class DensityFunctionCompiler {
     }
 
     public static void onServerStarting(MinecraftServer server) {
-        // Levels are not guaranteed to exist yet here; warm after the server has created them.
+        GARuntimeCaches.resetForServerLifecycle();
     }
 
     public static void onServerStarted(MinecraftServer server) {
@@ -55,7 +56,12 @@ public final class DensityFunctionCompiler {
     }
 
     public static void onDatapackReload(MinecraftServer server) {
+        GARuntimeCaches.resetForServerLifecycle();
         RegistryWarmer.warmAll(server);
+    }
+
+    public static void onServerStopped(MinecraftServer server) {
+        GARuntimeCaches.resetForServerLifecycle();
     }
 
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {

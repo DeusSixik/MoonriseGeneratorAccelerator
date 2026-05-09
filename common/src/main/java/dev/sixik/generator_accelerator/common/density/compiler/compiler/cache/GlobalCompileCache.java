@@ -1,18 +1,20 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.cache;
 
+import com.google.common.collect.MapMaker;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 
 import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
  * Reuses a hidden class + pre-resolved {@link MethodHandle}s when
- * {@link CompilationFingerprint#shapeSha256} matches. Values are strong references.
+ * {@link CompilationFingerprint#shapeSha256} matches. Values are weak references so
+ * hidden classes can be reclaimed after reloads when nothing still uses them.
  * <p>Compilation uses {@link ConcurrentHashMap#computeIfAbsent} on the shape fingerprint
  * <strong>only</strong> — never a global lock — so different router fields compile
  * in parallel, while the same graph only defines one hidden class.
@@ -83,8 +85,8 @@ public final class GlobalCompileCache {
      */
     public record LookupResult(boolean reused, CopiedClassBundle bundle) {}
 
-    private final ConcurrentHashMap<FingerprintKey, CopiedClassBundle> bundles =
-            new ConcurrentHashMap<>(64, 0.5f, 2);
+    private final ConcurrentMap<FingerprintKey, CopiedClassBundle> bundles =
+            new MapMaker().concurrencyLevel(4).weakValues().makeMap();
 
     /**
      * Sum of {@code bundle.bytecode.length} across every cache hit (lifetime).

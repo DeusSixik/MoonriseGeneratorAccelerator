@@ -36,6 +36,14 @@ final class ReusablePipelineFeaturePlaceContext extends FeaturePlaceContext<Feat
         return this;
     }
 
+    void clear() {
+        this.level = null;
+        this.chunkGenerator = null;
+        this.random = null;
+        this.origin = BlockPos.ZERO;
+        this.config = FeatureConfiguration.NONE;
+    }
+
     @Override
     public Optional<ConfiguredFeature<?, ?>> topFeature() {
         return Optional.empty();

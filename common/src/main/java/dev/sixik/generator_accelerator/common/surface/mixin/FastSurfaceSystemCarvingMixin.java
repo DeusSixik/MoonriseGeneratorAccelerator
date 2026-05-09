@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.lang.ref.WeakReference;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -21,13 +22,7 @@ import java.util.function.Function;
 public class FastSurfaceSystemCarvingMixin {
 
     @Unique
-    private final ThreadLocal<ChunkAccess> bts$cachedChunk = new ThreadLocal<>();
-
-    @Unique
-    private final ThreadLocal<SurfaceRules.Context> bts$cachedContext = new ThreadLocal<>();
-
-    @Unique
-    private final ThreadLocal<SurfaceRules.SurfaceRule> bts$cachedRule = new ThreadLocal<>();
+    private final ThreadLocal<CacheEntry> bts$cache = ThreadLocal.withInitial(CacheEntry::new);
 
     /**
      * @author Sixik
@@ -36,20 +31,19 @@ public class FastSurfaceSystemCarvingMixin {
     @Deprecated
     @Overwrite
     public Optional<BlockState> topMaterial(SurfaceRules.RuleSource ruleSource, CarvingContext carvingContext, Function<BlockPos, Holder<Biome>> function, ChunkAccess chunkAccess, NoiseChunk noiseChunk, BlockPos blockPos, boolean bl) {
+        CacheEntry cache = this.bts$cache.get();
+        SurfaceRules.Context context = cache.context.get();
+        SurfaceRules.SurfaceRule surfaceRule = cache.rule.get();
 
-        SurfaceRules.Context context = this.bts$cachedContext.get();
-        SurfaceRules.SurfaceRule surfaceRule = this.bts$cachedRule.get();
-
-        if (context == null || surfaceRule == null || this.bts$cachedChunk.get() != chunkAccess) {
+        if (context == null || surfaceRule == null || cache.chunk.get() != chunkAccess) {
             Function<BlockPos, Holder<Biome>> fastBiomeGetter = pos ->
                     chunkAccess.getNoiseBiome(pos.getX() >> 2, pos.getY() >> 2, pos.getZ() >> 2);
 
             context = new SurfaceRules.Context((SurfaceSystem) (Object) this, carvingContext.randomState(), chunkAccess, noiseChunk, fastBiomeGetter, carvingContext.registryAccess().registryOrThrow(Registries.BIOME), carvingContext);
             surfaceRule = ruleSource.apply(context);
-
-            this.bts$cachedChunk.set(chunkAccess);
-            this.bts$cachedContext.set(context);
-            this.bts$cachedRule.set(surfaceRule);
+            cache.chunk = new WeakReference<>(chunkAccess);
+            cache.context = new WeakReference<>(context);
+            cache.rule = new WeakReference<>(surfaceRule);
         }
 
         int i = blockPos.getX();
@@ -61,5 +55,12 @@ public class FastSurfaceSystemCarvingMixin {
 
         BlockState blockState = surfaceRule.tryApply(i, j, k);
         return Optional.ofNullable(blockState);
+    }
+
+    @Unique
+    private static final class CacheEntry {
+        private WeakReference<ChunkAccess> chunk = new WeakReference<>(null);
+        private WeakReference<SurfaceRules.Context> context = new WeakReference<>(null);
+        private WeakReference<SurfaceRules.SurfaceRule> rule = new WeakReference<>(null);
     }
 }

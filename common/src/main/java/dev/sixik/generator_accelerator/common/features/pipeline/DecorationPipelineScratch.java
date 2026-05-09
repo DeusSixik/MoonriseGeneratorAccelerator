@@ -20,6 +20,10 @@ public final class DecorationPipelineScratch {
     private static final int DEFAULT_CANDIDATE_CAPACITY = 2048;
     private static final int DEFAULT_SECTION_BUCKET_CAPACITY = 128;
     private static final int DEFAULT_MODIFIER_BUFFER_CAPACITY = 32;
+    private static final int MAX_RETAINED_CANDIDATE_CAPACITY = 65_536;
+    private static final int MAX_RETAINED_SECTION_BUCKET_CAPACITY = 8_192;
+    private static final int MAX_RETAINED_TOUCHED_MUTATION_CAPACITY = 8_192;
+    private static final int MAX_RETAINED_MODIFIER_BUFFER_DEPTH = 16;
     private static final int MAX_REUSED_ORE_BITSET_BITS = 262_144;
     private static final int MAX_REUSED_ORE_VISITED_WORDS = MAX_REUSED_ORE_BITSET_BITS >>> 6;
     private static final int HEIGHTMAP_CACHE_SLOTS = 8;
@@ -113,12 +117,17 @@ public final class DecorationPipelineScratch {
         this.descriptors.clear();
         this.biomeFeatureCache.clear();
         this.chunkWriter.end();
+        this.featurePlaceContext.clear();
+        if (this.placementContext != null) {
+            this.placementContext.clear();
+        }
         this.descriptorCenterChunk = null;
         this.descriptorCenterPos = 0L;
         this.descriptorsPrepared = false;
         Arrays.fill(this.heightmapCacheChunks, null);
         Arrays.fill(this.heightmapCache, null);
         this.modifierBufferDepth = 0;
+        this.shrinkOversizedBuffers();
     }
 
     boolean descriptorsPreparedFor(ChunkAccess chunk) {
@@ -516,6 +525,46 @@ public final class DecorationPipelineScratch {
         Arrays.fill(this.touchedMutationChunk, 0, this.touchedMutationCount, null);
         this.touchedMutationCount = 0;
         this.touchedMutationIndexByKey.clear();
+    }
+
+    private void shrinkOversizedBuffers() {
+        if (this.candidateX.length > MAX_RETAINED_CANDIDATE_CAPACITY) {
+            this.candidateX = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateY = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateZ = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateKernelId = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.selectedFeatureBuffer = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateNext = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateSectionIndex = new int[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateSeed = new long[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateSectionKey = new long[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateSimpleBlockState = new BlockState[DEFAULT_CANDIDATE_CAPACITY];
+            this.candidateWriteFlags = new int[DEFAULT_CANDIDATE_CAPACITY];
+        } else if (this.selectedFeatureBuffer.length > MAX_RETAINED_CANDIDATE_CAPACITY) {
+            this.selectedFeatureBuffer = new int[DEFAULT_CANDIDATE_CAPACITY];
+        }
+
+        if (this.sectionBucketKey.length > MAX_RETAINED_SECTION_BUCKET_CAPACITY) {
+            this.sectionBucketHead = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketTail = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketKey = new long[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketNextInChunk = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketHead = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketTail = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketKey = new long[DEFAULT_SECTION_BUCKET_CAPACITY];
+        }
+
+        if (this.touchedMutationX.length > MAX_RETAINED_TOUCHED_MUTATION_CAPACITY) {
+            this.touchedMutationChunk = new ChunkAccess[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.touchedMutationX = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.touchedMutationY = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+            this.touchedMutationZ = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+        }
+
+        if (this.modifierPositionBuffers.length > MAX_RETAINED_MODIFIER_BUFFER_DEPTH) {
+            this.modifierPositionBuffers = new LongScratchBuffer[4];
+            this.modifierPositionBuffers[0] = new LongScratchBuffer(DEFAULT_MODIFIER_BUFFER_CAPACITY);
+        }
     }
 
     private static final class ChunkAccessPos {

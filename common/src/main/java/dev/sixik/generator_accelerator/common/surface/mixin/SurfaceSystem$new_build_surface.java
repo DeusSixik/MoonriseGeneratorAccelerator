@@ -83,6 +83,9 @@ public abstract class SurfaceSystem$new_build_surface {
             SurfaceRules.RuleSource ruleSource
     ) {
         final GASurfaceChunkBiomeLookup bts$chunkBiome = BTS$CHUNK_BIOME_LOOKUP.get();
+        Holder<Biome>[] surfaceBiomes = null;
+        VectorChunkContext ctx = null;
+        VectorBlockColumn fastColumn = null;
         try {
             final SurfaceProgram pSurfaceProgram = SurfaceProgramCache.getOrCompile(ruleSource);
             final SurfaceScratch scratch = BTS$SURFACE_SCRATCH.get();
@@ -90,9 +93,9 @@ public abstract class SurfaceSystem$new_build_surface {
             final int minBlockX = chunkpos.getMinBlockX();
             final int minBlockZ = chunkpos.getMinBlockZ();
 
-            Holder<Biome>[] surfaceBiomes = BTS$SURFACE_BIOMES.get();
+            surfaceBiomes = BTS$SURFACE_BIOMES.get();
             int defaultBlockId = GA$BlockStateExtension.get(this.defaultBlock).bts$getFastId();
-            VectorChunkContext ctx = BTS$VECTOR_CONTEXT.get();
+            ctx = BTS$VECTOR_CONTEXT.get();
             if (ctx == null) {
                 ctx = new VectorChunkContext(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
                 BTS$VECTOR_CONTEXT.set(ctx);
@@ -104,7 +107,7 @@ public abstract class SurfaceSystem$new_build_surface {
             final LevelChunkSection[] sections = pChunk.getSections();
             final BlockPos.MutableBlockPos columnPos = BTS$COLUMN_POS.get();
             final BlockPos.MutableBlockPos biomePos = BTS$BIOME_POS.get();
-            VectorBlockColumn fastColumn = BTS$VECTOR_COLUMN.get();
+            fastColumn = BTS$VECTOR_COLUMN.get();
             if (fastColumn == null) {
                 fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
                 BTS$VECTOR_COLUMN.set(fastColumn);
@@ -274,6 +277,15 @@ public abstract class SurfaceSystem$new_build_surface {
             InjectHelper.inject();
         } finally {
             bts$chunkBiome.dispose();
+            if (surfaceBiomes != null) {
+                Arrays.fill(surfaceBiomes, null);
+            }
+            if (fastColumn != null) {
+                fastColumn.clear();
+            }
+            if (ctx != null) {
+                ctx.clear();
+            }
         }
     }
 }

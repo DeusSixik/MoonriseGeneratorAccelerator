@@ -12,6 +12,7 @@ import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 @Mod(GeneratorAccelerator.MOD_ID)
 public final class GeneratorAcceleratorNeoForge {
@@ -21,6 +22,7 @@ public final class GeneratorAcceleratorNeoForge {
         var bus = NeoForge.EVENT_BUS;
         bus.addListener(this::onServerStarting);
         bus.addListener(this::onServerStarted);
+        bus.addListener(this::onServerStopped);
         bus.addListener(this::onDatapackSync);
         bus.addListener(this::onRegisterCommands);
 
@@ -44,6 +46,10 @@ public final class GeneratorAcceleratorNeoForge {
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
         DensityFunctionCompiler.registerCommands(event.getDispatcher());
+    }
+
+    private void onServerStopped(ServerStoppedEvent event) {
+        DensityFunctionCompiler.onServerStopped(event.getServer());
     }
 
     private void commonSetup(FMLLoadCompleteEvent event) {

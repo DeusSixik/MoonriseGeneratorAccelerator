@@ -16,6 +16,7 @@ final class PipelineBiomeFeatureCache {
     private PlacedFeature feature;
 
     void clear() {
+        Arrays.fill(this.biomes, 0, this.size, null);
         this.size = 0;
         this.generator = null;
         this.feature = null;

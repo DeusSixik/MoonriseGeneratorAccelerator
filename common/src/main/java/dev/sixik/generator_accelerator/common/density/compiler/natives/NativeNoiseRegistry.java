@@ -6,11 +6,12 @@ import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.Impro
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 
+import java.lang.ref.Cleaner;
 import java.util.List;
 
 /**
  * Builds and owns opaque native handles for {@link NoiseSpec} / {@link BlendedNoiseSpec} data.
- * Handles are stored in {@code nativeNoiseHandles[]} on each compiled instance (see
+ * Handles are stored in {@code NativeNoiseRegistry.HandleSet} on each compiled instance (see
  * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction}).
  */
 public final class NativeNoiseRegistry {
@@ -18,15 +19,15 @@ public final class NativeNoiseRegistry {
     private NativeNoiseRegistry() {}
 
     /**
-     * @return array of length {@code noiseSpecCount + blendedNoiseSpecCount}; entries are
+     * @return handle set of length {@code noiseSpecCount + blendedNoiseSpecCount}; entries are
      *         {@code 0} when natives are unavailable or allocation fails.
      */
-    public static long[] buildHandles(List<NoiseSpec> noiseSpecs, List<BlendedNoiseSpec> blendedSpecs) {
+    public static HandleSet buildHandleSet(List<NoiseSpec> noiseSpecs, List<BlendedNoiseSpec> blendedSpecs) {
         int nn = noiseSpecs.size();
         int nb = blendedSpecs.size();
         long[] out = new long[nn + nb];
         if (!CodegenNativeNoise.enabled() || !DfcNativeBridge.isAvailable()) {
-            return out;
+            return new HandleSet(out, nn);
         }
         for (int i = 0; i < nn; i++) {
             out[i] = allocNormal(noiseSpecs.get(i));
@@ -34,7 +35,7 @@ public final class NativeNoiseRegistry {
         for (int j = 0; j < nb; j++) {
             out[nn + j] = allocBlended(blendedSpecs.get(j));
         }
-        return out;
+        return new HandleSet(out, nn);
     }
 
     /**
@@ -52,6 +53,30 @@ public final class NativeNoiseRegistry {
             } else {
                 DfcNativeBridge.releaseBlendedSpec(h);
             }
+        }
+    }
+
+    public static final class HandleSet {
+        private static final Cleaner CLEANER = Cleaner.create();
+
+        private final long[] handles;
+        @SuppressWarnings("unused")
+        private final Cleaner.Cleanable cleanable;
+
+        private HandleSet(long[] handles, int noiseSpecCount) {
+            this.handles = handles == null ? new long[0] : handles;
+            this.cleanable = CLEANER.register(this, new State(this.handles, noiseSpecCount));
+        }
+
+        public long handle(int index) {
+            return index >= 0 && index < this.handles.length ? this.handles[index] : 0L;
+        }
+    }
+
+    private record State(long[] handles, int noiseSpecCount) implements Runnable {
+        @Override
+        public void run() {
+            releaseAllTyped(this.handles, this.noiseSpecCount);
         }
     }
 

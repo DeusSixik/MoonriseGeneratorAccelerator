@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.features.mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$StructureManagerExtension;
 import dev.sixik.generator_accelerator.common.features.BiomeDecorationScratch;
 import dev.sixik.generator_accelerator.common.features.BiomeSignatureFeatureMaskCache;
+import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
 import dev.sixik.generator_accelerator.common.features.RegistryNameSupplier;
 import dev.sixik.generator_accelerator.common.features.StepFeatureCache;
 import dev.sixik.generator_accelerator.common.features.StructureStepCache;
@@ -92,6 +93,9 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     @Unique
     private volatile BiomeSignatureFeatureMaskCache ga$biomeSignatureMaskCache;
 
+    @Unique
+    private volatile int ga$featureCacheEpoch = Integer.MIN_VALUE;
+
     @Shadow
     @Final
     protected BiomeSource biomeSource;
@@ -129,6 +133,8 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 STRUCTURE_CACHE.set(structureStepCache);
             }
 // GENERATOR ACCELERATOR END
+
+            this.ga$ensureFeatureCacheEpoch();
 
             StepFeatureCache featureCache = this.ga$getStepFeatureCache();
             DecorationPlan decorationPlan = this.ga$getDecorationPlan(featureCache);
@@ -321,6 +327,20 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             this.ga$biomeSignatureMaskCache = cache;
         }
         return cache;
+    }
+
+    @Unique
+    private void ga$ensureFeatureCacheEpoch() {
+        int epoch = FeatureCacheEpoch.current();
+        if (this.ga$featureCacheEpoch == epoch) {
+            return;
+        }
+
+        this.ga$stepFeatureCache = null;
+        this.ga$decorationPlan = null;
+        this.ga$biomeSignatureFeatureCacheOwner = null;
+        this.ga$biomeSignatureMaskCache = null;
+        this.ga$featureCacheEpoch = epoch;
     }
 
     @Unique

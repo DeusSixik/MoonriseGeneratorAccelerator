@@ -27,6 +27,12 @@ public class VectorBlockColumn implements BlockColumn {
         this.columnPos = mutableBlockPos;
     }
 
+    public void clear() {
+        this.pChunk = null;
+        this.sections = null;
+        this.columnPos = null;
+    }
+
     @Override
     public BlockState getBlock(int y) {
         int sectionIndex = this.pChunk.getSectionIndex(y);

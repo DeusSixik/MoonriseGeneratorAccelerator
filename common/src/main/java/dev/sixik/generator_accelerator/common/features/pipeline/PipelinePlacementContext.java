@@ -41,6 +41,14 @@ public final class PipelinePlacementContext extends PlacementContext {
         return this;
     }
 
+    PipelinePlacementContext clear() {
+        this.level = null;
+        this.generator = null;
+        this.topFeature = Optional.empty();
+        this.descriptors = null;
+        return this;
+    }
+
     @Override
     public int getHeight(Heightmap.Types types, int x, int z) {
         if (this.descriptors != null) {

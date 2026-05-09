@@ -53,6 +53,11 @@ public final class FeatureScratch {
     void reset() {
         // Buffers clear on acquire by depth; release must stay zero-cost in hot path.
         this.biomeFilterScratch.clear();
+        for (ReusableFeaturePlaceContext context : this.featurePlaceContexts) {
+            if (context != null) {
+                context.clear();
+            }
+        }
     }
 
     private void grow(int capacity) {

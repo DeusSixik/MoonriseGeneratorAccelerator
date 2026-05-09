@@ -49,6 +49,13 @@ public class VectorChunkContext {
         this.surfaceSystem = surfaceSystem;
     }
 
+    public void clear() {
+        this.surfaceBiomes = null;
+        this.worldContext = null;
+        this.randomState = null;
+        this.surfaceSystem = null;
+    }
+
     public void updateForSection(int startX, int startY, int startZ) {
         this.sectionStartX = startX;
         this.sectionStartY = startY;

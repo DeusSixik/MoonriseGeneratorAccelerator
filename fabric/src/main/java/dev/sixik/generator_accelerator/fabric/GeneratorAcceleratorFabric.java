@@ -19,6 +19,7 @@ public final class GeneratorAcceleratorFabric implements ModInitializer {
         DensityFunctionCompiler.init();
         ServerLifecycleEvents.SERVER_STARTING.register(DensityFunctionCompiler::onServerStarting);
         ServerLifecycleEvents.SERVER_STARTED.register(DensityFunctionCompiler::onServerStarted);
+        ServerLifecycleEvents.SERVER_STOPPED.register(DensityFunctionCompiler::onServerStopped);
         CommandRegistrationCallback.EVENT.register(
                 (dispatcher, registryAccess, environment) -> DensityFunctionCompiler.registerCommands(dispatcher));
     }
