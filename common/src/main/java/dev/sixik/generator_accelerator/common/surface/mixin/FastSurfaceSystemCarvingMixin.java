@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.mixin;
 
+import dev.sixik.generator_accelerator.common.surface.FastSurfaceSystemCarvingCacheEntry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
@@ -22,7 +23,8 @@ import java.util.function.Function;
 public class FastSurfaceSystemCarvingMixin {
 
     @Unique
-    private final ThreadLocal<CacheEntry> bts$cache = ThreadLocal.withInitial(CacheEntry::new);
+    private final ThreadLocal<FastSurfaceSystemCarvingCacheEntry> bts$cache =
+            ThreadLocal.withInitial(FastSurfaceSystemCarvingCacheEntry::new);
 
     /**
      * @author Sixik
@@ -31,7 +33,7 @@ public class FastSurfaceSystemCarvingMixin {
     @Deprecated
     @Overwrite
     public Optional<BlockState> topMaterial(SurfaceRules.RuleSource ruleSource, CarvingContext carvingContext, Function<BlockPos, Holder<Biome>> function, ChunkAccess chunkAccess, NoiseChunk noiseChunk, BlockPos blockPos, boolean bl) {
-        CacheEntry cache = this.bts$cache.get();
+        FastSurfaceSystemCarvingCacheEntry cache = this.bts$cache.get();
         SurfaceRules.Context context = cache.context.get();
         SurfaceRules.SurfaceRule surfaceRule = cache.rule.get();
 
@@ -55,12 +57,5 @@ public class FastSurfaceSystemCarvingMixin {
 
         BlockState blockState = surfaceRule.tryApply(i, j, k);
         return Optional.ofNullable(blockState);
-    }
-
-    @Unique
-    private static final class CacheEntry {
-        private WeakReference<ChunkAccess> chunk = new WeakReference<>(null);
-        private WeakReference<SurfaceRules.Context> context = new WeakReference<>(null);
-        private WeakReference<SurfaceRules.SurfaceRule> rule = new WeakReference<>(null);
     }
 }
