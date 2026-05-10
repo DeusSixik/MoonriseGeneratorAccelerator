@@ -78,10 +78,9 @@ import java.util.Map;
  *
  * <h2>Thread safety</h2>
  *
- * <p>Vanilla keeps {@code NoiseChunk} wrapping single-threaded, but some modded
- * pipelines parallelize router field mapping. The session fields remain per chunk;
- * {@link #wrap(DensityFunction)} is synchronized so chunk-local cache wrappers cannot
- * be published through a racing wrapper map.
+ * <p>Vanilla keeps {@code NoiseChunk} wrapping single-threaded. We keep that fast
+ * owner-thread assumption and avoid turning the wrapper map into a lock convoy; helper
+ * threads that reach {@link MapAllSession} bypass its memo rather than sharing it.
  */
 @Mixin(value = NoiseChunk.class, priority = 2000)
 public abstract class NoiseChunkSessionMixin {
@@ -103,10 +102,10 @@ public abstract class NoiseChunkSessionMixin {
 
     /**
      * @author Sixik
-     * @reason Keep NoiseChunk's wrapper map safe if router field mapping is parallelized.
+     * @reason Avoid generic Map.computeIfAbsent overhead on the chunk-local wrapper map.
      */
     @Overwrite
-    protected synchronized DensityFunction wrap(DensityFunction densityFunction) {
+    protected DensityFunction wrap(DensityFunction densityFunction) {
         DensityFunction cached = this.wrapped.get(densityFunction);
         if (cached != null) {
             return cached;
