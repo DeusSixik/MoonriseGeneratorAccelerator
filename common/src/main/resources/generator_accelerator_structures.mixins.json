@@ -18,7 +18,11 @@
     "pools.MixinJigsawPlacement$use_cached_jigsaws",
     "pools.MixinSinglePoolElement$cache_jigsawBlocks",
     "pools.MixinStructurePoolElement$cache_jigsawBlocks",
-    "pools.MixinStructureTemplateManager$lru_cache"
+    "pools.MixinStructureTemplateManager$lru_cache",
+    "safe.MixinStructureCheck",
+    "safe.MixinStructureTemplatePalette",
+    "safe.StructureTemplatePaletteInvoker",
+    "safe.MixinStructureTemplate"
   ],
   "injectors": {
     "defaultRequire": 1
