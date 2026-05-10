@@ -20,6 +20,8 @@ public final class CarverChunkWriter {
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
     private static final BlockState VOID_AIR = Blocks.VOID_AIR.defaultBlockState();
 
+    private static final int AIR_ID = GA$BlockStateExtension.get(AIR).bts$getFastId();
+
     private final Heightmap[] heightmaps = new Heightmap[Heightmap.Types.values().length];
     private final int[][] rawSections = new int[32][];
     private ChunkAccess chunk;
@@ -214,6 +216,6 @@ public final class CarverChunkWriter {
     }
 
     private static int airStateId() {
-        return GA$BlockStateExtension.get(AIR).bts$getFastId();
+        return AIR_ID;
     }
 }
