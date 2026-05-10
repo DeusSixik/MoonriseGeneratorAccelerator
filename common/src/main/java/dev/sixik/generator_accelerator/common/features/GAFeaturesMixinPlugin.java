@@ -38,7 +38,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         create("com.telepathicgrunt.repurposedstructures.RepurposedStructures",
                 new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinDistanceFromWorldOriginPlacementMixin", ""),
                 new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin", ""),
-                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", "")
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$NoVinesInStructuresMixin", "com.telepathicgrunt.repurposedstructures.mixins.features.NoVinesInStructuresMixin")
         );
 
         create("net.countered.terrainslabs.TerrainSlabs",
@@ -58,6 +59,7 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "",
                 "com.ishland.c2me.opts.allocs.mixin.object_pooling_caching.MixinOreFeature"
         ));
+
 
     }
 
