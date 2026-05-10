@@ -1,9 +1,11 @@
 package dev.sixik.generator_accelerator.common.features.cache;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Function;
@@ -12,7 +14,10 @@ public final class SharedWeakCache<K, V> {
     private static final Set<SharedWeakCache<?, ?>> INSTANCES =
             Collections.newSetFromMap(new WeakHashMap<>());
 
-    private final Map<K, V> cache = Collections.synchronizedMap(new WeakHashMap<>());
+    private final Cache<K, V> cache = Caffeine.newBuilder()
+            .initialCapacity(16)
+            .weakKeys()
+            .build();
     private volatile WeakReference<K> lastKey;
     private volatile WeakReference<V> lastValue;
 
@@ -31,36 +36,24 @@ public final class SharedWeakCache<K, V> {
             return cachedValue;
         }
 
-        synchronized (this.cache) {
-            V cached = this.cache.get(key);
-            if (cached != null) {
-                this.storeLast(key, cached);
-                return cached;
-            }
-        }
-
-        V computed = factory.apply(key);
-        synchronized (this.cache) {
-            V cached = this.cache.get(key);
-            if (cached == null) {
-                cached = computed;
-                this.cache.put(key, cached);
-            }
+        V cached = this.cache.getIfPresent(key);
+        if (cached != null) {
             this.storeLast(key, cached);
             return cached;
         }
+
+        cached = this.cache.get(key, factory);
+        this.storeLast(key, cached);
+        return cached;
     }
 
     public int size() {
-        synchronized (this.cache) {
-            return this.cache.size();
-        }
+        return (int) this.cache.estimatedSize();
     }
 
     public void clear() {
-        synchronized (this.cache) {
-            this.cache.clear();
-        }
+        this.cache.invalidateAll();
+        this.cache.cleanUp();
         this.lastKey = null;
         this.lastValue = null;
     }

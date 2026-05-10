@@ -1,13 +1,14 @@
 package dev.sixik.generator_accelerator.common.surface.compiler;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.WeakHashMap;
-
 public final class SurfaceProgramCache {
-    private static final Map<SurfaceRules.RuleSource, SurfaceProgram> CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Cache<SurfaceRules.RuleSource, SurfaceProgram> CACHE = Caffeine.newBuilder()
+            .initialCapacity(64)
+            .weakKeys()
+            .build();
 
     private static volatile LastEntry lastEntry;
 
@@ -24,37 +25,25 @@ public final class SurfaceProgramCache {
             return last.program;
         }
 
-        SurfaceProgram cached;
-        synchronized (CACHE) {
-            cached = CACHE.get(ruleSource);
-            if (cached != null) {
-                SurfaceMetrics.cacheHit();
-                SurfaceMetrics.recordCacheLookupTime(lookupStart);
-                lastEntry = new LastEntry(ruleSource, cached);
-                return cached;
-            }
+        SurfaceProgram cached = CACHE.getIfPresent(ruleSource);
+        if (cached != null) {
+            SurfaceMetrics.cacheHit();
+            SurfaceMetrics.recordCacheLookupTime(lookupStart);
+            lastEntry = new LastEntry(ruleSource, cached);
+            return cached;
         }
 
         SurfaceMetrics.cacheMiss();
         SurfaceMetrics.recordCacheLookupTime(lookupStart);
 
-        SurfaceProgram compiled = SurfaceRuleCompiler.compile(ruleSource);
-        synchronized (CACHE) {
-            cached = CACHE.get(ruleSource);
-            if (cached == null) {
-                cached = compiled;
-                CACHE.put(ruleSource, cached);
-            }
-        }
-
+        cached = CACHE.get(ruleSource, SurfaceRuleCompiler::compile);
         lastEntry = new LastEntry(ruleSource, cached);
         return cached;
     }
 
     public static void clear() {
-        synchronized (CACHE) {
-            CACHE.clear();
-        }
+        CACHE.invalidateAll();
+        CACHE.cleanUp();
         lastEntry = null;
     }
 

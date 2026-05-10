@@ -1,11 +1,12 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.NormalNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
-import java.util.concurrent.ConcurrentMap;
+
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -42,8 +43,10 @@ public final class NoiseSpecCache {
 
     private static final Object FAILED = new Object();
 
-    private static final ConcurrentMap<NormalNoise, Object> CACHE =
-            new MapMaker().weakKeys().concurrencyLevel(4).makeMap();
+    private static final Cache<NormalNoise, Object> CACHE = Caffeine.newBuilder()
+            .initialCapacity(32)
+            .weakKeys()
+            .build();
 
     private NoiseSpecCache() {}
 
@@ -54,7 +57,7 @@ public final class NoiseSpecCache {
      * the legacy un-inlined emission path in that case.
      */
     public static NoiseSpec specFor(NormalNoise noise) {
-        Object v = CACHE.computeIfAbsent(noise, k -> {
+        Object v = CACHE.get(noise, k -> {
             NoiseSpec built = build(k);
             if (built == null) {
                 return FAILED;
@@ -71,7 +74,8 @@ public final class NoiseSpecCache {
 
     /** For tests / {@code /dfc reload}: drop everything we've cached. */
     public static void clear() {
-        CACHE.clear();
+        CACHE.invalidateAll();
+        CACHE.cleanUp();
         BlendedNoiseSpecCache.clear();
     }
 

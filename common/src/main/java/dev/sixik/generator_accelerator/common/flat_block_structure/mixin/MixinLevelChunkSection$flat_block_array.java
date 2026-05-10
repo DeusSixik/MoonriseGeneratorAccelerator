@@ -9,6 +9,7 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.material.FluidState;
 import org.jetbrains.annotations.Nullable;
+import org.jctools.queues.MpmcArrayQueue;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
@@ -16,8 +17,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 import java.util.Arrays;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 @Mixin(value = LevelChunkSection.class, priority = 999)
@@ -42,9 +41,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     private static final int bts$RAW_BLOCK_DATA_POOL_MAX = Math.max(32,
             Integer.getInteger("ga.flatBlockArray.rawPoolMax", Runtime.getRuntime().availableProcessors() * 64));
     @Unique
-    private static final ConcurrentLinkedQueue<int[]> bts$RAW_BLOCK_DATA_POOL = new ConcurrentLinkedQueue<>();
-    @Unique
-    private static final AtomicInteger bts$RAW_BLOCK_DATA_POOL_SIZE = new AtomicInteger();
+    private static final MpmcArrayQueue<int[]> bts$RAW_BLOCK_DATA_POOL =
+            new MpmcArrayQueue<>(bts$RAW_BLOCK_DATA_POOL_MAX);
 
     /**
      * Получить сырые данные блоков в виде плоского одномерного массива.
@@ -145,7 +143,6 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         if (raw == null) {
             return new int[bts$RAW_BLOCK_DATA_LENGTH];
         }
-        bts$RAW_BLOCK_DATA_POOL_SIZE.decrementAndGet();
         Arrays.fill(raw, 0);
         return raw;
     }
@@ -155,14 +152,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         if (raw.length != bts$RAW_BLOCK_DATA_LENGTH) {
             return;
         }
-        int size = bts$RAW_BLOCK_DATA_POOL_SIZE.get();
-        while (size < bts$RAW_BLOCK_DATA_POOL_MAX) {
-            if (bts$RAW_BLOCK_DATA_POOL_SIZE.compareAndSet(size, size + 1)) {
-                bts$RAW_BLOCK_DATA_POOL.offer(raw);
-                return;
-            }
-            size = bts$RAW_BLOCK_DATA_POOL_SIZE.get();
-        }
+        bts$RAW_BLOCK_DATA_POOL.offer(raw);
     }
 
     /**

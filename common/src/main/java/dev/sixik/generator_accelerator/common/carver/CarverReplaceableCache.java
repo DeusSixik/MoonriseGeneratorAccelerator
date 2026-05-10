@@ -1,27 +1,29 @@
 package dev.sixik.generator_accelerator.common.carver;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.carver.CarverConfiguration;
 
-import java.util.concurrent.ConcurrentMap;
-
 public final class CarverReplaceableCache {
 
-    private static final ConcurrentMap<CarverConfiguration, boolean[]> CACHE =
-            new MapMaker().weakKeys().concurrencyLevel(4).makeMap();
+    private static final LoadingCache<CarverConfiguration, boolean[]> CACHE = Caffeine.newBuilder()
+            .initialCapacity(16)
+            .weakKeys()
+            .build(CarverReplaceableCache::build);
 
     private CarverReplaceableCache() {
     }
 
     public static boolean[] get(CarverConfiguration configuration) {
-        return CACHE.computeIfAbsent(configuration, CarverReplaceableCache::build);
+        return CACHE.get(configuration);
     }
 
     public static void clear() {
-        CACHE.clear();
+        CACHE.invalidateAll();
+        CACHE.cleanUp();
     }
 
     private static boolean[] build(CarverConfiguration configuration) {
