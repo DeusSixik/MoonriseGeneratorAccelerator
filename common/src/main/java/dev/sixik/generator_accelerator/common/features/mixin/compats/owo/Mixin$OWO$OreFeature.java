@@ -22,11 +22,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public class Mixin$OWO$OreFeature {
 
     @Unique
-    private final ThreadLocal<Long2ObjectOpenHashMap<BlockState>> OWO$COPING =
+    private static final ThreadLocal<Long2ObjectOpenHashMap<BlockState>> GA$OWO_COPING =
             ThreadLocal.withInitial(Long2ObjectOpenHashMap::new);
 
     @Unique
-    private final ThreadLocal<BlockPos.MutableBlockPos> OWO$COPING_POS =
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$OWO_COPING_POS =
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @TargetHandler(
@@ -62,7 +62,7 @@ public class Mixin$OWO$OreFeature {
     ) {
         BlockState state = target.placementState();
         if (Maldenhagen.isOnCopium(state.getBlock())) {
-            this.OWO$COPING.get().put(mutableBlockPos.asLong(), state);
+            GA$OWO_COPING.get().put(mutableBlockPos.asLong(), state);
         }
     }
 
@@ -91,8 +91,8 @@ public class Mixin$OWO$OreFeature {
             int pHeight,
             CallbackInfoReturnable<Boolean> cir
     ) {
-        Long2ObjectOpenHashMap<BlockState> map = this.OWO$COPING.get();
-        BlockPos.MutableBlockPos pos = this.OWO$COPING_POS.get();
+        Long2ObjectOpenHashMap<BlockState> map = GA$OWO_COPING.get();
+        BlockPos.MutableBlockPos pos = GA$OWO_COPING_POS.get();
         for (Long2ObjectMap.Entry<BlockState> entry : map.long2ObjectEntrySet()) {
             pLevel.setBlock(pos.set(entry.getLongKey()), entry.getValue(), 3);
         }
