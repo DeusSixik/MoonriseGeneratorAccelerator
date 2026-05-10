@@ -87,9 +87,13 @@ dependencies {
     // Do NOT use other classes from Fabric Loader.
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
+    compileOnly "com.github.ben-manes.caffeine:caffeine:3.1.8"
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
     compileOnly "org.ow2.asm:asm:9.8"
     compileOnly "org.ow2.asm:asm-tree:9.8"
+
+    testImplementation "com.github.ben-manes.caffeine:caffeine:3.1.8"
+    testImplementation "com.github.JCTools.JCTools:jctools-core:v4.0.3"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"

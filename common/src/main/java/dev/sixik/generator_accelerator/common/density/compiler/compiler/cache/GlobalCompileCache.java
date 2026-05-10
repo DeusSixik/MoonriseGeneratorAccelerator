@@ -1,12 +1,12 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.cache;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 
 import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -85,8 +85,10 @@ public final class GlobalCompileCache {
      */
     public record LookupResult(boolean reused, CopiedClassBundle bundle) {}
 
-    private final ConcurrentMap<FingerprintKey, CopiedClassBundle> bundles =
-            new MapMaker().concurrencyLevel(4).weakValues().makeMap();
+    private final Cache<FingerprintKey, CopiedClassBundle> bundles = Caffeine.newBuilder()
+            .initialCapacity(64)
+            .weakValues()
+            .build();
 
     /**
      * Sum of {@code bundle.bytecode.length} across every cache hit (lifetime).
@@ -115,13 +117,13 @@ public final class GlobalCompileCache {
 
     public LookupResult getOrCompile(byte[] shapeSha256, byte[] exactSha256, Supplier<CopiedClassBundle> onMiss) {
         FingerprintKey key = new FingerprintKey(shapeSha256);
-        CopiedClassBundle fast = bundles.get(key);
+        CopiedClassBundle fast = bundles.getIfPresent(key);
         if (fast != null) {
             recordHit(fast, exactSha256);
             return new LookupResult(true, fast);
         }
         var ran = new AtomicBoolean(false);
-        CopiedClassBundle b = bundles.computeIfAbsent(key, k -> {
+        CopiedClassBundle b = bundles.get(key, k -> {
             ran.set(true);
             return onMiss.get();
         });
@@ -160,18 +162,19 @@ public final class GlobalCompileCache {
 
     /** Test / reload support */
     public void clear() {
-        bundles.clear();
+        bundles.invalidateAll();
+        bundles.cleanUp();
         bytesSaved.set(0);
         instancesShared.set(0);
         shapeHitsAcrossExactMisses.set(0);
     }
 
     public int size() {
-        return bundles.size();
+        return (int) bundles.estimatedSize();
     }
 
     public List<CopiedClassBundle> snapshotBundles() {
-        return new ArrayList<>(bundles.values());
+        return new ArrayList<>(bundles.asMap().values());
     }
 
     /**
@@ -233,7 +236,7 @@ public final class GlobalCompileCache {
         int nullCtors = 0;
         int badBytecode = 0;
 
-        for (var entry : bundles.entrySet()) {
+        for (var entry : bundles.asMap().entrySet()) {
             total++;
             CopiedClassBundle b = entry.getValue();
             byte[] keyBytes = entry.getKey().sha256();

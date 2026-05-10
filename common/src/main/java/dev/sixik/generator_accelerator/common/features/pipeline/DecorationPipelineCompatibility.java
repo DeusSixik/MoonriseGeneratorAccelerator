@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -11,9 +13,7 @@ import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -22,7 +22,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * routed through a conservative vanilla-style path for the rest of the session.
  */
 public final class DecorationPipelineCompatibility {
-    private static final Map<PlacedFeature, Boolean> QUARANTINED_FEATURES = new IdentityHashMap<>();
+    private static final Cache<PlacedFeature, Boolean> QUARANTINED_FEATURES = Caffeine.newBuilder()
+            .initialCapacity(32)
+            .weakKeys()
+            .build();
     private static final ConcurrentHashMap<String, AtomicInteger> QUARANTINED_NAMESPACES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> DESCRIPTOR_FAILURES = new ConcurrentHashMap<>();
 
@@ -30,9 +33,8 @@ public final class DecorationPipelineCompatibility {
     }
 
     public static void clearSessionCaches() {
-        synchronized (QUARANTINED_FEATURES) {
-            QUARANTINED_FEATURES.clear();
-        }
+        QUARANTINED_FEATURES.invalidateAll();
+        QUARANTINED_FEATURES.cleanUp();
         QUARANTINED_NAMESPACES.clear();
         DESCRIPTOR_FAILURES.clear();
     }
@@ -41,9 +43,7 @@ public final class DecorationPipelineCompatibility {
         if (feature == null) {
             return false;
         }
-        synchronized (QUARANTINED_FEATURES) {
-            return QUARANTINED_FEATURES.containsKey(feature);
-        }
+        return QUARANTINED_FEATURES.getIfPresent(feature) != null;
     }
 
     static void quarantine(
@@ -67,9 +67,7 @@ public final class DecorationPipelineCompatibility {
         }
 
         boolean firstFailure;
-        synchronized (QUARANTINED_FEATURES) {
-            firstFailure = QUARANTINED_FEATURES.put(feature, Boolean.TRUE) == null;
-        }
+        firstFailure = QUARANTINED_FEATURES.asMap().putIfAbsent(feature, Boolean.TRUE) == null;
         if (!firstFailure) {
             return;
         }

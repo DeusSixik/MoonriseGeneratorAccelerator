@@ -1,13 +1,13 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.BlendedNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -18,13 +18,15 @@ public final class BlendedNoiseSpecCache {
     public static final AtomicLong MIXIN_BIND_FAILURES = new AtomicLong();
 
     private static final Object FAILED = new Object();
-    private static final ConcurrentMap<BlendedNoise, Object> CACHE =
-            new MapMaker().weakKeys().concurrencyLevel(4).makeMap();
+    private static final Cache<BlendedNoise, Object> CACHE = Caffeine.newBuilder()
+            .initialCapacity(16)
+            .weakKeys()
+            .build();
 
     private BlendedNoiseSpecCache() {}
 
     public static BlendedNoiseSpec specFor(BlendedNoise noise) {
-        Object v = CACHE.computeIfAbsent(noise, k -> {
+        Object v = CACHE.get(noise, k -> {
             BlendedNoiseSpec b = build(k);
             if (b == null) {
                 return FAILED;
@@ -39,7 +41,8 @@ public final class BlendedNoiseSpecCache {
     }
 
     public static void clear() {
-        CACHE.clear();
+        CACHE.invalidateAll();
+        CACHE.cleanUp();
     }
 
     private static BlendedNoiseSpec build(BlendedNoise bn) {

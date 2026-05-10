@@ -1,6 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.core.HolderGetter;
@@ -49,9 +49,9 @@ public final class RegistryWarmer {
 
     private static final Set<RegistryGenerationKey> WARMED_GENERATIONS = ConcurrentHashMap.newKeySet();
     private static final Set<NoiseGeneratorSettings> WARMED_NOISE_SETTINGS = Collections.newSetFromMap(
-            new MapMaker().weakKeys().concurrencyLevel(4).<NoiseGeneratorSettings, Boolean>makeMap());
+            Caffeine.newBuilder().weakKeys().<NoiseGeneratorSettings, Boolean>build().asMap());
     private static final Set<DensityFunction> WARMED_DENSITY_FUNCTIONS = Collections.newSetFromMap(
-            new MapMaker().weakKeys().concurrencyLevel(4).<DensityFunction, Boolean>makeMap());
+            Caffeine.newBuilder().weakKeys().<DensityFunction, Boolean>build().asMap());
 
     private static final AtomicLong CALLS = new AtomicLong();
     private static final AtomicLong SKIPPED_DUPLICATE_CALLS = new AtomicLong();
