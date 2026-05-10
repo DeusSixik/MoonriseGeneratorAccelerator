@@ -3,9 +3,12 @@ package dev.sixik.generator_accelerator.api.mixin;
 public record MixinApplier(String modClassPath, Param[] mixins) {
 
     public boolean hasDisableMixin(String mixin) {
-        for (Param param : mixins) {
-            if(param.mixinDisable.equals(mixin))
-                return true;
+        for(Param param : this.mixins) {
+            for(String s : param.mixinDisable) {
+                if (s.equals(mixin)) {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -33,5 +36,5 @@ public record MixinApplier(String modClassPath, Param[] mixins) {
         }
     }
 
-    public record Param(String mixinClass, String mixinDisable) {}
+    public record Param(String mixinClass, String... mixinDisable) {}
 }

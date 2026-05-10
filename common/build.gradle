@@ -2,6 +2,14 @@ architectury {
     common rootProject.enabled_platforms.split(',')
 }
 
+configurations {
+    c2meModJar {
+        canBeResolved = true
+        canBeConsumed = false
+        transitive = false
+    }
+}
+
 test {
     useJUnitPlatform()
 }
@@ -81,11 +89,41 @@ tasks.register("surfaceApplyQuickBenchmark") {
     dependsOn "surfaceApplyQuickBenchmarkLegacy", "surfaceApplyQuickBenchmarkIr"
 }
 
+def c2meNestedJarsDir = layout.buildDirectory.dir("c2meNestedJars")
+def extractC2MENestedJars = tasks.register("extractC2MENestedJars", Sync) {
+    group = "dependencies"
+    description = "Extracts nested C2ME module jars from the configured Curse Maven C2ME artifact."
+    from({
+        configurations.c2meModJar.files.collect { zipTree(it) }
+    }) {
+        include "META-INF/jars/*c2me*.jar"
+        eachFile { details ->
+            details.path = details.name
+        }
+        includeEmptyDirs = false
+    }
+    into c2meNestedJarsDir
+}
+def c2meNestedJars = fileTree(c2meNestedJarsDir) {
+    include "*.jar"
+}
+c2meNestedJars.builtBy(extractC2MENestedJars)
+tasks.named("compileJava") {
+    dependsOn extractC2MENestedJars
+}
+tasks.named("sourcesJar") {
+    dependsOn extractC2MENestedJars
+}
+tasks.named("remapSourcesJar") {
+    dependsOn extractC2MENestedJars
+}
+
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
+    c2meModJar "curse.maven:c2me-533097:7967514"
 
     compileOnly "com.github.ben-manes.caffeine:caffeine:3.1.8"
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
@@ -98,6 +136,8 @@ dependencies {
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     modCompileOnly "curse.maven:moonrise-1096335:7089177"
+    modCompileOnly "curse.maven:c2me-533097:7967514"
+    modCompileOnly c2meNestedJars
 
     compileOnly 'me.lucko:spark-api:0.1-SNAPSHOT'
 

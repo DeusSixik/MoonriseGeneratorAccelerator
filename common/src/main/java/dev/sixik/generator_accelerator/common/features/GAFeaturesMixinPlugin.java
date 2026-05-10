@@ -54,6 +54,11 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                         ""
                 )
         );
+        this.create(GeneratorAccelerator.C2ME_MOD, new MixinApplier.Param(
+                "",
+                "com.ishland.c2me.opts.allocs.mixin.object_pooling_caching.MixinOreFeature"
+        ));
+
     }
 
     @Override
