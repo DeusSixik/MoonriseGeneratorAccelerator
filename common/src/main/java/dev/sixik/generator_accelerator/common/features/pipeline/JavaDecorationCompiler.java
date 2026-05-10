@@ -2,6 +2,10 @@ package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.common.features.pipeline.ore.OreTargetCompiler;
 import dev.sixik.generator_accelerator.common.features.pipeline.ore.OreTargetPlan;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenSafetyTier;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenUnitClassifier;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenUnitProfile;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
@@ -63,6 +67,7 @@ public final class JavaDecorationCompiler {
             }
 
             DecorationKernelPlan kernel = this.compileFeature(feature, featureIndex);
+            recordClassifierMetrics(feature, kernel);
             kernels[featureIndex] = kernel;
             if (kernel != null && needsDescriptors(kernel)) {
                 descriptorFeatureMask[featureIndex >>> 6] |= 1L << (featureIndex & 63);
@@ -581,6 +586,33 @@ public final class JavaDecorationCompiler {
         return feature == Feature.RANDOM_PATCH
                 || feature == Feature.FLOWER
                 || feature == Feature.NO_BONEMEAL_FLOWER;
+    }
+
+    private static void recordClassifierMetrics(PlacedFeature feature, DecorationKernelPlan kernel) {
+        WorldgenUnitProfile profile = WorldgenUnitClassifier.classify(feature);
+        WorldgenProfileMetrics.record(profile);
+        WorldgenSafetyTier tier = profile.safetyTier();
+        switch (tier) {
+            case PURE_READ_ONLY -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER0_UNITS);
+            case GA_NATIVE_DETERMINISTIC_WRITES -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER1_UNITS);
+            case PARTIAL_NATIVE_VANILLA_FEATURE -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER2_UNITS);
+            case TRANSACTIONAL_UNKNOWN -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER3_UNITS);
+            case SERIAL_ISOLATED -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER4_UNITS);
+            case VANILLA_FALLBACK_DISABLED -> DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_TIER5_UNITS);
+        }
+
+        DecorationKernelKind kind = kernel == null ? DecorationKernelKind.VANILLA_FALLBACK : kernel.kind();
+        if (kind.isNativeKernel()) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_NATIVE_FEATURES);
+        } else if (kind.isPartialNative()) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_PARTIAL_FEATURES);
+        }
+        if (tier == WorldgenSafetyTier.SERIAL_ISOLATED || tier == WorldgenSafetyTier.VANILLA_FALLBACK_DISABLED) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_UNKNOWN_FEATURES);
+        }
+        if (kind == DecorationKernelKind.PARTIAL_NATIVE_DESCRIPTOR_GATED) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.CLASSIFIER_DESCRIPTOR_GATED);
+        }
     }
 
     private static PlacedFeature[] copyFeatures(PlacedFeature[] source, int size) {

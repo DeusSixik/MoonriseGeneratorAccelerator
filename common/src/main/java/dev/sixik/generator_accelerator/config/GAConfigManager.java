@@ -80,11 +80,56 @@ public class GAConfigManager {
         config.enablePalettedContainerPatch = boolOverride("ga.config.enablePalettedContainerPatch", config.enablePalettedContainerPatch);
         config.enableStructuresPatch = boolOverride("ga.config.enableStructuresPatch", config.enableStructuresPatch);
         config.enableSurfacePatch = boolOverride("ga.config.enableSurfacePatch", config.enableSurfacePatch);
+
+        config.schedulerNoiseWorkers = intOverride("ga.config.schedulerNoiseWorkers", config.schedulerNoiseWorkers);
+        config.schedulerCompileWorkers = intOverride("ga.config.schedulerCompileWorkers", config.schedulerCompileWorkers);
+        config.schedulerWorkspaceWorkers = intOverride("ga.config.schedulerWorkspaceWorkers", config.schedulerWorkspaceWorkers);
+        config.schedulerCommitWorkers = intOverride("ga.config.schedulerCommitWorkers", config.schedulerCommitWorkers);
+        config.schedulerMaxQueuedTasks = intOverride("ga.config.schedulerMaxQueuedTasks", config.schedulerMaxQueuedTasks);
+        config.schedulerCpuTarget = doubleOverride("ga.config.schedulerCpuTarget", config.schedulerCpuTarget);
+        config.maxInFlightWorkspaces = intOverride("ga.config.maxInFlightWorkspaces", config.maxInFlightWorkspaces);
+        config.workspaceMaxRetainedBytes = longOverride("ga.config.workspaceMaxRetainedBytes", config.workspaceMaxRetainedBytes);
     }
 
     private static boolean boolOverride(String property, boolean fallback) {
         String value = System.getProperty(property);
         return value == null ? fallback : Boolean.parseBoolean(value);
+    }
+
+    private static int intOverride(String property, int fallback) {
+        String value = System.getProperty(property);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static long longOverride(String property, long fallback) {
+        String value = System.getProperty(property);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static double doubleOverride(String property, double fallback) {
+        String value = System.getProperty(property);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     private static void setAllPatches(GAConfig config, boolean enabled) {

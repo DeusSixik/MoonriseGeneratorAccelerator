@@ -3,6 +3,8 @@ package dev.sixik.generator_accelerator.common.features.pipeline;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.world.level.ChunkPos;
@@ -120,6 +122,7 @@ public final class DecorationPipelineExecutor {
         placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
 
         long start = DecorationPipelineMetrics.startTimer();
+        long workspaceStart = context.workspace == null ? 0L : System.nanoTime();
         int elapsedCounter = elapsedCounter(kernel.kind());
         try {
             if (DecorationPipelineCompatibility.shouldUseSafeVanilla(kernel.fallbackFeature())) {
@@ -165,6 +168,9 @@ public final class DecorationPipelineExecutor {
                 throw failure;
             }
         } finally {
+            if (context.workspace != null) {
+                context.workspace.metrics().addComputeNanos(System.nanoTime() - workspaceStart);
+            }
             DecorationPipelineMetrics.addElapsed(elapsedCounter, start);
             DecorationPipelineMetrics.addKindElapsed(kernel.kind(), start);
             DecorationPipelineMetrics.addFeatureElapsed(kernel.metricsName(), start);
@@ -301,6 +307,7 @@ public final class DecorationPipelineExecutor {
         }
         scratch.descriptors.clear();
         long start = DecorationPipelineMetrics.startTimer();
+        long workspaceStart = context.workspace == null ? 0L : System.nanoTime();
         try {
             scratch.descriptors.prepareChunkLazy(context.chunk);
             scratch.markDescriptorsPrepared(context.chunk);
@@ -315,6 +322,9 @@ public final class DecorationPipelineExecutor {
                 );
             }
         } finally {
+            if (context.workspace != null) {
+                context.workspace.metrics().addImportNanos(System.nanoTime() - workspaceStart);
+            }
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_DESCRIPTOR_NANOS, start);
         }
     }
@@ -334,6 +344,7 @@ public final class DecorationPipelineExecutor {
         private final Registry<PlacedFeature> placedFeatureRegistry;
         private final FallbackHook fallbackHook;
         private final PipelinePlacementContext placementContext;
+        private final GAChunkWorkspace workspace;
 
         public ExecutionContext(
                 WorldGenLevel level,
@@ -361,6 +372,7 @@ public final class DecorationPipelineExecutor {
             this.placedFeatureRegistry = placedFeatureRegistry;
             this.fallbackHook = fallbackHook;
             this.placementContext = placementContext.set(level, generator, java.util.Optional.empty(), null);
+            this.workspace = GAChunkWorkspaceContext.current();
         }
 
         private void beforeFallback(int featureIndex, PlacedFeature feature) {
@@ -415,6 +427,10 @@ public final class DecorationPipelineExecutor {
 
         PipelinePlacementContext placementContext() {
             return this.placementContext;
+        }
+
+        public GAChunkWorkspace workspace() {
+            return this.workspace;
         }
     }
 

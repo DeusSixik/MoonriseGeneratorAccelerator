@@ -4,12 +4,12 @@ import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCo
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpecCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpecCache;
+import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseRouter;
 
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
@@ -90,19 +90,15 @@ public final class RouterPipeline {
     private static final AtomicLong LATTICE_FALLBACKS = new AtomicLong();
 
     /**
-     * Compiles each router / sampler top-level field in parallel. A task running in
-     * this pool causes {@code IntStream.parallel} to use it (not the common pool), so
-     * we get bounded parallelism and avoid piling work onto unrelated FJP clients.
+     * Compiles each router / sampler top-level field in the GA compile lane. Running
+     * inside that ForkJoinPool keeps {@code IntStream.parallel} off the common pool.
      */
-    private static final ForkJoinPool ROUTER_FIELD_POOL = new ForkJoinPool(
-            Math.min(8, Math.max(1, Runtime.getRuntime().availableProcessors())));
-
     private RouterPipeline() {}
 
     private static void compileFieldsParallel(CompilingVisitor visitor, DensityFunction[] sources,
             DensityFunction[] compiled, int n, String failureKind) {
         try {
-            ROUTER_FIELD_POOL.submit((Runnable) () -> IntStream.range(0, n).parallel().forEach(i -> {
+            GAScheduler.invokeBlocking(GAScheduler.Lane.COMPILE, () -> IntStream.range(0, n).parallel().forEach(i -> {
                 DensityFunction src = sources[i];
                 try {
                     compiled[i] = visitor.apply(src);
@@ -113,7 +109,7 @@ public final class RouterPipeline {
                             failureKind, i, t);
                     compiled[i] = src;
                 }
-            })).get();
+            }));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             compileFieldsSequential(visitor, sources, compiled, n, failureKind);

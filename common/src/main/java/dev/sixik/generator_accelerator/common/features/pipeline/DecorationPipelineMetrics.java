@@ -70,8 +70,18 @@ public final class DecorationPipelineMetrics {
     public static final int SELECTOR_FUSED_FAST_SELECTOR_CALLS = 58;
     public static final int SELECTOR_FUSED_GENERIC_CALLS = 59;
     public static final int SELECTOR_FUSED_DESCRIPTOR_REJECTS = 60;
+    public static final int CLASSIFIER_TIER0_UNITS = 61;
+    public static final int CLASSIFIER_TIER1_UNITS = 62;
+    public static final int CLASSIFIER_TIER2_UNITS = 63;
+    public static final int CLASSIFIER_TIER3_UNITS = 64;
+    public static final int CLASSIFIER_TIER4_UNITS = 65;
+    public static final int CLASSIFIER_TIER5_UNITS = 66;
+    public static final int CLASSIFIER_NATIVE_FEATURES = 67;
+    public static final int CLASSIFIER_PARTIAL_FEATURES = 68;
+    public static final int CLASSIFIER_UNKNOWN_FEATURES = 69;
+    public static final int CLASSIFIER_DESCRIPTOR_GATED = 70;
 
-    public static final int COUNTER_COUNT = 61;
+    public static final int COUNTER_COUNT = 71;
 
     private static final String[] NAMES = {
             "decoration.totalNanos",
@@ -134,7 +144,17 @@ public final class DecorationPipelineMetrics {
             "selector.fusedFastRandomPatchSelectorCalls",
             "selector.fusedFastSelectorCalls",
             "selector.fusedGenericCalls",
-            "selector.fusedDescriptorRejects"
+            "selector.fusedDescriptorRejects",
+            "classifier.tier0Units",
+            "classifier.tier1Units",
+            "classifier.tier2Units",
+            "classifier.tier3Units",
+            "classifier.tier4Units",
+            "classifier.tier5Units",
+            "classifier.nativeFeatures",
+            "classifier.partialFeatures",
+            "classifier.unknownFeatures",
+            "classifier.descriptorGated"
     };
 
     private static final AtomicLongArray COUNTERS = new AtomicLongArray(COUNTER_COUNT);
@@ -287,6 +307,16 @@ public final class DecorationPipelineMetrics {
                 + ", selectorFusedFastSelectorCalls=" + value(SELECTOR_FUSED_FAST_SELECTOR_CALLS)
                 + ", selectorFusedGenericCalls=" + value(SELECTOR_FUSED_GENERIC_CALLS)
                 + ", selectorFusedDescriptorRejects=" + value(SELECTOR_FUSED_DESCRIPTOR_REJECTS)
+                + ", classifierTier0Units=" + value(CLASSIFIER_TIER0_UNITS)
+                + ", classifierTier1Units=" + value(CLASSIFIER_TIER1_UNITS)
+                + ", classifierTier2Units=" + value(CLASSIFIER_TIER2_UNITS)
+                + ", classifierTier3Units=" + value(CLASSIFIER_TIER3_UNITS)
+                + ", classifierTier4Units=" + value(CLASSIFIER_TIER4_UNITS)
+                + ", classifierTier5Units=" + value(CLASSIFIER_TIER5_UNITS)
+                + ", classifierNativeFeatures=" + value(CLASSIFIER_NATIVE_FEATURES)
+                + ", classifierPartialFeatures=" + value(CLASSIFIER_PARTIAL_FEATURES)
+                + ", classifierUnknownFeatures=" + value(CLASSIFIER_UNKNOWN_FEATURES)
+                + ", classifierDescriptorGated=" + value(CLASSIFIER_DESCRIPTOR_GATED)
                 + ", kindBreakdown=" + kindBreakdown()
                 + ", featureBreakdown=" + featureBreakdown();
     }

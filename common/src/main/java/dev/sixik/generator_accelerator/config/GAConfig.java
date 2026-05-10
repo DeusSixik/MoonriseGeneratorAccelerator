@@ -35,4 +35,28 @@ public class GAConfig {
     public boolean enableStructuresPatch = true;
 
     public boolean enableSurfacePatch = true;
+
+    @ConfigComment("GA scheduler noise lane workers. 0 = auto.")
+    public int schedulerNoiseWorkers = 0;
+
+    @ConfigComment("GA scheduler compile/warmup lane workers. 0 = auto.")
+    public int schedulerCompileWorkers = 0;
+
+    @ConfigComment("GA scheduler workspace lane workers. 0 = auto.")
+    public int schedulerWorkspaceWorkers = 0;
+
+    @ConfigComment("GA scheduler commit/finalize lane workers. Keep 1 for deterministic chunk writes.")
+    public int schedulerCommitWorkers = 1;
+
+    @ConfigComment("Soft max queued tasks per lane. 0 = unlimited.")
+    public int schedulerMaxQueuedTasks = 0;
+
+    @ConfigComment("Adaptive worldgen governor CPU target. Reserved for staged rollout.")
+    public double schedulerCpuTarget = 0.85D;
+
+    @ConfigComment("Max GA chunk workspaces allowed in-flight. 0 = auto.")
+    public int maxInFlightWorkspaces = 0;
+
+    @ConfigComment("Max retained bytes per GA chunk workspace before shrink. 0 = auto.")
+    public long workspaceMaxRetainedBytes = 0L;
 }

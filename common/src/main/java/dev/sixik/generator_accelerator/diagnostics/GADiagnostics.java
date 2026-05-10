@@ -7,6 +7,10 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineSt
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
+import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspacePool;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import jdk.jfr.Configuration;
@@ -164,6 +168,10 @@ public final class GADiagnostics {
         DfcCellFillStats.reset();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
+        GAScheduler.resetMetrics();
+        WorldgenProfileMetrics.reset();
+        GAChunkWorkspaceMetrics.resetGlobal();
+        GAChunkWorkspacePool.resetMetrics();
     }
 
     public static void enableFromCommand() {
@@ -175,6 +183,7 @@ public final class GADiagnostics {
         setProperty("ga.decorationPipeline.metrics", "true");
         setProperty("ga.featureVm.metrics", "true");
         setProperty("ga.surface.metrics", "true");
+        setProperty("ga.worldgenProfile.metrics", "true");
         setProperty("dfc.cellfill.stats", "true");
         setProperty("dfc.cellfill.stats.residualClassDebug", "true");
         setProperty("dfc.codegen.splineRuntimeStats", "true");
@@ -191,6 +200,7 @@ public final class GADiagnostics {
         setProperty("ga.decorationPipeline.metrics", "false");
         setProperty("ga.featureVm.metrics", "false");
         setProperty("ga.surface.metrics", "false");
+        setProperty("ga.worldgenProfile.metrics", "false");
         setProperty("dfc.cellfill.stats", "false");
         setProperty("dfc.cellfill.stats.residualClassDebug", "false");
         setProperty("dfc.codegen.splineRuntimeStats", "false");
@@ -245,6 +255,7 @@ public final class GADiagnostics {
         DecorationPipelineMetrics.setEnabled(Boolean.getBoolean("ga.decorationPipeline.metrics"));
         FeatureVmMetrics.setEnabled(Boolean.getBoolean("ga.featureVm.metrics"));
         SurfaceMetrics.setEnabled(Boolean.getBoolean("ga.surface.metrics"));
+        WorldgenProfileMetrics.setEnabled(Boolean.getBoolean("ga.worldgenProfile.metrics"));
         DfcCellFillStats.setEnabled(
                 Boolean.getBoolean("dfc.cellfill.stats"),
                 Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug"));
@@ -260,7 +271,10 @@ public final class GADiagnostics {
                 + ", featureVm=" + FeatureVmMetrics.ENABLED
                 + ", surface=" + SurfaceMetrics.ENABLED
                 + ", cellFill=" + DfcCellFillStats.ENABLED
-                + ", spline=" + DfcSplineStats.ENABLED;
+                + ", spline=" + DfcSplineStats.ENABLED
+                + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
+                + ", scheduler=true"
+                + ", workspace=true";
     }
 
     private static DumpResult writeBundle(String reason, Map<String, ?> extra, boolean stopRecording, boolean zip) {
@@ -434,6 +448,9 @@ public final class GADiagnostics {
         out.put("platform", GeneratorAccelerator.platform == null ? "unknown" : GeneratorAccelerator.platform.name());
         out.put("config", configSnapshot());
         out.put("featureVm", featureVmSnapshot());
+        out.put("worldgenProfiles", WorldgenProfileMetrics.snapshot());
+        out.put("scheduler", schedulerSnapshot());
+        out.put("chunkWorkspace", chunkWorkspaceSnapshot());
         out.put("decorationPipeline", decorationPipelineSnapshot());
         out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());
@@ -483,6 +500,17 @@ public final class GADiagnostics {
         out.put("successfulWritesPerWorldRead", DecorationPipelineMetrics.successfulWritesPerWorldRead());
         out.put("summary", DecorationPipelineMetrics.summary());
         return out;
+    }
+
+    private static Map<String, Object> schedulerSnapshot() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("summary", GAScheduler.summary());
+        out.putAll(GAScheduler.snapshot());
+        return out;
+    }
+
+    private static Map<String, Object> chunkWorkspaceSnapshot() {
+        return GAChunkWorkspacePool.snapshot();
     }
 
     private static Map<String, Object> surfaceCompilerSnapshot() {
