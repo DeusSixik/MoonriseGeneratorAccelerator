@@ -73,6 +73,20 @@ public final class FeatureVmMetrics {
         TOTAL_EXECUTION_NANOS.add(nanos);
     }
 
+    public static void reset() {
+        if (!ENABLED) return;
+        PROGRAMS_COMPILED.reset();
+        FAST_OPS_COMPILED.reset();
+        FALLBACK_OPS_COMPILED.reset();
+        PROGRAM_EXECUTIONS.reset();
+        LINEAR_FAST_EXECUTIONS.reset();
+        BUFFER_FAST_EXECUTIONS.reset();
+        FAST_OP_EXECUTIONS.reset();
+        FALLBACK_OP_EXECUTIONS.reset();
+        FEATURE_PLACE_CALLS.reset();
+        TOTAL_EXECUTION_NANOS.reset();
+    }
+
     @Deprecated(forRemoval = false)
     public static long programsCompiled() {
         return PROGRAMS_COMPILED.sum();

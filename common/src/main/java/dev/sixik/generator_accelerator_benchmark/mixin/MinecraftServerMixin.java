@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator_benchmark.mixin;
 import com.mojang.authlib.GameProfile;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
@@ -89,6 +91,8 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             if (DecorationPipelineMetrics.ENABLED) {
                 DecorationPipelineMetrics.reset();
             }
+            GADiagnostics.resetBaseline();
+            GADiagnostics.startJfrIfEnabled("ga-benchmark");
             this.benchmarkStartNanos = System.nanoTime();
 
             this.fakePlayer = this.sdm$makePlayer();
@@ -139,6 +143,14 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             }
             if (DecorationPipelineMetrics.ENABLED) {
                 MainBenchmark.log(DecorationPipelineMetrics.summary());
+            }
+            Path diagnosticsPath = GADiagnostics.writeBenchmarkDump(
+                    "benchmark-finished",
+                    this.sdm$benchmarkDiagnostics(startTick, stopTick, haltTick, ticksBetweenBatches,
+                            renderDistance, maxBatches, useSpark, elapsedMs)
+            );
+            if (diagnosticsPath != null) {
+                MainBenchmark.log("Benchmark diagnostics: " + diagnosticsPath.toAbsolutePath());
             }
             isProfilerStart = false;
             benchmarkFinished = true;
@@ -218,7 +230,36 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     private static void sdm$haltByWatchdog(String reason, int exitCode) {
         MainBenchmark.log("Benchmark " + reason + ". Writing thread dump and halting server.");
         sdm$writeThreadDump(reason);
+        Path diagnosticsPath = GADiagnostics.writeBenchmarkDump("watchdog-" + reason, Map.of("watchdogReason", reason));
+        if (diagnosticsPath != null) {
+            MainBenchmark.log("Benchmark watchdog diagnostics: " + diagnosticsPath.toAbsolutePath());
+        }
         Runtime.getRuntime().halt(exitCode);
+    }
+
+    @Unique
+    private Map<String, Object> sdm$benchmarkDiagnostics(
+            int startTick,
+            int stopTick,
+            int haltTick,
+            int ticksBetweenBatches,
+            int renderDistance,
+            int maxBatches,
+            boolean useSpark,
+            long elapsedMs
+    ) {
+        Map<String, Object> benchmark = new LinkedHashMap<>();
+        benchmark.put("startTick", startTick);
+        benchmark.put("stopTick", stopTick);
+        benchmark.put("haltTick", haltTick);
+        benchmark.put("ticksBetweenBatches", ticksBetweenBatches);
+        benchmark.put("renderDistance", renderDistance);
+        benchmark.put("maxBatches", maxBatches);
+        benchmark.put("useSpark", useSpark);
+        benchmark.put("elapsedMs", elapsedMs);
+        benchmark.put("generatedBatches", this.generatedBatches);
+        benchmark.put("tickCounter", this.tickCounter);
+        return benchmark;
     }
 
     @Unique

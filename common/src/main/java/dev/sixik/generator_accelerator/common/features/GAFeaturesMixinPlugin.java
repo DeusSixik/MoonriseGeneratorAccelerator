@@ -47,6 +47,13 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                         "net.countered.terrainslabs.mixin.feature.MixinOreFeature"
                 )
         );
+
+        create("io.wispforest.accessories_compat.curios.wrapper.AccessoriesBasedStackHandler",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.accessories.AccessoriesBasedStackHandlerMixin",
+                        ""
+                )
+        );
     }
 
     @Override

@@ -14,6 +14,7 @@ import net.minecraft.core.DefaultedRegistry;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
@@ -43,6 +44,15 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
 
     @Unique
     private static final SharedWeakCache<OreConfiguration, CompiledTargets> GA$TARGET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final SharedWeakCache<Block, StateSet> GA$BLOCK_STATE_SET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final SharedWeakCache<TagKey<Block>, StateSet> GA$TAG_STATE_SET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final StateSet GA$EMPTY_STATE_SET = new StateSet(-1, new int[0], null);
 
     private MixinScatteredOreFeature(Codec<OreConfiguration> codec) {
         super(codec);
@@ -175,20 +185,21 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
             placementMayBeAir |= FastBlockStateCache.isAir(placementStateId);
 
             if (rule instanceof BlockMatchTest bmt) {
-                StateSet stateSet = ga$collectStateIds(bmt.block, stateCount);
+                StateSet stateSet = GA$BLOCK_STATE_SET_CACHE.getOrCompute(
+                        bmt.block,
+                        block -> ga$collectStateIds(block, stateCount));
                 singleStateId = stateSet.singleStateId();
                 validStateIds = stateSet.validStateIds();
                 validStateIdMask = stateSet.validStateIdMask();
             } else if (rule instanceof TagMatchTest tmt) {
-                Optional<HolderSet.Named<Block>> tagOpt = registry.getTag(tmt.tag);
-                if (tagOpt.isPresent()) {
-                    StateSet stateSet = ga$collectStateIds(tagOpt.get(), stateCount);
-                    singleStateId = stateSet.singleStateId();
-                    validStateIds = stateSet.validStateIds();
-                    validStateIdMask = stateSet.validStateIdMask();
-                } else {
-                    validStateIds = new int[0];
-                }
+                StateSet stateSet = GA$TAG_STATE_SET_CACHE.getOrCompute(tmt.tag, tag -> {
+                    Optional<HolderSet.Named<Block>> tagOpt = registry.getTag(tag);
+                    return tagOpt.map(blocks -> ga$collectStateIds(blocks, stateCount))
+                            .orElse(GA$EMPTY_STATE_SET);
+                });
+                singleStateId = stateSet.singleStateId();
+                validStateIds = stateSet.validStateIds();
+                validStateIdMask = stateSet.validStateIdMask();
             } else {
                 fallbackRule = rule;
             }

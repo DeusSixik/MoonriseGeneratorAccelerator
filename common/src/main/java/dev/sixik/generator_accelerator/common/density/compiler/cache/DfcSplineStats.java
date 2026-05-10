@@ -216,7 +216,7 @@ public final class DfcSplineStats {
         }
         int hiddenSuffix = name.indexOf("/0x");
         String base = hiddenSuffix >= 0 ? name.substring(0, hiddenSuffix) : name;
-        return base.replace('/', '.');
+        return base.indexOf('/') < 0 ? base : base.replace('/', '.');
     }
 
     private static final class ClassStatsCounter {

@@ -4688,7 +4688,7 @@ public final class Codegen {
                 return;
             }
             mv.visitVarInsn(Opcodes.FSTORE, splineTimingResultSlot);
-            mv.visitLdcInsn(classInternalName);
+            mv.visitLdcInsn(classInternalName.replace('/', '.'));
             mv.visitLdcInsn(pointCount);
             mv.visitLdcInsn(searchMode);
             mv.visitLdcInsn(exitKind);

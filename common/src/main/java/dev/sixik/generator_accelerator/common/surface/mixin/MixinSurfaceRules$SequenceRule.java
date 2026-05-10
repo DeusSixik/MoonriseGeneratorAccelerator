@@ -13,17 +13,31 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 @Mixin(targets = "net.minecraft.world.level.levelgen.SurfaceRules$SequenceRule")
 public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
 
     @Unique
-    private SurfaceRules.SurfaceRule[] bts$primitiveArray;
+    private static final SurfaceRules.SurfaceRule[] bts$empty_rule_array = new SurfaceRules.SurfaceRule[0];
+
+    @Unique
+    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = Collections.emptyList();
+
+    @Unique
+    private SurfaceRules.SurfaceRule[] bts$primitiveArray = bts$empty_rule_array;
+
+    @Unique
+    private List<SurfaceRules.SurfaceRule> bts$primitiveList = bts$empty_rule_list;
 
     @Override
     public void bts$setArray(SurfaceRules.SurfaceRule[] array) {
-        this.bts$primitiveArray = array;
+        this.bts$primitiveArray = array == null ? bts$empty_rule_array : array;
+        this.bts$primitiveList = this.bts$primitiveArray.length == 0
+                ? bts$empty_rule_list
+                : Arrays.asList(this.bts$primitiveArray);
     }
 
     @Override
@@ -33,12 +47,19 @@ public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(List<SurfaceRules.SurfaceRule> list, CallbackInfo ci) {
-        this.bts$primitiveArray = list.toArray(new SurfaceRules.SurfaceRule[0]);
+        int size = list.size();
+        if (size == 0) {
+            this.bts$primitiveArray = bts$empty_rule_array;
+            this.bts$primitiveList = bts$empty_rule_list;
+            return;
+        }
+        this.bts$primitiveArray = list.toArray(new SurfaceRules.SurfaceRule[size]);
+        this.bts$primitiveList = Arrays.asList(this.bts$primitiveArray);
     }
 
     @Inject(method = "rules", at = @At("HEAD"), cancellable = true)
     public void bts$rules(CallbackInfoReturnable<List<SurfaceRules.SurfaceRule>> cir) {
-        cir.setReturnValue(List.of(this.bts$primitiveArray));
+        cir.setReturnValue(this.bts$primitiveList);
     }
 
     /**

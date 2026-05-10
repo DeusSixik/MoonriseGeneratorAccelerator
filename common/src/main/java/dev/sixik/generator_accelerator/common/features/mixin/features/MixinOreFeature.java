@@ -16,6 +16,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -62,6 +63,15 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
     @Unique
     private static final SharedWeakCache<OreConfiguration, CompiledTargets> BTS$TARGET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final SharedWeakCache<Block, StateSet> BTS$BLOCK_STATE_SET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final SharedWeakCache<TagKey<Block>, StateSet> BTS$TAG_STATE_SET_CACHE = new SharedWeakCache<>();
+
+    @Unique
+    private static final StateSet BTS$EMPTY_STATE_SET = new StateSet(-1, new int[0], null);
 
     @Unique
     private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$MUTABLE_POS =
@@ -458,20 +468,21 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             placementMayBeAir |= FastBlockStateCache.isAir(placementStateId);
 
             if (rule instanceof BlockMatchTest bmt) {
-                StateSet stateSet = bts$collectStateIds(bmt.block, stateCount);
+                StateSet stateSet = BTS$BLOCK_STATE_SET_CACHE.getOrCompute(
+                        bmt.block,
+                        block -> bts$collectStateIds(block, stateCount));
                 singleStateId = stateSet.singleStateId();
                 validStateIds = stateSet.validStateIds();
                 validStateIdMask = stateSet.validStateIdMask();
             } else if (rule instanceof TagMatchTest tmt) {
-                Optional<HolderSet.Named<Block>> tagOpt = registry.getTag(tmt.tag);
-                if (tagOpt.isPresent()) {
-                    StateSet stateSet = bts$collectStateIds(tagOpt.get(), stateCount);
-                    singleStateId = stateSet.singleStateId();
-                    validStateIds = stateSet.validStateIds();
-                    validStateIdMask = stateSet.validStateIdMask();
-                } else {
-                    validStateIds = new int[0];
-                }
+                StateSet stateSet = BTS$TAG_STATE_SET_CACHE.getOrCompute(tmt.tag, tag -> {
+                    Optional<HolderSet.Named<Block>> tagOpt = registry.getTag(tag);
+                    return tagOpt.map(blocks -> bts$collectStateIds(blocks, stateCount))
+                            .orElse(BTS$EMPTY_STATE_SET);
+                });
+                singleStateId = stateSet.singleStateId();
+                validStateIds = stateSet.validStateIds();
+                validStateIdMask = stateSet.validStateIdMask();
             } else {
                 fallbackRule = rule;
                 hasFallbackTargets = true;

@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.neoforge;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.diagnostics.GADiagnosticsCommands;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -46,6 +47,7 @@ public final class GeneratorAcceleratorNeoForge {
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
         DensityFunctionCompiler.registerCommands(event.getDispatcher());
+        GADiagnosticsCommands.register(event.getDispatcher());
     }
 
     private void onServerStopped(ServerStoppedEvent event) {
