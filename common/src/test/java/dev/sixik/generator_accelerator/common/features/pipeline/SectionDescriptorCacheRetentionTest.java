@@ -25,7 +25,9 @@ class SectionDescriptorCacheRetentionTest {
         setField(cache, "chunkColumnBlockClassFlags", new int[512][]);
         setField(cache, "heightScanDescriptors", new SectionDescriptor[1_024]);
 
-        cache.clear();
+        for (int i = 0; i < 4; i++) {
+            cache.clear();
+        }
 
         String summary = cache.debugSummary();
         assertTrue(summary.contains("descriptorSize=0/256"), summary);

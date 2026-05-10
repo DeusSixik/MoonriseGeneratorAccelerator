@@ -1,11 +1,17 @@
 package dev.sixik.generator_accelerator.common.carver;
 
+import net.minecraft.core.BlockPos;
+import org.apache.commons.lang3.mutable.MutableBoolean;
+
 public final class CarveStateScratch {
     private boolean active;
     private boolean debug;
     private boolean restoreSurface;
     private int lavaLevel;
     private boolean[] replaceableStateIds;
+    private final BlockPos.MutableBlockPos carvePos = new BlockPos.MutableBlockPos();
+    private final BlockPos.MutableBlockPos belowPos = new BlockPos.MutableBlockPos();
+    private final MutableBoolean surfaceHit = new MutableBoolean();
 
     public void set(int lavaLevel, boolean debug, boolean restoreSurface, boolean[] replaceableStateIds) {
         this.active = true;
@@ -21,6 +27,7 @@ public final class CarveStateScratch {
         this.restoreSurface = false;
         this.lavaLevel = 0;
         this.replaceableStateIds = null;
+        this.surfaceHit.setFalse();
     }
 
     public boolean isActive() {
@@ -41,5 +48,17 @@ public final class CarveStateScratch {
 
     public boolean[] getReplaceableStateIds() {
         return this.replaceableStateIds;
+    }
+
+    public BlockPos.MutableBlockPos carvePos() {
+        return this.carvePos;
+    }
+
+    public BlockPos.MutableBlockPos belowPos() {
+        return this.belowPos;
+    }
+
+    public MutableBoolean surfaceHit() {
+        return this.surfaceHit;
     }
 }

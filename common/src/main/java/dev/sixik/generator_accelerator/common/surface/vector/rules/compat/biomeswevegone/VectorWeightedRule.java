@@ -3,15 +3,13 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biome
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
-import net.minecraft.util.RandomSource;
+import dev.sixik.generator_accelerator.common.utils.FastPositionalRandom;
 import net.minecraft.util.random.WeightedEntry;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.WeightedRuleSource;
 
 import java.util.BitSet;
-import java.util.HashMap;
-import java.util.Map;
 
 public class VectorWeightedRule implements VectorRule {
 
@@ -37,48 +35,53 @@ public class VectorWeightedRule implements VectorRule {
     @Override
     public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
         PositionalRandomFactory randomFactory = ctx.surfaceSystem.noiseRandom;
-
-        Map<VectorRule, BitSet> ruleToColumns = new HashMap<>();
+        int[] ruleByColumn = ctx.weightedRuleByColumn;
 
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-                RandomSource random = randomFactory.at(x, 0, z);
-
-                int randomRoll = random.nextInt(this.totalWeight);
-                VectorRule chosenRule = compiledRules[compiledRules.length - 1]; // Фоллбэк
+                int randomRoll = FastPositionalRandom.nextIntAt(randomFactory, x, 0, z, this.totalWeight);
+                int chosenRuleIndex = compiledRules.length - 1;
                 int currentWeight = 0;
 
                 for (int i = 0; i < compiledRules.length; i++) {
                     currentWeight += weights[i];
                     if (randomRoll < currentWeight) {
-                        chosenRule = compiledRules[i];
+                        chosenRuleIndex = i;
                         break;
                     }
                 }
 
-                ruleToColumns.computeIfAbsent(chosenRule, k -> new BitSet(256)).set(x | (z << 4));
+                ruleByColumn[x | (z << 4)] = chosenRuleIndex;
             }
         }
 
-        for (Map.Entry<VectorRule, BitSet> entry : ruleToColumns.entrySet()) {
-            VectorRule rule = entry.getKey();
-            BitSet columnMaskXZ = entry.getValue();
-
-            BitSet ruleMask = (BitSet) activeMask.clone();
-            for (int i = ruleMask.nextSetBit(0); i >= 0; i = ruleMask.nextSetBit(i + 1)) {
-                if (!columnMaskXZ.get(i & 255)) {
-                    ruleMask.clear(i);
+        for (int ruleIndex = 0; ruleIndex < this.compiledRules.length; ruleIndex++) {
+            VectorRule rule = this.compiledRules[ruleIndex];
+            BitSet ruleMask = ctx.acquireBitSet4096();
+            try {
+                ruleMask.or(activeMask);
+                for (int i = ruleMask.nextSetBit(0); i >= 0; i = ruleMask.nextSetBit(i + 1)) {
+                    if (ruleByColumn[i & 255] != ruleIndex) {
+                        ruleMask.clear(i);
+                    }
                 }
-            }
 
-            if (!ruleMask.isEmpty()) {
-                BitSet originalRuleMask = (BitSet) ruleMask.clone();
+                if (!ruleMask.isEmpty()) {
+                    BitSet originalRuleMask = ctx.acquireBitSet4096();
+                    try {
+                        originalRuleMask.or(ruleMask);
 
-                rule.apply(rawBlockData, ruleMask, ctx);
+                        rule.apply(rawBlockData, ruleMask, ctx);
 
-                originalRuleMask.xor(ruleMask);
+                        originalRuleMask.xor(ruleMask);
 
-                activeMask.andNot(originalRuleMask);
+                        activeMask.andNot(originalRuleMask);
+                    } finally {
+                        ctx.releaseBitSet4096(originalRuleMask);
+                    }
+                }
+            } finally {
+                ctx.releaseBitSet4096(ruleMask);
             }
         }
     }

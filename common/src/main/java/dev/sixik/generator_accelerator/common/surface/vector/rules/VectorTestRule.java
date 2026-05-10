@@ -17,22 +17,26 @@ public class VectorTestRule implements VectorRule {
 
     @Override
     public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
-        // We make a copy of the mask for testing (so as not to spoil the original)
-        BitSet matchingMask = (BitSet) activeMask.clone();
+        BitSet matchingMask = ctx.acquireBitSet4096();
+        try {
+            matchingMask.or(activeMask);
+            this.condition.filter(matchingMask, ctx);
 
-        // We filter out unnecessary data (for example, we remove bits where the height is < 60)
-        this.condition.filter(matchingMask, ctx);
+            if (matchingMask.isEmpty()) {
+                return;
+            }
 
-        if (matchingMask.isEmpty())
-            return; // Not a single block passed the test
-
-        BitSet processedBlocks = (BitSet) matchingMask.clone();
-
-        // We apply the following rule (it will fill the blocks and clear the matchingMask)
-        this.thenRun.apply(rawBlockData, matchingMask, ctx);
-
-        // We remove from the global mask those blocks that we actually painted over
-        processedBlocks.xor(matchingMask);
-        activeMask.andNot(processedBlocks);
+            BitSet processedBlocks = ctx.acquireBitSet4096();
+            try {
+                processedBlocks.or(matchingMask);
+                this.thenRun.apply(rawBlockData, matchingMask, ctx);
+                processedBlocks.xor(matchingMask);
+                activeMask.andNot(processedBlocks);
+            } finally {
+                ctx.releaseBitSet4096(processedBlocks);
+            }
+        } finally {
+            ctx.releaseBitSet4096(matchingMask);
+        }
     }
 }

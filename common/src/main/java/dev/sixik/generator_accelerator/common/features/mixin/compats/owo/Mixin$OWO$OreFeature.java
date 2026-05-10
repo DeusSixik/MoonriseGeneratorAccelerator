@@ -4,6 +4,8 @@ import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
 import io.wispforest.owo.util.Maldenhagen;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -16,14 +18,16 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.HashMap;
-import java.util.Map;
-
 @Mixin(value = OreFeature.class, priority = 1500)
 public class Mixin$OWO$OreFeature {
 
     @Unique
-    private final ThreadLocal<Map<BlockPos, BlockState>> OWO$COPING = ThreadLocal.withInitial(HashMap::new);
+    private final ThreadLocal<Long2ObjectOpenHashMap<BlockState>> OWO$COPING =
+            ThreadLocal.withInitial(Long2ObjectOpenHashMap::new);
+
+    @Unique
+    private final ThreadLocal<BlockPos.MutableBlockPos> OWO$COPING_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.features.mixin.features.MixinOreFeature",
@@ -58,7 +62,7 @@ public class Mixin$OWO$OreFeature {
     ) {
         BlockState state = target.placementState();
         if (Maldenhagen.isOnCopium(state.getBlock())) {
-            this.OWO$COPING.get().put(new BlockPos(mutableBlockPos), state);
+            this.OWO$COPING.get().put(mutableBlockPos.asLong(), state);
         }
     }
 
@@ -87,8 +91,11 @@ public class Mixin$OWO$OreFeature {
             int pHeight,
             CallbackInfoReturnable<Boolean> cir
     ) {
-        Map<BlockPos, BlockState> map = this.OWO$COPING.get();
-        map.forEach((blockPos, state) -> pLevel.setBlock(blockPos, state, 3));
+        Long2ObjectOpenHashMap<BlockState> map = this.OWO$COPING.get();
+        BlockPos.MutableBlockPos pos = this.OWO$COPING_POS.get();
+        for (Long2ObjectMap.Entry<BlockState> entry : map.long2ObjectEntrySet()) {
+            pLevel.setBlock(pos.set(entry.getLongKey()), entry.getValue(), 3);
+        }
         map.clear();
     }
 }

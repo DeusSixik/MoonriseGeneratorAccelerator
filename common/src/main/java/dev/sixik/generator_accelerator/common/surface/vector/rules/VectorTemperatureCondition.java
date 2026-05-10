@@ -15,7 +15,7 @@ public class VectorTemperatureCondition implements VectorCondition {
 
     @Override
     public void filter(BitSet activeMask, VectorChunkContext ctx) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos pos = ctx.mutablePos;
 
         for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
             Holder<Biome> biome = ctx.surfaceBiomes[i & 255];

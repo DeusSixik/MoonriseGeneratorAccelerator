@@ -2141,7 +2141,8 @@ final class DecorationPlacementProgram {
             return false;
         }
 
-        BlockPos origin = new BlockPos(originX, originY - 4, originZ);
+        int originBaseY = originY - 4;
+        BlockPos.MutableBlockPos origin = scratch.secondMutablePos.set(originX, originBaseY, originZ);
         boolean[] mask = scratch.clearLakeMask();
         RandomSource random = context.random();
 
@@ -2177,7 +2178,7 @@ final class DecorationPlacementProgram {
                         continue;
                     }
 
-                    pos.set(originX + x, origin.getY() + y, originZ + z);
+                    pos.set(originX + x, originBaseY + y, originZ + z);
                     BlockState state = level.getBlockState(pos);
                     if (y >= 4) {
                         if (state.liquid()) {
@@ -2200,7 +2201,7 @@ final class DecorationPlacementProgram {
                         continue;
                     }
 
-                    pos.set(originX + x, origin.getY() + y, originZ + z);
+                    pos.set(originX + x, originBaseY + y, originZ + z);
                     if (!lakeCanReplaceBlock(level.getBlockState(pos))) {
                         continue;
                     }
@@ -2218,6 +2219,7 @@ final class DecorationPlacementProgram {
             }
         }
 
+        origin.set(originX, originBaseY, originZ);
         BlockState barrierState = config.barrier().getState(random, origin);
         if (!barrierState.isAir()) {
             for (int x = 0; x < 16; x++) {
@@ -2230,7 +2232,7 @@ final class DecorationPlacementProgram {
                             continue;
                         }
 
-                        pos.set(originX + x, origin.getY() + y, originZ + z);
+                        pos.set(originX + x, originBaseY + y, originZ + z);
                         BlockState state = level.getBlockState(pos);
                         if (!state.isSolid() || state.is(BlockTags.LAVA_POOL_STONE_CANNOT_REPLACE)) {
                             continue;
@@ -2249,7 +2251,7 @@ final class DecorationPlacementProgram {
         if (fluidState.getFluidState().is(FluidTags.WATER)) {
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    pos.set(originX + x, origin.getY() + 4, originZ + z);
+                    pos.set(originX + x, originBaseY + 4, originZ + z);
                     Biome biome = level.getBiome(pos).value();
                     if (biome.shouldFreeze(level, pos, false)
                             && lakeCanReplaceBlock(level.getBlockState(pos))
@@ -2274,8 +2276,8 @@ final class DecorationPlacementProgram {
             int z
     ) {
         WorldGenLevel level = context.level();
-        BlockPos origin = new BlockPos(x, y, z);
-        BlockPos.MutableBlockPos candidatePos = scratch.mutablePos.set(x, y, z);
+        BlockPos.MutableBlockPos origin = scratch.mutablePos.set(x, y, z);
+        BlockPos.MutableBlockPos candidatePos = scratch.mutablePos;
         BlockPos.MutableBlockPos probe = scratch.secondMutablePos;
         if (!canSpreadSculkFrom(level, origin, probe)) {
             return false;

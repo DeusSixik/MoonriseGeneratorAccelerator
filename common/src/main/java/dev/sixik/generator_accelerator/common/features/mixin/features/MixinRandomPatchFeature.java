@@ -44,7 +44,7 @@ public abstract class MixinRandomPatchFeature extends Feature<RandomPatchConfigu
 
         PlacedFeature nestedFeature = config.feature().value();
         ReusablePlacementContext nestedContext = GA$PLACEMENT_CONTEXT.get();
-        if (nestedContext == null || nestedContext.generator() != generator) {
+        if (nestedContext == null) {
             nestedContext = new ReusablePlacementContext(level, generator);
             GA$PLACEMENT_CONTEXT.set(nestedContext);
         } else {
@@ -60,16 +60,20 @@ public abstract class MixinRandomPatchFeature extends Feature<RandomPatchConfigu
         int originZ = origin.getZ();
         boolean placedAny = false;
 
-        for (int i = 0; i < tries; i++) {
-            mutablePos.set(
-                    originX + random.nextInt(spreadXZ) - random.nextInt(spreadXZ),
-                    originY + random.nextInt(spreadY) - random.nextInt(spreadY),
-                    originZ + random.nextInt(spreadXZ) - random.nextInt(spreadXZ)
-            );
+        try {
+            for (int i = 0; i < tries; i++) {
+                mutablePos.set(
+                        originX + random.nextInt(spreadXZ) - random.nextInt(spreadXZ),
+                        originY + random.nextInt(spreadY) - random.nextInt(spreadY),
+                        originZ + random.nextInt(spreadXZ) - random.nextInt(spreadXZ)
+                );
 
-            if (nestedFeature.placeWithContext(nestedContext, random, mutablePos)) {
-                placedAny = true;
+                if (nestedFeature.placeWithContext(nestedContext, random, mutablePos)) {
+                    placedAny = true;
+                }
             }
+        } finally {
+            nestedContext.clear();
         }
 
         return placedAny;

@@ -128,11 +128,11 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
 
         boolean debug = isDebugEnabled(carverConfiguration);
         boolean carvedAny = false;
-        BlockPos.MutableBlockPos carvePos = new BlockPos.MutableBlockPos();
-        BlockPos.MutableBlockPos belowPos = new BlockPos.MutableBlockPos();
-        MutableBoolean surfaceHit = new MutableBoolean();
         GA$CarvingMaskExtension maskExtension = (GA$CarvingMaskExtension) carvingMask;
         CarveStateScratch carveStateScratch = this.ga$getCarveStateScratch();
+        BlockPos.MutableBlockPos carvePos = carveStateScratch.carvePos();
+        BlockPos.MutableBlockPos belowPos = carveStateScratch.belowPos();
+        MutableBoolean surfaceHit = carveStateScratch.surfaceHit();
         CarverChunkWriter chunkWriter = this.ga$getCarverChunkWriter();
         boolean restoreSurface = !GA$FAST_SIMPLE_CAVE_STATE || debug || !GA$FAST_SKIP_TOP_MATERIAL;
         carveStateScratch.set(

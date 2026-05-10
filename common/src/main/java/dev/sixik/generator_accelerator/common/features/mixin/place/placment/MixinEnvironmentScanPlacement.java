@@ -14,9 +14,14 @@ import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(EnvironmentScanPlacement.class)
 public abstract class MixinEnvironmentScanPlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$EnvironmentScanPlacementAccess {
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Shadow
     @Final
@@ -65,7 +70,7 @@ public abstract class MixinEnvironmentScanPlacement extends PlacementModifier im
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);
 
-        BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos(x, y, z);
+        BlockPos.MutableBlockPos mPos = GA$MUTABLE_POS.get().set(x, y, z);
         WorldGenLevel worldgenlevel = context.getLevel();
 
         if (!this.allowedSearchCondition.test(worldgenlevel, mPos)) {

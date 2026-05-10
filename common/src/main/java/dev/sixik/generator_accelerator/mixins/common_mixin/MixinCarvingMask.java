@@ -23,12 +23,30 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
 
     @Override
     public void bts$addPositionsFast(ChunkPos chunkPos, LongArrayList output) {
-        this.bts$addPositions(chunkPos, output::add);
+        int startX = chunkPos.getMinBlockX();
+        int startZ = chunkPos.getMinBlockZ();
+
+        for (int i = this.mask.nextSetBit(0); i >= 0; i = this.mask.nextSetBit(i + 1)) {
+            int lx = i & 15;
+            int lz = (i >> 4) & 15;
+            int ly = (i >> 8) + this.minY;
+
+            output.add(BlockPos.asLong(startX + lx, ly, startZ + lz));
+        }
     }
 
     @Override
     public void bts$addPositionsRaw(ChunkPos chunkPos, LongScratchBuffer output) {
-        this.bts$addPositions(chunkPos, output::add);
+        int startX = chunkPos.getMinBlockX();
+        int startZ = chunkPos.getMinBlockZ();
+
+        for (int i = this.mask.nextSetBit(0); i >= 0; i = this.mask.nextSetBit(i + 1)) {
+            int lx = i & 15;
+            int lz = (i >> 4) & 15;
+            int ly = (i >> 8) + this.minY;
+
+            output.add(BlockPos.asLong(startX + lx, ly, startZ + lz));
+        }
     }
 
     @Override
@@ -46,24 +64,7 @@ public class MixinCarvingMask implements GA$CarvingMaskExtension {
         return true;
     }
 
-    private void bts$addPositions(ChunkPos chunkPos, PositionConsumer output) {
-        int startX = chunkPos.getMinBlockX();
-        int startZ = chunkPos.getMinBlockZ();
-
-        for (int i = this.mask.nextSetBit(0); i >= 0; i = this.mask.nextSetBit(i + 1)) {
-            int lx = i & 15;
-            int lz = (i >> 4) & 15;
-            int ly = (i >> 8) + this.minY;
-
-            output.add(BlockPos.asLong(startX + lx, ly, startZ + lz));
-        }
-    }
-
     private int ga$index(int x, int y, int z) {
         return (x & 15) | ((z & 15) << 4) | ((y - this.minY) << 8);
-    }
-
-    private interface PositionConsumer {
-        void add(long packedPos);
     }
 }

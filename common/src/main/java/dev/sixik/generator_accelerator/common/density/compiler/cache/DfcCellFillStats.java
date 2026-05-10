@@ -61,6 +61,22 @@ public final class DfcCellFillStats {
                 snapshotResidualExternFallbackClasses());
     }
 
+    public static void reset() {
+        CELL_SCALAR.reset();
+        CELL_COMPILED.reset();
+        CELL_NATIVE_SLAB_INNER.reset();
+        CELL_UNKNOWN.reset();
+        CELL_XZ_SLAB.reset();
+        CELL_EXTERN_ACCUMULATE.reset();
+        CELL_EXTERN_SCALAR_RESIDUAL.reset();
+        COLUMNS_SCALAR.reset();
+        COLUMNS_JAVA_BATCHED.reset();
+        COLUMNS_NATIVE_INNER.reset();
+        FAST_FILLER_CLASSES.clear();
+        SOURCE_FILLER_CLASSES.clear();
+        RESIDUAL_EXTERN_FALLBACK_CLASSES.clear();
+    }
+
     public static void recordCellFill(DfcCellFillAccess filler, DensityFunction sourceFiller) {
         if (!ENABLED) {
             return;

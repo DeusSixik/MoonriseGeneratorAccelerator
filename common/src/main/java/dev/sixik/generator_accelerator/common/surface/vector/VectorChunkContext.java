@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import net.minecraft.core.Holder;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
@@ -10,6 +11,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
 
 import java.util.Arrays;
+import java.util.BitSet;
 
 public class VectorChunkContext {
 
@@ -18,6 +20,13 @@ public class VectorChunkContext {
     public final short[] surfaceHeights = new short[256];
     public final int[] surfaceDepths = new int[256];
     public final double[] secondarySurfaceNoises = new double[256];
+    public final double[] noiseColumnCache = new double[256];
+    public final int[] columnScratchMarks = new int[256];
+    public final int[] weightedRuleByColumn = new int[256];
+    public final BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
+    private BitSet[] bitSetScratch = new BitSet[8];
+    private int bitSetScratchDepth;
+    private int columnScratchStamp;
 
     public int STONE_ID;
     public int AIR_ID;
@@ -54,6 +63,7 @@ public class VectorChunkContext {
         this.worldContext = null;
         this.randomState = null;
         this.surfaceSystem = null;
+        this.bitSetScratchDepth = 0;
     }
 
     public void updateForSection(int startX, int startY, int startZ) {
@@ -64,6 +74,41 @@ public class VectorChunkContext {
 
     public Holder<Biome> getBiome(int xzIdx) {
         return this.surfaceBiomes[xzIdx & 255];
+    }
+
+    public BitSet acquireBitSet4096() {
+        int index = this.bitSetScratchDepth;
+        if (index >= this.bitSetScratch.length) {
+            this.bitSetScratch = Arrays.copyOf(this.bitSetScratch, this.bitSetScratch.length << 1);
+        }
+        BitSet mask = this.bitSetScratch[index];
+        if (mask == null) {
+            mask = new BitSet(4096);
+            this.bitSetScratch[index] = mask;
+        } else {
+            mask.clear();
+        }
+        this.bitSetScratchDepth = index + 1;
+        return mask;
+    }
+
+    public void releaseBitSet4096(BitSet mask) {
+        if (this.bitSetScratchDepth <= 0) {
+            mask.clear();
+            return;
+        }
+        mask.clear();
+        this.bitSetScratchDepth--;
+    }
+
+    public int nextColumnScratchStamp() {
+        int next = this.columnScratchStamp + 1;
+        if (next == 0) {
+            Arrays.fill(this.columnScratchMarks, 0);
+            next = 1;
+        }
+        this.columnScratchStamp = next;
+        return next;
     }
 
     public void buildDepthMap(ChunkAccess chunk) {

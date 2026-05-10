@@ -31,6 +31,7 @@ public final class DecorationPipelineScratch {
     private static final int MAX_REUSED_ORE_VISITED_WORDS = MAX_REUSED_ORE_BITSET_BITS >>> 6;
     private static final int MAX_RETAINED_ORE_VISITED_WORDS = 131_072;
     private static final int MAX_RETAINED_ORE_VEIN_DATA_VALUES = 16_384;
+    private static final int OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD = 4;
     private static final int HEIGHTMAP_CACHE_SLOTS = 8;
     private static final int HEIGHTMAP_CACHE_SLOT_MASK = HEIGHTMAP_CACHE_SLOTS - 1;
     private static final int HEIGHTMAP_TYPE_COUNT = Heightmap.Types.values().length;
@@ -74,6 +75,7 @@ public final class DecorationPipelineScratch {
     private boolean[] lakeMask = new boolean[16 * 16 * 8];
     private final SculkSpreader worldGenSculkSpreader = SculkSpreader.createWorldGenSpreader();
     private LongScratchBuffer[] modifierPositionBuffers = new LongScratchBuffer[4];
+    private BlockPos.MutableBlockPos[] modifierMutablePositions = new BlockPos.MutableBlockPos[4];
     private final Long2IntOpenHashMap sectionBucketIndexByKey = new Long2IntOpenHashMap(DEFAULT_SECTION_BUCKET_CAPACITY);
     private final Long2IntOpenHashMap chunkBucketIndexByKey = new Long2IntOpenHashMap(DEFAULT_SECTION_BUCKET_CAPACITY);
     private final Long2IntOpenHashMap writeIndexByPos = new Long2IntOpenHashMap(DEFAULT_CANDIDATE_CAPACITY);
@@ -92,6 +94,12 @@ public final class DecorationPipelineScratch {
     private boolean descriptorsPrepared;
     private int candidateMode;
     private int modifierBufferDepth;
+    private int oversizedCandidateClearCount;
+    private int oversizedSectionBucketClearCount;
+    private int oversizedTouchedMutationClearCount;
+    private int oversizedModifierBufferClearCount;
+    private int oversizedOreVisitedClearCount;
+    private int oversizedOreVeinClearCount;
 
     private DecorationPipelineScratch() {
         this.sectionBucketIndexByKey.defaultReturnValue(-1);
@@ -214,6 +222,26 @@ public final class DecorationPipelineScratch {
 
         this.modifierBufferDepth = index + 1;
         return buffer;
+    }
+
+    BlockPos.MutableBlockPos modifierMutablePos(int depth) {
+        if (depth >= this.modifierMutablePositions.length) {
+            int newLength = this.modifierMutablePositions.length;
+            while (depth >= newLength) {
+                newLength <<= 1;
+            }
+            BlockPos.MutableBlockPos[] next = new BlockPos.MutableBlockPos[newLength];
+            System.arraycopy(this.modifierMutablePositions, 0, next, 0, this.modifierMutablePositions.length);
+            this.modifierMutablePositions = next;
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
+        }
+        BlockPos.MutableBlockPos pos = this.modifierMutablePositions[depth];
+        if (pos == null) {
+            pos = new BlockPos.MutableBlockPos();
+            this.modifierMutablePositions[depth] = pos;
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
+        }
+        return pos;
     }
 
     void releaseModifierPositionBuffer() {
@@ -533,42 +561,65 @@ public final class DecorationPipelineScratch {
 
     private void shrinkOversizedBuffers() {
         if (this.candidateX.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
-            this.candidateX = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateY = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateZ = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateKernelId = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateNext = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateSectionIndex = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateSeed = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateSectionKey = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateSimpleBlockState = new BlockState[MAX_RETAINED_CANDIDATE_CAPACITY];
-            this.candidateWriteFlags = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            if (++this.oversizedCandidateClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.candidateX = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateY = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateZ = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateKernelId = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateNext = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateSectionIndex = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateSeed = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateSectionKey = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateSimpleBlockState = new BlockState[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateWriteFlags = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.oversizedCandidateClearCount = 0;
+            }
         } else if (this.selectedFeatureBuffer.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
-            this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            if (++this.oversizedCandidateClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.oversizedCandidateClearCount = 0;
+            }
+        } else {
+            this.oversizedCandidateClearCount = 0;
         }
 
         if (this.sectionBucketKey.length > MAX_EXCESSIVE_SECTION_BUCKET_CAPACITY) {
-            this.sectionBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketNextInChunk = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            if (++this.oversizedSectionBucketClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.sectionBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.sectionBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.sectionBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.sectionBucketNextInChunk = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.chunkBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.chunkBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.chunkBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+                this.oversizedSectionBucketClearCount = 0;
+            }
+        } else {
+            this.oversizedSectionBucketClearCount = 0;
         }
 
         if (this.touchedMutationX.length > MAX_EXCESSIVE_TOUCHED_MUTATION_CAPACITY) {
-            this.touchedMutationChunk = new ChunkAccess[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
-            this.touchedMutationX = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
-            this.touchedMutationY = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
-            this.touchedMutationZ = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+            if (++this.oversizedTouchedMutationClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.touchedMutationChunk = new ChunkAccess[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+                this.touchedMutationX = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+                this.touchedMutationY = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+                this.touchedMutationZ = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+                this.oversizedTouchedMutationClearCount = 0;
+            }
+        } else {
+            this.oversizedTouchedMutationClearCount = 0;
         }
 
         if (this.modifierPositionBuffers.length > MAX_RETAINED_MODIFIER_BUFFER_DEPTH) {
-            this.modifierPositionBuffers = new LongScratchBuffer[4];
-            this.modifierPositionBuffers[0] = new LongScratchBuffer(DEFAULT_MODIFIER_BUFFER_CAPACITY);
+            if (++this.oversizedModifierBufferClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.modifierPositionBuffers = new LongScratchBuffer[4];
+                this.modifierPositionBuffers[0] = new LongScratchBuffer(DEFAULT_MODIFIER_BUFFER_CAPACITY);
+                this.modifierMutablePositions = new BlockPos.MutableBlockPos[4];
+                this.oversizedModifierBufferClearCount = 0;
+            }
         } else {
+            this.oversizedModifierBufferClearCount = 0;
             for (LongScratchBuffer buffer : this.modifierPositionBuffers) {
                 if (buffer != null) {
                     buffer.trimIfExcessivelyOversized();
@@ -577,11 +628,21 @@ public final class DecorationPipelineScratch {
         }
 
         if (this.oreVisitedWords.length > MAX_RETAINED_ORE_VISITED_WORDS) {
-            this.oreVisitedWords = new long[MAX_REUSED_ORE_VISITED_WORDS];
+            if (++this.oversizedOreVisitedClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.oreVisitedWords = new long[MAX_REUSED_ORE_VISITED_WORDS];
+                this.oversizedOreVisitedClearCount = 0;
+            }
+        } else {
+            this.oversizedOreVisitedClearCount = 0;
         }
 
         if (this.oreVeinData.length > MAX_RETAINED_ORE_VEIN_DATA_VALUES) {
-            this.oreVeinData = new double[64 * 4];
+            if (++this.oversizedOreVeinClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
+                this.oreVeinData = new double[64 * 4];
+                this.oversizedOreVeinClearCount = 0;
+            }
+        } else {
+            this.oversizedOreVeinClearCount = 0;
         }
     }
 

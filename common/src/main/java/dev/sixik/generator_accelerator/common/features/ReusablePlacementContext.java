@@ -31,6 +31,11 @@ public final class ReusablePlacementContext extends PlacementContext {
         this.generator = generator;
     }
 
+    public void clear() {
+        this.level = null;
+        this.generator = null;
+    }
+
     @Override
     public int getHeight(Heightmap.Types types, int x, int z) {
         return this.level.getHeight(types, x, z);

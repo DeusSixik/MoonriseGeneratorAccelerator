@@ -3,23 +3,29 @@ package dev.sixik.generator_accelerator.common.carver;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
 
 public final class CaveTunnelBatch {
-    public long[] seeds = new long[8];
-    public double[] xs = new double[8];
-    public double[] ys = new double[8];
-    public double[] zs = new double[8];
-    public double[] horizontalRadiusMultipliers = new double[8];
-    public double[] verticalRadiusMultipliers = new double[8];
-    public float[] thicknesses = new float[8];
-    public float[] yaws = new float[8];
-    public float[] pitches = new float[8];
-    public int[] startSteps = new int[8];
-    public int[] endSteps = new int[8];
-    public double[] yScales = new double[8];
-    private LegacyRandomSource[] randoms = new LegacyRandomSource[8];
+    private static final int INITIAL_CAPACITY = 8;
+    private static final int MAX_RETAINED_CAPACITY = 256;
+    private static final int MAX_EXCESSIVE_CAPACITY = 1_024;
+    public long[] seeds = new long[INITIAL_CAPACITY];
+    public double[] xs = new double[INITIAL_CAPACITY];
+    public double[] ys = new double[INITIAL_CAPACITY];
+    public double[] zs = new double[INITIAL_CAPACITY];
+    public double[] horizontalRadiusMultipliers = new double[INITIAL_CAPACITY];
+    public double[] verticalRadiusMultipliers = new double[INITIAL_CAPACITY];
+    public float[] thicknesses = new float[INITIAL_CAPACITY];
+    public float[] yaws = new float[INITIAL_CAPACITY];
+    public float[] pitches = new float[INITIAL_CAPACITY];
+    public int[] startSteps = new int[INITIAL_CAPACITY];
+    public int[] endSteps = new int[INITIAL_CAPACITY];
+    public double[] yScales = new double[INITIAL_CAPACITY];
+    private LegacyRandomSource[] randoms = new LegacyRandomSource[INITIAL_CAPACITY];
     private int size;
 
     public void clear() {
         this.size = 0;
+        if (this.seeds.length > MAX_EXCESSIVE_CAPACITY) {
+            this.resize(MAX_RETAINED_CAPACITY);
+        }
     }
 
     public boolean isEmpty() {
@@ -74,6 +80,10 @@ public final class CaveTunnelBatch {
 
     private void grow() {
         int newLength = this.seeds.length << 1;
+        this.resize(newLength);
+    }
+
+    private void resize(int newLength) {
         this.seeds = this.copyOf(this.seeds, newLength);
         this.xs = this.copyOf(this.xs, newLength);
         this.ys = this.copyOf(this.ys, newLength);
@@ -88,31 +98,31 @@ public final class CaveTunnelBatch {
         this.yScales = this.copyOf(this.yScales, newLength);
 
         LegacyRandomSource[] newRandoms = new LegacyRandomSource[newLength];
-        System.arraycopy(this.randoms, 0, newRandoms, 0, this.randoms.length);
+        System.arraycopy(this.randoms, 0, newRandoms, 0, Math.min(this.randoms.length, newLength));
         this.randoms = newRandoms;
     }
 
     private long[] copyOf(long[] source, int newLength) {
         long[] copy = new long[newLength];
-        System.arraycopy(source, 0, copy, 0, source.length);
+        System.arraycopy(source, 0, copy, 0, Math.min(source.length, newLength));
         return copy;
     }
 
     private double[] copyOf(double[] source, int newLength) {
         double[] copy = new double[newLength];
-        System.arraycopy(source, 0, copy, 0, source.length);
+        System.arraycopy(source, 0, copy, 0, Math.min(source.length, newLength));
         return copy;
     }
 
     private float[] copyOf(float[] source, int newLength) {
         float[] copy = new float[newLength];
-        System.arraycopy(source, 0, copy, 0, source.length);
+        System.arraycopy(source, 0, copy, 0, Math.min(source.length, newLength));
         return copy;
     }
 
     private int[] copyOf(int[] source, int newLength) {
         int[] copy = new int[newLength];
-        System.arraycopy(source, 0, copy, 0, source.length);
+        System.arraycopy(source, 0, copy, 0, Math.min(source.length, newLength));
         return copy;
     }
 }

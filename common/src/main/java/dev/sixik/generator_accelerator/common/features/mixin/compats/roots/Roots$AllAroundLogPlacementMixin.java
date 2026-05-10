@@ -11,12 +11,17 @@ import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 import java.util.Collections;
 import java.util.List;
 
 @Mixin(AllAroundLogPlacement.class)
 public abstract class Roots$AllAroundLogPlacementMixin extends PlacementModifier implements GA$PlacementModifierExtension {
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Shadow
     @Final
@@ -35,7 +40,7 @@ public abstract class Roots$AllAroundLogPlacementMixin extends PlacementModifier
         int y = BlockPos.getY(packedPos);
         int z = BlockPos.getZ(packedPos);
 
-        BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos(x, y, z);
+        BlockPos.MutableBlockPos blockPos = GA$MUTABLE_POS.get().set(x, y, z);
 
         for(Direction direction : this.DIRECTIONS) {
             if (context.getBlockState(blockPos.move(direction)).isAir()) {

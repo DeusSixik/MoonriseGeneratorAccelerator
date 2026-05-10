@@ -39,6 +39,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
+    private static final double[] EMPTY_DOUBLES = new double[0];
 
     public record MapAllStats(long identityNoOps, long rebinds) {}
 
@@ -175,7 +176,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         this.helperHandles = helperHandles;
         this.nativeNoiseHandles = nativeNoiseHandles;
         this.slabInnerProgram = slabInnerProgram;
-        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : new double[0];
+        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : EMPTY_DOUBLES;
         this.constructorMH = constructorMH;
     }
 

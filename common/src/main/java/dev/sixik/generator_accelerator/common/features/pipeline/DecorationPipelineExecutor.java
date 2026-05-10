@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.world.level.ChunkPos;
@@ -122,7 +124,7 @@ public final class DecorationPipelineExecutor {
         try {
             if (DecorationPipelineCompatibility.shouldUseSafeVanilla(kernel.fallbackFeature())) {
                 elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
-                this.executeSafeVanilla(kernel, context, placementContext);
+                this.executeSafeVanilla(kernel, context, placementContext, scratch);
                 return;
             }
 
@@ -142,7 +144,7 @@ public final class DecorationPipelineExecutor {
             }
 
             elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
-            this.executeSafeVanilla(kernel, context, placementContext);
+            this.executeSafeVanilla(kernel, context, placementContext, scratch);
         } catch (RuntimeException failure) {
             DecorationPipelineCompatibility.quarantine(
                     context.placedFeatureRegistry(),
@@ -156,7 +158,7 @@ public final class DecorationPipelineExecutor {
             placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
             try {
                 elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
-                this.executeSafeVanilla(kernel, context, placementContext);
+                this.executeSafeVanilla(kernel, context, placementContext, scratch);
                 return;
             } catch (RuntimeException fallbackFailure) {
                 failure.addSuppressed(fallbackFailure);
@@ -172,22 +174,24 @@ public final class DecorationPipelineExecutor {
     private void executeSafeVanilla(
             DecorationKernelPlan kernel,
             ExecutionContext context,
-            PipelinePlacementContext placementContext
+            PipelinePlacementContext placementContext,
+            DecorationPipelineScratch scratch
     ) {
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
-        executeVanillaPlacedFeature(kernel.fallbackFeature(), placementContext, context.random(), context.origin());
+        executeVanillaPlacedFeature(kernel.fallbackFeature(), placementContext, context.random(), context.origin(), scratch);
     }
 
     private static boolean executeVanillaPlacedFeature(
             PlacedFeature feature,
             PipelinePlacementContext context,
             WorldgenRandom random,
-            BlockPos startPos
+            BlockPos startPos,
+            DecorationPipelineScratch scratch
     ) {
         if (feature == null) {
             return false;
         }
-        return executeVanillaPlacedFeature(feature, context, random, startPos, 0);
+        return executeVanillaPlacedFeature(feature, context, random, startPos, 0, scratch);
     }
 
     private static boolean executeVanillaPlacedFeature(
@@ -195,18 +199,39 @@ public final class DecorationPipelineExecutor {
             PipelinePlacementContext context,
             WorldgenRandom random,
             BlockPos pos,
-            int modifierIndex
+            int modifierIndex,
+            DecorationPipelineScratch scratch
     ) {
         List<PlacementModifier> placement = feature.placement();
         if (modifierIndex >= placement.size()) {
             return feature.feature().value().place(context.getLevel(), context.generator(), random, pos);
         }
 
+        PlacementModifier modifier = placement.get(modifierIndex);
+        if (modifier instanceof GA$PlacementModifierExtension extension && extension.ga$hasFastPositions()) {
+            boolean success = false;
+            LongScratchBuffer positions = scratch.acquireModifierPositionBuffer();
+            try {
+                extension.generatePositionsRaw(context, random, pos.asLong(), positions);
+                long[] values = positions.elements();
+                for (int i = 0, size = positions.size(); i < size; i++) {
+                    long packedPos = values[i];
+                    BlockPos.MutableBlockPos nextPos = scratch.modifierMutablePos(modifierIndex).set(packedPos);
+                    if (executeVanillaPlacedFeature(feature, context, random, nextPos, modifierIndex + 1, scratch)) {
+                        success = true;
+                    }
+                }
+            } finally {
+                scratch.releaseModifierPositionBuffer();
+            }
+            return success;
+        }
+
         boolean success = false;
-        try (Stream<BlockPos> positions = placement.get(modifierIndex).getPositions(context, random, pos)) {
+        try (Stream<BlockPos> positions = modifier.getPositions(context, random, pos)) {
             Iterator<BlockPos> iterator = positions.iterator();
             while (iterator.hasNext()) {
-                if (executeVanillaPlacedFeature(feature, context, random, iterator.next(), modifierIndex + 1)) {
+                if (executeVanillaPlacedFeature(feature, context, random, iterator.next(), modifierIndex + 1, scratch)) {
                     success = true;
                 }
             }

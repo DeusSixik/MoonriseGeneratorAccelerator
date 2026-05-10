@@ -70,6 +70,8 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
     @Unique
     private static final ThreadLocal<double[]> BTS$VEIN_DATA =
             ThreadLocal.withInitial(() -> new double[64 * 4]);
+    @Unique
+    private static final int BTS$MAX_RETAINED_VEIN_DATA_VALUES = 16_384;
 
     @Unique
     private static final Block[] BTS$COMPLEX_RULE_MARKER = new Block[0];
@@ -374,6 +376,9 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             }
         }
 
+        if (adouble.length > BTS$MAX_RETAINED_VEIN_DATA_VALUES) {
+            BTS$VEIN_DATA.set(new double[64 * 4]);
+        }
         return placedCount > 0;
     }
 

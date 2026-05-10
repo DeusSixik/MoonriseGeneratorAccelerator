@@ -12,8 +12,9 @@ public final class DfcNativeBridge {
 
     private static final boolean LIB_OK;
     private static final int CPU_AVX2;
+    private static final double[] EMPTY_DOUBLES = new double[0];
     private static final ThreadLocal<double[]> SLAB_SLOT_PACKED_SCRATCH =
-            ThreadLocal.withInitial(() -> new double[0]);
+            ThreadLocal.withInitial(() -> EMPTY_DOUBLES);
 
     static {
         boolean ok = NativeLibraryLoader.loadBundled();
@@ -99,7 +100,7 @@ public final class DfcNativeBridge {
             return;
         }
         if (constants == null) {
-            constants = new double[0];
+            constants = EMPTY_DOUBLES;
         }
         int slotCount = slotRows.length;
         double[] packedRows = packSlabSlotRows(slotRows, slotCount, n);
@@ -111,7 +112,14 @@ public final class DfcNativeBridge {
         int needed = slotCount * rowLength;
         double[] packed = SLAB_SLOT_PACKED_SCRATCH.get();
         if (packed.length < needed) {
-            packed = new double[needed];
+            int capacity = Math.max(64, packed.length);
+            while (capacity < needed && capacity < (Integer.MAX_VALUE >>> 1)) {
+                capacity <<= 1;
+            }
+            if (capacity < needed) {
+                capacity = needed;
+            }
+            packed = new double[capacity];
             SLAB_SLOT_PACKED_SCRATCH.set(packed);
         }
         for (int slot = 0; slot < slotCount; slot++) {

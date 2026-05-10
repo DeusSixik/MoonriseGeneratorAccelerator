@@ -45,7 +45,7 @@ public abstract class MixinNormalNoise implements ColumnNoiseFiller {
         ((ColumnNoiseFiller) this.first).fillColumn(values, x, z, yStart, yCount, scaleX, scaleY, scaleZ, 0.0);
 
         double[] secondValues = SECOND_BUFFER.get();
-        if(secondValues.length != yCount) {
+        if(secondValues.length < yCount) {
             secondValues = new double[yCount];
             SECOND_BUFFER.set(secondValues);
         }

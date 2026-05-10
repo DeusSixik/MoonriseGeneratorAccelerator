@@ -17,6 +17,10 @@ import org.spongepowered.asm.mixin.Unique;
 @Mixin(value = SpringFeature.class, priority = 999)
 public abstract class MixinSpringFeature extends Feature<SpringConfiguration> {
 
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
     private MixinSpringFeature(Codec<SpringConfiguration> codec) {
         super(codec);
     }
@@ -34,7 +38,7 @@ public abstract class MixinSpringFeature extends Feature<SpringConfiguration> {
         int y = blockPos.getY();
         int z = blockPos.getZ();
 
-        BlockPos.MutableBlockPos mutableBlockPos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos mutableBlockPos = GA$MUTABLE_POS.get();
 
         try (BulkSectionAccess bulkSectionAccess = new BulkSectionAccess(worldGenLevel)) {
             BlockState aboveState = bts$getBlockState(worldGenLevel, bulkSectionAccess, mutableBlockPos, x, y + 1, z);

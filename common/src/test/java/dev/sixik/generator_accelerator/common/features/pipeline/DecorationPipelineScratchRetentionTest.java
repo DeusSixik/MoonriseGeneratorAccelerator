@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -8,6 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DecorationPipelineScratchRetentionTest {
+
+    @BeforeAll
+    static void bootstrapMinecraft() {
+        MinecraftBootstrapHelper.ensureBootstrapped();
+    }
 
     @Test
     void candidateBuffersStayWarmAcrossModeratelyLargeChunks() {
@@ -35,7 +41,9 @@ class DecorationPipelineScratchRetentionTest {
         scratch.ensureCandidateCapacity(300_000);
         assertTrue(scratch.candidateX.length >= 300_000);
 
-        scratch.clear();
+        for (int i = 0; i < 4; i++) {
+            scratch.clear();
+        }
 
         assertEquals(65_536, scratch.candidateX.length);
         assertEquals(65_536, scratch.selectedFeatureBuffer.length);

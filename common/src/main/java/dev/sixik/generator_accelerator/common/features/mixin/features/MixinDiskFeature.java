@@ -11,9 +11,14 @@ import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
 import net.minecraft.world.level.levelgen.feature.configurations.DiskConfiguration;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(value = DiskFeature.class, priority = 999)
 public abstract class MixinDiskFeature extends Feature<DiskConfiguration> {
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     private MixinDiskFeature(Codec<DiskConfiguration> codec) {
         super(codec);
@@ -36,7 +41,7 @@ public abstract class MixinDiskFeature extends Feature<DiskConfiguration> {
         int bottomY = centerY - config.halfHeight() - 1;
         int radius = config.radius().sample(random);
         int radiusSq = radius * radius;
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos mutablePos = GA$MUTABLE_POS.get();
         boolean placedAny = false;
 
         for (int x = centerX - radius; x <= centerX + radius; x++) {

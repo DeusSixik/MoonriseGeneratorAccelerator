@@ -21,6 +21,10 @@ import org.spongepowered.asm.mixin.Unique;
 @Mixin(CountOnEveryLayerPlacement.class)
 public abstract class MixinCountOnEveryLayerPlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$CountOnEveryLayerPlacementAccess {
 
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
     @Shadow
     private static boolean isEmpty(BlockState arg) {
         throw new NotImplementedException();
@@ -45,7 +49,7 @@ public abstract class MixinCountOnEveryLayerPlacement extends PlacementModifier 
         int startX = BlockPos.getX(packedPos);
         int startZ = BlockPos.getZ(packedPos);
 
-        BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos mPos = GA$MUTABLE_POS.get();
 
         int layer = 0;
         boolean foundOnLayer;

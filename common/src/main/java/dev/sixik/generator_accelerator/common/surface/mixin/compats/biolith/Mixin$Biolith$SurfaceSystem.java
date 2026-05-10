@@ -4,6 +4,7 @@ import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import com.terraformersmc.biolith.api.surface.BiolithSurfaceBuilder;
 import com.terraformersmc.biolith.impl.surface.SurfaceBuilderCollector;
+import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
 import dev.sixik.generator_accelerator.common.surface.SurfaceGenerationState;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
@@ -34,6 +35,8 @@ public abstract class Mixin$Biolith$SurfaceSystem {
 
     @Unique
     private static BiolithSurfaceBuilder[] BIOLITH_BUILDERS_CACHE = null;
+    @Unique
+    private static int BIOLITH_BUILDERS_CACHE_EPOCH = Integer.MIN_VALUE;
 
     @Unique
     private static final ThreadLocal<SurfaceGenerationState> STATE = ThreadLocal.withInitial(SurfaceGenerationState::new);
@@ -41,8 +44,12 @@ public abstract class Mixin$Biolith$SurfaceSystem {
     @Unique
     private BiolithSurfaceBuilder[] bts$getBuildersFast() {
         Set<BiolithSurfaceBuilder> set = SurfaceBuilderCollector.getBuilders();
-        if (BIOLITH_BUILDERS_CACHE == null || BIOLITH_BUILDERS_CACHE.length != set.size()) {
+        int epoch = FeatureCacheEpoch.current();
+        if (BIOLITH_BUILDERS_CACHE == null
+                || BIOLITH_BUILDERS_CACHE.length != set.size()
+                || BIOLITH_BUILDERS_CACHE_EPOCH != epoch) {
             BIOLITH_BUILDERS_CACHE = set.toArray(new BiolithSurfaceBuilder[0]);
+            BIOLITH_BUILDERS_CACHE_EPOCH = epoch;
         }
         return BIOLITH_BUILDERS_CACHE;
     }

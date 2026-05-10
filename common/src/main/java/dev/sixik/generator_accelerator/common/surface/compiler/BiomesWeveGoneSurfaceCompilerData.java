@@ -2,7 +2,7 @@ package dev.sixik.generator_accelerator.common.surface.compiler;
 
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
-import net.minecraft.util.RandomSource;
+import dev.sixik.generator_accelerator.common.utils.FastPositionalRandom;
 import net.minecraft.util.random.WeightedEntry;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -160,8 +160,7 @@ final class BiomesWeveGoneSurfaceCompilerData {
 
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    RandomSource random = randomFactory.at(x, 0, z);
-                    int randomRoll = random.nextInt(this.totalWeight);
+                    int randomRoll = FastPositionalRandom.nextIntAt(randomFactory, x, 0, z, this.totalWeight);
                     int chosenRule = this.weights.length - 1;
                     int currentWeight = 0;
 

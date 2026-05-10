@@ -4,12 +4,12 @@ import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
+import dev.sixik.generator_accelerator.common.utils.FastPositionalRandom;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -646,8 +646,7 @@ final class VerticalGradientSurfaceConditionNode implements SurfaceConditionNode
                     double chance = Mth.map(globalY, trueY, falseY, 1.0, 0.0);
                     int localX = index & 15;
                     int localZ = (index >> 4) & 15;
-                    RandomSource random = randomFactory.at(ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ);
-                    if (random.nextFloat() >= chance) {
+                    if (FastPositionalRandom.nextFloatAt(randomFactory, ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ) >= chance) {
                         activeMask.clear(index);
                     }
                 }

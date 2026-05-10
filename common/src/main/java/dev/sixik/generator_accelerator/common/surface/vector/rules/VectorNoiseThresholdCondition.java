@@ -20,11 +20,9 @@ public class VectorNoiseThresholdCondition implements VectorCondition {
 
     @Override
     public void filter(BitSet activeMask, VectorChunkContext ctx) {
-
-        // Micro-cache with 256 columns to avoid noise calculation for each Y
-        double[] columnNoiseCache = new double[256];
-        boolean[] isNoiseCalculated = new boolean[256];
-
+        double[] columnNoiseCache = ctx.noiseColumnCache;
+        int[] calculatedMarks = ctx.columnScratchMarks;
+        int stamp = ctx.nextColumnScratchStamp();
         final NormalNoise noise = ctx.randomState.getOrCreateNoise(noiseKey);
 
         for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
@@ -32,11 +30,11 @@ public class VectorNoiseThresholdCondition implements VectorCondition {
             int localZ = (i >> 4) & 15;
             int xzIdx = localX | (localZ << 4);
 
-            if (!isNoiseCalculated[xzIdx]) {
+            if (calculatedMarks[xzIdx] != stamp) {
                 int globalX = ctx.sectionStartX + localX;
                 int globalZ = ctx.sectionStartZ + localZ;
                 columnNoiseCache[xzIdx] = noise.getValue(globalX, 0.0, globalZ);
-                isNoiseCalculated[xzIdx] = true;
+                calculatedMarks[xzIdx] = stamp;
             }
 
             double noiseVal = columnNoiseCache[xzIdx];

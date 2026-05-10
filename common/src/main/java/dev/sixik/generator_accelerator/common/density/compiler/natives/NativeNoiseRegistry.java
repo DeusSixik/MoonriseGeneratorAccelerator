@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNative
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 
 import java.lang.ref.Cleaner;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -15,6 +16,8 @@ import java.util.List;
  * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction}).
  */
 public final class NativeNoiseRegistry {
+    private static final byte[] EMPTY_BYTES = new byte[0];
+    private static final double[] EMPTY_DOUBLES = new double[0];
 
     private NativeNoiseRegistry() {}
 
@@ -56,20 +59,38 @@ public final class NativeNoiseRegistry {
         }
     }
 
-    public static final class HandleSet {
+    public static void clearAll() {
+        // Do not close live handles here. Generated density-function classes copy handles into
+        // final long fields, so explicit lifecycle frees can leave still-live compiled functions
+        // with dangling native pointers. The Cleaner releases native memory when the owning
+        // HandleSet becomes unreachable with its compiled density function.
+    }
+
+    public static final class HandleSet implements AutoCloseable {
         private static final Cleaner CLEANER = Cleaner.create();
 
         private final long[] handles;
-        @SuppressWarnings("unused")
+        private final State state;
         private final Cleaner.Cleanable cleanable;
+        private volatile boolean closed;
 
         private HandleSet(long[] handles, int noiseSpecCount) {
             this.handles = handles == null ? new long[0] : handles;
-            this.cleanable = CLEANER.register(this, new State(this.handles, noiseSpecCount));
+            this.state = new State(this.handles, noiseSpecCount);
+            this.cleanable = CLEANER.register(this, this.state);
         }
 
         public long handle(int index) {
             return index >= 0 && index < this.handles.length ? this.handles[index] : 0L;
+        }
+
+        @Override
+        public void close() {
+            if (this.closed) {
+                return;
+            }
+            this.closed = true;
+            this.cleanable.clean();
         }
     }
 
@@ -77,6 +98,9 @@ public final class NativeNoiseRegistry {
         @Override
         public void run() {
             releaseAllTyped(this.handles, this.noiseSpecCount);
+            if (this.handles != null) {
+                Arrays.fill(this.handles, 0L);
+            }
         }
     }
 
@@ -114,7 +138,7 @@ public final class NativeNoiseRegistry {
 
     private static byte[] flattenPerms(ImprovedNoise[] octaves, int n) {
         if (n == 0) {
-            return new byte[0];
+            return EMPTY_BYTES;
         }
         byte[] out = new byte[n * 256];
         for (int i = 0; i < n; i++) {
@@ -130,7 +154,7 @@ public final class NativeNoiseRegistry {
 
     private static double[] flattenOrigins(ImprovedNoise[] octaves, int n) {
         if (n == 0) {
-            return new double[0];
+            return EMPTY_DOUBLES;
         }
         double[] o = new double[n * 3];
         for (int i = 0; i < n; i++) {
