@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class GeneratorAccelerator {
     public static final String MOD_ID = "generator_accelerator";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static final String C2ME_MOD = "com.ishland.c2me.base.C2MEBaseMod";
 
     public static ForkJoinPool CUSTOM_POOL;
     public static Platform platform = null;

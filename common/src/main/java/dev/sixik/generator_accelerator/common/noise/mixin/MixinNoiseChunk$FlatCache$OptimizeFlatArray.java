@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
-import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -23,6 +22,11 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
     @Shadow
     @Final
     private DensityFunction noiseFiller;
+
+    @Shadow
+    @Final
+    private double[][] values;
+
     @Unique
     private double[] bts$array;
 
@@ -43,8 +47,12 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
                     target = "Lnet/minecraft/world/level/levelgen/NoiseChunk;noiseSizeXZ:I",
                     opcode = Opcodes.GETFIELD)
     )
-    public int bts$init$recirect_for_0(NoiseChunk instance) {
-        return -1;
+    public int bts$init$recirect_for_0(
+            NoiseChunk instance,
+            NoiseChunk noiseChunk,
+            DensityFunction densityFunction,
+            boolean bl) {
+        return bl ? instance.noiseSizeXZ : -1;
     }
 
     @Inject(method = "<init>", at = @At("RETURN"))
@@ -54,19 +62,15 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
             final int side = sizeXZ + 1;
 
             this.bts$array = new double[side * side];
-            final double[] values = this.bts$array;
-
-            int fX = field_36611.firstNoiseX;
-            int fZ = field_36611.firstNoiseZ;
-            CachedPointContext context = new CachedPointContext();
+            final double[] flatValues = this.bts$array;
+            final double[][] vanillaValues = this.values;
 
             for (int l = 0; l <= sizeXZ; l++) {
-                int blockX = (fX + l) << 2;
                 int rowOffset = l * side;
+                double[] row = vanillaValues[l];
 
                 for (int o = 0; o <= sizeXZ; o++) {
-                    int blockZ = (fZ + o) << 2;
-                    values[rowOffset + o] = densityFunction.compute(context.update(blockX, 0, blockZ));
+                    flatValues[rowOffset + o] = row[o];
                 }
             }
         }
