@@ -11,6 +11,7 @@ import dev.sixik.generator_accelerator.api.patches.GA$RepeatingPlacementAccess;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import dev.sixik.generator_accelerator.common.features.pipeline.ore.OreTargetPlan;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
@@ -82,7 +83,6 @@ import net.minecraft.world.level.levelgen.placement.RandomOffsetPlacement;
 import net.minecraft.world.level.levelgen.placement.RepeatingPlacement;
 
 import java.util.Iterator;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -129,8 +129,8 @@ final class DecorationPlacementProgram {
     private static final int GATE_CAVE_SOLID = 6;
     private static final int SIMPLE_BLOCK_BATCH_TRY_THRESHOLD = 24;
     private static final long NO_POSITION = Long.MIN_VALUE;
-    private static final ThreadLocal<IdentityHashMap<BlockColumnConfiguration, CompiledBlockColumn>> BLOCK_COLUMN_CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<BlockColumnConfiguration, CompiledBlockColumn> BLOCK_COLUMN_CACHE =
+            new SharedWeakCache<>();
     private static final ThreadLocal<int[]> BLOCK_COLUMN_HEIGHTS =
             ThreadLocal.withInitial(() -> new int[8]);
 
@@ -1806,7 +1806,7 @@ final class DecorationPlacementProgram {
             int y,
             int z
     ) {
-        CompiledBlockColumn compiled = BLOCK_COLUMN_CACHE.get().computeIfAbsent(config, DecorationPlacementProgram::compileBlockColumn);
+        CompiledBlockColumn compiled = BLOCK_COLUMN_CACHE.getOrCompute(config, DecorationPlacementProgram::compileBlockColumn);
         BlockColumnConfiguration.Layer[] layers = compiled.layers();
         int layerCount = layers.length;
         int[] heights = blockColumnHeights(layerCount);

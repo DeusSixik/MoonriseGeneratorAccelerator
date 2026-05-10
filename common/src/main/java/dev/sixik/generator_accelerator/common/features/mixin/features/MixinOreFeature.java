@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -38,7 +39,6 @@ import org.spongepowered.asm.mixin.Unique;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -58,12 +58,10 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             Arrays.stream(Direction.values()).map(Direction::getNormal).toList().toArray(new Vec3i[0]);
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<RuleTest, Block[]>> BTS$RULE_CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<RuleTest, Block[]> BTS$RULE_CACHE = new SharedWeakCache<>();
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<OreConfiguration, CompiledTargets>> BTS$TARGET_CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<OreConfiguration, CompiledTargets> BTS$TARGET_CACHE = new SharedWeakCache<>();
 
     @Unique
     private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$MUTABLE_POS =
@@ -208,7 +206,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             }
         }
 
-        CompiledTargets compiledTargets = BTS$TARGET_CACHE.get().computeIfAbsent(pConfig, MixinOreFeature::bts$compileTargets);
+        CompiledTargets compiledTargets = BTS$TARGET_CACHE.getOrCompute(pConfig, MixinOreFeature::bts$compileTargets);
         FastTarget[] fastTargets = compiledTargets.targets();
         boolean hasFallbackTargets = compiledTargets.hasFallbackTargets();
         boolean placementMayBeAir = compiledTargets.placementMayBeAir();
@@ -393,9 +391,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             BlockPos.MutableBlockPos pMutablePos
     ) {
         RuleTest rule = pTargetState.target;
-        IdentityHashMap<RuleTest, Block[]> cache = BTS$RULE_CACHE.get();
-
-        Block[] validBlocks = cache.computeIfAbsent(rule, MixinOreFeature::bts$unwrapRule);
+        Block[] validBlocks = BTS$RULE_CACHE.getOrCompute(rule, MixinOreFeature::bts$unwrapRule);
 
         boolean matched = false;
 

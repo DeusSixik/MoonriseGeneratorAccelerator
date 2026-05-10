@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -14,15 +15,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.IdentityHashMap;
 import java.util.List;
 
 @Mixin(value = BlockColumnFeature.class, priority = 999)
 public abstract class MixinBlockColumnFeature extends Feature<BlockColumnConfiguration> {
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<BlockColumnConfiguration, CompiledColumn>> GA$CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<BlockColumnConfiguration, CompiledColumn> GA$CACHE = new SharedWeakCache<>();
 
     @Unique
     private static final ThreadLocal<int[]> GA$HEIGHTS =
@@ -50,7 +49,7 @@ public abstract class MixinBlockColumnFeature extends Feature<BlockColumnConfigu
         BlockColumnConfiguration config = placeContext.config();
         RandomSource random = placeContext.random();
 
-        CompiledColumn compiled = GA$CACHE.get().computeIfAbsent(config, MixinBlockColumnFeature::ga$compile);
+        CompiledColumn compiled = GA$CACHE.getOrCompute(config, MixinBlockColumnFeature::ga$compile);
         BlockColumnConfiguration.Layer[] layers = compiled.layers();
         int layerCount = layers.length;
         int[] heights = ga$getHeights(layerCount);

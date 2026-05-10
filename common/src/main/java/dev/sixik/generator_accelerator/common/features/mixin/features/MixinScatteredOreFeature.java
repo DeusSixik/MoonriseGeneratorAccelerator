@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -30,7 +31,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,8 +42,7 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<OreConfiguration, CompiledTargets>> GA$TARGET_CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<OreConfiguration, CompiledTargets> GA$TARGET_CACHE = new SharedWeakCache<>();
 
     private MixinScatteredOreFeature(Codec<OreConfiguration> codec) {
         super(codec);
@@ -61,7 +60,7 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
         BlockPos origin = placeContext.origin();
         BlockPos.MutableBlockPos mutablePos = GA$SHARED_POS.get();
 
-        CompiledTargets compiledTargets = GA$TARGET_CACHE.get().computeIfAbsent(config, MixinScatteredOreFeature::ga$compileTargets);
+        CompiledTargets compiledTargets = GA$TARGET_CACHE.getOrCompute(config, MixinScatteredOreFeature::ga$compileTargets);
         FastTarget[] fastTargets = compiledTargets.targets();
         boolean placementMayBeAir = compiledTargets.placementMayBeAir();
         BlockState[] states = FastBlockStateCache.STATES;

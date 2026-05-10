@@ -21,11 +21,16 @@ public final class DecorationPipelineScratch {
     private static final int DEFAULT_SECTION_BUCKET_CAPACITY = 128;
     private static final int DEFAULT_MODIFIER_BUFFER_CAPACITY = 32;
     private static final int MAX_RETAINED_CANDIDATE_CAPACITY = 65_536;
+    private static final int MAX_EXCESSIVE_CANDIDATE_CAPACITY = 262_144;
     private static final int MAX_RETAINED_SECTION_BUCKET_CAPACITY = 8_192;
+    private static final int MAX_EXCESSIVE_SECTION_BUCKET_CAPACITY = 32_768;
     private static final int MAX_RETAINED_TOUCHED_MUTATION_CAPACITY = 8_192;
+    private static final int MAX_EXCESSIVE_TOUCHED_MUTATION_CAPACITY = 32_768;
     private static final int MAX_RETAINED_MODIFIER_BUFFER_DEPTH = 16;
     private static final int MAX_REUSED_ORE_BITSET_BITS = 262_144;
     private static final int MAX_REUSED_ORE_VISITED_WORDS = MAX_REUSED_ORE_BITSET_BITS >>> 6;
+    private static final int MAX_RETAINED_ORE_VISITED_WORDS = 131_072;
+    private static final int MAX_RETAINED_ORE_VEIN_DATA_VALUES = 16_384;
     private static final int HEIGHTMAP_CACHE_SLOTS = 8;
     private static final int HEIGHTMAP_CACHE_SLOT_MASK = HEIGHTMAP_CACHE_SLOTS - 1;
     private static final int HEIGHTMAP_TYPE_COUNT = Heightmap.Types.values().length;
@@ -144,12 +149,11 @@ public final class DecorationPipelineScratch {
 
     long[] clearOreVisitedWords(int bitCount) {
         int wordCount = (bitCount + Long.SIZE - 1) >>> 6;
-        if (this.oreVisitedWords.length < wordCount || this.oreVisitedWords.length > MAX_REUSED_ORE_VISITED_WORDS) {
+        if (this.oreVisitedWords.length < wordCount) {
             this.oreVisitedWords = new long[Math.max(wordCount, MAX_REUSED_ORE_VISITED_WORDS)];
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
-        } else {
-            Arrays.fill(this.oreVisitedWords, 0, wordCount, 0L);
         }
+        Arrays.fill(this.oreVisitedWords, 0, wordCount, 0L);
         return this.oreVisitedWords;
     }
 
@@ -528,43 +532,74 @@ public final class DecorationPipelineScratch {
     }
 
     private void shrinkOversizedBuffers() {
-        if (this.candidateX.length > MAX_RETAINED_CANDIDATE_CAPACITY) {
-            this.candidateX = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateY = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateZ = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateKernelId = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.selectedFeatureBuffer = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateNext = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateSectionIndex = new int[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateSeed = new long[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateSectionKey = new long[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateSimpleBlockState = new BlockState[DEFAULT_CANDIDATE_CAPACITY];
-            this.candidateWriteFlags = new int[DEFAULT_CANDIDATE_CAPACITY];
-        } else if (this.selectedFeatureBuffer.length > MAX_RETAINED_CANDIDATE_CAPACITY) {
-            this.selectedFeatureBuffer = new int[DEFAULT_CANDIDATE_CAPACITY];
+        if (this.candidateX.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
+            this.candidateX = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateY = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateZ = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateKernelId = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateNext = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateSectionIndex = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateSeed = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateSectionKey = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateSimpleBlockState = new BlockState[MAX_RETAINED_CANDIDATE_CAPACITY];
+            this.candidateWriteFlags = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+        } else if (this.selectedFeatureBuffer.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
+            this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
         }
 
-        if (this.sectionBucketKey.length > MAX_RETAINED_SECTION_BUCKET_CAPACITY) {
-            this.sectionBucketHead = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketTail = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketKey = new long[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.sectionBucketNextInChunk = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketHead = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketTail = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.chunkBucketKey = new long[DEFAULT_SECTION_BUCKET_CAPACITY];
+        if (this.sectionBucketKey.length > MAX_EXCESSIVE_SECTION_BUCKET_CAPACITY) {
+            this.sectionBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.sectionBucketNextInChunk = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketHead = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketTail = new int[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
+            this.chunkBucketKey = new long[MAX_RETAINED_SECTION_BUCKET_CAPACITY];
         }
 
-        if (this.touchedMutationX.length > MAX_RETAINED_TOUCHED_MUTATION_CAPACITY) {
-            this.touchedMutationChunk = new ChunkAccess[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.touchedMutationX = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.touchedMutationY = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-            this.touchedMutationZ = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+        if (this.touchedMutationX.length > MAX_EXCESSIVE_TOUCHED_MUTATION_CAPACITY) {
+            this.touchedMutationChunk = new ChunkAccess[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+            this.touchedMutationX = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+            this.touchedMutationY = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
+            this.touchedMutationZ = new int[MAX_RETAINED_TOUCHED_MUTATION_CAPACITY];
         }
 
         if (this.modifierPositionBuffers.length > MAX_RETAINED_MODIFIER_BUFFER_DEPTH) {
             this.modifierPositionBuffers = new LongScratchBuffer[4];
             this.modifierPositionBuffers[0] = new LongScratchBuffer(DEFAULT_MODIFIER_BUFFER_CAPACITY);
+        } else {
+            for (LongScratchBuffer buffer : this.modifierPositionBuffers) {
+                if (buffer != null) {
+                    buffer.trimIfExcessivelyOversized();
+                }
+            }
         }
+
+        if (this.oreVisitedWords.length > MAX_RETAINED_ORE_VISITED_WORDS) {
+            this.oreVisitedWords = new long[MAX_REUSED_ORE_VISITED_WORDS];
+        }
+
+        if (this.oreVeinData.length > MAX_RETAINED_ORE_VEIN_DATA_VALUES) {
+            this.oreVeinData = new double[64 * 4];
+        }
+    }
+
+    public String debugSummary() {
+        return "candidates=" + this.candidateCount
+                + '/' + this.candidateX.length
+                + ",selectedCap=" + this.selectedFeatureBuffer.length
+                + ",sectionBuckets=" + this.sectionBucketCount
+                + '/' + this.sectionBucketKey.length
+                + ",chunkBuckets=" + this.chunkBucketCount
+                + '/' + this.chunkBucketKey.length
+                + ",touchedMutations=" + this.touchedMutationCount
+                + '/' + this.touchedMutationX.length
+                + ",oreVisitedWords=" + this.oreVisitedWords.length
+                + ",oreVeinData=" + this.oreVeinData.length
+                + ",modifierDepth=" + this.modifierBufferDepth
+                + '/' + this.modifierPositionBuffers.length
+                + ",descriptors={" + this.descriptors.debugSummary() + '}';
     }
 
     private static final class ChunkAccessPos {

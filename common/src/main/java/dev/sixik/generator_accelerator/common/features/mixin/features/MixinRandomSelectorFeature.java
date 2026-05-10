@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -15,15 +16,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.IdentityHashMap;
 import java.util.List;
 
 @Mixin(value = RandomSelectorFeature.class, priority = 999)
 public abstract class MixinRandomSelectorFeature extends Feature<RandomFeatureConfiguration> {
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<RandomFeatureConfiguration, CompiledRandomSelector>> GA$CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<RandomFeatureConfiguration, CompiledRandomSelector> GA$CACHE = new SharedWeakCache<>();
 
     private MixinRandomSelectorFeature(Codec<RandomFeatureConfiguration> codec) {
         super(codec);
@@ -36,7 +35,7 @@ public abstract class MixinRandomSelectorFeature extends Feature<RandomFeatureCo
     @Overwrite
     public boolean place(FeaturePlaceContext<RandomFeatureConfiguration> placeContext) {
         RandomFeatureConfiguration config = placeContext.config();
-        CompiledRandomSelector compiled = GA$CACHE.get().computeIfAbsent(config, MixinRandomSelectorFeature::ga$compile);
+        CompiledRandomSelector compiled = GA$CACHE.getOrCompute(config, MixinRandomSelectorFeature::ga$compile);
         RandomSource random = placeContext.random();
         WorldGenLevel level = placeContext.level();
         ChunkGenerator generator = placeContext.chunkGenerator();

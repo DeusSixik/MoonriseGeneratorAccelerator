@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.features.mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$StructureManagerExtension;
 import dev.sixik.generator_accelerator.common.features.BiomeDecorationScratch;
 import dev.sixik.generator_accelerator.common.features.BiomeSignatureFeatureMaskCache;
+import dev.sixik.generator_accelerator.common.features.FeatureMemoryDebug;
 import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
 import dev.sixik.generator_accelerator.common.features.RegistryNameSupplier;
 import dev.sixik.generator_accelerator.common.features.StepFeatureCache;
@@ -292,6 +293,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 throw new ReportedException(crashreport);
             } finally {
                 decorationScratch.clearBiomeFeatureMasks();
+                FeatureMemoryDebug.maybeLogDecorationChunk(chunkpos, set.size(), pipelineScratch);
                 pipelineScratch.clear();
                 DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_TOTAL_NANOS, decorationStart);
             }

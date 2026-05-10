@@ -3,8 +3,8 @@ package dev.sixik.generator_accelerator.common.features.vm;
 import java.util.Arrays;
 
 public final class LongScratchBuffer {
-    private static final int MAX_RETAINED_CAPACITY = 262_144;
-    private static final int SHRUNK_CAPACITY = 65_536;
+    private static final int EXCESSIVE_RETAINED_CAPACITY = 1_048_576;
+    private static final int TRIMMED_CAPACITY = 262_144;
 
     private long[] values;
     private final int initialCapacity;
@@ -55,8 +55,11 @@ public final class LongScratchBuffer {
 
     public void clear() {
         this.size = 0;
-        if (this.values.length > MAX_RETAINED_CAPACITY) {
-            this.values = new long[Math.max(this.initialCapacity, SHRUNK_CAPACITY)];
+    }
+
+    public void trimIfExcessivelyOversized() {
+        if (this.values.length > EXCESSIVE_RETAINED_CAPACITY) {
+            this.values = new long[Math.max(this.initialCapacity, TRIMMED_CAPACITY)];
         }
     }
 

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -14,14 +15,12 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.IdentityHashMap;
-
 @Mixin(value = RandomBooleanSelectorFeature.class, priority = 999)
 public abstract class MixinRandomBooleanSelectorFeature extends Feature<RandomBooleanFeatureConfiguration> {
 
     @Unique
-    private static final ThreadLocal<IdentityHashMap<RandomBooleanFeatureConfiguration, CompiledRandomBooleanSelector>> GA$CACHE =
-            ThreadLocal.withInitial(IdentityHashMap::new);
+    private static final SharedWeakCache<RandomBooleanFeatureConfiguration, CompiledRandomBooleanSelector> GA$CACHE =
+            new SharedWeakCache<>();
 
     private MixinRandomBooleanSelectorFeature(Codec<RandomBooleanFeatureConfiguration> codec) {
         super(codec);
@@ -34,7 +33,7 @@ public abstract class MixinRandomBooleanSelectorFeature extends Feature<RandomBo
     @Overwrite
     public boolean place(FeaturePlaceContext<RandomBooleanFeatureConfiguration> placeContext) {
         RandomBooleanFeatureConfiguration config = placeContext.config();
-        CompiledRandomBooleanSelector compiled = GA$CACHE.get().computeIfAbsent(
+        CompiledRandomBooleanSelector compiled = GA$CACHE.getOrCompute(
                 config,
                 key -> new CompiledRandomBooleanSelector(key.featureTrue.value(), key.featureFalse.value())
         );

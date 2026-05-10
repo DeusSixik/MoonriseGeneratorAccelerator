@@ -612,4 +612,12 @@ public final class SectionDescriptorCache {
             this.heightScanDescriptors = new SectionDescriptor[32];
         }
     }
+
+    String debugSummary() {
+        return "descriptorSize=" + this.size
+                + '/' + this.descriptors.length
+                + ",heightEntries=" + this.heightEntryCount
+                + '/' + this.heightChunks.length
+                + ",heightScanCap=" + this.heightScanDescriptors.length;
+    }
 }
