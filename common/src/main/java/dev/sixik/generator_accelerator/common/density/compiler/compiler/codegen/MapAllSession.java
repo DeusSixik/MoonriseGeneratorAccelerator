@@ -47,10 +47,9 @@ import java.util.concurrent.atomic.LongAdder;
  * memo. Once the outer call returns, the session goes out of scope and the maps are
  * eligible for GC.
  *
- * <p>The memo is owned by the thread that created the session. Vanilla chunk init stays
- * on that owner and keeps the cheap {@link IdentityHashMap}; if a modded pipeline runs
- * visitor work on helper threads, those helpers simply bypass this memo instead of
- * contending on shared mutable state.
+ * <p>The memo is single-thread per call (each chunk init runs on a single thread),
+ * so a plain {@link IdentityHashMap} is fine — the cheaper hash and lower constant
+ * factor matter more than the cross-thread guarantees we don't need.
  *
  * <h2>Visitor contract preservation</h2>
  *
@@ -68,7 +67,6 @@ public final class MapAllSession implements DensityFunction.Visitor {
     private static final AtomicInteger MAX_MEMO_SIZE = new AtomicInteger();
 
     private final DensityFunction.Visitor user;
-    private final Thread ownerThread;
 
     /**
      * Identity-keyed cache of {@code densityFunction.mapAll(this)} results for the
@@ -85,7 +83,6 @@ public final class MapAllSession implements DensityFunction.Visitor {
     public MapAllSession(DensityFunction.Visitor user) {
         SESSIONS_CREATED.increment();
         this.user = user;
-        this.ownerThread = Thread.currentThread();
     }
 
     public record Stats(long sessionsCreated, long memoHits, long memoMisses, int maxMemoSize) {}
@@ -103,10 +100,6 @@ public final class MapAllSession implements DensityFunction.Visitor {
     }
 
     DensityFunction memoGet(DensityFunction key) {
-        if (Thread.currentThread() != ownerThread) {
-            MEMO_MISSES.increment();
-            return null;
-        }
         DensityFunction value = mapAllMemo.get(key);
         if (value == null) {
             MEMO_MISSES.increment();
@@ -117,9 +110,6 @@ public final class MapAllSession implements DensityFunction.Visitor {
     }
 
     void memoPut(DensityFunction key, DensityFunction value) {
-        if (Thread.currentThread() != ownerThread) {
-            return;
-        }
         mapAllMemo.put(key, value);
         updateMaxMemoSize(mapAllMemo.size());
     }
