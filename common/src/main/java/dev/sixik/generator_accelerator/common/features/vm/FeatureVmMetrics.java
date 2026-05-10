@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.LongAdder;
 
 @Deprecated(forRemoval = false)
 public final class FeatureVmMetrics {
-    public static final boolean ENABLED = Boolean.getBoolean("ga.featureVm.metrics");
+    public static volatile boolean ENABLED = Boolean.getBoolean("ga.featureVm.metrics");
 
     private static final LongAdder PROGRAMS_COMPILED = new LongAdder();
     private static final LongAdder FAST_OPS_COMPILED = new LongAdder();
@@ -19,6 +19,10 @@ public final class FeatureVmMetrics {
 
     @Deprecated(forRemoval = false)
     private FeatureVmMetrics() {
+    }
+
+    public static void setEnabled(boolean enabled) {
+        ENABLED = enabled;
     }
 
     static void recordProgramCompiled(int fastOps, int fallbackOps) {
@@ -74,7 +78,6 @@ public final class FeatureVmMetrics {
     }
 
     public static void reset() {
-        if (!ENABLED) return;
         PROGRAMS_COMPILED.reset();
         FAST_OPS_COMPILED.reset();
         FALLBACK_OPS_COMPILED.reset();

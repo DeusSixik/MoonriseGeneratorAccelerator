@@ -11,12 +11,13 @@ import net.minecraft.world.level.material.FluidState;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.Arrays;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 @Mixin(value = LevelChunkSection.class, priority = 999)
@@ -35,6 +36,15 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     public short tickingBlockCount;
     @Unique
     private volatile int @Nullable [] bts$rawBlockData;
+    @Unique
+    private static final int bts$RAW_BLOCK_DATA_LENGTH = 4096;
+    @Unique
+    private static final int bts$RAW_BLOCK_DATA_POOL_MAX = Math.max(32,
+            Integer.getInteger("ga.flatBlockArray.rawPoolMax", Runtime.getRuntime().availableProcessors() * 64));
+    @Unique
+    private static final ConcurrentLinkedQueue<int[]> bts$RAW_BLOCK_DATA_POOL = new ConcurrentLinkedQueue<>();
+    @Unique
+    private static final AtomicInteger bts$RAW_BLOCK_DATA_POOL_SIZE = new AtomicInteger();
 
     /**
      * Получить сырые данные блоков в виде плоского одномерного массива.
@@ -56,7 +66,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     public void bts$unpackForGeneration() {
         if (this.bts$rawBlockData != null) return;
 
-        this.bts$rawBlockData = new int[4096];
+        int[] raw = bts$acquireRawBlockData();
+        this.bts$rawBlockData = raw;
 
         if (this.nonEmptyBlockCount == 0) {
             return;
@@ -70,7 +81,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
                     if (!state.isAir()) {
                         int index = (y << 8) | (z << 4) | x;
-                        this.bts$rawBlockData[index] = GA$BlockStateExtension.get(state).bts$getFastId();
+                        raw[index] = GA$BlockStateExtension.get(state).bts$getFastId();
                     }
                 }
             }
@@ -84,7 +95,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
      */
     @Override
     public void bts$packAndFreeze() {
-        if (bts$rawBlockData == null) return;
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null) return;
 
         states.acquire();
         try {
@@ -95,8 +107,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             BlockState lastState = Blocks.AIR.defaultBlockState();
             int lastStateIndex = -1;
 
-            for (int i = 0; i < 4096; i++) {
-                int stateId = bts$rawBlockData[i];
+            for (int i = 0; i < bts$RAW_BLOCK_DATA_LENGTH; i++) {
+                int stateId = raw[i];
                 if(lastStateIndex != stateId) {
                     lastStateIndex = stateId;
                     lastState = FastBlockStateCache.getBlockState(stateId);
@@ -121,55 +133,145 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             this.tickingBlockCount = tickBlocks;
             this.tickingFluidCount = tickFluids;
         } finally {
-            bts$rawBlockData = null;
+            this.bts$rawBlockData = null;
+            bts$releaseRawBlockData(raw);
             states.release();
         }
     }
 
-    @Inject(method = "getStates", at = @At("HEAD"))
-    public void bts$getStates(CallbackInfoReturnable<PalettedContainer<BlockState>> cir) {
+    @Unique
+    private static int[] bts$acquireRawBlockData() {
+        int[] raw = bts$RAW_BLOCK_DATA_POOL.poll();
+        if (raw == null) {
+            return new int[bts$RAW_BLOCK_DATA_LENGTH];
+        }
+        bts$RAW_BLOCK_DATA_POOL_SIZE.decrementAndGet();
+        Arrays.fill(raw, 0);
+        return raw;
+    }
+
+    @Unique
+    private static void bts$releaseRawBlockData(int[] raw) {
+        if (raw.length != bts$RAW_BLOCK_DATA_LENGTH) {
+            return;
+        }
+        int size = bts$RAW_BLOCK_DATA_POOL_SIZE.get();
+        while (size < bts$RAW_BLOCK_DATA_POOL_MAX) {
+            if (bts$RAW_BLOCK_DATA_POOL_SIZE.compareAndSet(size, size + 1)) {
+                bts$RAW_BLOCK_DATA_POOL.offer(raw);
+                return;
+            }
+            size = bts$RAW_BLOCK_DATA_POOL_SIZE.get();
+        }
+    }
+
+    /**
+     * @author Sixik
+     * @reason Avoid CallbackInfoReturnable allocation in hot section access.
+     */
+    @Overwrite
+    public PalettedContainer<BlockState> getStates() {
         this.bts$packAndFreeze();
+        return this.states;
     }
 
-    @Inject(method = "getBlockState", at = @At("HEAD"), cancellable = true)
-    public void bts$getBlockState(int pX, int pY, int pZ, CallbackInfoReturnable<BlockState> cir) {
-        if (this.bts$rawBlockData != null) {
+    /**
+     * @author Sixik
+     * @reason Avoid CallbackInfoReturnable allocation in hot block reads.
+     */
+    @Overwrite
+    public BlockState getBlockState(int pX, int pY, int pZ) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw != null) {
             int index = (pY << 8) | (pZ << 4) | pX;
-            cir.setReturnValue(FastBlockStateCache.getBlockState(this.bts$rawBlockData[index]));
+            return FastBlockStateCache.getBlockState(raw[index]);
+        }
+        return this.states.get(pX, pY, pZ);
+    }
+
+    /**
+     * @author Sixik
+     * @reason Avoid CallbackInfoReturnable allocation in hot fluid reads.
+     */
+    @Overwrite
+    public FluidState getFluidState(int pX, int pY, int pZ) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw != null) {
+            int index = (pY << 8) | (pZ << 4) | pX;
+            return FastBlockStateCache.getBlockState(raw[index]).getFluidState();
+        }
+        return this.states.get(pX, pY, pZ).getFluidState();
+    }
+
+    /**
+     * @author Sixik
+     * @reason Avoid CallbackInfoReturnable allocation in hot block writes.
+     */
+    @Overwrite
+    public BlockState setBlockState(int pX, int pY, int pZ, BlockState pState, boolean pUseLocks) {
+        int[] raw = this.bts$rawBlockData;
+        BlockState oldState;
+        if (raw != null) {
+            int index = (pY << 8) | (pZ << 4) | pX;
+            int oldId = raw[index];
+            raw[index] = GA$BlockStateExtension.get(pState).bts$getFastId();
+            oldState = FastBlockStateCache.getBlockState(oldId);
+        } else {
+            oldState = pUseLocks
+                    ? this.states.getAndSet(pX, pY, pZ, pState)
+                    : this.states.getAndSetUnchecked(pX, pY, pZ, pState);
         }
 
+        this.bts$updateCounts(oldState, pState);
+        return oldState;
     }
 
-    @Inject(method = "getFluidState", at = @At("HEAD"), cancellable = true)
-    public void bts$getFluidState(int pX, int pY, int pZ, CallbackInfoReturnable<FluidState> cir) {
-        if (this.bts$rawBlockData != null) {
-            int index = (pY << 8) | (pZ << 4) | pX;
-            cir.setReturnValue(FastBlockStateCache.getBlockState(this.bts$rawBlockData[index]).getFluidState());
-        }
-    }
+    @Unique
+    private void bts$updateCounts(BlockState oldState, BlockState newState) {
+        FluidState oldFluid = oldState.getFluidState();
+        FluidState newFluid = newState.getFluidState();
 
-    @Inject(method = "setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/level/block/state/BlockState;", at = @At("HEAD"), cancellable = true)
-    public void bts$setBlockState_Inject(int pX, int pY, int pZ, BlockState pState, boolean pUseLocks, CallbackInfoReturnable<BlockState> cir) {
-        if (this.bts$rawBlockData != null) {
-            int index = (pY << 8) | (pZ << 4) | pX;
-            int oldId = this.bts$rawBlockData[index];
-            this.bts$rawBlockData[index] = GA$BlockStateExtension.get(pState).bts$getFastId();
-            BlockState oldState = FastBlockStateCache.getBlockState(oldId);
-
-            if (!oldState.isAir()) this.nonEmptyBlockCount--;
-            if (!pState.isAir()) this.nonEmptyBlockCount++;
-
-            cir.setReturnValue(oldState);
-        }
-    }
-
-    @Inject(method = "maybeHas", at = @At("HEAD"), cancellable = true)
-    public void bts$maybeHas(Predicate<BlockState> predicate, CallbackInfoReturnable<Boolean> cir) {
-        if(bts$rawBlockData != null) {
-            for (int i = 0; i < bts$rawBlockData.length; i++) {
-                if(predicate.test(FastBlockStateCache.getBlockState(bts$rawBlockData[i])))
-                    cir.setReturnValue(true);
+        if (!oldState.isAir()) {
+            this.nonEmptyBlockCount--;
+            if (oldState.isRandomlyTicking()) {
+                this.tickingBlockCount--;
             }
         }
+        if (!oldFluid.isEmpty()) {
+            this.nonEmptyBlockCount--;
+            if (oldFluid.isRandomlyTicking()) {
+                this.tickingFluidCount--;
+            }
+        }
+        if (!newState.isAir()) {
+            this.nonEmptyBlockCount++;
+            if (newState.isRandomlyTicking()) {
+                this.tickingBlockCount++;
+            }
+        }
+        if (!newFluid.isEmpty()) {
+            this.nonEmptyBlockCount++;
+            if (newFluid.isRandomlyTicking()) {
+                this.tickingFluidCount++;
+            }
+        }
+    }
+
+    /**
+     * @author Sixik
+     * @reason Avoid CallbackInfoReturnable allocation in hot section predicates.
+     */
+    @Overwrite
+    public boolean maybeHas(Predicate<BlockState> predicate) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw != null) {
+            for (int i = 0; i < raw.length; i++) {
+                if (predicate.test(FastBlockStateCache.getBlockState(raw[i]))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return this.states.maybeHas(predicate);
     }
 }

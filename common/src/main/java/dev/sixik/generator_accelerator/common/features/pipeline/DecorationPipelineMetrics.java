@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Low-overhead counters for the data-oriented decoration pipeline. */
 public final class DecorationPipelineMetrics {
 
-    public static final boolean ENABLED = Boolean.getBoolean("ga.decorationPipeline.metrics");
+    public static volatile boolean ENABLED = Boolean.getBoolean("ga.decorationPipeline.metrics");
 
     public static final int DECORATION_TOTAL_NANOS = 0;
     public static final int DECORATION_NATIVE_NANOS = 1;
@@ -145,6 +145,10 @@ public final class DecorationPipelineMetrics {
     private DecorationPipelineMetrics() {
     }
 
+    public static void setEnabled(boolean enabled) {
+        ENABLED = enabled;
+    }
+
     public static long startTimer() {
         return ENABLED ? System.nanoTime() : 0L;
     }
@@ -195,16 +199,14 @@ public final class DecorationPipelineMetrics {
     }
 
     public static void reset() {
-        if (ENABLED) {
-            for (int i = 0; i < COUNTER_COUNT; i++) {
-                COUNTERS.set(i, 0L);
-            }
-            for (int i = 0; i < DecorationKernelKind.values().length; i++) {
-                KIND_EXECUTIONS.set(i, 0L);
-                KIND_NANOS.set(i, 0L);
-            }
-            FEATURE_METRICS.clear();
+        for (int i = 0; i < COUNTER_COUNT; i++) {
+            COUNTERS.set(i, 0L);
         }
+        for (int i = 0; i < DecorationKernelKind.values().length; i++) {
+            KIND_EXECUTIONS.set(i, 0L);
+            KIND_NANOS.set(i, 0L);
+        }
+        FEATURE_METRICS.clear();
     }
 
     public static String name(int counter) {

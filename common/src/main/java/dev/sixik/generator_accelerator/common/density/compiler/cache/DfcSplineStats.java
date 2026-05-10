@@ -9,11 +9,11 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * Optional runtime counters for generated spline evaluation.
  *
- * <p>Instrumentation is emitted only when {@code -Ddfc.codegen.splineRuntimeStats=true}
- * is present during compilation/codegen, so the default hot path stays untouched.
+ * <p>Generated hooks are runtime-gated so `/ga diagnostics start` can enable
+ * counters after startup without JVM arguments.
  */
 public final class DfcSplineStats {
-    public static final boolean ENABLED = Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
+    public static volatile boolean ENABLED = Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
 
     public static final int SEARCH_LINEAR = 0;
     public static final int SEARCH_BINARY = 1;
@@ -22,6 +22,11 @@ public final class DfcSplineStats {
     public static final int EXIT_INTERIOR = 0;
     public static final int EXIT_LEFT_EXTRAPOLATION = 1;
     public static final int EXIT_RIGHT_EXTRAPOLATION = 2;
+
+    private static final int SAMPLE_SHIFT = sampleShift();
+    private static final int SAMPLE_RATE = 1 << SAMPLE_SHIFT;
+    private static final int SAMPLE_MASK = SAMPLE_RATE - 1;
+    private static final ThreadLocal<SamplerState> SAMPLER = ThreadLocal.withInitial(SamplerState::new);
 
     private static final LongAdder CALLS = new LongAdder();
     private static final LongAdder LINEAR_CALLS = new LongAdder();
@@ -48,6 +53,10 @@ public final class DfcSplineStats {
     private DfcSplineStats() {
     }
 
+    public static void setEnabled(boolean enabled) {
+        ENABLED = enabled;
+    }
+
     public static void record(int pointCount, int searchMode, int exitKind, long nanos) {
         recordDetailed(null, pointCount, searchMode, exitKind, nanos);
     }
@@ -56,45 +65,69 @@ public final class DfcSplineStats {
         if (!ENABLED) {
             return;
         }
+        recordDetailedWeighted(className, pointCount, searchMode, exitKind, nanos, 1L);
+    }
+
+    public static long sampleStart() {
+        if (!ENABLED) {
+            return 0L;
+        }
+        if (SAMPLE_MASK == 0) {
+            return System.nanoTime();
+        }
+        SamplerState state = SAMPLER.get();
+        state.counter = (state.counter + 1) & SAMPLE_MASK;
+        return state.counter == 0 ? System.nanoTime() : 0L;
+    }
+
+    public static void recordDetailedSampled(String className, int pointCount, int searchMode, int exitKind, long nanos) {
+        if (!ENABLED) {
+            return;
+        }
+        recordDetailedWeighted(className, pointCount, searchMode, exitKind, nanos, SAMPLE_RATE);
+    }
+
+    private static void recordDetailedWeighted(String className, int pointCount, int searchMode, int exitKind, long nanos, long weight) {
         long clampedNanos = Math.max(0L, nanos);
-        CALLS.increment();
-        TOTAL_NANOS.add(clampedNanos);
+        long weightedNanos = clampedNanos * weight;
+        CALLS.add(weight);
+        TOTAL_NANOS.add(weightedNanos);
 
         if (searchMode == SEARCH_BINARY) {
-            BINARY_CALLS.increment();
-            BINARY_NANOS.add(clampedNanos);
+            BINARY_CALLS.add(weight);
+            BINARY_NANOS.add(weightedNanos);
         } else if (searchMode == SEARCH_LUT) {
-            LUT_CALLS.increment();
-            LUT_NANOS.add(clampedNanos);
+            LUT_CALLS.add(weight);
+            LUT_NANOS.add(weightedNanos);
         } else {
-            LINEAR_CALLS.increment();
-            LINEAR_NANOS.add(clampedNanos);
+            LINEAR_CALLS.add(weight);
+            LINEAR_NANOS.add(weightedNanos);
         }
 
         switch (exitKind) {
-            case EXIT_LEFT_EXTRAPOLATION -> LEFT_EXTRAPOLATION_CALLS.increment();
-            case EXIT_RIGHT_EXTRAPOLATION -> RIGHT_EXTRAPOLATION_CALLS.increment();
-            default -> INTERIOR_CALLS.increment();
+            case EXIT_LEFT_EXTRAPOLATION -> LEFT_EXTRAPOLATION_CALLS.add(weight);
+            case EXIT_RIGHT_EXTRAPOLATION -> RIGHT_EXTRAPOLATION_CALLS.add(weight);
+            default -> INTERIOR_CALLS.add(weight);
         }
 
         if (pointCount <= 2) {
-            BUCKET_LE_2_CALLS.increment();
-            BUCKET_LE_2_NANOS.add(clampedNanos);
+            BUCKET_LE_2_CALLS.add(weight);
+            BUCKET_LE_2_NANOS.add(weightedNanos);
         } else if (pointCount <= 4) {
-            BUCKET_3_TO_4_CALLS.increment();
-            BUCKET_3_TO_4_NANOS.add(clampedNanos);
+            BUCKET_3_TO_4_CALLS.add(weight);
+            BUCKET_3_TO_4_NANOS.add(weightedNanos);
         } else if (pointCount <= 8) {
-            BUCKET_5_TO_8_CALLS.increment();
-            BUCKET_5_TO_8_NANOS.add(clampedNanos);
+            BUCKET_5_TO_8_CALLS.add(weight);
+            BUCKET_5_TO_8_NANOS.add(weightedNanos);
         } else {
-            BUCKET_GE_9_CALLS.increment();
-            BUCKET_GE_9_NANOS.add(clampedNanos);
+            BUCKET_GE_9_CALLS.add(weight);
+            BUCKET_GE_9_NANOS.add(weightedNanos);
         }
 
         String normalizedClassName = normalizeClassName(className);
         if (!normalizedClassName.isEmpty()) {
             CLASS_COUNTERS.computeIfAbsent(normalizedClassName, ignored -> new ClassStatsCounter())
-                    .record(pointCount, searchMode, exitKind, clampedNanos);
+                    .record(pointCount, searchMode, exitKind, weightedNanos, weight);
         }
     }
 
@@ -219,6 +252,15 @@ public final class DfcSplineStats {
         return base.indexOf('/') < 0 ? base : base.replace('/', '.');
     }
 
+    private static int sampleShift() {
+        int configured = Integer.getInteger("dfc.codegen.splineRuntimeStats.sampleShift", 8);
+        return Math.max(0, Math.min(20, configured));
+    }
+
+    private static final class SamplerState {
+        private int counter;
+    }
+
     private static final class ClassStatsCounter {
         private final LongAdder calls = new LongAdder();
         private final LongAdder linearCalls = new LongAdder();
@@ -237,32 +279,32 @@ public final class DfcSplineStats {
         private final LongAdder bucketGe9Calls = new LongAdder();
         private final LongAdder bucketGe9Nanos = new LongAdder();
 
-        private void record(int pointCount, int searchMode, int exitKind, long nanos) {
-            calls.increment();
+        private void record(int pointCount, int searchMode, int exitKind, long nanos, long weight) {
+            calls.add(weight);
             totalNanos.add(nanos);
             if (searchMode == SEARCH_BINARY) {
-                binaryCalls.increment();
+                binaryCalls.add(weight);
             } else if (searchMode == SEARCH_LUT) {
-                lutCalls.increment();
+                lutCalls.add(weight);
             } else {
-                linearCalls.increment();
+                linearCalls.add(weight);
             }
             switch (exitKind) {
-                case EXIT_LEFT_EXTRAPOLATION -> leftExtrapolationCalls.increment();
-                case EXIT_RIGHT_EXTRAPOLATION -> rightExtrapolationCalls.increment();
-                default -> interiorCalls.increment();
+                case EXIT_LEFT_EXTRAPOLATION -> leftExtrapolationCalls.add(weight);
+                case EXIT_RIGHT_EXTRAPOLATION -> rightExtrapolationCalls.add(weight);
+                default -> interiorCalls.add(weight);
             }
             if (pointCount <= 2) {
-                bucketLe2Calls.increment();
+                bucketLe2Calls.add(weight);
                 bucketLe2Nanos.add(nanos);
             } else if (pointCount <= 4) {
-                bucket3To4Calls.increment();
+                bucket3To4Calls.add(weight);
                 bucket3To4Nanos.add(nanos);
             } else if (pointCount <= 8) {
-                bucket5To8Calls.increment();
+                bucket5To8Calls.add(weight);
                 bucket5To8Nanos.add(nanos);
             } else {
-                bucketGe9Calls.increment();
+                bucketGe9Calls.add(weight);
                 bucketGe9Nanos.add(nanos);
             }
         }

@@ -6,6 +6,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePl
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import jdk.jfr.Configuration;
@@ -53,6 +54,7 @@ public final class GADiagnostics {
     private static final AtomicBoolean SHUTDOWN_HOOK_INSTALLED = new AtomicBoolean();
     private static final Object JFR_LOCK = new Object();
 
+    private static volatile boolean commandEnabled;
     private static volatile GcTotals gcBaseline = captureGcTotals();
     private static volatile Recording activeRecording;
     private static volatile Path activeJfrPath;
@@ -61,7 +63,7 @@ public final class GADiagnostics {
     }
 
     public static void onModInit() {
-        installDefaultMetricProperties();
+        syncMetricFlagsFromProperties();
         resetBaseline();
         if (isEnabled()) {
             installShutdownHook();
@@ -70,7 +72,8 @@ public final class GADiagnostics {
     }
 
     public static boolean isEnabled() {
-        return Boolean.getBoolean("ga.diagnostics.enabled")
+        return commandEnabled
+                || Boolean.getBoolean("ga.diagnostics.enabled")
                 || Boolean.getBoolean("ga.benchmark.diagnostics")
                 || Boolean.getBoolean("ga.diagnostics.jfr");
     }
@@ -157,9 +160,41 @@ public final class GADiagnostics {
         resetBaseline();
         DecorationPipelineMetrics.reset();
         FeatureVmMetrics.reset();
+        SurfaceMetrics.reset();
         DfcCellFillStats.reset();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
+    }
+
+    public static void enableFromCommand() {
+        commandEnabled = true;
+        setProperty("ga.diagnostics.enabled", "true");
+        setProperty("ga.diagnostics.jfr", "true");
+        setProperty("ga.diagnostics.jfr.allocations", "true");
+        setProperty("ga.diagnostics.jfr.allocationSamples", "true");
+        setProperty("ga.decorationPipeline.metrics", "true");
+        setProperty("ga.featureVm.metrics", "true");
+        setProperty("ga.surface.metrics", "true");
+        setProperty("dfc.cellfill.stats", "true");
+        setProperty("dfc.cellfill.stats.residualClassDebug", "true");
+        setProperty("dfc.codegen.splineRuntimeStats", "true");
+        syncMetricFlagsFromProperties();
+        installShutdownHook();
+    }
+
+    public static void disableFromCommand() {
+        commandEnabled = false;
+        setProperty("ga.diagnostics.enabled", "false");
+        setProperty("ga.diagnostics.jfr", "false");
+        setProperty("ga.diagnostics.jfr.allocations", "false");
+        setProperty("ga.diagnostics.jfr.allocationSamples", "false");
+        setProperty("ga.decorationPipeline.metrics", "false");
+        setProperty("ga.featureVm.metrics", "false");
+        setProperty("ga.surface.metrics", "false");
+        setProperty("dfc.cellfill.stats", "false");
+        setProperty("dfc.cellfill.stats.residualClassDebug", "false");
+        setProperty("dfc.codegen.splineRuntimeStats", "false");
+        syncMetricFlagsFromProperties();
     }
 
     public static Path restartRecording(String name, boolean allocationStacks) {
@@ -187,6 +222,7 @@ public final class GADiagnostics {
         GcTotals totals = captureGcTotals();
         GcTotals baseline = gcBaseline;
         return "GA diagnostics: enabled=" + isEnabled()
+                + ", metrics=" + metricsEnabledSummary()
                 + ", jfrActive=" + isRecordingActive()
                 + ", heapUsedMb=" + heap.getUsed() / (1024L * 1024L)
                 + ", heapCommittedMb=" + heap.getCommitted() / (1024L * 1024L)
@@ -205,22 +241,26 @@ public final class GADiagnostics {
         ));
     }
 
-    private static void installDefaultMetricProperties() {
-        defaultProperty("ga.diagnostics.enabled", "true");
-        defaultProperty("ga.diagnostics.jfr", "true");
-        defaultProperty("ga.diagnostics.jfr.allocations", "false");
-        defaultProperty("ga.diagnostics.jfr.allocationSamples", "true");
-        defaultProperty("ga.decorationPipeline.metrics", "true");
-        defaultProperty("ga.featureVm.metrics", "true");
-        defaultProperty("dfc.cellfill.stats", "true");
-        defaultProperty("dfc.cellfill.stats.residualClassDebug", "true");
-        defaultProperty("dfc.codegen.splineRuntimeStats", "true");
+    private static void syncMetricFlagsFromProperties() {
+        DecorationPipelineMetrics.setEnabled(Boolean.getBoolean("ga.decorationPipeline.metrics"));
+        FeatureVmMetrics.setEnabled(Boolean.getBoolean("ga.featureVm.metrics"));
+        SurfaceMetrics.setEnabled(Boolean.getBoolean("ga.surface.metrics"));
+        DfcCellFillStats.setEnabled(
+                Boolean.getBoolean("dfc.cellfill.stats"),
+                Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug"));
+        DfcSplineStats.setEnabled(Boolean.getBoolean("dfc.codegen.splineRuntimeStats"));
     }
 
-    private static void defaultProperty(String name, String value) {
-        if (System.getProperty(name) == null) {
-            System.setProperty(name, value);
-        }
+    private static void setProperty(String name, String value) {
+        System.setProperty(name, value);
+    }
+
+    private static String metricsEnabledSummary() {
+        return "decoration=" + DecorationPipelineMetrics.ENABLED
+                + ", featureVm=" + FeatureVmMetrics.ENABLED
+                + ", surface=" + SurfaceMetrics.ENABLED
+                + ", cellFill=" + DfcCellFillStats.ENABLED
+                + ", spline=" + DfcSplineStats.ENABLED;
     }
 
     private static DumpResult writeBundle(String reason, Map<String, ?> extra, boolean stopRecording, boolean zip) {
@@ -395,6 +435,7 @@ public final class GADiagnostics {
         out.put("config", configSnapshot());
         out.put("featureVm", featureVmSnapshot());
         out.put("decorationPipeline", decorationPipelineSnapshot());
+        out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());
         return out;
     }
@@ -441,6 +482,55 @@ public final class GADiagnostics {
         out.put("counters", counters);
         out.put("successfulWritesPerWorldRead", DecorationPipelineMetrics.successfulWritesPerWorldRead());
         out.put("summary", DecorationPipelineMetrics.summary());
+        return out;
+    }
+
+    private static Map<String, Object> surfaceCompilerSnapshot() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", SurfaceMetrics.ENABLED);
+        out.put("compiledPrograms", SurfaceMetrics.compiledPrograms());
+        out.put("irPrograms", SurfaceMetrics.irPrograms());
+        out.put("irFallbacks", SurfaceMetrics.irFallbacks());
+        out.put("irFallbackRuleNodes", SurfaceMetrics.irFallbackRuleNodes());
+        out.put("irFallbackConditionNodes", SurfaceMetrics.irFallbackConditionNodes());
+        out.put("interpretedPrograms", SurfaceMetrics.interpretedPrograms());
+        out.put("optimizedPrograms", SurfaceMetrics.optimizedPrograms());
+        out.put("cacheHits", SurfaceMetrics.cacheHits());
+        out.put("cacheMisses", SurfaceMetrics.cacheMisses());
+        out.put("lastEntryHits", SurfaceMetrics.lastEntryHits());
+        out.put("sectionsProcessed", SurfaceMetrics.sectionsProcessed());
+        out.put("emptySectionsSkipped", SurfaceMetrics.emptySectionsSkipped());
+        out.put("rawBlockArrayMisses", SurfaceMetrics.rawBlockArrayMisses());
+        out.put("stonelessSectionsSkipped", SurfaceMetrics.stonelessSectionsSkipped());
+        out.put("fallbackIslands", SurfaceMetrics.fallbackIslands());
+        out.put("conditionCacheHits", SurfaceMetrics.conditionCacheHits());
+        out.put("conditionCacheMisses", SurfaceMetrics.conditionCacheMisses());
+        out.put("activeMaskEarlyExits", SurfaceMetrics.activeMaskEarlyExits());
+
+        Map<String, Object> nanos = new LinkedHashMap<>();
+        nanos.put("cacheLookup", SurfaceMetrics.cacheLookupNanos());
+        nanos.put("compile", SurfaceMetrics.compileNanos());
+        nanos.put("biomePrep", SurfaceMetrics.biomePrepNanos());
+        nanos.put("surfaceDepth", SurfaceMetrics.surfaceDepthNanos());
+        nanos.put("secondarySurface", SurfaceMetrics.secondarySurfaceNanos());
+        nanos.put("preliminarySurface", SurfaceMetrics.preliminarySurfaceNanos());
+        nanos.put("stoneDepth", SurfaceMetrics.stoneDepthNanos());
+        nanos.put("stoneMaskLoad", SurfaceMetrics.stoneMaskLoadNanos());
+        nanos.put("programApply", SurfaceMetrics.programApplyNanos());
+        nanos.put("fluidPostprocess", SurfaceMetrics.fluidPostprocessNanos());
+        nanos.put("frozenOcean", SurfaceMetrics.frozenOceanNanos());
+        nanos.put("fallbackRuleBridge", SurfaceMetrics.fallbackRuleBridgeNanos());
+        nanos.put("fallbackConditionBridge", SurfaceMetrics.fallbackConditionBridgeNanos());
+        out.put("nanos", nanos);
+
+        Map<String, Object> conditions = new TreeMap<>();
+        for (String kind : SurfaceMetrics.conditionKinds()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("count", SurfaceMetrics.conditionEvalCount(kind));
+            item.put("nanos", SurfaceMetrics.conditionEvalNanos(kind));
+            conditions.put(kind, item);
+        }
+        out.put("conditions", conditions);
         return out;
     }
 

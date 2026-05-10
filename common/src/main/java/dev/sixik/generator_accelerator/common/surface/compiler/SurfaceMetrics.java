@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.Set;
 
 public final class SurfaceMetrics {
-    public static final boolean ENABLED = SurfaceCompilerConfig.METRICS;
+    public static volatile boolean ENABLED = Boolean.getBoolean("ga.surface.metrics");
 
     private static final LongAdder COMPILED_PROGRAMS = new LongAdder();
     private static final LongAdder IR_PROGRAMS = new LongAdder();
@@ -48,6 +48,10 @@ public final class SurfaceMetrics {
     private static final ConcurrentHashMap<String, TimerCounter> CONDITION_TIMES = new ConcurrentHashMap<>();
 
     private SurfaceMetrics() {
+    }
+
+    public static void setEnabled(boolean enabled) {
+        ENABLED = enabled;
     }
 
     public static long startTimer() {
@@ -283,6 +287,43 @@ public final class SurfaceMetrics {
         return ACTIVE_MASK_EARLY_EXITS.sum();
     }
 
+    public static void reset() {
+        COMPILED_PROGRAMS.reset();
+        IR_PROGRAMS.reset();
+        IR_FALLBACKS.reset();
+        IR_FALLBACK_RULE_NODES.reset();
+        IR_FALLBACK_CONDITION_NODES.reset();
+        INTERPRETED_PROGRAMS.reset();
+        OPTIMIZED_PROGRAMS.reset();
+        CACHE_HITS.reset();
+        CACHE_MISSES.reset();
+        LAST_ENTRY_HITS.reset();
+        SECTIONS_PROCESSED.reset();
+        EMPTY_SECTIONS_SKIPPED.reset();
+        RAW_BLOCK_ARRAY_MISSES.reset();
+        STONELESS_SECTIONS_SKIPPED.reset();
+        FALLBACK_ISLANDS.reset();
+        CONDITION_CACHE_HITS.reset();
+        CONDITION_CACHE_MISSES.reset();
+        ACTIVE_MASK_EARLY_EXITS.reset();
+        CACHE_LOOKUP_TIME.reset();
+        COMPILE_TIME.reset();
+        BIOME_PREP_TIME.reset();
+        SURFACE_DEPTH_TIME.reset();
+        SECONDARY_SURFACE_TIME.reset();
+        PRELIMINARY_SURFACE_TIME.reset();
+        STONE_DEPTH_TIME.reset();
+        STONE_MASK_LOAD_TIME.reset();
+        PROGRAM_APPLY_TIME.reset();
+        FLUID_POSTPROCESS_TIME.reset();
+        FROZEN_OCEAN_TIME.reset();
+        FALLBACK_RULE_BRIDGE_TIME.reset();
+        FALLBACK_CONDITION_BRIDGE_TIME.reset();
+        FALLBACK_RULE_CLASSES.clear();
+        FALLBACK_CONDITION_CLASSES.clear();
+        CONDITION_TIMES.clear();
+    }
+
     public static long fallbackRuleClassCount(String className) {
         LongAdder counter = FALLBACK_RULE_CLASSES.get(className);
         return counter == null ? 0L : counter.sum();
@@ -375,6 +416,11 @@ public final class SurfaceMetrics {
 
         long nanos() {
             return this.nanos.sum();
+        }
+
+        void reset() {
+            this.count.reset();
+            this.nanos.reset();
         }
     }
 }

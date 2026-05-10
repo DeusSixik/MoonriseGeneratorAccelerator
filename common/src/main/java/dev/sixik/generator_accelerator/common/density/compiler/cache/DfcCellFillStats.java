@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.LongAdder;
  * Runtime counters for generated cell-fill execution modes.
  */
 public final class DfcCellFillStats {
-    public static final boolean ENABLED = Boolean.getBoolean("dfc.cellfill.stats");
-    public static final boolean RESIDUAL_CLASS_DEBUG_ENABLED =
+    public static volatile boolean ENABLED = Boolean.getBoolean("dfc.cellfill.stats");
+    public static volatile boolean RESIDUAL_CLASS_DEBUG_ENABLED =
             ENABLED && Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug");
 
     private static final LongAdder CELL_SCALAR = new LongAdder();
@@ -32,6 +32,11 @@ public final class DfcCellFillStats {
     private static final ConcurrentHashMap<String, LongAdder> RESIDUAL_EXTERN_FALLBACK_CLASSES = new ConcurrentHashMap<>();
 
     private DfcCellFillStats() {
+    }
+
+    public static void setEnabled(boolean enabled, boolean residualClassDebugEnabled) {
+        ENABLED = enabled;
+        RESIDUAL_CLASS_DEBUG_ENABLED = enabled && residualClassDebugEnabled;
     }
 
     public record ClassStats(String className, long calls, long nativeSlabInnerCalls) {
@@ -163,10 +168,16 @@ public final class DfcCellFillStats {
     }
 
     public static void recordCellScalar() {
+        if (!ENABLED) {
+            return;
+        }
         CELL_SCALAR.increment();
     }
 
     public static void recordCellXzSlab() {
+        if (!ENABLED) {
+            return;
+        }
         CELL_XZ_SLAB.increment();
     }
 
@@ -194,14 +205,23 @@ public final class DfcCellFillStats {
     }
 
     public static void recordColumnScalar() {
+        if (!ENABLED) {
+            return;
+        }
         COLUMNS_SCALAR.increment();
     }
 
     public static void recordColumnJavaBatched() {
+        if (!ENABLED) {
+            return;
+        }
         COLUMNS_JAVA_BATCHED.increment();
     }
 
     public static void recordColumnNativeInner() {
+        if (!ENABLED) {
+            return;
+        }
         COLUMNS_NATIVE_INNER.increment();
     }
 

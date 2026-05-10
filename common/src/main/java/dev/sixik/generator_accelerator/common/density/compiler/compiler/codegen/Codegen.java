@@ -113,7 +113,7 @@ public final class Codegen {
     static final SplineSearchMode SPLINE_SEARCH_MODE =
             parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
     public static final boolean SPLINE_RUNTIME_STATS_ENABLED =
-            Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
+            Boolean.parseBoolean(System.getProperty("dfc.codegen.splineRuntimeStats.emit", "true"));
     /**
      * Optional exact LUT-guided segment selection for large interior splines.
      *
@@ -4520,7 +4520,7 @@ public final class Codegen {
             if (SPLINE_RUNTIME_STATS_ENABLED) {
                 splineTimingStartSlot = allocLongSlot();
                 splineTimingResultSlot = allocFloatSlot();
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "nanoTime", "()J", false);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "sampleStart", "()J", false);
                 mv.visitVarInsn(Opcodes.LSTORE, splineTimingStartSlot);
             }
 
@@ -4688,6 +4688,11 @@ public final class Codegen {
                 return;
             }
             mv.visitVarInsn(Opcodes.FSTORE, splineTimingResultSlot);
+            Label skipRecord = new Label();
+            mv.visitVarInsn(Opcodes.LLOAD, splineTimingStartSlot);
+            mv.visitInsn(Opcodes.LCONST_0);
+            mv.visitInsn(Opcodes.LCMP);
+            mv.visitJumpInsn(Opcodes.IFEQ, skipRecord);
             mv.visitLdcInsn(classInternalName.replace('/', '.'));
             mv.visitLdcInsn(pointCount);
             mv.visitLdcInsn(searchMode);
@@ -4695,8 +4700,9 @@ public final class Codegen {
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "nanoTime", "()J", false);
             mv.visitVarInsn(Opcodes.LLOAD, splineTimingStartSlot);
             mv.visitInsn(Opcodes.LSUB);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "recordDetailed",
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "recordDetailedSampled",
                     DFC_SPLINE_STATS_RECORD_DETAILED_DESC, false);
+            mv.visitLabel(skipRecord);
             mv.visitVarInsn(Opcodes.FLOAD, splineTimingResultSlot);
         }
 

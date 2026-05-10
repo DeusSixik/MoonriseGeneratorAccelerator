@@ -10,13 +10,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class GADiagnosticsCommands {
+    private static final int DIAGNOSTICS_PERMISSION_LEVEL = 4;
+
     private GADiagnosticsCommands() {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("ga")
-                .requires(source -> source.hasPermission(2))
+                .requires(source -> source.hasPermission(DIAGNOSTICS_PERMISSION_LEVEL))
                 .then(Commands.literal("diagnostics")
+                        .requires(source -> source.hasPermission(DIAGNOSTICS_PERMISSION_LEVEL))
                         .executes(context -> status(context.getSource()))
                         .then(Commands.literal("status")
                                 .executes(context -> status(context.getSource())))
@@ -42,6 +45,7 @@ public final class GADiagnosticsCommands {
     }
 
     private static int start(CommandSourceStack source) {
+        GADiagnostics.enableFromCommand();
         Path path = GADiagnostics.restartRecording("command-start", true);
         if (path == null) {
             source.sendFailure(Component.literal("GA diagnostics failed to start JFR. Check log."));
@@ -52,6 +56,7 @@ public final class GADiagnosticsCommands {
     }
 
     private static int reset(CommandSourceStack source) {
+        GADiagnostics.enableFromCommand();
         GADiagnostics.resetAllMetrics();
         Path path = GADiagnostics.restartRecording("command-reset", true);
         source.sendSuccess(() -> Component.literal("GA diagnostics counters reset."), false);
@@ -84,6 +89,7 @@ public final class GADiagnosticsCommands {
         }
         if (stop) {
             source.sendSuccess(() -> Component.literal("GA diagnostics recording stopped. Use /ga diagnostics start to resume."), false);
+            GADiagnostics.disableFromCommand();
         }
         return 1;
     }
