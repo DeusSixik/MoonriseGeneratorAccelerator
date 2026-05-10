@@ -17,10 +17,10 @@ public class MixinNoiseChunk$Cache2D {
 
     /**
      * @author Sixik
-     * @reason Inline ChunkPos.asLong
+     * @reason Inline ChunkPos.asLong and publish the one-slot cache under a monitor.
      */
     @Overwrite
-    public double compute(DensityFunction.FunctionContext ctx) {
+    public synchronized double compute(DensityFunction.FunctionContext ctx) {
         final int x = ctx.blockX();
         final int z = ctx.blockZ();
 
@@ -29,9 +29,9 @@ public class MixinNoiseChunk$Cache2D {
         if (this.lastPos2D == key) {
             return this.lastValue;
         } else {
-            this.lastPos2D = key;
             final double val = this.function.compute(ctx);
             this.lastValue = val;
+            this.lastPos2D = key;
             return val;
         }
     }

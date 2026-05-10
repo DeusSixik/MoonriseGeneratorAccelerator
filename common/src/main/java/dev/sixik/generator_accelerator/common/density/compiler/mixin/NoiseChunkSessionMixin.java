@@ -5,7 +5,10 @@ import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.NoiseRouter;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -13,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Per-{@link NoiseChunk} {@link MapAllSession} sharing across every
@@ -74,18 +78,44 @@ import java.util.List;
  *
  * <h2>Thread safety</h2>
  *
- * <p>{@code NoiseChunk} instances are inherently per-thread / per-chunk-gen task
- * (Minecraft's chunk pipeline never shares a {@code NoiseChunk} across worker
- * threads), so plain instance fields are race-free. We add no synchronization.
+ * <p>Vanilla keeps {@code NoiseChunk} wrapping single-threaded, but some modded
+ * pipelines parallelize router field mapping. The session fields remain per chunk;
+ * {@link #wrap(DensityFunction)} is synchronized so chunk-local cache wrappers cannot
+ * be published through a racing wrapper map.
  */
 @Mixin(value = NoiseChunk.class, priority = 2000)
 public abstract class NoiseChunkSessionMixin {
+
+    @Shadow
+    @Final
+    private Map<DensityFunction, DensityFunction> wrapped;
+
+    @Shadow
+    private DensityFunction wrapNew(DensityFunction densityFunction) {
+        throw new AssertionError();
+    }
 
     @Unique
     private MapAllSession dfc$ctorSession;
 
     @Unique
     private MapAllSession dfc$samplerSession;
+
+    /**
+     * @author Sixik
+     * @reason Keep NoiseChunk's wrapper map safe if router field mapping is parallelized.
+     */
+    @Overwrite
+    protected synchronized DensityFunction wrap(DensityFunction densityFunction) {
+        DensityFunction cached = this.wrapped.get(densityFunction);
+        if (cached != null) {
+            return cached;
+        }
+
+        DensityFunction result = this.wrapNew(densityFunction);
+        this.wrapped.put(densityFunction, result);
+        return result;
+    }
 
     @Redirect(
             method = "<init>",

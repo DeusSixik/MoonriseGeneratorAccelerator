@@ -9,6 +9,8 @@ import org.spongepowered.asm.mixin.Shadow;
 
 /**
  * 2D (XZ) one-slot cache: same (blockX, blockZ) as last call returns the stored value.
+ * Shares the {@code Cache2D#compute} monitor so generated direct reads do not observe
+ * a half-published key/value pair.
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$Cache2D")
 public class NoiseChunkCache2dMixin implements DfcCellCacheAccess {
@@ -20,7 +22,7 @@ public class NoiseChunkCache2dMixin implements DfcCellCacheAccess {
     private double lastValue;
 
     @Override
-    public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
+    public synchronized double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
         final int bx = context.blockX();
         final int bz = context.blockZ();
         final long key = (long)bx & 0xFFFFFFFFL | ((long)bz << 32);

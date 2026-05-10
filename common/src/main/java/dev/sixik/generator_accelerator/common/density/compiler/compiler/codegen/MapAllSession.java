@@ -47,9 +47,9 @@ import java.util.concurrent.atomic.LongAdder;
  * memo. Once the outer call returns, the session goes out of scope and the maps are
  * eligible for GC.
  *
- * <p>The memo is single-thread per call (each chunk init runs on a single thread),
- * so a plain {@link IdentityHashMap} is fine — the cheaper hash and lower constant
- * factor matter more than the cross-thread guarantees we don't need.
+ * <p>The memo is identity-keyed, but access is synchronized. Vanilla chunk init is
+ * single-threaded; some worldgen stacks parallelize router field mapping, and a guarded
+ * map keeps chunk-local wrapper bindings from being corrupted in that case.
  *
  * <h2>Visitor contract preservation</h2>
  *
@@ -99,7 +99,7 @@ public final class MapAllSession implements DensityFunction.Visitor {
         MAX_MEMO_SIZE.set(0);
     }
 
-    DensityFunction memoGet(DensityFunction key) {
+    synchronized DensityFunction memoGet(DensityFunction key) {
         DensityFunction value = mapAllMemo.get(key);
         if (value == null) {
             MEMO_MISSES.increment();
@@ -109,7 +109,7 @@ public final class MapAllSession implements DensityFunction.Visitor {
         return value;
     }
 
-    void memoPut(DensityFunction key, DensityFunction value) {
+    synchronized void memoPut(DensityFunction key, DensityFunction value) {
         mapAllMemo.put(key, value);
         updateMaxMemoSize(mapAllMemo.size());
     }
