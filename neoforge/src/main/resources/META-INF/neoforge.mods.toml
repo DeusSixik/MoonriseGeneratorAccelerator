@@ -1,7 +1,7 @@
 modLoader = "javafml"
 loaderVersion = "[2,)"
 #issueTrackerURL = ""
-license = "GPLv3"
+license = "Polyform Shield 1.0.0"
 
 [[mods]]
 modId = "generator_accelerator"
