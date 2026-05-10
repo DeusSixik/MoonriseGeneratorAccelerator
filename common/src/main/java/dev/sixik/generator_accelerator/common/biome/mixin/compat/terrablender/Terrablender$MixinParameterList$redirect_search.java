@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender;
 
 import com.bawnorton.mixinsquared.TargetHandler;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.sixik.generator_accelerator.common.biome.FlatClimateIndex;
@@ -13,14 +15,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(value = {Climate.ParameterList.class}, priority = 1500)
 public abstract class Terrablender$MixinParameterList$redirect_search<T> {
 
     // Global Storage: Vanilla Tree -> Our Flat Index
     @Unique
-    private ConcurrentHashMap<Climate.RTree<?>, FlatClimateIndex<?>> bts$tbMap;
+    private Cache<Climate.RTree<?>, FlatClimateIndex<?>> bts$tbMap;
 
     // Thread local cache: remembers the last used tree to avoid Map churn
     @Unique
@@ -28,7 +29,10 @@ public abstract class Terrablender$MixinParameterList$redirect_search<T> {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(List list, CallbackInfo ci) {
-        bts$tbMap = new ConcurrentHashMap<>();
+        bts$tbMap = Caffeine.newBuilder()
+                .initialCapacity(4)
+                .weakKeys()
+                .build();
         bts$tbThreadCache = ThreadLocal.withInitial(TreeCache::new);
     }
 
@@ -59,7 +63,7 @@ public abstract class Terrablender$MixinParameterList$redirect_search<T> {
 
         // If this is a new region (TerraBlender has replaced RTree), we get/create a new FlatIndex
         if (cache.tree != tree) {
-            flatIndex = bts$tbMap.computeIfAbsent(tree, FlatClimateIndex::new);
+            flatIndex = bts$tbMap.get(tree, FlatClimateIndex::new);
             cache.tree = tree;
             cache.flatIndex = flatIndex;
         }

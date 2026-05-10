@@ -19,51 +19,66 @@ public class VectorNamespacedRule implements VectorRule {
 
     @Override
     public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
-        BitSet remainingMask = (BitSet) activeMask.clone();
+        BitSet remainingMask = ctx.acquireBitSet4096();
+        BitSet namespaceMask = ctx.acquireBitSet4096();
+        try {
+            remainingMask.or(activeMask);
 
-        for (Map.Entry<String, VectorRule> entry : namespaceRules.entrySet()) {
-            if (remainingMask.isEmpty()) break;
+            for (Map.Entry<String, VectorRule> entry : namespaceRules.entrySet()) {
+                if (remainingMask.isEmpty()) break;
 
-            String targetNamespace = entry.getKey();
-            VectorRule rule = entry.getValue();
+                String targetNamespace = entry.getKey();
+                VectorRule rule = entry.getValue();
 
-            if(rule == null) continue;
+                if(rule == null) continue;
 
-            boolean[] xzMatches = new boolean[256];
-            boolean hasAnyMatch = false;
+                int[] xzMatches = ctx.columnScratchMarks;
+                int stamp = ctx.nextColumnScratchStamp();
+                boolean hasAnyMatch = false;
 
-            for (int xz = 0; xz < 256; xz++) {
-                Holder<Biome> biome = ctx.surfaceBiomes[xz];
-                if (biome != null && biome.unwrapKey().isPresent()) {
-                    if (biome.unwrapKey().get().location().getNamespace().equals(targetNamespace)) {
-                        xzMatches[xz] = true;
-                        hasAnyMatch = true;
+                for (int xz = 0; xz < 256; xz++) {
+                    Holder<Biome> biome = ctx.surfaceBiomes[xz];
+                    if (biome != null) {
+                        var biomeKey = biome.unwrapKey();
+                        if (biomeKey.isPresent()
+                                && biomeKey.get().location().getNamespace().equals(targetNamespace)) {
+                            xzMatches[xz] = stamp;
+                            hasAnyMatch = true;
+                        }
+                    }
+                }
+
+                if (!hasAnyMatch) continue;
+
+                namespaceMask.clear();
+                for (int i = remainingMask.nextSetBit(0); i >= 0; i = remainingMask.nextSetBit(i + 1)) {
+                    if (xzMatches[i & 255] == stamp) {
+                        namespaceMask.set(i);
+                    }
+                }
+
+                if (!namespaceMask.isEmpty()) {
+                    BitSet beforeApply = ctx.acquireBitSet4096();
+                    try {
+                        beforeApply.or(namespaceMask);
+
+                        rule.apply(rawBlockData, namespaceMask, ctx);
+                        beforeApply.xor(namespaceMask);
+                        remainingMask.andNot(beforeApply);
+                    } finally {
+                        ctx.releaseBitSet4096(beforeApply);
                     }
                 }
             }
 
-            if (!hasAnyMatch) continue;
-
-            BitSet namespaceMask = new BitSet(4096);
-            for (int i = remainingMask.nextSetBit(0); i >= 0; i = remainingMask.nextSetBit(i + 1)) {
-                if (xzMatches[i & 255]) {
-                    namespaceMask.set(i);
-                }
+            if (!remainingMask.isEmpty()) {
+                baseRule.apply(rawBlockData, remainingMask, ctx);
             }
 
-            if (!namespaceMask.isEmpty()) {
-                BitSet beforeApply = (BitSet) namespaceMask.clone();
-
-                rule.apply(rawBlockData, namespaceMask, ctx);
-                beforeApply.xor(namespaceMask);
-                remainingMask.andNot(beforeApply);
-            }
+            activeMask.and(remainingMask);
+        } finally {
+            ctx.releaseBitSet4096(namespaceMask);
+            ctx.releaseBitSet4096(remainingMask);
         }
-
-        if (!remainingMask.isEmpty()) {
-            baseRule.apply(rawBlockData, remainingMask, ctx);
-        }
-
-        activeMask.and(remainingMask);
     }
 }

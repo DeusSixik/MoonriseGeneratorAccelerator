@@ -1,6 +1,9 @@
 package dev.sixik.generator_accelerator_benchmark.mixin;
 
 import com.mojang.authlib.GameProfile;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
+import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -30,6 +33,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
@@ -42,7 +47,13 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
     @Unique private ServerPlayer fakePlayer;
     @Unique private boolean isProfilerStart = false;
+    @Unique private boolean benchmarkFinished = false;
     @Unique private int tickCounter = 0;
+    @Unique private long benchmarkStartNanos = 0L;
+    @Unique private int generatedBatches = 0;
+    @Unique private volatile boolean watchdogStarted = false;
+    @Unique private volatile boolean serverTickSeen = false;
+    @Unique private volatile long lastTickNanos = System.nanoTime();
 
     private MinecraftServerMixin(String string) {
         super(string);
@@ -50,34 +61,59 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
     @Inject(method = "runServer", at = @At("HEAD"))
     public void sdm$runServer(CallbackInfo ci) {
-        MinecraftServer server = (MinecraftServer) (Object) this;
-        Path worldPath = server.getWorldPath(LevelResource.ROOT);
-        sdm$deleteWorldFolder(worldPath);
+        if (Boolean.parseBoolean(System.getProperty("ga.benchmark.resetWorld", "true"))) {
+            MinecraftServer server = (MinecraftServer) (Object) this;
+            Path worldPath = server.getWorldPath(LevelResource.ROOT);
+            sdm$deleteWorldFolder(worldPath);
+        }
+        this.sdm$startWatchdog();
     }
 
     @Inject(method = "tickServer", at = @At("TAIL"))
     public void sdm$tickServer(BooleanSupplier booleanSupplier, CallbackInfo ci) {
         MinecraftServer server = (MinecraftServer) (Object) this;
+        this.serverTickSeen = true;
+        this.lastTickNanos = System.nanoTime();
 
+        int startTick = Integer.getInteger("ga.benchmark.startTick", 30);
+        int stopTick = Integer.getInteger("ga.benchmark.stopTick", 1500);
+        int haltTick = Integer.getInteger("ga.benchmark.haltTick", 2100);
+        int ticksBetweenBatches = Integer.getInteger("ga.benchmark.ticksBetweenBatches", 40);
+        int renderDistance = Integer.getInteger("ga.benchmark.renderDistance", 16);
+        int maxBatches = Integer.getInteger("ga.benchmark.maxBatches", -1);
+        boolean useSpark = Boolean.parseBoolean(System.getProperty("ga.benchmark.useSpark", "true"));
 
-        if (!isProfilerStart && tickCounter == 30) {
-            var commandSource = server.createCommandSourceStack().withPermission(4);
-            server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
+        if (!isProfilerStart && !benchmarkFinished && tickCounter >= startTick && server.overworld() != null) {
+            if (useSpark) {
+                var commandSource = server.createCommandSourceStack().withPermission(4);
+                server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
+            }
+            if (DecorationPipelineMetrics.ENABLED) {
+                DecorationPipelineMetrics.reset();
+            }
+            GADiagnostics.resetBaseline();
+            GADiagnostics.startJfrIfEnabled("ga-benchmark");
+            this.benchmarkStartNanos = System.nanoTime();
 
             this.fakePlayer = this.sdm$makePlayer();
             fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
             this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
 
             isProfilerStart = true;
+            this.generatedBatches = 0;
+            MainBenchmark.log("Benchmark config: startTick=" + startTick
+                    + ", stopTick=" + stopTick
+                    + ", haltTick=" + haltTick
+                    + ", ticksBetweenBatches=" + ticksBetweenBatches
+                    + ", renderDistance=" + renderDistance
+                    + ", maxBatches=" + maxBatches
+                    + ", useSpark=" + useSpark);
         }
 
         if (this.fakePlayer != null && isProfilerStart) {
-            int ticksBetweenBatches = 40; // Каждые 2 секунды
-
-            if (tickCounter % ticksBetweenBatches == 0) {
-                int renderDistance = 16;
+            if (ticksBetweenBatches > 0 && tickCounter % ticksBetweenBatches == 0
+                    && (maxBatches < 0 || this.generatedBatches < maxBatches)) {
                 double blocksToMove = renderDistance * 2 * 16;
-
                 double newX = this.fakePlayer.getX() + blocksToMove;
 
                 this.fakePlayer.teleportTo(
@@ -88,19 +124,40 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
                         this.fakePlayer.getYRot(),
                         this.fakePlayer.getXRot()
                 );
+                this.generatedBatches++;
             }
 
             this.fakePlayer.resetLastActionTime();
         }
 
-        if(tickCounter == 1500) {
-            var commandSource = server.createCommandSourceStack().withPermission(4);
-            server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMANd);
+        if(!benchmarkFinished && isProfilerStart && (tickCounter >= stopTick || (maxBatches >= 0 && this.generatedBatches >= maxBatches))) {
+            if (useSpark) {
+                var commandSource = server.createCommandSourceStack().withPermission(4);
+                server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMANd);
+            }
+            long elapsedMs = (System.nanoTime() - this.benchmarkStartNanos) / 1_000_000L;
+            MainBenchmark.log("Benchmark wall time ms: " + elapsedMs);
+            MainBenchmark.log("Benchmark generated batches: " + this.generatedBatches);
+            if (FeatureVmMetrics.ENABLED) {
+                MainBenchmark.log(FeatureVmMetrics.summary());
+            }
+            if (DecorationPipelineMetrics.ENABLED) {
+                MainBenchmark.log(DecorationPipelineMetrics.summary());
+            }
+            Path diagnosticsPath = GADiagnostics.writeBenchmarkDump(
+                    "benchmark-finished",
+                    this.sdm$benchmarkDiagnostics(startTick, stopTick, haltTick, ticksBetweenBatches,
+                            renderDistance, maxBatches, useSpark, elapsedMs)
+            );
+            if (diagnosticsPath != null) {
+                MainBenchmark.log("Benchmark diagnostics: " + diagnosticsPath.toAbsolutePath());
+            }
             isProfilerStart = false;
+            benchmarkFinished = true;
             server.getPlayerList().removeAll();
         }
 
-        if (tickCounter == 2100) {
+        if (benchmarkFinished && tickCounter >= haltTick) {
             MainBenchmark.log("Time's up. Sending the /stop command...");
             Runtime.getRuntime().halt(0);
         }
@@ -128,6 +185,112 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         EmbeddedChannel embeddedChannel = new EmbeddedChannel(connection);
         server.getPlayerList().placeNewPlayer(connection, serverPlayer, commonListenerCookie);
         return serverPlayer;
+    }
+
+    @Unique
+    private void sdm$startWatchdog() {
+        if (!Boolean.parseBoolean(System.getProperty("ga.benchmark.watchdog", "true"))) {
+            return;
+        }
+        if (this.watchdogStarted) {
+            return;
+        }
+        this.watchdogStarted = true;
+        this.lastTickNanos = System.nanoTime();
+
+        int startupWatchdogSeconds = Integer.getInteger("ga.benchmark.startupWatchdogSeconds", 180);
+        int tickWatchdogSeconds = Integer.getInteger("ga.benchmark.tickWatchdogSeconds", 120);
+        if (startupWatchdogSeconds <= 0 && tickWatchdogSeconds <= 0) {
+            return;
+        }
+
+        Thread thread = new Thread(() -> {
+            while (!this.benchmarkFinished) {
+                try {
+                    Thread.sleep(1000L);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+
+                long idleSeconds = (System.nanoTime() - this.lastTickNanos) / 1_000_000_000L;
+                if (!this.serverTickSeen && startupWatchdogSeconds > 0 && idleSeconds >= startupWatchdogSeconds) {
+                    sdm$haltByWatchdog("startup watchdog fired after " + idleSeconds + "s without server tick", 124);
+                }
+                if (this.serverTickSeen && tickWatchdogSeconds > 0 && idleSeconds >= tickWatchdogSeconds) {
+                    sdm$haltByWatchdog("tick watchdog fired after " + idleSeconds + "s without tick progress", 125);
+                }
+            }
+        }, "ga-benchmark-watchdog");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    @Unique
+    private static void sdm$haltByWatchdog(String reason, int exitCode) {
+        MainBenchmark.log("Benchmark " + reason + ". Writing thread dump and halting server.");
+        sdm$writeThreadDump(reason);
+        Path diagnosticsPath = GADiagnostics.writeBenchmarkDump("watchdog-" + reason, Map.of("watchdogReason", reason));
+        if (diagnosticsPath != null) {
+            MainBenchmark.log("Benchmark watchdog diagnostics: " + diagnosticsPath.toAbsolutePath());
+        }
+        Runtime.getRuntime().halt(exitCode);
+    }
+
+    @Unique
+    private Map<String, Object> sdm$benchmarkDiagnostics(
+            int startTick,
+            int stopTick,
+            int haltTick,
+            int ticksBetweenBatches,
+            int renderDistance,
+            int maxBatches,
+            boolean useSpark,
+            long elapsedMs
+    ) {
+        Map<String, Object> benchmark = new LinkedHashMap<>();
+        benchmark.put("startTick", startTick);
+        benchmark.put("stopTick", stopTick);
+        benchmark.put("haltTick", haltTick);
+        benchmark.put("ticksBetweenBatches", ticksBetweenBatches);
+        benchmark.put("renderDistance", renderDistance);
+        benchmark.put("maxBatches", maxBatches);
+        benchmark.put("useSpark", useSpark);
+        benchmark.put("elapsedMs", elapsedMs);
+        benchmark.put("generatedBatches", this.generatedBatches);
+        benchmark.put("tickCounter", this.tickCounter);
+        return benchmark;
+    }
+
+    @Unique
+    private static void sdm$writeThreadDump(String reason) {
+        try {
+            Path dumpDir = Path.of(System.getProperty("ga.benchmark.dumpDir", "benchmark-dumps"));
+            Files.createDirectories(dumpDir);
+            String safeReason = reason.replaceAll("[^A-Za-z0-9._-]+", "_");
+            Path dumpPath = dumpDir.resolve("watchdog-" + System.currentTimeMillis() + "-" + safeReason + ".txt");
+            StringBuilder builder = new StringBuilder(128 * 1024);
+            builder.append("Benchmark watchdog: ").append(reason).append('\n');
+            builder.append("Tick dump nanos: ").append(System.nanoTime()).append('\n');
+
+            for (Map.Entry<Thread, StackTraceElement[]> entry : Thread.getAllStackTraces().entrySet()) {
+                Thread thread = entry.getKey();
+                builder.append('\n')
+                        .append('"').append(thread.getName()).append('"')
+                        .append(" id=").append(thread.getId())
+                        .append(" state=").append(thread.getState())
+                        .append(" daemon=").append(thread.isDaemon())
+                        .append('\n');
+                for (StackTraceElement element : entry.getValue()) {
+                    builder.append("\tat ").append(element).append('\n');
+                }
+            }
+
+            Files.writeString(dumpPath, builder.toString());
+            MainBenchmark.log("Benchmark watchdog thread dump: " + dumpPath.toAbsolutePath());
+        } catch (Throwable throwable) {
+            MainBenchmark.log("Benchmark watchdog failed to write thread dump: " + throwable);
+        }
     }
 
     @Unique

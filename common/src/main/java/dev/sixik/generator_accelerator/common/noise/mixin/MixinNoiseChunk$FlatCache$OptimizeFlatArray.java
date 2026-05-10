@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
+import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -57,6 +58,7 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
 
             int fX = field_36611.firstNoiseX;
             int fZ = field_36611.firstNoiseZ;
+            CachedPointContext context = new CachedPointContext();
 
             for (int l = 0; l <= sizeXZ; l++) {
                 int blockX = (fX + l) << 2;
@@ -64,7 +66,7 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
 
                 for (int o = 0; o <= sizeXZ; o++) {
                     int blockZ = (fZ + o) << 2;
-                    values[rowOffset + o] = densityFunction.compute(new SinglePointContext(blockX, 0, blockZ));
+                    values[rowOffset + o] = densityFunction.compute(context.update(blockX, 0, blockZ));
                 }
             }
         }
@@ -82,7 +84,10 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
         final int l = (functionContext.blockZ() >> 2) - field_36611.firstNoiseZ;
 
         if (k >= 0 && l >= 0 && k < side && l < side) {
-            return bts$array[k * side + l];
+            double[] flat = this.bts$array;
+            if (flat != null && flat.length >= side * side) {
+                return flat[k * side + l];
+            }
         }
 
         return this.noiseFiller.compute(functionContext);

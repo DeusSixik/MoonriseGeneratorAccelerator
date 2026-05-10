@@ -34,7 +34,7 @@ public abstract class NoiseChunkFlatCacheMixin
 
         if (k >= 0 && l >= 0 && k < side && l < side) {
             final double[] flat = bts$getArray();
-            if (flat != null) {
+            if (flat != null && flat.length >= side * side) {
                 return flat[k * side + l];
             }
 

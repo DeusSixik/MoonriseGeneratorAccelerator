@@ -25,8 +25,11 @@ public abstract class MixinBlockStateBase$Extension extends StateHolder<Block, B
 
     @Override
     public int bts$getFastId() {
-        if(bts$generatorFastId == -1) {
+        if (bts$generatorFastId == -1) {
             FastBlockStateCache.init(GeneratorAccelerator.platform);
+            if (bts$generatorFastId == -1) {
+                bts$generatorFastId = Block.getId((BlockState) (Object) this);
+            }
         }
 
         return bts$generatorFastId;

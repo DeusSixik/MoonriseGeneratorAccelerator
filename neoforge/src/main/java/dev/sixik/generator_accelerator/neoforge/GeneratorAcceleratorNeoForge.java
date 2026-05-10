@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.neoforge;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.diagnostics.GADiagnosticsCommands;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -12,6 +13,7 @@ import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 @Mod(GeneratorAccelerator.MOD_ID)
 public final class GeneratorAcceleratorNeoForge {
@@ -20,6 +22,8 @@ public final class GeneratorAcceleratorNeoForge {
         DensityFunctionCompiler.init();
         var bus = NeoForge.EVENT_BUS;
         bus.addListener(this::onServerStarting);
+        bus.addListener(this::onServerStarted);
+        bus.addListener(this::onServerStopped);
         bus.addListener(this::onDatapackSync);
         bus.addListener(this::onRegisterCommands);
 
@@ -28,6 +32,10 @@ public final class GeneratorAcceleratorNeoForge {
 
     private void onServerStarting(ServerStartingEvent event) {
         DensityFunctionCompiler.onServerStarting(event.getServer());
+    }
+
+    private void onServerStarted(ServerStartedEvent event) {
+        DensityFunctionCompiler.onServerStarted(event.getServer());
     }
 
     private void onDatapackSync(OnDatapackSyncEvent event) {
@@ -39,6 +47,11 @@ public final class GeneratorAcceleratorNeoForge {
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
         DensityFunctionCompiler.registerCommands(event.getDispatcher());
+        GADiagnosticsCommands.register(event.getDispatcher());
+    }
+
+    private void onServerStopped(ServerStoppedEvent event) {
+        DensityFunctionCompiler.onServerStopped(event.getServer());
     }
 
     private void commonSetup(FMLLoadCompleteEvent event) {

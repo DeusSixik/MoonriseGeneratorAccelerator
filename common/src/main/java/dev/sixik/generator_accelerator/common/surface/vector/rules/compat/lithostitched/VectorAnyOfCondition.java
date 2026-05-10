@@ -19,19 +19,25 @@ public class VectorAnyOfCondition implements VectorCondition {
             return;
         }
 
-        BitSet finalPassedMask = new BitSet(256);
+        BitSet finalPassedMask = ctx.acquireBitSet4096();
+        BitSet testMask = ctx.acquireBitSet4096();
+        try {
+            for (int i = 0; i < conditions.length; i++) {
+                testMask.clear();
+                testMask.or(activeMask);
+                testMask.andNot(finalPassedMask);
 
-        for (int i = 0; i < conditions.length; i++) {
-            BitSet testMask = (BitSet) activeMask.clone();
-            testMask.andNot(finalPassedMask);
+                if (testMask.isEmpty()) break;
 
-            if (testMask.isEmpty()) break;
+                conditions[i].filter(testMask, ctx);
 
-            conditions[i].filter(testMask, ctx);
+                finalPassedMask.or(testMask);
+            }
 
-            finalPassedMask.or(testMask);
+            activeMask.and(finalPassedMask);
+        } finally {
+            ctx.releaseBitSet4096(testMask);
+            ctx.releaseBitSet4096(finalPassedMask);
         }
-
-        activeMask.and(finalPassedMask);
     }
 }

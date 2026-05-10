@@ -31,15 +31,20 @@ public abstract class YungsBridge$BridgePlacementMixin extends PlacementModifier
     @Unique
     private static final int[] bts$DIRECTIONS = new int[]{-1, 1};
 
+    @Unique
+    private static final ThreadLocal<GA$BridgeScratch> GA$SCRATCH =
+            ThreadLocal.withInitial(GA$BridgeScratch::new);
+
     @Override
     public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
         int baseX = BlockPos.getX(packedPos);
         int baseZ = BlockPos.getZ(packedPos);
 
         int seaLevel = context.getLevel().getSeaLevel() - 1;
-        BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
-        BlockPos.MutableBlockPos startPos = new BlockPos.MutableBlockPos();
-        BlockPos.MutableBlockPos endPos = new BlockPos.MutableBlockPos();
+        GA$BridgeScratch scratch = GA$SCRATCH.get();
+        BlockPos.MutableBlockPos mutPos = scratch.mutPos;
+        BlockPos.MutableBlockPos startPos = scratch.startPos;
+        BlockPos.MutableBlockPos endPos = scratch.endPos;
 
         int halfWidth = this.width / 2;
 
@@ -135,5 +140,12 @@ public abstract class YungsBridge$BridgePlacementMixin extends PlacementModifier
                 }
             }
         }
+    }
+
+    @Unique
+    private static final class GA$BridgeScratch {
+        final BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
+        final BlockPos.MutableBlockPos startPos = new BlockPos.MutableBlockPos();
+        final BlockPos.MutableBlockPos endPos = new BlockPos.MutableBlockPos();
     }
 }

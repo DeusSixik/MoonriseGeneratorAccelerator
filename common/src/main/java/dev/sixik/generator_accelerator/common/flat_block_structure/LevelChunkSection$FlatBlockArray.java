@@ -14,6 +14,12 @@ public interface LevelChunkSection$FlatBlockArray {
         return (LevelChunkSection$FlatBlockArray) section;
     }
 
+    static int @Nullable [] rawData(LevelChunkSection section) {
+        return section instanceof LevelChunkSection$FlatBlockArray flatBlockArray
+                ? flatBlockArray.bts$getRawBlockData()
+                : null;
+    }
+
     /**
      * Получить сырые данные блоков в виде плоского одномерного массива.
      * Размер массива всегда равен 4096 (16x16x16).

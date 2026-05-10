@@ -1,6 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.core.HolderGetter;
@@ -25,15 +25,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * synced for all players after a reload, because reload rebuilds the registries) — by which
  * point every {@link net.minecraft.core.Holder.Reference Holder.Reference} into
  * {@link Registries#DENSITY_FUNCTION} is resolvable. That makes it the right place to
- * (a) construct a {@link RandomState} for every {@link NoiseGeneratorSettings} so the
+ * construct a {@link RandomState} for every {@link NoiseGeneratorSettings} so the
  * {@link dev.sixik.generator_accelerator.common.density.compiler.mixin.RandomStateMixin RandomStateMixin}
- * runs the same wired {@link NoiseRouter} compile as real worldgen, and (b) compile every
- * standalone {@code DensityFunction} so any future router that points at it gets a hot
- * cache lookup instead of a cold ASM emit.
+ * runs the same wired {@link NoiseRouter} compile as real worldgen.
  *
  * <p>We cannot use {@link NoiseGeneratorSettings#noiseRouter()} alone: that returns the
  * static data-pack template, which is never replaced in place. Compilation only runs at
  * the end of {@link RandomState}'s constructor after {@code mapAll(NoiseWiringHelper)}.
+ *
+ * <p>Raw {@code density_function} registry entries are not warmed by default because they can
+ * still contain unbound {@link DensityFunction.NoiseHolder}s. Set
+ * {@code -Ddfc.warmer.rawDensityFunctions=true} only when those entries are known safe.
  *
  * <p>Without this step, the first chunk to spawn would pay the entire compile cost on
  * the chunk-gen worker thread — that's a multi-hundred-millisecond stall per noise
@@ -43,12 +45,13 @@ public final class RegistryWarmer {
 
     private static final String MAX_SETTINGS_PROPERTY = "dfc.warmer.maxSettings";
     private static final String MAX_DENSITY_FUNCTIONS_PROPERTY = "dfc.warmer.maxDensityFunctions";
+    private static final String RAW_DENSITY_FUNCTIONS_PROPERTY = "dfc.warmer.rawDensityFunctions";
 
     private static final Set<RegistryGenerationKey> WARMED_GENERATIONS = ConcurrentHashMap.newKeySet();
     private static final Set<NoiseGeneratorSettings> WARMED_NOISE_SETTINGS = Collections.newSetFromMap(
-            new MapMaker().weakKeys().concurrencyLevel(4).<NoiseGeneratorSettings, Boolean>makeMap());
+            Caffeine.newBuilder().weakKeys().<NoiseGeneratorSettings, Boolean>build().asMap());
     private static final Set<DensityFunction> WARMED_DENSITY_FUNCTIONS = Collections.newSetFromMap(
-            new MapMaker().weakKeys().concurrencyLevel(4).<DensityFunction, Boolean>makeMap());
+            Caffeine.newBuilder().weakKeys().<DensityFunction, Boolean>build().asMap());
 
     private static final AtomicLong CALLS = new AtomicLong();
     private static final AtomicLong SKIPPED_DUPLICATE_CALLS = new AtomicLong();
@@ -59,6 +62,19 @@ public final class RegistryWarmer {
     private static final AtomicLong BUDGET_SKIPS = new AtomicLong();
 
     private RegistryWarmer() {}
+
+    public static void clear() {
+        WARMED_GENERATIONS.clear();
+        WARMED_NOISE_SETTINGS.clear();
+        WARMED_DENSITY_FUNCTIONS.clear();
+        CALLS.set(0L);
+        SKIPPED_DUPLICATE_CALLS.set(0L);
+        SKIPPED_DUPLICATE_ENTRIES.set(0L);
+        WARMED_ROUTERS.set(0L);
+        WARMED_DENSITY_FUNCTIONS_COUNT.set(0L);
+        FAILED_ENTRIES.set(0L);
+        BUDGET_SKIPS.set(0L);
+    }
 
     public static void warmAll(MinecraftServer server) {
         if (server == null) {
@@ -75,10 +91,11 @@ public final class RegistryWarmer {
 
         // Trigger the same RandomState + wired router compile as production (mixin@RETURN).
         boolean noiseOk = warmNoiseSettings(server);
-        // Then compile any density functions that aren't reachable from a router
-        // (mod-added DFs registered for use elsewhere). Idempotent w.r.t. the
-        // identity-keyed cache that the router walk already populated.
-        boolean densityOk = warmDensityFunctions(server);
+        boolean densityOk = true;
+        if (Boolean.getBoolean(RAW_DENSITY_FUNCTIONS_PROPERTY)) {
+            // Raw registry DensityFunctions may still contain unbound NoiseHolders; keep this opt-in.
+            densityOk = warmDensityFunctions(server);
+        }
         if (generation != null && (!noiseOk || !densityOk)) {
             WARMED_GENERATIONS.remove(generation);
         }
@@ -90,7 +107,13 @@ public final class RegistryWarmer {
                     .registryOrThrow(Registries.NOISE_SETTINGS);
             HolderGetter<NormalNoise.NoiseParameters> noiseGetter =
                     server.registryAccess().lookupOrThrow(Registries.NOISE);
-            long levelSeed = server.overworld().getSeed();
+            var overworld = server.overworld();
+            if (overworld == null) {
+                DensityFunctionCompiler.LOGGER.debug(
+                        "DFC: noise_settings warm-up skipped; overworld is not created yet");
+                return false;
+            }
+            long levelSeed = overworld.getSeed();
             int maxSettings = budgetLimit(MAX_SETTINGS_PROPERTY);
 
             int total = 0;

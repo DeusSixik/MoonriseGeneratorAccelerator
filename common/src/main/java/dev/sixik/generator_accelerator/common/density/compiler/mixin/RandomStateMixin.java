@@ -63,10 +63,7 @@ public abstract class RandomStateMixin {
 
         this.router = compiledRouter;
         this.sampler = compiledSampler;
-        if (DensityFunctionCompiler.isModLoaded("forgified_fabric_api")
-                || DensityFunctionCompiler.isModLoaded("fabric_api")) {
-            FabricBiomeApiClimateRebind.propagateToCompiledSampler(wiredSampler, compiledSampler, levelSeed);
-        }
+        FabricBiomeApiClimateRebind.propagateToCompiledSampler(wiredSampler, compiledSampler, levelSeed);
 
         long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
         DensityFunctionCompiler.LOGGER.info(

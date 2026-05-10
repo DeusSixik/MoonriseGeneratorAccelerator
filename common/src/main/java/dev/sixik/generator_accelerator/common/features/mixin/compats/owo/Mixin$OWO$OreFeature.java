@@ -4,6 +4,8 @@ import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
 import io.wispforest.owo.util.Maldenhagen;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -16,15 +18,16 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.HashMap;
-import java.util.Map;
-
 @Mixin(value = OreFeature.class, priority = 1500)
 public class Mixin$OWO$OreFeature {
 
     @Unique
-    private final ThreadLocal<Map<BlockPos, BlockState>> OWO$COPING = ThreadLocal.withInitial(HashMap::new);
+    private static final ThreadLocal<Long2ObjectOpenHashMap<BlockState>> GA$OWO_COPING =
+            ThreadLocal.withInitial(Long2ObjectOpenHashMap::new);
 
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> GA$OWO_COPING_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.features.mixin.features.MixinOreFeature",
@@ -34,7 +37,7 @@ public class Mixin$OWO$OreFeature {
             method = {"@MixinSquared:Handler"},
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/level/block/state/BlockState;",
+                    target = "Lnet/minecraft/world/level/levelgen/feature/OreFeature;bts$commitPlacement(Lnet/minecraft/world/level/WorldGenLevel;Lnet/minecraft/world/level/chunk/BulkSectionAccess;Lnet/minecraft/world/level/chunk/LevelChunkSection;[ILnet/minecraft/core/BlockPos$MutableBlockPos;Ldev/sixik/generator_accelerator/common/features/FastTarget;IIIII[ZZ)V",
                     ordinal = 0
             )
     )
@@ -54,14 +57,12 @@ public class Mixin$OWO$OreFeature {
             int pWidth,
             int pHeight,
             CallbackInfoReturnable<Boolean> cir,
-            @Local(ordinal = 0) FastTarget target,
-            @Local(ordinal = 29) int i3,
-            @Local(ordinal = 30) int j3,
-            @Local(ordinal = 31) int k3
-    ){
-        final BlockState state = target.placementState();
+            @Local(ordinal = 0) BlockPos.MutableBlockPos mutableBlockPos,
+            @Local(ordinal = 0) FastTarget target
+    ) {
+        BlockState state = target.placementState();
         if (Maldenhagen.isOnCopium(state.getBlock())) {
-            ((Map)this.OWO$COPING.get()).put(new BlockPos(i3, j3, k3), state);
+            GA$OWO_COPING.get().put(mutableBlockPos.asLong(), state);
         }
     }
 
@@ -73,7 +74,6 @@ public class Mixin$OWO$OreFeature {
             method = {"@MixinSquared:Handler"},
             at = @At("TAIL")
     )
-
     private void coping(
             WorldGenLevel pLevel,
             RandomSource pRandom,
@@ -90,11 +90,12 @@ public class Mixin$OWO$OreFeature {
             int pWidth,
             int pHeight,
             CallbackInfoReturnable<Boolean> cir
-    ){
-        final Map<BlockPos, BlockState> map = this.OWO$COPING.get();
-        map.forEach((blockPos, state) -> pLevel.setBlock(blockPos, state, 3));
+    ) {
+        Long2ObjectOpenHashMap<BlockState> map = GA$OWO_COPING.get();
+        BlockPos.MutableBlockPos pos = GA$OWO_COPING_POS.get();
+        for (Long2ObjectMap.Entry<BlockState> entry : map.long2ObjectEntrySet()) {
+            pLevel.setBlock(pos.set(entry.getLongKey()), entry.getValue(), 3);
+        }
         map.clear();
     }
-
-
 }

@@ -47,8 +47,14 @@ public class MixinNormalNoise$redirect_to_native implements NativePtrGetter {
                 ? NativeRandom.createXoroshiro(bts$seed_1, bts$seed_2)
                 : NativeRandom.create(bts$seed_1);
 
-        // Create Native NormalNoise version
-        this.bts$ptr = NativeNormalNoise.create(randomPtr, noiseParameters.firstOctave(), noiseParameters.amplitudes().toDoubleArray());
+        try {
+            // Create Native NormalNoise version
+            this.bts$ptr = NativeNormalNoise.create(randomPtr, noiseParameters.firstOctave(), noiseParameters.amplitudes().toDoubleArray());
+        } finally {
+            if (randomPtr != 0L) {
+                NativeRandom.delete(randomPtr);
+            }
+        }
 
 
         if (this.bts$ptr != 0) {

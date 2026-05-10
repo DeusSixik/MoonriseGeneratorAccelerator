@@ -20,25 +20,39 @@ import java.util.List;
 public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourcePrimitive {
 
     @Unique
-    private static final List<SurfaceRules.SurfaceRule> bts$empty_list = Collections.emptyList();
+    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = Collections.emptyList();
 
     @Unique
-    private SurfaceRules.RuleSource[] bts$primitiveArray;
+    private static final List<SurfaceRules.RuleSource> bts$empty_source_list = Collections.emptyList();
+
+    @Unique
+    private static final SurfaceRules.RuleSource[] bts$empty_source_array = new SurfaceRules.RuleSource[0];
+
+    @Unique
+    private SurfaceRules.RuleSource[] bts$primitiveArray = bts$empty_source_array;
+
+    @Unique
+    private List<SurfaceRules.RuleSource> bts$primitiveList = bts$empty_source_list;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(List<SurfaceRules.RuleSource> list, CallbackInfo ci) {
         final int size = list.size();
-        if(size == 0) return;
+        if (size == 0) {
+            this.bts$primitiveArray = bts$empty_source_array;
+            this.bts$primitiveList = bts$empty_source_list;
+            return;
+        }
 
         bts$primitiveArray = new SurfaceRules.RuleSource[size];
         for (int i = 0; i < size; i++) {
             bts$primitiveArray[i] = list.get(i);
         }
+        bts$primitiveList = Arrays.asList(bts$primitiveArray);
     }
 
     @Inject(method = "sequence", at = @At("HEAD"), cancellable = true)
     public void bts$sequence(CallbackInfoReturnable<List<SurfaceRules.RuleSource>> cir) {
-        cir.setReturnValue(Arrays.asList(bts$primitiveArray));
+        cir.setReturnValue(bts$primitiveList);
     }
 
     /**
@@ -49,7 +63,7 @@ public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourceP
     public SurfaceRules.SurfaceRule apply(SurfaceRules.Context context) {
         final int l = bts$primitiveArray.length;
 
-        if(l == 1) return bts$primitiveArray[0].apply(context);
+        if (l == 1) return bts$primitiveArray[0].apply(context);
 
         final SurfaceRules.SurfaceRule[] rules = new SurfaceRules.SurfaceRule[l];
         for (int i = 0; i < l; i++) {
@@ -57,14 +71,17 @@ public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourceP
         }
 
         final SurfaceRules.SequenceRule rule =
-                new SurfaceRules.SequenceRule(bts$empty_list);
+                new SurfaceRules.SequenceRule(bts$empty_rule_list);
         ((SequenceRulePrimitive)(Object)rule).bts$setArray(rules);
         return rule;
     }
 
     @Override
     public void bts$setArray(SurfaceRules.RuleSource[] array) {
-        this.bts$primitiveArray = array;
+        this.bts$primitiveArray = array == null ? bts$empty_source_array : array;
+        this.bts$primitiveList = this.bts$primitiveArray.length == 0
+                ? bts$empty_source_list
+                : Arrays.asList(this.bts$primitiveArray);
     }
 
     @Override

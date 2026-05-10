@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.roots;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import mysticmods.roots.worldgen.features.placements.HeightmapYRange;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
@@ -25,7 +25,12 @@ public abstract class Roots$HeightmapYRangeMixin extends PlacementModifier imple
     private HeightProvider minHeightProvider;
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos);
         int z = BlockPos.getZ(packedPos);
 

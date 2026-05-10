@@ -6,27 +6,31 @@ import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.Impro
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 
+import java.lang.ref.Cleaner;
+import java.util.Arrays;
 import java.util.List;
 
 /**
  * Builds and owns opaque native handles for {@link NoiseSpec} / {@link BlendedNoiseSpec} data.
- * Handles are stored in {@code nativeNoiseHandles[]} on each compiled instance (see
+ * Handles are stored in {@code NativeNoiseRegistry.HandleSet} on each compiled instance (see
  * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction}).
  */
 public final class NativeNoiseRegistry {
+    private static final byte[] EMPTY_BYTES = new byte[0];
+    private static final double[] EMPTY_DOUBLES = new double[0];
 
     private NativeNoiseRegistry() {}
 
     /**
-     * @return array of length {@code noiseSpecCount + blendedNoiseSpecCount}; entries are
+     * @return handle set of length {@code noiseSpecCount + blendedNoiseSpecCount}; entries are
      *         {@code 0} when natives are unavailable or allocation fails.
      */
-    public static long[] buildHandles(List<NoiseSpec> noiseSpecs, List<BlendedNoiseSpec> blendedSpecs) {
+    public static HandleSet buildHandleSet(List<NoiseSpec> noiseSpecs, List<BlendedNoiseSpec> blendedSpecs) {
         int nn = noiseSpecs.size();
         int nb = blendedSpecs.size();
         long[] out = new long[nn + nb];
         if (!CodegenNativeNoise.enabled() || !DfcNativeBridge.isAvailable()) {
-            return out;
+            return new HandleSet(out, nn);
         }
         for (int i = 0; i < nn; i++) {
             out[i] = allocNormal(noiseSpecs.get(i));
@@ -34,7 +38,7 @@ public final class NativeNoiseRegistry {
         for (int j = 0; j < nb; j++) {
             out[nn + j] = allocBlended(blendedSpecs.get(j));
         }
-        return out;
+        return new HandleSet(out, nn);
     }
 
     /**
@@ -51,6 +55,51 @@ public final class NativeNoiseRegistry {
                 DfcNativeBridge.releaseNormalNoiseStack(h);
             } else {
                 DfcNativeBridge.releaseBlendedSpec(h);
+            }
+        }
+    }
+
+    public static void clearAll() {
+        // Do not close live handles here. Generated density-function classes copy handles into
+        // final long fields, so explicit lifecycle frees can leave still-live compiled functions
+        // with dangling native pointers. The Cleaner releases native memory when the owning
+        // HandleSet becomes unreachable with its compiled density function.
+    }
+
+    public static final class HandleSet implements AutoCloseable {
+        private static final Cleaner CLEANER = Cleaner.create();
+
+        private final long[] handles;
+        private final State state;
+        private final Cleaner.Cleanable cleanable;
+        private volatile boolean closed;
+
+        private HandleSet(long[] handles, int noiseSpecCount) {
+            this.handles = handles == null ? new long[0] : handles;
+            this.state = new State(this.handles, noiseSpecCount);
+            this.cleanable = CLEANER.register(this, this.state);
+        }
+
+        public long handle(int index) {
+            return index >= 0 && index < this.handles.length ? this.handles[index] : 0L;
+        }
+
+        @Override
+        public void close() {
+            if (this.closed) {
+                return;
+            }
+            this.closed = true;
+            this.cleanable.clean();
+        }
+    }
+
+    private record State(long[] handles, int noiseSpecCount) implements Runnable {
+        @Override
+        public void run() {
+            releaseAllTyped(this.handles, this.noiseSpecCount);
+            if (this.handles != null) {
+                Arrays.fill(this.handles, 0L);
             }
         }
     }
@@ -89,7 +138,7 @@ public final class NativeNoiseRegistry {
 
     private static byte[] flattenPerms(ImprovedNoise[] octaves, int n) {
         if (n == 0) {
-            return new byte[0];
+            return EMPTY_BYTES;
         }
         byte[] out = new byte[n * 256];
         for (int i = 0; i < n; i++) {
@@ -105,7 +154,7 @@ public final class NativeNoiseRegistry {
 
     private static double[] flattenOrigins(ImprovedNoise[] octaves, int n) {
         if (n == 0) {
-            return new double[0];
+            return EMPTY_DOUBLES;
         }
         double[] o = new double[n * 3];
         for (int i = 0; i < n; i++) {

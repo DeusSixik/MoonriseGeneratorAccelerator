@@ -1,10 +1,19 @@
 package dev.sixik.generator_accelerator.common.features.mixin;
 
-import dev.sixik.generator_accelerator.api.utils.FastChunkIter;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntArraySet;
-import it.unimi.dsi.fastutil.ints.IntSet;
+import dev.sixik.generator_accelerator.api.patches.GA$StructureManagerExtension;
+import dev.sixik.generator_accelerator.common.features.BiomeDecorationScratch;
+import dev.sixik.generator_accelerator.common.features.BiomeSignatureFeatureMaskCache;
+import dev.sixik.generator_accelerator.common.features.FeatureMemoryDebug;
+import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
+import dev.sixik.generator_accelerator.common.features.RegistryNameSupplier;
+import dev.sixik.generator_accelerator.common.features.StepFeatureCache;
+import dev.sixik.generator_accelerator.common.features.StructureStepCache;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineExecutor;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineScratch;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPlan;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationStepPlan;
+import dev.sixik.generator_accelerator.common.features.pipeline.JavaDecorationCompiler;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.CrashReport;
@@ -12,6 +21,7 @@ import net.minecraft.ReportedException;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.util.BitStorage;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
@@ -22,8 +32,10 @@ import net.minecraft.world.level.biome.FeatureSorter;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.Palette;
+import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.world.level.chunk.PalettedContainerRO;
 import net.minecraft.world.level.levelgen.GenerationStep;
-import net.minecraft.world.level.levelgen.RandomSupport;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
 import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 import net.minecraft.world.level.levelgen.feature.FeatureCountTracker;
@@ -35,19 +47,55 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.*;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.function.ToIntFunction;
 
 @Mixin(value = ChunkGenerator.class, priority = 999)
 public abstract class MixinChunkGenerator$apply_biome_decoration {
 
     @Unique
-    private static final ThreadLocal<@Nullable Int2ObjectMap<ObjectArrayList<Structure>>> STRUCTURE_CACHE =
+    private static final ThreadLocal<@Nullable StructureStepCache> STRUCTURE_CACHE =
             new ThreadLocal<>();
+
+    @Unique
+    private static final int GA$DECORATION_STEP_COUNT = GenerationStep.Decoration.values().length;
+
+    @Unique
+    private static final ThreadLocal<WorldgenRandom> GA$WORLDGEN_RANDOM =
+            ThreadLocal.withInitial(() -> new WorldgenRandom(new XoroshiroRandomSource(0L)));
+
+    @Unique
+    private static final ThreadLocal<BiomeDecorationScratch> GA$DECORATION_SCRATCH =
+            ThreadLocal.withInitial(BiomeDecorationScratch::new);
+
+    @Unique
+    private static final ThreadLocal<RegistryNameSupplier> GA$NAME_SUPPLIER =
+            ThreadLocal.withInitial(RegistryNameSupplier::new);
+
+    @Unique
+    private static final ThreadLocal<DecorationPipelineExecutor> GA$DECORATION_PIPELINE_EXECUTOR =
+            ThreadLocal.withInitial(DecorationPipelineExecutor::new);
+
+    @Unique
+    private static final ThreadLocal<JavaDecorationCompiler> GA$DECORATION_COMPILER =
+            ThreadLocal.withInitial(JavaDecorationCompiler::new);
+
+    @Unique
+    private volatile StepFeatureCache ga$stepFeatureCache;
+
+    @Unique
+    private volatile DecorationPlan ga$decorationPlan;
+
+    @Unique
+    private volatile StepFeatureCache ga$biomeSignatureFeatureCacheOwner;
+
+    @Unique
+    private volatile BiomeSignatureFeatureMaskCache ga$biomeSignatureMaskCache;
+
+    @Unique
+    private volatile int ga$featureCacheEpoch = Integer.MIN_VALUE;
 
     @Shadow
     @Final
@@ -72,6 +120,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
      */
     @Overwrite
     public void applyBiomeDecoration(WorldGenLevel pLevel, ChunkAccess pChunk, StructureManager pStructureManager) {
+        long decorationStart = DecorationPipelineMetrics.startTimer();
         ChunkPos chunkpos = pChunk.getPos();
         if (!SharedConstants.debugVoidTerrain(chunkpos)) {
             SectionPos sectionpos = SectionPos.of(chunkpos, pLevel.getMinSection());
@@ -79,22 +128,30 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             Registry<Structure> registry = pLevel.registryAccess().registryOrThrow(Registries.STRUCTURE);
 
 // GENERATOR ACCELERATOR START
-            Int2ObjectMap<ObjectArrayList<Structure>> structureByStepMap = STRUCTURE_CACHE.get();
-            if(structureByStepMap == null) {
-                structureByStepMap = new Int2ObjectOpenHashMap<>();
-                for (Structure structure : registry) {
-                    int stepId = structure.step().ordinal();
-
-                    structureByStepMap.computeIfAbsent(stepId, k -> new ObjectArrayList<>()).add(structure);
-                }
-                STRUCTURE_CACHE.set(structureByStepMap);
+            StructureStepCache structureStepCache = STRUCTURE_CACHE.get();
+            if (structureStepCache == null || structureStepCache.registry() != registry) {
+                structureStepCache = new StructureStepCache(registry, GA$DECORATION_STEP_COUNT);
+                STRUCTURE_CACHE.set(structureStepCache);
             }
 // GENERATOR ACCELERATOR END
 
-            ObjectArrayList<FeatureSorter.StepFeatureData> featureDataList = new ObjectArrayList<>(this.featuresPerStep.get());
-            WorldgenRandom worldgenrandom = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
+            this.ga$ensureFeatureCacheEpoch();
+
+            StepFeatureCache featureCache = this.ga$getStepFeatureCache();
+            DecorationPlan decorationPlan = this.ga$getDecorationPlan(featureCache);
+            BiomeDecorationScratch decorationScratch = GA$DECORATION_SCRATCH.get();
+            DecorationPipelineScratch pipelineScratch = DecorationPipelineScratch.local();
+            pipelineScratch.clear();
+            WorldgenRandom worldgenrandom = GA$WORLDGEN_RANDOM.get();
+            RegistryNameSupplier nameSupplier = GA$NAME_SUPPLIER.get();
             long i = worldgenrandom.setDecorationSeed(pLevel.getSeed(), blockpos.getX(), blockpos.getZ());
-            Set<Holder<Biome>> set = new ObjectArraySet<>();
+            ObjectArraySet<Holder<Biome>> set = decorationScratch.biomes;
+            set.clear();
+            Set<Holder<Biome>> possibleBiomes = this.biomeSource.possibleBiomes();
+            int featureDataSize = featureCache.stepCount;
+            if (featureDataSize > 0) {
+                decorationScratch.beginCombinedFeatureMasks(featureDataSize, featureCache.featureMaskWordsByStep);
+            }
 
 // GENERATOR ACCELERATOR START
             // REPLACE ChunkPos.rangeClosed
@@ -103,6 +160,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             int maxX = center.x + 1;
             int minZ = center.z - 1;
             int maxZ = center.z + 1;
+            long biomeScanStart = DecorationPipelineMetrics.startTimer();
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     ChunkAccess chunkaccess = pLevel.getChunk(x, z);
@@ -111,18 +169,29 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                     for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
                         LevelChunkSection levelchunksection = sections[sectionIndex];
                         if (levelchunksection != null) {
-                            levelchunksection.getBiomes().getAll(set::add);
+                            ga$collectSectionBiomes(levelchunksection, set, possibleBiomes, decorationScratch);
                         }
                     }
                 }
             }
+            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_BIOME_SCAN_NANOS, biomeScanStart);
+            if (featureDataSize > 0 && !set.isEmpty()) {
+                BiomeSignatureFeatureMaskCache maskCache = this.ga$getBiomeSignatureMaskCache(featureCache);
+                if (!maskCache.copyIfPresent(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep)) {
+                    long maskCombineStart = DecorationPipelineMetrics.startTimer();
+                    for (Holder<Biome> biome : set) {
+                        decorationScratch.addBiomeFeatureData(
+                                featureCache.featureDataFor(biome, this.generationSettingsGetter),
+                                featureCache.featureMaskWordsByStep
+                        );
+                    }
+                    DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_MASK_COMBINE_NANOS, maskCombineStart);
+                    maskCache.store(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep);
+                }
+            }
 // GENERATOR ACCELERATOR END
 
-            set.retainAll(this.biomeSource.possibleBiomes());
-            int featureDataSize = featureDataList.size();
-
 // GENERATOR ACCELERATOR START
-            Object[] featureDataArray = featureDataList.elements();
             final BoundingBox writableArea = getWritableArea(pChunk);
 // GENERATOR ACCELERATOR END
 
@@ -130,84 +199,88 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
 
             try {
                 Registry<PlacedFeature> registry1 = pLevel.registryAccess().registryOrThrow(Registries.PLACED_FEATURE);
-                int i1 = Math.max(GenerationStep.Decoration.values().length, featureDataSize);
+                DecorationPipelineExecutor pipelineExecutor = GA$DECORATION_PIPELINE_EXECUTOR.get();
+                DecorationPipelineExecutor.ExecutionContext pipelineContext = new DecorationPipelineExecutor.ExecutionContext(
+                        pLevel,
+                        pChunk,
+                        thisObj,
+                        worldgenrandom,
+                        blockpos,
+                        i,
+                        registry1,
+                        (featureIndex, feature) -> pLevel.setCurrentlyGenerating(nameSupplier.set(registry1, feature)),
+                        pipelineScratch.placementContext(pLevel, thisObj)
+                );
+                int i1 = Math.max(Math.max(GA$DECORATION_STEP_COUNT, featureDataSize), structureStepCache.stepCount());
+                final boolean generateStructures = pStructureManager.shouldGenerateStructures();
 
                 for (int k = 0; k < i1; k++) {
                     int l = 0;
-                    if (pStructureManager.shouldGenerateStructures()) {
-                        for (Structure structure : structureByStepMap.getOrDefault(k,(ObjectArrayList<Structure>) FastChunkIter.EMPTY_LIST)) {
-                            worldgenrandom.setFeatureSeed(i, l, k);
-                            java.util.function.Supplier<String> supplier = () -> registry.getResourceKey(structure).map(Object::toString).orElseGet(structure::toString);
+                    if (generateStructures) {
+                        ObjectArrayList<Structure> structuresForStep = structureStepCache.structuresAt(k);
+                        if (structuresForStep != null) {
+                            Object[] structures = structuresForStep.elements();
+                            for (int structureIndex = 0, structureCount = structuresForStep.size(); structureIndex < structureCount; structureIndex++) {
+                                Structure structure = (Structure) structures[structureIndex];
+                                worldgenrandom.setFeatureSeed(i, l, k);
+                                RegistryNameSupplier supplier = nameSupplier.set(registry, structure);
 
-                            try {
-                                pLevel.setCurrentlyGenerating(supplier);
+                                try {
+                                    pLevel.setCurrentlyGenerating(supplier);
 
-                                // GENERATOR ACCELERATOR START
-                                final ObjectArrayList<StructureStart> structuresList = (ObjectArrayList<StructureStart>) pStructureManager.startsForStructure(sectionpos, structure);
-                                final Object[] primitiveArray = structuresList.elements();
-                                for (int structStartIndex = 0; structStartIndex < structuresList.size(); structStartIndex++) {
-                                    ((StructureStart)primitiveArray[structStartIndex]).placeInChunk(pLevel, pStructureManager, thisObj, worldgenrandom, writableArea, chunkpos);
+                                    // GENERATOR ACCELERATOR START
+                                    final ObjectArrayList<StructureStart> structuresList = ((GA$StructureManagerExtension) pStructureManager).ga$startsForStructureFast(sectionpos, structure);
+                                    if (structuresList != null) {
+                                        final Object[] primitiveArray = structuresList.elements();
+                                        for (int structStartIndex = 0; structStartIndex < structuresList.size(); structStartIndex++) {
+                                            ((StructureStart)primitiveArray[structStartIndex]).placeInChunk(pLevel, pStructureManager, thisObj, worldgenrandom, writableArea, chunkpos);
+                                        }
+                                    }
+                                    // GENERATOR ACCELERATOR END
+                                } catch (Exception exception) {
+                                    CrashReport crashreport1 = CrashReport.forThrowable(exception, "Feature placement");
+                                    crashreport1.addCategory("Feature").setDetail("Description", supplier);
+                                    throw new ReportedException(crashreport1);
                                 }
-                                // GENERATOR ACCELERATOR END
-                            } catch (Exception exception) {
-                                CrashReport crashreport1 = CrashReport.forThrowable(exception, "Feature placement");
-                                crashreport1.addCategory("Feature").setDetail("Description", supplier::get);
-                                throw new ReportedException(crashreport1);
-                            }
 
-                            l++;
+                                l++;
+                            }
                         }
                     }
 
                     if (k < featureDataSize) {
-                        IntSet intset = new IntArraySet();
-
                         // GENERATOR ACCELERATOR START
-                        final FeatureSorter.StepFeatureData featuresorter$stepfeaturedata =
-                                (FeatureSorter.StepFeatureData) featureDataArray[k];
-
-                        ToIntFunction<PlacedFeature> indexMapper = featuresorter$stepfeaturedata.indexMapping();
-                        for (Holder<Biome> holder : set) {
-                            List<HolderSet<PlacedFeature>> placedFeatureHolderSet = this.generationSettingsGetter.apply(holder).features();
-
-                            if (k < placedFeatureHolderSet.size()) {
-                                HolderSet<PlacedFeature> holderset = placedFeatureHolderSet.get(k);
-                                int size = holderset.size();
-                                for (int holderIndex = 0; holderIndex < size; holderIndex++) {
-                                    PlacedFeature feature = holderset.get(holderIndex).value();
-                                    int featureIndex = indexMapper.applyAsInt(feature);
-
-                                    if (featureIndex >= 0) {
-                                        intset.add(featureIndex);
-                                    }
-                                }
-                            }
+                        if (featureCache.featuresByStep[k].length == 0 || set.isEmpty() || !decorationScratch.stepHasFeatures(k)) {
+                            continue;
+                        }
+                        int wordCount = featureCache.featureMaskWordsByStep[k];
+                        if (wordCount == 0) {
+                            continue;
                         }
                         // GENERATOR ACCELERATOR END
 
-                        int j1 = intset.size();
-                        int[] aint = intset.toIntArray();
-                        Arrays.sort(aint);
+                        DecorationStepPlan stepPlan = decorationPlan.step(k);
+                        if (stepPlan == null) {
+                            continue;
+                        }
 
-                        for (int k1 = 0; k1 < j1; k1++) {
-                            int l1 = aint[k1];
-                            PlacedFeature placedfeature = featuresorter$stepfeaturedata.features().get(l1);
-                            java.util.function.Supplier<String> supplier1 = () -> registry1.getResourceKey(placedfeature).map(Object::toString).orElseGet(placedfeature::toString);
-                            worldgenrandom.setFeatureSeed(i, l1, k);
-
-                            try {
-                                pLevel.setCurrentlyGenerating(supplier1);
-                                placedfeature.placeWithBiomeCheck(pLevel, thisObj, worldgenrandom, blockpos);
-                            } catch (Exception exception1) {
-                                CrashReport crashreport2 = CrashReport.forThrowable(exception1, "Feature placement");
-                                crashreport2.addCategory("Feature").setDetail("Description", supplier1::get);
-                                throw new ReportedException(crashreport2);
-                            }
+                        try {
+                            pipelineExecutor.executeSelectedMask(
+                                    stepPlan,
+                                    pipelineContext,
+                                    decorationScratch.featureMaskForStep(k),
+                                    wordCount
+                            );
+                        } catch (Exception exception1) {
+                            CrashReport crashreport2 = CrashReport.forThrowable(exception1, "Feature placement");
+                            crashreport2.addCategory("Feature").setDetail("Description", nameSupplier);
+                            throw new ReportedException(crashreport2);
                         }
                     }
                 }
 
                 pLevel.setCurrentlyGenerating(null);
+                nameSupplier.clear();
                 if (SharedConstants.DEBUG_FEATURE_COUNT) {
                     FeatureCountTracker.chunkDecorated(pLevel.getLevel());
                 }
@@ -218,7 +291,130 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                         .setDetail("CenterZ", chunkpos.z)
                         .setDetail("Decoration Seed", i);
                 throw new ReportedException(crashreport);
+            } finally {
+                decorationScratch.clearBiomeFeatureMasks();
+                FeatureMemoryDebug.maybeLogDecorationChunk(chunkpos, set.size(), pipelineScratch);
+                pipelineScratch.clear();
+                DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_TOTAL_NANOS, decorationStart);
             }
         }
     }
+
+    @Unique
+    private StepFeatureCache ga$getStepFeatureCache() {
+        StepFeatureCache cache = this.ga$stepFeatureCache;
+        if (cache == null) {
+            cache = new StepFeatureCache(this.featuresPerStep.get());
+            this.ga$stepFeatureCache = cache;
+        }
+        return cache;
+    }
+
+    @Unique
+    private DecorationPlan ga$getDecorationPlan(StepFeatureCache featureCache) {
+        DecorationPlan plan = this.ga$decorationPlan;
+        if (plan == null || plan.stepCount() != featureCache.stepCount) {
+            plan = GA$DECORATION_COMPILER.get().compile(featureCache.featuresByStep);
+            this.ga$decorationPlan = plan;
+        }
+        return plan;
+    }
+
+    @Unique
+    private BiomeSignatureFeatureMaskCache ga$getBiomeSignatureMaskCache(StepFeatureCache featureCache) {
+        BiomeSignatureFeatureMaskCache cache = this.ga$biomeSignatureMaskCache;
+        if (cache == null || this.ga$biomeSignatureFeatureCacheOwner != featureCache) {
+            cache = new BiomeSignatureFeatureMaskCache();
+            this.ga$biomeSignatureFeatureCacheOwner = featureCache;
+            this.ga$biomeSignatureMaskCache = cache;
+        }
+        return cache;
+    }
+
+    @Unique
+    private void ga$ensureFeatureCacheEpoch() {
+        int epoch = FeatureCacheEpoch.current();
+        if (this.ga$featureCacheEpoch == epoch) {
+            return;
+        }
+
+        this.ga$stepFeatureCache = null;
+        this.ga$decorationPlan = null;
+        this.ga$biomeSignatureFeatureCacheOwner = null;
+        this.ga$biomeSignatureMaskCache = null;
+        this.ga$featureCacheEpoch = epoch;
+    }
+
+    @Unique
+    @SuppressWarnings("unchecked")
+    private void ga$collectSectionBiomes(
+            LevelChunkSection section,
+            ObjectArraySet<Holder<Biome>> biomesOut,
+            Set<Holder<Biome>> possibleBiomes,
+            BiomeDecorationScratch scratch
+    ) {
+        PalettedContainerRO<Holder<Biome>> biomes = section.getBiomes();
+        if (!(biomes instanceof PalettedContainer<?> rawContainer)) {
+            biomes.getAll(biome -> {
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
+            });
+            return;
+        }
+        if (rawContainer.getClass() != PalettedContainer.class) {
+            biomes.getAll(biome -> {
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
+            });
+            return;
+        }
+
+        PalettedContainer<Holder<Biome>> container = (PalettedContainer<Holder<Biome>>) rawContainer;
+        PalettedContainer.Data<Holder<Biome>> data = container.data;
+        Palette<Holder<Biome>> palette = data.palette();
+        int paletteSize = palette.getSize();
+        if (paletteSize == 1) {
+            this.ga$recordBiome(palette.valueFor(0), biomesOut, possibleBiomes);
+            return;
+        }
+
+        BitStorage storage = data.storage();
+        int[] uniquePaletteIndices = scratch.biomePaletteIndices();
+        int storageSize = storage.getSize();
+        if (storageSize > uniquePaletteIndices.length) {
+            biomes.getAll(biome -> {
+                this.ga$recordBiome(biome, biomesOut, possibleBiomes);
+            });
+            return;
+        }
+        int uniqueCount = 0;
+        int targetUniqueCount = Math.min(paletteSize, storageSize);
+        for (int i = 0; i < storageSize; i++) {
+            int paletteIndex = storage.get(i);
+            boolean seen = false;
+            for (int j = 0; j < uniqueCount; j++) {
+                if (uniquePaletteIndices[j] == paletteIndex) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                uniquePaletteIndices[uniqueCount++] = paletteIndex;
+                this.ga$recordBiome(palette.valueFor(paletteIndex), biomesOut, possibleBiomes);
+                if (uniqueCount == targetUniqueCount) {
+                    return;
+                }
+            }
+        }
+    }
+
+    @Unique
+    private void ga$recordBiome(
+            Holder<Biome> biome,
+            ObjectArraySet<Holder<Biome>> biomesOut,
+            Set<Holder<Biome>> possibleBiomes
+    ) {
+        if (possibleBiomes.contains(biome)) {
+            biomesOut.add(biome);
+        }
+    }
+
 }

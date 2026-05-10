@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.compats.artifacts;
 import artifacts.Artifacts;
 import artifacts.world.placement.CampsiteHeightRangePlacement;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -27,7 +27,12 @@ public abstract class Artifacts$CampsiteHeightRangePlacementMixin extends Placem
     }
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         if(minY > maxY) return;
         output.add(BlockPos.asLong(BlockPos.getX(packedPos), Mth.randomBetweenInclusive(random, minY, maxY), BlockPos.getZ(packedPos)));
     }

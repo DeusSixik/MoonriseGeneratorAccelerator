@@ -13,8 +13,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
 
         create("org.confluence.mod.Confluence",
                 new MixinApplier.Param(
-                "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$PlacedFeatureMixin$fix",
-                "org.confluence.mod.mixin.level.PlacedFeatureMixin"
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$FeaturePlacementCompatMixin",
+                        "org.confluence.mod.mixin.level.PlacedFeatureMixin"
                 ),
                 new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.common.features.mixin.compats.confluence.Confluence$SecretFlagPlacementMixin",
@@ -47,11 +47,49 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                         "net.countered.terrainslabs.mixin.feature.MixinOreFeature"
                 )
         );
+
+        create("io.wispforest.accessories_compat.curios.wrapper.AccessoriesBasedStackHandler",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.accessories.AccessoriesBasedStackHandlerMixin",
+                        ""
+                )
+        );
     }
 
     @Override
     public boolean isConfigEnable(GAConfig config) {
         return config.enableFeaturesPatch;
+    }
+
+    @Override
+    public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (!super.shouldApplyMixin(targetClassName, mixinClassName)) {
+            return false;
+        }
+        if (Boolean.getBoolean("ga.benchmark.featureVmOnly")) {
+            return Boolean.getBoolean("ga.benchmark.featureVm") && isFeatureVmMixin(mixinClassName);
+        }
+        return true;
+    }
+
+    private boolean isFeatureVmMixin(String mixinClassName) {
+        String prefix = "dev.sixik.generator_accelerator.common.features.mixin.";
+        if (mixinClassName.equals(prefix + "MixinChunkAccess")) {
+            return true;
+        }
+        if (mixinClassName.equals(prefix + "MixinChunkStatusTasks$generate_features")) {
+            return true;
+        }
+        if (mixinClassName.startsWith(prefix + "place.")) {
+            return true;
+        }
+        return mixinClassName.startsWith(prefix + "compats.artifacts.")
+                || mixinClassName.startsWith(prefix + "compats.confluence.")
+                || mixinClassName.startsWith(prefix + "compats.oreberries.")
+                || mixinClassName.startsWith(prefix + "compats.repurposedstructures.")
+                || mixinClassName.startsWith(prefix + "compats.roots.")
+                || mixinClassName.startsWith(prefix + "compats.waystones.")
+                || mixinClassName.startsWith(prefix + "compats.yungs.");
     }
 
     private boolean isLoaded(String modClassPath) {

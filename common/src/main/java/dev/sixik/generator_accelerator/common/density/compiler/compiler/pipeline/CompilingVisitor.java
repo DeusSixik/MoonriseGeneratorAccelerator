@@ -1,12 +1,12 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
-import com.google.common.collect.MapMaker;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
-
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * The single {@link DensityFunction.Visitor} we install everywhere. It is the
@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentMap;
  * {@code NoiseChunk} can swap it with a cell cache).
  *
  * <p>The cache is identity-keyed by source DF: same source instance ↔ same compiled
- * output. {@link MapMaker#weakKeys()} lets the source GC out across {@code /reload};
- * {@link MapMaker#weakValues()} lets the hidden class drop out of metaspace once
+ * output. Weak keys let the source GC out across {@code /reload};
+ * weak values let the hidden class drop out of metaspace once
  * nothing references the compiled instance. We cache markers by source-marker identity
  * too so that repeated visits hand back the <em>same</em> repackaged Marker — that's
  * what {@link net.minecraft.world.level.levelgen.NoiseChunk}'s
@@ -42,12 +42,15 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
     private static final CompilingVisitor INSTANCE = new CompilingVisitor();
 
     /**
-     * Identity-keyed compile cache. Use {@link MapMaker#weakKeys()} so the source
-     * DensityFunction can be GC'd; {@link MapMaker#weakValues()} so the compiled hidden
+     * Identity-keyed compile cache. Use weak keys so the source
+     * DensityFunction can be GC'd; weak values so the compiled hidden
      * class can drop out of metaspace once nobody references it.
      */
-    private final ConcurrentMap<DensityFunction, DensityFunction> cache =
-            new MapMaker().weakKeys().weakValues().concurrencyLevel(4).makeMap();
+    private final Cache<DensityFunction, DensityFunction> cache = Caffeine.newBuilder()
+            .initialCapacity(256)
+            .weakKeys()
+            .weakValues()
+            .build();
 
     private CompilingVisitor() {}
 
@@ -89,28 +92,26 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
         // when the inner CompiledDF is shared between markers, which our identity-keyed
         // cache guarantees.
         if (df instanceof DensityFunctions.MarkerOrMarked marker) {
-            DensityFunction cached = cache.get(df);
+            DensityFunction cached = cache.getIfPresent(df);
             if (cached != null) return cached;
             DensityFunction inner = marker.wrapped();
             DensityFunction compiledInner = apply(inner);
             DensityFunction result = (compiledInner == inner)
                     ? df
-                    : new DensityFunctions.Marker(marker.type(), compiledInner);
-            DensityFunction prior = cache.putIfAbsent(df, result);
+                    : MarkerRewriter.rebuild(marker.type(), compiledInner);
+            DensityFunction prior = cache.asMap().putIfAbsent(df, result);
             return prior != null ? prior : result;
         }
 
-        // Non-marker root compile. We deliberately use get + putIfAbsent rather than
-        // computeIfAbsent because Compiler::compile recursively invokes apply() on the
-        // tree it's compiling (when it hits a Marker, the marker's inner subtree gets
-        // compiled as its own unit). Nested computeIfAbsent on different keys in
-        // Guava's MapMaker concurrent map can throw or block under contention; the
+        // Non-marker root compile. Use get + putIfAbsent rather than a loading-cache
+        // function because Compiler::compile recursively invokes apply() on the tree
+        // it's compiling when marker subtrees are compiled as separate units. The
         // worst case for putIfAbsent is two threads compiling the same root once and
         // discarding one result, which is acceptable for an idempotent compile.
-        DensityFunction cached = cache.get(df);
+        DensityFunction cached = cache.getIfPresent(df);
         if (cached != null) return cached;
         DensityFunction compiled = Compiler.compile(df);
-        DensityFunction prior = cache.putIfAbsent(df, compiled);
+        DensityFunction prior = cache.asMap().putIfAbsent(df, compiled);
         return prior != null ? prior : compiled;
     }
 
@@ -121,6 +122,11 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
 
     /** For tests / dump command — returns approximate cache size (may be stale due to GC). */
     public int cacheSize() {
-        return cache.size();
+        return (int) cache.estimatedSize();
+    }
+
+    public void clear() {
+        cache.invalidateAll();
+        cache.cleanUp();
     }
 }

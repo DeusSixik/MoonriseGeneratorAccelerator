@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator;
 
+import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +17,7 @@ public final class GeneratorAccelerator {
 
     public static void init(Platform platform, boolean isDev) {
         GeneratorAccelerator.platform = platform;
+        GADiagnostics.onModInit();
 
         if(isDev) {
             CUSTOM_POOL = new ForkJoinPool(

@@ -2,9 +2,9 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules;
 
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
+import dev.sixik.generator_accelerator.common.utils.FastPositionalRandom;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraft.world.level.levelgen.VerticalAnchor;
 
@@ -44,9 +44,7 @@ public class VectorVerticalGradientCondition implements VectorCondition {
 
             int localX = i & 15;
             int localZ = (i >> 4) & 15;
-            RandomSource random = randomFactory.at(ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ);
-
-            if (random.nextFloat() >= chance) {
+            if (FastPositionalRandom.nextFloatAt(randomFactory, ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ) >= chance) {
                 activeMask.clear(i); // Не повезло в рандоме
             }
         }

@@ -6,15 +6,94 @@ test {
     useJUnitPlatform()
 }
 
+def surfaceQuickBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceCompilerQuickBenchmark"
+def surfaceQuickBenchmarkArgs = [
+        "--warmup=${findProperty('surfaceQuickWarmup') ?: '600'}",
+        "--iterations=${findProperty('surfaceQuickIterations') ?: '1400'}",
+        "--samples=${findProperty('surfaceQuickSamples') ?: '5'}"
+]
+def surfaceColumnIntervalFlag = "-Dga.surface.compiler.columnInterval=${findProperty('surfaceColumnInterval') ?: 'true'}"
+def surfaceDagFlag = "-Dga.surface.compiler.dag=${findProperty('surfaceDag') ?: 'true'}"
+def surfaceApplyBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceProgramApplyQuickBenchmark"
+def surfaceApplyBenchmarkArgs = [
+        "--warmup=${findProperty('surfaceApplyWarmup') ?: '3000'}",
+        "--iterations=${findProperty('surfaceApplyIterations') ?: '12000'}",
+        "--samples=${findProperty('surfaceApplySamples') ?: '5'}"
+]
+
+tasks.register("surfaceQuickBenchmarkLegacy", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Rule Compiler compile benchmark with the legacy compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceQuickBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceQuickBenchmarkArgs
+}
+
+tasks.register("surfaceQuickBenchmarkIr", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Rule Compiler compile benchmark with the IR compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceQuickBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceQuickBenchmarkArgs
+}
+
+tasks.named("surfaceQuickBenchmarkIr") {
+    mustRunAfter tasks.named("surfaceQuickBenchmarkLegacy")
+}
+
+tasks.register("surfaceQuickBenchmark") {
+    group = "benchmark"
+    description = "Runs very quick legacy and IR Surface Rule Compiler benchmarks for comparison."
+    dependsOn "surfaceQuickBenchmarkLegacy", "surfaceQuickBenchmarkIr"
+}
+
+tasks.register("surfaceApplyQuickBenchmarkLegacy", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick SurfaceProgram.apply benchmark with the legacy compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceApplyBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceApplyBenchmarkArgs
+}
+
+tasks.register("surfaceApplyQuickBenchmarkIr", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick SurfaceProgram.apply benchmark with the IR compiler."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceApplyBenchmarkMain
+    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    args surfaceApplyBenchmarkArgs
+}
+
+tasks.named("surfaceApplyQuickBenchmarkIr") {
+    mustRunAfter tasks.named("surfaceApplyQuickBenchmarkLegacy")
+}
+
+tasks.register("surfaceApplyQuickBenchmark") {
+    group = "benchmark"
+    description = "Runs very quick legacy and IR SurfaceProgram.apply benchmarks for comparison."
+    dependsOn "surfaceApplyQuickBenchmarkLegacy", "surfaceApplyQuickBenchmarkIr"
+}
+
 dependencies {
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
     modImplementation "net.fabricmc:fabric-loader:$rootProject.fabric_loader_version"
 
+    compileOnly "com.github.ben-manes.caffeine:caffeine:3.1.8"
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
     compileOnly "org.ow2.asm:asm:9.8"
     compileOnly "org.ow2.asm:asm-tree:9.8"
+
+    testImplementation "com.github.ben-manes.caffeine:caffeine:3.1.8"
+    testImplementation "com.github.JCTools.JCTools:jctools-core:v4.0.3"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"

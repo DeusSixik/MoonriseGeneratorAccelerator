@@ -1,7 +1,8 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.placment;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import dev.sixik.generator_accelerator.api.patches.GA$HeightRangePlacementAccess;
+import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
@@ -13,14 +14,24 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
 @Mixin(HeightRangePlacement.class)
-public abstract class MixinHeightRangePlacement extends PlacementModifier implements GA$PlacementModifierExtension {
+public abstract class MixinHeightRangePlacement extends PlacementModifier implements GA$PlacementModifierExtension, GA$HeightRangePlacementAccess {
 
     @Shadow
     @Final
     private HeightProvider height;
 
     @Override
-    public void generatePositionsFast(PlacementContext context, RandomSource random, long packedPos, LongArrayList output) {
+    public boolean ga$hasFastPositions() {
+        return true;
+    }
+
+    @Override
+    public HeightProvider ga$heightProvider() {
+        return this.height;
+    }
+
+    @Override
+    public void generatePositionsRaw(PlacementContext context, RandomSource random, long packedPos, LongScratchBuffer output) {
         int x = BlockPos.getX(packedPos);
         int z = BlockPos.getZ(packedPos);
 

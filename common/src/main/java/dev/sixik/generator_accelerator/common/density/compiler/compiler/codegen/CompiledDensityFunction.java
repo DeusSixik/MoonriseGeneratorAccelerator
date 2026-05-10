@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 
 import net.minecraft.util.KeyDispatchDataCodec;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
+import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -37,6 +39,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
+    private static final double[] EMPTY_DOUBLES = new double[0];
 
     public record MapAllStats(long identityNoOps, long rebinds) {}
 
@@ -97,7 +100,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      * Opaque JNI pointers ({@code dfc-natives}): indices {@code 0 .. noiseSpecCount-1} are
      * NormalNoise stacks; following entries are blended specs. Zero means use the Java octave path.
      */
-    protected final long[] nativeNoiseHandles;
+    protected final NativeNoiseRegistry.HandleSet nativeNoiseHandles;
 
     /**
      * Optional lattice-inner postfix program for native slab evaluation ({@code dfc-natives} VM);
@@ -117,7 +120,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *
      * <p>Has the post-{@code asType} signature
      * {@code (double[], NormalNoise[], Object[], Object[], DensityFunction[],
-     * double, double, MethodHandle[], long[], MethodHandle) -> CompiledDensityFunction},
+     * double, double, MethodHandle[], NativeNoiseRegistry.HandleSet, byte[], double[],
+     * MethodHandle)
+     * -> CompiledDensityFunction},
      * so {@code invokeExact} just works without further boxing or casting. The
      * trailing {@code MethodHandle} arg is the constructor MH itself, threaded
      * through so the new instance can rebind again later.
@@ -157,7 +162,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             double minValue,
             double maxValue,
             MethodHandle[] helperHandles,
-            long[] nativeNoiseHandles,
+            NativeNoiseRegistry.HandleSet nativeNoiseHandles,
             byte[] slabInnerProgram,
             double[] slabInnerConsts,
             MethodHandle constructorMH) {
@@ -171,7 +176,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         this.helperHandles = helperHandles;
         this.nativeNoiseHandles = nativeNoiseHandles;
         this.slabInnerProgram = slabInnerProgram;
-        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : new double[0];
+        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : EMPTY_DOUBLES;
         this.constructorMH = constructorMH;
     }
 
@@ -385,7 +390,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             DensityFunction newInner = mapExtern(wrapped, session);
             DensityFunction effective = (newInner == wrapped)
                     ? src
-                    : new DensityFunctions.Marker(marker.type(), newInner);
+                    : MarkerRewriter.rebuild(marker.type(), newInner);
             result = session.apply(effective);
         } else {
             result = src.mapAll(session);

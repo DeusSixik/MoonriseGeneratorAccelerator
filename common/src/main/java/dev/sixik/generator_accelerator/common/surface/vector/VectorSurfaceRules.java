@@ -11,7 +11,12 @@ public class VectorSurfaceRules {
     }
 
     public void applyToSection(int[] rawBlockData, BitSet stoneMask, VectorChunkContext ctx) {
-        BitSet processingMask = (BitSet) stoneMask.clone();
-        this.rootRule.apply(rawBlockData, processingMask, ctx);
+        BitSet processingMask = ctx.acquireBitSet4096();
+        try {
+            processingMask.or(stoneMask);
+            this.rootRule.apply(rawBlockData, processingMask, ctx);
+        } finally {
+            ctx.releaseBitSet4096(processingMask);
+        }
     }
 }

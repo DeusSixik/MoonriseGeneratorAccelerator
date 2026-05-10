@@ -4,6 +4,32 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
 
+def configureBenchmarkServerProperties = { String seedValue ->
+    if (seedValue == null || seedValue.isBlank()) {
+        return
+    }
+
+    def runDir = file("neoforge/run")
+    runDir.mkdirs()
+    def propsFile = file("neoforge/run/server.properties")
+    def lines = propsFile.exists() ? propsFile.readLines("ISO-8859-1") : []
+    def updated = false
+
+    for (int i = 0; i < lines.size(); i++) {
+        if (lines[i].startsWith("level-seed=")) {
+            lines[i] = "level-seed=${seedValue}"
+            updated = true
+            break
+        }
+    }
+
+    if (!updated) {
+        lines.add("level-seed=${seedValue}")
+    }
+
+    propsFile.setText(lines.join(System.lineSeparator()) + System.lineSeparator(), "ISO-8859-1")
+}
+
 architectury {
     minecraft = project.minecraft_version
 }
@@ -189,5 +215,148 @@ tasks.register("runBenchmarks") {
         runTest("Moonrise", "-PwithMoonrise", 4)
 
         println "\nBenchmarks end!"
+    }
+}
+
+tasks.register("runFeatureVmBenchmarks") {
+    group = "benchmark"
+    description = "Runs raw vanilla-ish vs FeatureVM-only server benchmarks."
+
+    doLast {
+        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def currentJavaHome = System.getProperty("java.home")
+        def runs = (findProperty("benchRuns") ?: "3") as int
+        def benchWorldSeed = (findProperty("benchWorldSeed") ?: "918273645546372819").toString()
+
+        def runTest = { String name, String jvmArgs ->
+            println "======================================="
+            println "  START FEATURE VM TEST: $name"
+            println "  JVM ARGS: $jvmArgs"
+            println "  WORLD SEED: $benchWorldSeed"
+            println "======================================="
+
+            for (int i = 1; i <= runs; i++) {
+                println "\n---> [$name] run $i of $runs <---"
+                configureBenchmarkServerProperties(benchWorldSeed)
+                exec {
+                    environment "JAVA_HOME", currentJavaHome
+                    commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$jvmArgs", "--no-daemon"
+                }
+                sleep(2000)
+            }
+        }
+
+        runTest("Vanilla-ish GA disabled", "-Dga.benchmark.disableAllPatches=true")
+        runTest("FeatureVM only", "-Dga.benchmark.featuresOnly=true -Dga.benchmark.featureVmOnly=true -Dga.benchmark.featureVm=true")
+        runTest("FeatureVM only with metrics", "-Dga.benchmark.featuresOnly=true -Dga.benchmark.featureVmOnly=true -Dga.benchmark.featureVm=true -Dga.featureVm.metrics=true")
+
+        println "\nFeatureVM benchmarks end!"
+    }
+}
+
+tasks.register("runDecorationPipelineBenchmarks") {
+    group = "benchmark"
+    description = "Runs raw vanilla-ish vs Java data-oriented decoration pipeline benchmarks."
+
+    doLast {
+        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def currentJavaHome = System.getProperty("java.home")
+        def runs = (findProperty("benchRuns") ?: "3") as int
+        def watchdogArgs = "-Dga.benchmark.startupWatchdogSeconds=180 -Dga.benchmark.tickWatchdogSeconds=90"
+        def benchWorldSeed = (findProperty("benchWorldSeed") ?: "918273645546372819").toString()
+
+        def runTest = { String name, String jvmArgs ->
+            println "======================================="
+            println "  START DECORATION PIPELINE TEST: $name"
+            println "  JVM ARGS: $jvmArgs"
+            println "  WORLD SEED: $benchWorldSeed"
+            println "======================================="
+
+            for (int i = 1; i <= runs; i++) {
+                println "\n---> [$name] run $i of $runs <---"
+                configureBenchmarkServerProperties(benchWorldSeed)
+                exec {
+                    environment "JAVA_HOME", currentJavaHome
+                    commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$jvmArgs", "--no-daemon"
+                }
+                sleep(2000)
+            }
+        }
+
+        runTest("Vanilla-ish GA disabled", "-Dga.benchmark.disableAllPatches=true $watchdogArgs")
+        runTest("Decoration pipeline with metrics", "-Dga.benchmark.featuresOnly=true -Dga.decorationPipeline.metrics=true -Dga.config.enableFlatBlockStructurePatch=true $watchdogArgs")
+
+        println "\nDecoration pipeline benchmarks end!"
+    }
+}
+
+tasks.register("runDecorationPipelineQuickBenchmarks") {
+    group = "benchmark"
+    description = "Runs a short no-Spark baseline vs Java decoration pipeline comparison."
+
+    doLast {
+        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def currentJavaHome = System.getProperty("java.home")
+        def runs = (findProperty("benchRuns") ?: "1") as int
+        def quickStartTick = findProperty("quickStartTick") ?: "20"
+        def quickStopTick = findProperty("quickStopTick") ?: "260"
+        def quickHaltTick = findProperty("quickHaltTick") ?: "320"
+        def quickTicksBetweenBatches = findProperty("quickTicksBetweenBatches") ?: "10"
+        def quickRenderDistance = findProperty("quickRenderDistance") ?: "8"
+        def quickResetWorld = findProperty("quickResetWorld") ?: "true"
+        def quickStartupWatchdogSeconds = findProperty("quickStartupWatchdogSeconds") ?: "90"
+        def quickTickWatchdogSeconds = findProperty("quickTickWatchdogSeconds") ?: "30"
+        def quickMaxBatches = findProperty("quickMaxBatches")
+        def quickWorldSeed = (findProperty("quickWorldSeed") ?: "918273645546372819").toString()
+        def quickMode = (findProperty("quickMode") ?: "both").toString()
+        def quickPipelineMetrics = (findProperty("quickPipelineMetrics") ?: "false").toString().toBoolean()
+        def quickPipelineFlatBlocks = (findProperty("quickPipelineFlatBlocks") ?: "true").toString().toBoolean()
+        def quickArgs = "-Dga.benchmark.useSpark=false " +
+                "-Dga.benchmark.startTick=$quickStartTick " +
+                "-Dga.benchmark.stopTick=$quickStopTick " +
+                "-Dga.benchmark.haltTick=$quickHaltTick " +
+                "-Dga.benchmark.ticksBetweenBatches=$quickTicksBetweenBatches " +
+                "-Dga.benchmark.renderDistance=$quickRenderDistance " +
+                "-Dga.benchmark.resetWorld=$quickResetWorld " +
+                "-Dga.benchmark.startupWatchdogSeconds=$quickStartupWatchdogSeconds " +
+                "-Dga.benchmark.tickWatchdogSeconds=$quickTickWatchdogSeconds"
+        if (quickMaxBatches != null) {
+            quickArgs += " -Dga.benchmark.maxBatches=$quickMaxBatches"
+        }
+
+        def runTest = { String name, String jvmArgs ->
+            println "======================================="
+            println "  START QUICK DECORATION TEST: $name"
+            println "  JVM ARGS: $jvmArgs"
+            println "  WORLD SEED: $quickWorldSeed"
+            println "======================================="
+
+            for (int i = 1; i <= runs; i++) {
+                println "\n---> [$name] run $i of $runs <---"
+                def sparkConfigDir = file("neoforge/run/config/spark")
+                sparkConfigDir.mkdirs()
+                file("neoforge/run/config/spark/config.json").text = '{"backgroundProfiler":false}\n'
+                configureBenchmarkServerProperties(quickWorldSeed)
+                exec {
+                    environment "JAVA_HOME", currentJavaHome
+                    commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$jvmArgs", "--no-daemon"
+                }
+                sleep(1000)
+            }
+        }
+
+        if (quickMode == "both" || quickMode == "baseline") {
+            runTest("Quick baseline GA disabled", "-Dga.benchmark.disableAllPatches=true $quickArgs")
+        }
+        if (quickMode == "both" || quickMode == "pipeline") {
+            def metricsArg = quickPipelineMetrics ? "-Dga.decorationPipeline.metrics=true " : ""
+            def flatBlocksArg = quickPipelineFlatBlocks ? "-Dga.config.enableFlatBlockStructurePatch=true " : ""
+            runTest("Quick decoration pipeline", "-Dga.benchmark.featuresOnly=true ${metricsArg}${flatBlocksArg}$quickArgs")
+        }
+
+        println "\nQuick decoration pipeline benchmarks end!"
     }
 }

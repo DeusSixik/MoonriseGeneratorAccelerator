@@ -67,12 +67,12 @@ public class MixinNoiseChunk$OptimizeFlatArray {
         int fX = this.firstNoiseX;
         int fZ = this.firstNoiseZ;
 
-        for (int l = 0; l < sizeXZ; l++) {
+        for (int l = 0; l <= sizeXZ; l++) {
             int m = fX + l;
             int blockX = m << 2;
             int rowOffset = l * size;
 
-            for (int o = 0; o < sizeXZ; o++) {
+            for (int o = 0; o <= sizeXZ; o++) {
                 int p = fZ + o;
                 int blockZ = p << 2;
 

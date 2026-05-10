@@ -33,9 +33,12 @@ import java.util.Set;
  * <p>Layout of the generated class:
  * <pre>
  * public final class CompiledDF_N extends CompiledDensityFunction {
- *     public CompiledDF_N(double[] c, NormalNoise[] n, Object[] s, DensityFunction[] e,
- *                        double mn, double mx, MethodHandle[] hh, MethodHandle ctorMH) {
- *         super(c, n, s, e, mn, mx, hh, ctorMH);
+ *     public CompiledDF_N(double[] c, NormalNoise[] n, Object[] s, Object[] noiseOctaves,
+ *                        DensityFunction[] e, double mn, double mx, MethodHandle[] hh,
+ *                        NativeNoiseRegistry.HandleSet nativeHandles, byte[] slabProgram,
+ *                        double[] slabConsts, MethodHandle ctorMH) {
+ *         super(c, n, s, noiseOctaves, e, mn, mx, hh, nativeHandles, slabProgram,
+ *               slabConsts, ctorMH);
  *     }
  *     public double compute(FunctionContext ctx) { ... straight-line bytecode ... }
  *     private static double helper_0(CompiledDensityFunction self, FunctionContext ctx) { ... }
@@ -110,7 +113,7 @@ public final class Codegen {
     static final SplineSearchMode SPLINE_SEARCH_MODE =
             parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
     public static final boolean SPLINE_RUNTIME_STATS_ENABLED =
-            Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
+            Boolean.parseBoolean(System.getProperty("dfc.codegen.splineRuntimeStats.emit", "true"));
     /**
      * Optional exact LUT-guided segment selection for large interior splines.
      *
@@ -161,6 +164,9 @@ public final class Codegen {
     private static final String RUNTIME_INTERNAL =
             "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime";
     private static final String MTH_INTERNAL = "net/minecraft/util/Mth";
+    private static final String NATIVE_HANDLE_SET_INTERNAL =
+            "dev/sixik/generator_accelerator/common/density/compiler/natives/NativeNoiseRegistry$HandleSet";
+    private static final String NATIVE_HANDLE_SET_DESC = "L" + NATIVE_HANDLE_SET_INTERNAL + ";";
     private static final String NOISE5_DESC = "(DDDDD)D";
 
     /**
@@ -176,11 +182,11 @@ public final class Codegen {
      * see {@link CompiledDensityFunction#noiseOctaves}. The generated subclass
      * unloads it into its own typed final fields in its constructor body.
      *
-     * <p>The trailing {@code long[]} holds opaque native noise handles; may be null.
+     * <p>The trailing {@code HandleSet} owns opaque native noise handles; may be null.
      */
     public static final String CTOR_DESC =
             "([D[L" + NORMAL_NOISE_INTERNAL + ";[Ljava/lang/Object;[Ljava/lang/Object;[L"
-                    + DENSITY_FUNCTION_INTERNAL + ";DD" + METHOD_HANDLE_ARRAY_DESC + "[J[B[D"
+                    + DENSITY_FUNCTION_INTERNAL + ";DD" + METHOD_HANDLE_ARRAY_DESC + NATIVE_HANDLE_SET_DESC + "[B[D"
                     + "L" + METHOD_HANDLE_INTERNAL + ";)V";
 
     /**
@@ -581,7 +587,7 @@ public final class Codegen {
 
     private static void emitConstructor(ClassWriter cw, String classInternalName, ConstantPool pool) {
         // (double[], NormalNoise[], Object[], Object[], DensityFunction[], double, double,
-        //  MethodHandle[], long[], MethodHandle)
+        //  MethodHandle[], NativeNoiseRegistry.HandleSet, byte[], double[], MethodHandle)
         // Slot layout: this=0, constants=1, noises=2, splines=3, noiseOctaves=4,
         // externs=5, minValue=6/7, maxValue=8/9, helperHandles=10, nativeHandles=11,
         // slabInnerProgram=12, slabInnerConsts=13, constructorMH=14.
@@ -654,12 +660,8 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ALOAD, 11);
         mv.visitJumpInsn(Opcodes.IFNULL, zero);
         mv.visitVarInsn(Opcodes.ALOAD, 11);
-        mv.visitInsn(Opcodes.ARRAYLENGTH);
         ldcIntStatic(mv, handleIndex);
-        mv.visitJumpInsn(Opcodes.IF_ICMPLE, zero);
-        mv.visitVarInsn(Opcodes.ALOAD, 11);
-        ldcIntStatic(mv, handleIndex);
-        mv.visitInsn(Opcodes.LALOAD);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, NATIVE_HANDLE_SET_INTERNAL, "handle", "(I)J", false);
         mv.visitJumpInsn(Opcodes.GOTO, put);
         mv.visitLabel(zero);
         mv.visitInsn(Opcodes.LCONST_0);
@@ -4518,7 +4520,7 @@ public final class Codegen {
             if (SPLINE_RUNTIME_STATS_ENABLED) {
                 splineTimingStartSlot = allocLongSlot();
                 splineTimingResultSlot = allocFloatSlot();
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "nanoTime", "()J", false);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "sampleStart", "()J", false);
                 mv.visitVarInsn(Opcodes.LSTORE, splineTimingStartSlot);
             }
 
@@ -4686,15 +4688,21 @@ public final class Codegen {
                 return;
             }
             mv.visitVarInsn(Opcodes.FSTORE, splineTimingResultSlot);
-            mv.visitLdcInsn(classInternalName);
+            Label skipRecord = new Label();
+            mv.visitVarInsn(Opcodes.LLOAD, splineTimingStartSlot);
+            mv.visitInsn(Opcodes.LCONST_0);
+            mv.visitInsn(Opcodes.LCMP);
+            mv.visitJumpInsn(Opcodes.IFEQ, skipRecord);
+            mv.visitLdcInsn(classInternalName.replace('/', '.'));
             mv.visitLdcInsn(pointCount);
             mv.visitLdcInsn(searchMode);
             mv.visitLdcInsn(exitKind);
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "nanoTime", "()J", false);
             mv.visitVarInsn(Opcodes.LLOAD, splineTimingStartSlot);
             mv.visitInsn(Opcodes.LSUB);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "recordDetailed",
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_STATS_INTERNAL, "recordDetailedSampled",
                     DFC_SPLINE_STATS_RECORD_DETAILED_DESC, false);
+            mv.visitLabel(skipRecord);
             mv.visitVarInsn(Opcodes.FLOAD, splineTimingResultSlot);
         }
 

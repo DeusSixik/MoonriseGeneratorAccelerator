@@ -48,6 +48,25 @@ public final class DfcNativePlanningStats {
                 AXIS_Y_ONLY.sum(), AXIS_XZ_ONLY.sum());
     }
 
+    public static void reset() {
+        LATTICE_ROOTS.reset();
+        NATIVE_OPS_DISABLED.reset();
+        SLAB_PLAN_PRESENT.reset();
+        SLAB_PLAN_MISSING.reset();
+        SLAB_PLAN_MISSING_NO_SLOTS.reset();
+        SLAB_PLAN_MISSING_UNSAFE_COORDS.reset();
+        SLAB_PLAN_MISSING_BAD_HANDLE_INDEX.reset();
+        SLAB_INNER_VM_PRESENT.reset();
+        SLAB_INNER_VM_MISSING.reset();
+        SLAB_INNER_VM_MISSING_EXTRACTED.reset();
+        SLAB_INNER_VM_MISSING_UNSUPPORTED_NODE.reset();
+        SLAB_INNER_VM_MISSING_INVALID_PROGRAM.reset();
+        SLAB_INNER_VM_MISSING_IO.reset();
+        AXIS_Y_ONLY.reset();
+        AXIS_XZ_ONLY.reset();
+        SLAB_INNER_UNSUPPORTED_CLASSES.clear();
+    }
+
     public static void recordLatticeRoot(boolean nativeOpsEnabled, boolean xzOnly) {
         LATTICE_ROOTS.increment();
         if (!nativeOpsEnabled) {
