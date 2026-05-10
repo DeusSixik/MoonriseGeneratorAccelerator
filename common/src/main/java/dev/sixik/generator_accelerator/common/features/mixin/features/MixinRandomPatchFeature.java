@@ -1,20 +1,19 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.features.ReusablePlacementContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
 import net.minecraft.world.level.levelgen.feature.RandomPatchFeature;
 import net.minecraft.world.level.levelgen.feature.configurations.RandomPatchConfiguration;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
-import net.minecraft.world.level.levelgen.placement.PlacementContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
-
-import java.util.Optional;
 
 @Mixin(value = RandomPatchFeature.class, priority = 999)
 public abstract class MixinRandomPatchFeature extends Feature<RandomPatchConfiguration> {
@@ -22,6 +21,10 @@ public abstract class MixinRandomPatchFeature extends Feature<RandomPatchConfigu
     @Unique
     private static final ThreadLocal<BlockPos.MutableBlockPos> GA$SHARED_POS =
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
+    @Unique
+    private static final ThreadLocal<ReusablePlacementContext> GA$PLACEMENT_CONTEXT =
+            new ThreadLocal<>();
 
     private MixinRandomPatchFeature(Codec<RandomPatchConfiguration> codec) {
         super(codec);
@@ -37,9 +40,16 @@ public abstract class MixinRandomPatchFeature extends Feature<RandomPatchConfigu
         RandomSource random = placeContext.random();
         BlockPos origin = placeContext.origin();
         WorldGenLevel level = placeContext.level();
+        ChunkGenerator generator = placeContext.chunkGenerator();
 
         PlacedFeature nestedFeature = config.feature().value();
-        PlacementContext nestedContext = new PlacementContext(level, placeContext.chunkGenerator(), Optional.empty());
+        ReusablePlacementContext nestedContext = GA$PLACEMENT_CONTEXT.get();
+        if (nestedContext == null || nestedContext.generator() != generator) {
+            nestedContext = new ReusablePlacementContext(level, generator);
+            GA$PLACEMENT_CONTEXT.set(nestedContext);
+        } else {
+            nestedContext.set(level, generator);
+        }
         BlockPos.MutableBlockPos mutablePos = GA$SHARED_POS.get();
 
         int spreadXZ = config.xzSpread() + 1;

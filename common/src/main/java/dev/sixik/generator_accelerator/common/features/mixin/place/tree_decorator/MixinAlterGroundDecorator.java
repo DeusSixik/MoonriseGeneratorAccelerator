@@ -11,6 +11,9 @@ import org.spongepowered.asm.mixin.*;
 
 @Mixin(AlterGroundDecorator.class)
 public class MixinAlterGroundDecorator {
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Shadow
     @Final
@@ -48,7 +51,7 @@ public class MixinAlterGroundDecorator {
             baseY = roots.get(0).getY();
         }
 
-        final BlockPos.MutableBlockPos mutPos = new BlockPos.MutableBlockPos();
+        final BlockPos.MutableBlockPos mutPos = BTS$MUTABLE_POS.get();
         
         if (processLogs) {
             bts$processList(context, logs, baseY, mutPos);

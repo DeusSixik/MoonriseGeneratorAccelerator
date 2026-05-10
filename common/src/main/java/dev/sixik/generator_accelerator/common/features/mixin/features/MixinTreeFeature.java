@@ -1,9 +1,9 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
+import dev.sixik.generator_accelerator.common.features.TreeFeatureScratch;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -29,7 +29,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.function.BiConsumer;
 
 @Mixin(value = TreeFeature.class, priority = 999)
@@ -44,6 +43,10 @@ public abstract class MixinTreeFeature {
         for (int i = 0; i < 7; i++) arr[i] = new LongArrayList(256);
         return arr;
     });
+
+    @Unique
+    private static final ThreadLocal<TreeFeatureScratch> BTS$TREE_SCRATCH =
+            ThreadLocal.withInitial(TreeFeatureScratch::new);
 
 
     @Shadow
@@ -60,58 +63,39 @@ public abstract class MixinTreeFeature {
         BlockPos origin = pContext.origin();
         TreeConfiguration config = pContext.config();
 
-        LongArrayList roots = new LongArrayList();
-        LongArrayList trunks = new LongArrayList();
-        LongOpenHashSet foliage = new LongOpenHashSet();
-        LongArrayList decorators = new LongArrayList();
+        TreeFeatureScratch scratch = BTS$TREE_SCRATCH.get();
+        scratch.begin(level);
 
-        BiConsumer<BlockPos, BlockState> rootSetter = (pos, state) -> {
-            roots.add(pos.asLong());
-            level.setBlock(pos, state, 19);
-        };
-        BiConsumer<BlockPos, BlockState> trunkSetter = (pos, state) -> {
-            trunks.add(pos.asLong());
-            level.setBlock(pos, state, 19);
-        };
-        FoliagePlacer.FoliageSetter foliageSetter = new FoliagePlacer.FoliageSetter() {
-            @Override
-            public void set(BlockPos pos, BlockState state) {
-                foliage.add(pos.asLong());
-                level.setBlock(pos, state, 19);
+        try {
+            LongArrayList roots = scratch.roots;
+            LongArrayList trunks = scratch.trunks;
+            LongOpenHashSet foliage = scratch.foliage;
+            LongArrayList decorators = scratch.decorators;
+
+            boolean placed = this.doPlace(level, random, origin, scratch.rootSetter, scratch.trunkSetter, scratch.foliageSetter, config);
+
+            if (placed && (!trunks.isEmpty() || !foliage.isEmpty())) {
+
+                if (!config.decorators.isEmpty()) {
+                    TreeDecorator.Context decoratorContext = scratch.prepareDecoratorContext(random);
+                    for (int i = 0; i < config.decorators.size(); i++) {
+                        config.decorators.get(i).place(decoratorContext);
+                    }
+                    scratch.decoratorContext.clear();
+                }
+
+                BoundingBox box = bts$calculateBoundingBox(foliage, roots, trunks, decorators);
+
+                if (box != null) {
+                    DiscreteVoxelShape shape = bts$updateLeavesFast(level, box, roots, trunks, foliage, scratch.mutablePos);
+                    StructureTemplate.updateShapeAtEdge(level, 3, shape, box.minX(), box.minY(), box.minZ());
+                    return true;
+                }
             }
-
-            @Override
-            public boolean isSet(BlockPos pos) {
-                return foliage.contains(pos.asLong());
-            }
-        };
-        BiConsumer<BlockPos, BlockState> decoratorSetter = (pos, state) -> {
-            decorators.add(pos.asLong());
-            level.setBlock(pos, state, 19);
-        };
-
-        boolean placed = this.doPlace(level, random, origin, rootSetter, trunkSetter, foliageSetter, config);
-
-        if (placed && (!trunks.isEmpty() || !foliage.isEmpty())) {
-
-            if (!config.decorators.isEmpty()) {
-                Set<BlockPos> rootList = bts$unpackLongs(roots);
-                Set<BlockPos> trunkList = bts$unpackLongs(trunks);
-                Set<BlockPos> foliageList = bts$unpackLongs(foliage);
-
-                TreeDecorator.Context decoratorContext = new TreeDecorator.Context(level, decoratorSetter, random, trunkList, foliageList, rootList);
-                config.decorators.forEach(dec -> dec.place(decoratorContext));
-            }
-
-            BoundingBox box = bts$calculateBoundingBox(foliage, roots, trunks, decorators);
-
-            if (box != null) {
-                DiscreteVoxelShape shape = bts$updateLeavesFast(level, box, roots, trunks, foliage);
-                StructureTemplate.updateShapeAtEdge(level, 3, shape, box.minX(), box.minY(), box.minZ());
-                return true;
-            }
+            return false;
+        } finally {
+            scratch.release();
         }
-        return false;
     }
 
     /**
@@ -120,7 +104,12 @@ public abstract class MixinTreeFeature {
      */
     @Unique
     private static DiscreteVoxelShape bts$updateLeavesFast(
-            LevelAccessor level, BoundingBox box, LongArrayList roots, LongArrayList trunks, LongOpenHashSet foliage
+            LevelAccessor level,
+            BoundingBox box,
+            LongArrayList roots,
+            LongArrayList trunks,
+            LongOpenHashSet foliage,
+            BlockPos.MutableBlockPos mPos
     ) {
         DiscreteVoxelShape shape = new BitSetDiscreteVoxelShape(box.getXSpan(), box.getYSpan(), box.getZSpan());
 
@@ -134,8 +123,6 @@ public abstract class MixinTreeFeature {
         for (int i = 0; i < roots.size(); i++) {
             queues[0].add(roots.getLong(i));
         }
-
-        BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
 
         int currentDist = 0;
         try (BulkSectionAccess bulkAccess = new BulkSectionAccess(level)) {
@@ -278,22 +265,4 @@ public abstract class MixinTreeFeature {
         return hasPoints ? new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ) : null;
     }
 
-    @Unique
-    private static Set<BlockPos> bts$unpackLongs(LongArrayList longs) {
-        Set<BlockPos> list = new ObjectOpenHashSet<>(longs.size());
-        for (int i = 0; i < longs.size(); i++) {
-            list.add(BlockPos.of(longs.getLong(i)));
-        }
-        return list;
-    }
-
-    @Unique
-    private static Set<BlockPos> bts$unpackLongs(LongOpenHashSet longs) {
-        Set<BlockPos> list = new ObjectOpenHashSet<>(longs.size());
-        LongIterator it = longs.iterator();
-        while (it.hasNext()) {
-            list.add(BlockPos.of(it.nextLong()));
-        }
-        return list;
-    }
 }

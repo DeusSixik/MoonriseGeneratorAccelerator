@@ -11,8 +11,11 @@ import java.util.Arrays;
 public final class SectionDescriptorCache {
     private static final int INITIAL_DESCRIPTOR_CAPACITY = 32;
     private static final int MAX_RETAINED_DESCRIPTOR_CAPACITY = 256;
+    private static final int MAX_EXCESSIVE_DESCRIPTOR_CAPACITY = 1_024;
     private static final int MAX_RETAINED_HEIGHT_CACHE_CAPACITY = 64;
+    private static final int MAX_EXCESSIVE_HEIGHT_CACHE_CAPACITY = 256;
     private static final int MAX_RETAINED_HEIGHT_SCAN_CAPACITY = 128;
+    private static final int MAX_EXCESSIVE_HEIGHT_SCAN_CAPACITY = 512;
     private static final short[] EMPTY_HEIGHTS = new short[SectionDescriptor.COLUMN_COUNT];
     private static final short NO_TOP_WATER = Short.MIN_VALUE;
     private static final int UNKNOWN_PALETTE_FLAGS = SectionDescriptor.PALETTE_AIR
@@ -588,28 +591,28 @@ public final class SectionDescriptorCache {
     }
 
     private void shrinkOversizedBuffers() {
-        if (this.descriptors.length > MAX_RETAINED_DESCRIPTOR_CAPACITY) {
-            this.chunks = new ChunkAccess[INITIAL_DESCRIPTOR_CAPACITY];
-            this.keys = new long[INITIAL_DESCRIPTOR_CAPACITY];
-            this.descriptors = new SectionDescriptor[INITIAL_DESCRIPTOR_CAPACITY];
+        if (this.descriptors.length > MAX_EXCESSIVE_DESCRIPTOR_CAPACITY) {
+            this.chunks = new ChunkAccess[MAX_RETAINED_DESCRIPTOR_CAPACITY];
+            this.keys = new long[MAX_RETAINED_DESCRIPTOR_CAPACITY];
+            this.descriptors = new SectionDescriptor[MAX_RETAINED_DESCRIPTOR_CAPACITY];
             for (int i = 0; i < this.descriptors.length; i++) {
                 this.descriptors[i] = new SectionDescriptor();
             }
         }
 
-        if (this.heightChunks.length > MAX_RETAINED_HEIGHT_CACHE_CAPACITY) {
-            this.heightChunks = new ChunkAccess[16];
-            this.heightChunkKeys = new long[16];
-            this.worldSurfaceHeights = new short[16][];
-            this.oceanFloorHeights = new short[16][];
-            this.motionBlockingHeights = new short[16][];
-            this.topWaterHeights = new short[16][];
-            this.chunkColumnPaletteFlags = new int[16][];
-            this.chunkColumnBlockClassFlags = new int[16][];
+        if (this.heightChunks.length > MAX_EXCESSIVE_HEIGHT_CACHE_CAPACITY) {
+            this.heightChunks = new ChunkAccess[MAX_RETAINED_HEIGHT_CACHE_CAPACITY];
+            this.heightChunkKeys = new long[MAX_RETAINED_HEIGHT_CACHE_CAPACITY];
+            this.worldSurfaceHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+            this.oceanFloorHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+            this.motionBlockingHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+            this.topWaterHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+            this.chunkColumnPaletteFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+            this.chunkColumnBlockClassFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
         }
 
-        if (this.heightScanDescriptors.length > MAX_RETAINED_HEIGHT_SCAN_CAPACITY) {
-            this.heightScanDescriptors = new SectionDescriptor[32];
+        if (this.heightScanDescriptors.length > MAX_EXCESSIVE_HEIGHT_SCAN_CAPACITY) {
+            this.heightScanDescriptors = new SectionDescriptor[MAX_RETAINED_HEIGHT_SCAN_CAPACITY];
         }
     }
 
