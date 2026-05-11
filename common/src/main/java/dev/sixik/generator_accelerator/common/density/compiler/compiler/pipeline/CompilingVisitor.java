@@ -86,12 +86,10 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
         // Markers are a contract with NoiseChunk: the chunk swaps them with cell caches
         // (Cache2D / FlatCache / NoiseInterpolator / CacheOnce / CacheAllInCell). We have
         // to preserve the marker boundary verbatim, but the inner subtree is fair game
-        // for compilation. Cache the WHOLE marker by source identity so repeat visits
-        // return the same repackaged Marker instance — Marker is a record (structural
-        // equality), so the wrapped() HashMap in NoiseChunk dedups it correctly only
-        // when the inner CompiledDF is shared between markers, which our identity-keyed
-        // cache guarantees.
-        if (df instanceof DensityFunctions.MarkerOrMarked marker) {
+        // for compilation. Immutable Marker records may stay identity-stable when their
+        // inner child is unchanged; already-created NoiseChunk cache wrappers are mutable
+        // MarkerOrMarked implementations, so repackage them into fresh Marker records.
+        if (df instanceof DensityFunctions.Marker marker) {
             DensityFunction cached = cache.getIfPresent(df);
             if (cached != null) return cached;
             DensityFunction inner = marker.wrapped();
@@ -99,6 +97,14 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
             DensityFunction result = (compiledInner == inner)
                     ? df
                     : MarkerRewriter.rebuild(marker.type(), compiledInner);
+            DensityFunction prior = cache.asMap().putIfAbsent(df, result);
+            return prior != null ? prior : result;
+        }
+        if (df instanceof DensityFunctions.MarkerOrMarked marker) {
+            DensityFunction cached = cache.getIfPresent(df);
+            if (cached != null) return cached;
+            DensityFunction compiledInner = apply(marker.wrapped());
+            DensityFunction result = MarkerRewriter.rebuild(marker.type(), compiledInner);
             DensityFunction prior = cache.asMap().putIfAbsent(df, result);
             return prior != null ? prior : result;
         }
