@@ -59,6 +59,9 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
             return DfcCacheFastPath.CACHE_MISS;
         }
         int index = (cellH - 1 - inY) * cellW * cellW + inX * cellW + inZ;
+        if (index < 0 || index >= this.values.length) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
         return this.values[index];
     }
 

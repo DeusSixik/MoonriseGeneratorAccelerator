@@ -308,12 +308,12 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *       extern reference.</li>
      *   <li><b>Marker-extern reuse.</b> Vanilla {@link DensityFunctions.MarkerOrMarked#mapAll}
      *       always allocates {@code new Marker(type, wrapped.mapAll(visitor))},
-     *       even when the inner result is reference-identical. We bypass that by
-     *       handling marker externs directly in {@link #mapExtern}: when
-     *       {@code inner.mapAll} returns the same instance, we forward the
-     *       <em>original</em> marker to {@code visitor.apply}, not a freshly
-     *       allocated one. Same identity → {@code wrap}'s {@code computeIfAbsent}
-     *       hits a single cache wrapper.</li>
+     *       even when the inner result is reference-identical. We bypass that only
+     *       for immutable {@link DensityFunctions.Marker} records: when the inner
+     *       maps to itself, we forward the original marker to {@code visitor.apply}.
+     *       Already-materialized {@code NoiseChunk} cache wrappers also implement
+     *       {@link DensityFunctions.MarkerOrMarked}, but they carry mutable state and
+     *       must still be repackaged like vanilla does.</li>
      *   <li><b>Lazy externs clone.</b> We only allocate a new
      *       {@code DensityFunction[]} when at least one extern actually changed,
      *       skipping the per-call array allocation that the previous unconditional
@@ -373,10 +373,11 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     /**
      * Apply {@code session} (which forwards to the user visitor) to a single extern.
-     * Vanilla {@code MarkerOrMarked.mapAll} is bypassed for marker externs to avoid
-     * its unconditional {@code new Marker(type, ...)} allocation when the inner
-     * subtree didn't change — preserving original-marker identity is what lets
-     * {@code NoiseChunk::wrap}'s identity/equality-keyed dedup fire.
+     * Vanilla {@code MarkerOrMarked.mapAll} is bypassed only for immutable marker
+     * records. Runtime {@code NoiseChunk} cache wrappers also implement
+     * {@code MarkerOrMarked}; those are rebuilt into fresh marker records so
+     * {@code NoiseChunk::wrap} installs fresh mutable cache wrappers instead of
+     * reusing state from an earlier mapAll phase.
      */
     private static DensityFunction mapExtern(DensityFunction src, MapAllSession session) {
         DensityFunction cached = session.memoGet(src);
@@ -385,12 +386,17 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         }
 
         DensityFunction result;
-        if (src instanceof DensityFunctions.MarkerOrMarked marker) {
+        if (src instanceof DensityFunctions.Marker marker) {
             DensityFunction wrapped = marker.wrapped();
             DensityFunction newInner = mapExtern(wrapped, session);
             DensityFunction effective = (newInner == wrapped)
                     ? src
                     : MarkerRewriter.rebuild(marker.type(), newInner);
+            result = session.apply(effective);
+        } else if (src instanceof DensityFunctions.MarkerOrMarked marker) {
+            DensityFunction wrapped = marker.wrapped();
+            DensityFunction newInner = mapExtern(wrapped, session);
+            DensityFunction effective = MarkerRewriter.rebuild(marker.type(), newInner);
             result = session.apply(effective);
         } else {
             result = src.mapAll(session);
