@@ -17,12 +17,8 @@ public class Blueprint$StructurePieceMixin {
         return StructureRepalleterManager.getBlockState(level, state);
     }
 
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.common.structures.mixin.optimization.MixinStructurePiece",
-            name = "placeBlock"
-    )
     @ModifyVariable(
-            method = "@MixinSquared:Handler",
+            method = "placeBlock",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/state/BlockState;",
@@ -34,12 +30,8 @@ public class Blueprint$StructurePieceMixin {
         return apply(worldGenLevel, state);
     }
 
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.common.structures.mixin.optimization.MixinStructurePiece",
-            name = "placeBlock"
-    )
     @ModifyVariable(
-            method = "@MixinSquared:Handler",
+            method = "placeBlock",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/level/WorldGenLevel;setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;I)Z",

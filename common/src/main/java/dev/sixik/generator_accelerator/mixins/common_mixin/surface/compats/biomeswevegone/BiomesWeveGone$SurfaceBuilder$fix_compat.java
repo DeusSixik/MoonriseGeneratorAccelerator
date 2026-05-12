@@ -50,7 +50,7 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
     protected abstract void erodedBadlandsExtension(BlockColumn var1, int var2, int var3, int var4, LevelHeightAccessor var5);
 
     @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
+            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.surface.SurfaceSystem$new_build_surface",
             name = "buildSurface"
     )
     @Inject(

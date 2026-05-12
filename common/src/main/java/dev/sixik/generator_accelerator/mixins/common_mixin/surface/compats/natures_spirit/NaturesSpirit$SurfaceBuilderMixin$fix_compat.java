@@ -60,7 +60,7 @@ public class NaturesSpirit$SurfaceBuilderMixin$fix_compat {
 
 
     @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
+            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.surface.SurfaceSystem$new_build_surface",
             name = "buildSurface"
     )
     @Inject(method = "@MixinSquared:Handler", at = @At(value = "INVOKE", target = "Lnet/minecraft/core/Holder;is(Lnet/minecraft/resources/ResourceKey;)Z", ordinal = 0))
