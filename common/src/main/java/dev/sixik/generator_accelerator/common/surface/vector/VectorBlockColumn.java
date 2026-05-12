@@ -1,6 +1,5 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
-import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.core.BlockPos;
@@ -57,32 +56,9 @@ public class VectorBlockColumn implements BlockColumn {
     public void setBlock(int y, BlockState state) {
         LevelHeightAccessor levelheightaccessor = this.pChunk.getHeightAccessorForGeneration();
         if (y >= levelheightaccessor.getMinBuildHeight() && y < levelheightaccessor.getMaxBuildHeight()) {
-            int sectionIndex = this.pChunk.getSectionIndex(y);
-            LevelChunkSection section = this.sections[sectionIndex];
-            if (section == null) {
-                return;
-            }
-
-            int[] raw = ((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData();
-            if (raw != null) {
-                int localY = y & 15;
-                int index = (localY << 8) | ((this.columnPos.getZ() & 15) << 4) | (this.columnPos.getX() & 15);
-
-                BlockState oldState = FastBlockStateCache.getBlockState(raw[index]);
-                if (!oldState.isAir() && state.isAir()) {
-                    section.nonEmptyBlockCount--;
-                }
-                if (oldState.isAir() && !state.isAir()) {
-                    section.nonEmptyBlockCount++;
-                }
-
-                raw[index] = GA$BlockStateExtension.get(state).bts$getFastId();
-
-                if (!state.getFluidState().isEmpty()) {
-                    this.pChunk.markPosForPostprocessing(this.columnPos.setY(y));
-                }
-            } else {
-                this.pChunk.setBlockState(this.columnPos.setY(y), state, false);
+            this.pChunk.setBlockState(this.columnPos.setY(y), state, false);
+            if (!state.getFluidState().isEmpty()) {
+                this.pChunk.markPosForPostprocessing(this.columnPos);
             }
         }
     }
