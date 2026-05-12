@@ -17,17 +17,8 @@ public final class DfcNativeBridge {
             ThreadLocal.withInitial(() -> EMPTY_DOUBLES);
 
     static {
-        boolean ok = NativeLibraryLoader.loadBundled();
-        int avx = 0;
-        if (ok) {
-            try {
-                avx = nativeQueryCpu();
-            } catch (UnsatisfiedLinkError e) {
-                ok = false;
-            }
-        }
-        LIB_OK = ok;
-        CPU_AVX2 = avx;
+        LIB_OK = false;
+        CPU_AVX2 = 0;
     }
 
     private DfcNativeBridge() {}
@@ -48,10 +39,8 @@ public final class DfcNativeBridge {
 
     /** Non-null after {@link #isAvailable()} is first observed as {@code false}; describes missing bundle or {@link System#load} failure. */
     public static Throwable nativeLoadError() {
-        return NativeLibraryLoader.loadError();
+        return null;
     }
-
-    private static native int nativeQueryCpu();
 
     public static native long allocNormalNoiseStack(double valueFactor, int n0, double scale0, double[] in0,
                                                     double[] amp0, byte[] perm0, double[] orig0, int n1, double scale1,
