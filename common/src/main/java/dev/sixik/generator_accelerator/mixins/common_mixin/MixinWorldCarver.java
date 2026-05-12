@@ -80,13 +80,13 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     }
 
     @Unique
-    private ThreadLocal<MutableFunctionContext> ga$mutableFunctionContext;
+    private volatile ThreadLocal<MutableFunctionContext> ga$mutableFunctionContext;
 
     @Unique
-    private ThreadLocal<CarveStateScratch> ga$carveStateScratch;
+    private volatile ThreadLocal<CarveStateScratch> ga$carveStateScratch;
 
     @Unique
-    private ThreadLocal<CarverChunkWriter> ga$carverChunkWriter;
+    private volatile ThreadLocal<CarverChunkWriter> ga$carverChunkWriter;
 
     /**
      * @author Sixik
@@ -387,8 +387,13 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     private MutableFunctionContext ga$getMutableFunctionContext() {
         ThreadLocal<MutableFunctionContext> context = this.ga$mutableFunctionContext;
         if (context == null) {
-            context = ThreadLocal.withInitial(MutableFunctionContext::new);
-            this.ga$mutableFunctionContext = context;
+            synchronized (this) {
+                context = this.ga$mutableFunctionContext;
+                if (context == null) {
+                    context = ThreadLocal.withInitial(MutableFunctionContext::new);
+                    this.ga$mutableFunctionContext = context;
+                }
+            }
         }
         return context.get();
     }
@@ -397,8 +402,13 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     private CarveStateScratch ga$getCarveStateScratch() {
         ThreadLocal<CarveStateScratch> scratch = this.ga$carveStateScratch;
         if (scratch == null) {
-            scratch = ThreadLocal.withInitial(CarveStateScratch::new);
-            this.ga$carveStateScratch = scratch;
+            synchronized (this) {
+                scratch = this.ga$carveStateScratch;
+                if (scratch == null) {
+                    scratch = ThreadLocal.withInitial(CarveStateScratch::new);
+                    this.ga$carveStateScratch = scratch;
+                }
+            }
         }
         return scratch.get();
     }
@@ -407,8 +417,13 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
     private CarverChunkWriter ga$getCarverChunkWriter() {
         ThreadLocal<CarverChunkWriter> writer = this.ga$carverChunkWriter;
         if (writer == null) {
-            writer = ThreadLocal.withInitial(CarverChunkWriter::new);
-            this.ga$carverChunkWriter = writer;
+            synchronized (this) {
+                writer = this.ga$carverChunkWriter;
+                if (writer == null) {
+                    writer = ThreadLocal.withInitial(CarverChunkWriter::new);
+                    this.ga$carverChunkWriter = writer;
+                }
+            }
         }
         return writer.get();
     }
