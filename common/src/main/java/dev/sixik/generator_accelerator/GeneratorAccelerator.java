@@ -43,12 +43,6 @@ public final class GeneratorAccelerator {
         }
     }
 
-    public static void tryLoadNatives() {
-        if(GeneratorAcceleratorNatives.isLoaded()) return;
-        GeneratorAcceleratorNatives.initialize();
-    }
-
-
     public enum Platform {
         FABRIC,
         FORGE,

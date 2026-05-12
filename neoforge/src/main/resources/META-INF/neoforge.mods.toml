@@ -47,9 +47,6 @@ config = "generator_accelerator_blender.mixins.json"
 config = "generator_accelerator_noise.mixins.json"
 
 [[mixins]]
-config = "generator_accelerator_noise_native.mixins.json"
-
-[[mixins]]
 config = "generator_accelerator_aquifer.mixins.json"
 
 [[mixins]]

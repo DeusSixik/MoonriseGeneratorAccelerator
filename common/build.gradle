@@ -259,7 +259,8 @@ if (dfcNativeRootDir.isDirectory()) {
 dfcSkippedNativeModules.each { skipped ->
     logger.lifecycle("Bundled natives: skipping module '${skipped.name}' at ${skipped.dir} because native.properties is missing.")
 }
-def dfcBuildNatives = dfcNativeModules.any { it.buildEnabled }
+//def dfcBuildNatives = dfcNativeModules.any { it.buildEnabled }
+def dfcBuildNatives = false
 def dfcResetNativeStateFiles = {
     delete(dfcNativeArtifactsDir)
     delete(dfcNativeModulesBuildRootDir)

@@ -26,7 +26,6 @@
     "generator_accelerator_biome.mixins.json",
     "generator_accelerator_blender.mixins.json",
     "generator_accelerator_noise.mixins.json",
-    "generator_accelerator_noise_native.mixins.json",
     "generator_accelerator_aquifer.mixins.json",
     "generator_accelerator_features.mixins.json",
     "generator_accelerator_flat_block_structure.mixins.json",
