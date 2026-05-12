@@ -39,10 +39,10 @@ public abstract class MixinCaveWorldCarver extends WorldCarver<CaveCarverConfigu
     private static final double GA$FAST_TUNNEL_MIN_RADIUS = Double.parseDouble(System.getProperty("ga.carver.fastTunnelMinRadius", "1.85"));
 
     @Unique
-    private ThreadLocal<CaveTunnelBatch> ga$caveTunnelBatch;
+    private volatile ThreadLocal<CaveTunnelBatch> ga$caveTunnelBatch;
 
     @Unique
-    private ThreadLocal<CaveSkipChecker> ga$caveSkipChecker;
+    private volatile ThreadLocal<CaveSkipChecker> ga$caveSkipChecker;
 
     private MixinCaveWorldCarver(Codec<CaveCarverConfiguration> codec) {
         super(codec);
@@ -334,8 +334,13 @@ public abstract class MixinCaveWorldCarver extends WorldCarver<CaveCarverConfigu
     private CaveTunnelBatch ga$getCaveTunnelBatch() {
         ThreadLocal<CaveTunnelBatch> batch = this.ga$caveTunnelBatch;
         if (batch == null) {
-            batch = ThreadLocal.withInitial(CaveTunnelBatch::new);
-            this.ga$caveTunnelBatch = batch;
+            synchronized (this) {
+                batch = this.ga$caveTunnelBatch;
+                if (batch == null) {
+                    batch = ThreadLocal.withInitial(CaveTunnelBatch::new);
+                    this.ga$caveTunnelBatch = batch;
+                }
+            }
         }
         return batch.get();
     }
@@ -344,8 +349,13 @@ public abstract class MixinCaveWorldCarver extends WorldCarver<CaveCarverConfigu
     private CaveSkipChecker ga$getCaveSkipChecker() {
         ThreadLocal<CaveSkipChecker> checker = this.ga$caveSkipChecker;
         if (checker == null) {
-            checker = ThreadLocal.withInitial(CaveSkipChecker::new);
-            this.ga$caveSkipChecker = checker;
+            synchronized (this) {
+                checker = this.ga$caveSkipChecker;
+                if (checker == null) {
+                    checker = ThreadLocal.withInitial(CaveSkipChecker::new);
+                    this.ga$caveSkipChecker = checker;
+                }
+            }
         }
         return checker.get();
     }

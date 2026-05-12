@@ -26,7 +26,7 @@ import java.util.function.Function;
 public abstract class MixinCanyonWorldCarver extends WorldCarver<CanyonCarverConfiguration> {
 
     @Unique
-    private ThreadLocal<CanyonScratch> ga$canyonScratch;
+    private volatile ThreadLocal<CanyonScratch> ga$canyonScratch;
 
     private MixinCanyonWorldCarver(Codec<CanyonCarverConfiguration> codec) {
         super(codec);
@@ -184,8 +184,13 @@ public abstract class MixinCanyonWorldCarver extends WorldCarver<CanyonCarverCon
     private CanyonScratch ga$getCanyonScratch() {
         ThreadLocal<CanyonScratch> scratch = this.ga$canyonScratch;
         if (scratch == null) {
-            scratch = ThreadLocal.withInitial(CanyonScratch::new);
-            this.ga$canyonScratch = scratch;
+            synchronized (this) {
+                scratch = this.ga$canyonScratch;
+                if (scratch == null) {
+                    scratch = ThreadLocal.withInitial(CanyonScratch::new);
+                    this.ga$canyonScratch = scratch;
+                }
+            }
         }
         return scratch.get();
     }
