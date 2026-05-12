@@ -8,7 +8,13 @@ import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipeli
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.diagnostics.GAWorldgenDiagnosticsFeedback;
+import dev.sixik.generator_accelerator.common.worldgen.lifecycle.GAOuterLifecycleMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.optimizer.WorldgenOptimizerMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenRegistryScanOrchestrator;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspacePool;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -170,8 +176,12 @@ public final class GADiagnostics {
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
         WorldgenProfileMetrics.reset();
+        WorldgenRegistryScanOrchestrator.GLOBAL.reset();
+        GACommitMetrics.resetGlobal();
         GAChunkWorkspaceMetrics.resetGlobal();
         GAChunkWorkspacePool.resetMetrics();
+        WorldgenOptimizerMetrics.reset();
+        GAOuterLifecycleMetrics.resetGlobal();
     }
 
     public static void enableFromCommand() {
@@ -274,7 +284,9 @@ public final class GADiagnostics {
                 + ", spline=" + DfcSplineStats.ENABLED
                 + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
                 + ", scheduler=true"
-                + ", workspace=true";
+                + ", workspaceLive=false"
+                + ", optimizer=true"
+                + ", outerLifecycle=true";
     }
 
     private static DumpResult writeBundle(String reason, Map<String, ?> extra, boolean stopRecording, boolean zip) {
@@ -444,13 +456,34 @@ public final class GADiagnostics {
 
     private static Map<String, Object> gaSnapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Object> pipeline = GAWorldgenPipelineStatus.snapshot();
+        Map<String, Object> profiles = WorldgenProfileMetrics.snapshot();
+        Map<String, Object> registryScan = WorldgenRegistryScanOrchestrator.GLOBAL.snapshot();
+        Map<String, Object> scheduler = schedulerSnapshot();
+        Map<String, Object> workspace = chunkWorkspaceSnapshot();
+        Map<String, Object> commit = GACommitMetrics.snapshotGlobal();
+        Map<String, Object> optimizer = WorldgenOptimizerMetrics.snapshot();
+        Map<String, Object> outerLifecycle = GAOuterLifecycleMetrics.snapshotMap();
         out.put("modId", GeneratorAccelerator.MOD_ID);
         out.put("platform", GeneratorAccelerator.platform == null ? "unknown" : GeneratorAccelerator.platform.name());
         out.put("config", configSnapshot());
+        out.put("adaptiveWorldgenPipeline", pipeline);
         out.put("featureVm", featureVmSnapshot());
-        out.put("worldgenProfiles", WorldgenProfileMetrics.snapshot());
-        out.put("scheduler", schedulerSnapshot());
-        out.put("chunkWorkspace", chunkWorkspaceSnapshot());
+        out.put("worldgenProfiles", profiles);
+        out.put("worldgenRegistryScan", registryScan);
+        out.put("scheduler", scheduler);
+        out.put("chunkWorkspace", workspace);
+        out.put("commitEngine", commit);
+        out.put("patternOptimizer", optimizer);
+        out.put("outerLifecycle", outerLifecycle);
+        out.put("worldgenFeedback", GAWorldgenDiagnosticsFeedback.snapshot(
+                profiles,
+                registryScan,
+                scheduler,
+                workspace,
+                commit,
+                pipeline
+        ));
         out.put("decorationPipeline", decorationPipelineSnapshot());
         out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());

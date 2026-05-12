@@ -41,6 +41,9 @@ public final class CarverChunkWriter {
     }
 
     public void end() {
+        if (!this.active && this.chunk == null && this.sections == null) {
+            return;
+        }
         this.active = false;
         this.chunk = null;
         this.protoChunk = null;

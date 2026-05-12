@@ -54,6 +54,71 @@ class GAChunkWorkspaceTest {
         assertEquals(95, workspace.heightCandidate(2, 7));
         assertTrue(workspace.isDirtySection(0));
         assertTrue(workspace.isDirtyColumn(2, 7));
+        assertTrue(workspace.isDirtyBlockColumn(2, 7));
+        assertTrue(workspace.isDirtyHeightColumn(2, 7));
+    }
+
+    @Test
+    void importBlockIdsFillsFlatBufferWithoutDirtyingSections() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+
+        long imported = workspace.importBlockIds((localX, y, localZ) -> y * 256 + localZ * 16 + localX);
+
+        assertEquals(2L * GAChunkWorkspace.BLOCKS_PER_SECTION, imported);
+        assertTrue(workspace.blockBufferEnabled());
+        assertEquals(5 * 256 + 7 * 16 + 2, workspace.blockId(2, 5, 7));
+        assertFalse(workspace.isDirtySection(0));
+        assertFalse(workspace.isDirtySection(1));
+        assertFalse(workspace.isDirtyColumn(2, 7));
+        assertFalse(workspace.isDirtyBlockColumn(2, 7));
+        assertFalse(workspace.isDirtyHeightColumn(2, 7));
+        assertTrue(workspace.metrics().importNanos() > 0L);
+    }
+
+    @Test
+    void repackDirtyBlockIdsWritesDirtySectionsOnlyAndClearsSectionDirtiness() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+        workspace.importBlockIds((localX, y, localZ) -> 1);
+        workspace.setBlockId(1, 2, 3, 99);
+
+        int[] writes = new int[1];
+        int[] specialWrites = new int[1];
+        long repacked = workspace.repackDirtyBlockIds((localX, y, localZ, blockId) -> {
+            writes[0]++;
+            if (localX == 1 && y == 2 && localZ == 3 && blockId == 99) {
+                specialWrites[0]++;
+            }
+            if (y >= 16) {
+                throw new AssertionError("clean section should not be repacked");
+            }
+        });
+
+        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, repacked);
+        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, writes[0]);
+        assertEquals(1, specialWrites[0]);
+        assertFalse(workspace.isDirtySection(0));
+        assertFalse(workspace.isDirtySection(1));
+        assertFalse(workspace.isDirtyBlockColumn(1, 3));
+        assertTrue(workspace.metrics().repackNanos() > 0L);
+    }
+
+    @Test
+    void repackDirtyBlockIdsClearsOnlyBlockColumnDirtiness() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+        workspace.importBlockIds((localX, y, localZ) -> 1);
+        workspace.setBlockId(1, 2, 3, 99);
+        workspace.setHeightCandidate(1, 3, 120);
+
+        workspace.repackDirtyBlockIds((localX, y, localZ, blockId) -> {
+        });
+
+        assertFalse(workspace.isDirtySection(0));
+        assertFalse(workspace.isDirtyBlockColumn(1, 3));
+        assertTrue(workspace.isDirtyHeightColumn(1, 3));
+        assertTrue(workspace.isDirtyColumn(1, 3));
     }
 
     @Test
@@ -73,6 +138,8 @@ class GAChunkWorkspaceTest {
         assertSame(heights, workspace.heightCandidates());
         assertEquals(GAChunkWorkspace.UNKNOWN_HEIGHT, workspace.heightCandidate(1, 1));
         assertFalse(workspace.isDirtyColumn(1, 1));
+        assertFalse(workspace.isDirtyBlockColumn(1, 1));
+        assertFalse(workspace.isDirtyHeightColumn(1, 1));
     }
 
     @Test

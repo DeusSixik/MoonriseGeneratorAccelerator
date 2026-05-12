@@ -22,6 +22,7 @@ public final class DfcCacheFastPath {
     private static final LongAdder MISSES = new LongAdder();
     private static final LongAdder DISABLED_FALLBACKS = new LongAdder();
     private static final LongAdder NON_ACCESS_FALLBACKS = new LongAdder();
+    private static final boolean STATS_ENABLED = Boolean.getBoolean("ga.dfc.cacheFastPath.stats");
 
     private DfcCacheFastPath() {}
 
@@ -43,16 +44,22 @@ public final class DfcCacheFastPath {
 
     public static double tryWrapperDirectRead(DensityFunction extern, DensityFunction.FunctionContext context) {
         if (extern instanceof DfcCellCacheAccess acc) {
-            ELIGIBLE_CALLS.increment();
+            if (STATS_ENABLED) {
+                ELIGIBLE_CALLS.increment();
+            }
             double v = acc.dfc$tryDirectRead(context);
-            if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-                HITS.increment();
-            } else {
-                MISSES.increment();
+            if (STATS_ENABLED) {
+                if (Double.doubleToRawLongBits(v) != MISS_BITS) {
+                    HITS.increment();
+                } else {
+                    MISSES.increment();
+                }
             }
             return v;
         }
-        NON_ACCESS_FALLBACKS.increment();
+        if (STATS_ENABLED) {
+            NON_ACCESS_FALLBACKS.increment();
+        }
         return CACHE_MISS;
     }
 
@@ -63,15 +70,23 @@ public final class DfcCacheFastPath {
     public static double computeWithOptionalDirectRead(
             DensityFunction extern, DensityFunction.FunctionContext context) {
         if (extern instanceof DfcCellCacheAccess acc) {
-            ELIGIBLE_CALLS.increment();
+            if (STATS_ENABLED) {
+                ELIGIBLE_CALLS.increment();
+            }
             double v = acc.dfc$tryDirectRead(context);
             if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-                HITS.increment();
+                if (STATS_ENABLED) {
+                    HITS.increment();
+                }
                 return v;
             }
-            MISSES.increment();
+            if (STATS_ENABLED) {
+                MISSES.increment();
+            }
         } else {
-            NON_ACCESS_FALLBACKS.increment();
+            if (STATS_ENABLED) {
+                NON_ACCESS_FALLBACKS.increment();
+            }
         }
         return extern.compute(context);
     }

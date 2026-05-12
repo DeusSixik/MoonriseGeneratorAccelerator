@@ -33,4 +33,8 @@ public record WorldgenUnitProfile(
     public boolean hasEffect(WorldgenEffectFlag flag) {
         return this.effectFlags.contains(flag);
     }
+
+    public WorldgenProfileRolloutMetadata rolloutMetadata() {
+        return WorldgenProfileRolloutMetadata.from(this);
+    }
 }

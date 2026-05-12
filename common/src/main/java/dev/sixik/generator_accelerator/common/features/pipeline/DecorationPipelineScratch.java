@@ -92,6 +92,7 @@ public final class DecorationPipelineScratch {
     private PipelinePlacementContext placementContext;
     private long descriptorCenterPos;
     private boolean descriptorsPrepared;
+    private boolean heightmapCacheUsed;
     private int candidateMode;
     private int modifierBufferDepth;
     private int oversizedCandidateClearCount;
@@ -137,8 +138,11 @@ public final class DecorationPipelineScratch {
         this.descriptorCenterChunk = null;
         this.descriptorCenterPos = 0L;
         this.descriptorsPrepared = false;
-        Arrays.fill(this.heightmapCacheChunks, null);
-        Arrays.fill(this.heightmapCache, null);
+        if (this.heightmapCacheUsed) {
+            Arrays.fill(this.heightmapCacheChunks, null);
+            Arrays.fill(this.heightmapCache, null);
+            this.heightmapCacheUsed = false;
+        }
         this.modifierBufferDepth = 0;
         this.shrinkOversizedBuffers();
     }
@@ -147,6 +151,10 @@ public final class DecorationPipelineScratch {
         return this.descriptorsPrepared
                 && this.descriptorCenterChunk == chunk
                 && this.descriptorCenterPos == chunk.getPos().toLong();
+    }
+
+    boolean hasPreparedDescriptors() {
+        return this.descriptorsPrepared;
     }
 
     void markDescriptorsPrepared(ChunkAccess chunk) {
@@ -184,6 +192,7 @@ public final class DecorationPipelineScratch {
     }
 
     Heightmap cachedHeightmap(ChunkAccess chunk, Heightmap.Types type) {
+        this.heightmapCacheUsed = true;
         long chunkPos = chunk.getPos().toLong();
         int slot = ((int) (chunkPos ^ (chunkPos >>> 32))) & HEIGHTMAP_CACHE_SLOT_MASK;
         int baseIndex = slot * HEIGHTMAP_TYPE_COUNT;
@@ -493,6 +502,13 @@ public final class DecorationPipelineScratch {
     }
 
     private void clearWriteJournalIndex() {
+        if (this.sectionBucketCount == 0
+                && this.chunkBucketCount == 0
+                && this.writeIndexByPos.isEmpty()
+                && this.touchedMutationCount == 0
+                && this.touchedMutationIndexByKey.isEmpty()) {
+            return;
+        }
         this.sectionBucketCount = 0;
         this.chunkBucketCount = 0;
         this.sectionBucketIndexByKey.clear();

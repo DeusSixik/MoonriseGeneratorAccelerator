@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.WorldGenLevel;
@@ -19,6 +21,7 @@ public final class PipelinePlacementContext extends PlacementContext {
     private ChunkGenerator generator;
     private Optional<PlacedFeature> topFeature;
     private SectionDescriptorCache descriptors;
+    private GAChunkWorkspace workspace;
 
     PipelinePlacementContext(WorldGenLevel level, ChunkGenerator generator) {
         super(level, generator, Optional.empty());
@@ -29,10 +32,21 @@ public final class PipelinePlacementContext extends PlacementContext {
     }
 
     PipelinePlacementContext set(WorldGenLevel level, ChunkGenerator generator, Optional<PlacedFeature> feature, SectionDescriptorCache descriptors) {
+        return this.set(level, generator, feature, descriptors, GAChunkWorkspaceContext.current());
+    }
+
+    PipelinePlacementContext set(
+            WorldGenLevel level,
+            ChunkGenerator generator,
+            Optional<PlacedFeature> feature,
+            SectionDescriptorCache descriptors,
+            GAChunkWorkspace workspace
+    ) {
         this.level = level;
         this.generator = generator;
         this.topFeature = feature;
         this.descriptors = descriptors;
+        this.workspace = workspace;
         return this;
     }
 
@@ -46,6 +60,7 @@ public final class PipelinePlacementContext extends PlacementContext {
         this.generator = null;
         this.topFeature = Optional.empty();
         this.descriptors = null;
+        this.workspace = null;
         return this;
     }
 
@@ -69,6 +84,12 @@ public final class PipelinePlacementContext extends PlacementContext {
 
     @Override
     public BlockState getBlockState(BlockPos pos) {
+        if (DecorationWorkspaceBridge.hasCurrentWorkspace(this.workspace)) {
+            BlockState workspaceState = DecorationWorkspaceBridge.readBlock(this.workspace, pos);
+            if (workspaceState != null) {
+                return workspaceState;
+            }
+        }
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_READS);
         return this.level.getBlockState(pos);
     }

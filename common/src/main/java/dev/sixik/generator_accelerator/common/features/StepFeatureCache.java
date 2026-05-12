@@ -47,7 +47,13 @@ public final class StepFeatureCache {
     }
 
     public BiomeFeatureData featureDataFor(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {
-        return this.biomeFeatureData.computeIfAbsent(biome, holder -> this.buildFeatureData(holder, generationSettingsGetter));
+        BiomeFeatureData cached = this.biomeFeatureData.get(biome);
+        if (cached != null) {
+            return cached;
+        }
+        BiomeFeatureData built = this.buildFeatureData(biome, generationSettingsGetter);
+        BiomeFeatureData raced = this.biomeFeatureData.putIfAbsent(biome, built);
+        return raced == null ? built : raced;
     }
 
     private BiomeFeatureData buildFeatureData(Holder<Biome> biome, Function<Holder<Biome>, BiomeGenerationSettings> generationSettingsGetter) {

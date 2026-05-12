@@ -141,7 +141,6 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             DecorationPlan decorationPlan = this.ga$getDecorationPlan(featureCache);
             BiomeDecorationScratch decorationScratch = GA$DECORATION_SCRATCH.get();
             DecorationPipelineScratch pipelineScratch = DecorationPipelineScratch.local();
-            pipelineScratch.clear();
             WorldgenRandom worldgenrandom = GA$WORLDGEN_RANDOM.get();
             RegistryNameSupplier nameSupplier = GA$NAME_SUPPLIER.get();
             long i = worldgenrandom.setDecorationSeed(pLevel.getSeed(), blockpos.getX(), blockpos.getZ());
@@ -155,38 +154,56 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
 
 // GENERATOR ACCELERATOR START
             // REPLACE ChunkPos.rangeClosed
-            ChunkPos center = sectionpos.chunk();
-            int minX = center.x - 1;
-            int maxX = center.x + 1;
-            int minZ = center.z - 1;
-            int maxZ = center.z + 1;
-            long biomeScanStart = DecorationPipelineMetrics.startTimer();
-            for (int x = minX; x <= maxX; x++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    ChunkAccess chunkaccess = pLevel.getChunk(x, z);
+            int possibleBiomeCount = possibleBiomes.size();
+            if (featureDataSize > 0 && possibleBiomeCount == 1) {
+                set.add(possibleBiomes.iterator().next());
+            } else if (featureDataSize > 0 && possibleBiomeCount > 0) {
+                ChunkPos center = sectionpos.chunk();
+                int minX = center.x - 1;
+                int maxX = center.x + 1;
+                int minZ = center.z - 1;
+                int maxZ = center.z + 1;
+                long biomeScanStart = DecorationPipelineMetrics.startTimer();
+                biomeScan:
+                for (int x = minX; x <= maxX; x++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        ChunkAccess chunkaccess = pLevel.getChunk(x, z);
 
-                    LevelChunkSection[] sections = chunkaccess.getSections();
-                    for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
-                        LevelChunkSection levelchunksection = sections[sectionIndex];
-                        if (levelchunksection != null) {
-                            ga$collectSectionBiomes(levelchunksection, set, possibleBiomes, decorationScratch);
+                        LevelChunkSection[] sections = chunkaccess.getSections();
+                        for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+                            LevelChunkSection levelchunksection = sections[sectionIndex];
+                            if (levelchunksection != null) {
+                                ga$collectSectionBiomes(levelchunksection, set, possibleBiomes, decorationScratch);
+                                if (set.size() >= possibleBiomeCount) {
+                                    break biomeScan;
+                                }
+                            }
                         }
                     }
                 }
+                DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_BIOME_SCAN_NANOS, biomeScanStart);
             }
-            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_BIOME_SCAN_NANOS, biomeScanStart);
             if (featureDataSize > 0 && !set.isEmpty()) {
-                BiomeSignatureFeatureMaskCache maskCache = this.ga$getBiomeSignatureMaskCache(featureCache);
-                if (!maskCache.copyIfPresent(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep)) {
+                if (set.size() == 1) {
                     long maskCombineStart = DecorationPipelineMetrics.startTimer();
-                    for (Holder<Biome> biome : set) {
-                        decorationScratch.addBiomeFeatureData(
-                                featureCache.featureDataFor(biome, this.generationSettingsGetter),
-                                featureCache.featureMaskWordsByStep
-                        );
-                    }
+                    decorationScratch.addBiomeFeatureData(
+                            featureCache.featureDataFor(set.iterator().next(), this.generationSettingsGetter),
+                            featureCache.featureMaskWordsByStep
+                    );
                     DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_MASK_COMBINE_NANOS, maskCombineStart);
-                    maskCache.store(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep);
+                } else {
+                    BiomeSignatureFeatureMaskCache maskCache = this.ga$getBiomeSignatureMaskCache(featureCache);
+                    if (!maskCache.copyIfPresent(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep)) {
+                        long maskCombineStart = DecorationPipelineMetrics.startTimer();
+                        for (Holder<Biome> biome : set) {
+                            decorationScratch.addBiomeFeatureData(
+                                    featureCache.featureDataFor(biome, this.generationSettingsGetter),
+                                    featureCache.featureMaskWordsByStep
+                            );
+                        }
+                        DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_MASK_COMBINE_NANOS, maskCombineStart);
+                        maskCache.store(set, decorationScratch, featureDataSize, featureCache.featureMaskWordsByStep);
+                    }
                 }
             }
 // GENERATOR ACCELERATOR END
@@ -304,8 +321,13 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     private StepFeatureCache ga$getStepFeatureCache() {
         StepFeatureCache cache = this.ga$stepFeatureCache;
         if (cache == null) {
-            cache = new StepFeatureCache(this.featuresPerStep.get());
-            this.ga$stepFeatureCache = cache;
+            synchronized (this) {
+                cache = this.ga$stepFeatureCache;
+                if (cache == null) {
+                    cache = new StepFeatureCache(this.featuresPerStep.get());
+                    this.ga$stepFeatureCache = cache;
+                }
+            }
         }
         return cache;
     }
@@ -314,8 +336,13 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     private DecorationPlan ga$getDecorationPlan(StepFeatureCache featureCache) {
         DecorationPlan plan = this.ga$decorationPlan;
         if (plan == null || plan.stepCount() != featureCache.stepCount) {
-            plan = GA$DECORATION_COMPILER.get().compile(featureCache.featuresByStep);
-            this.ga$decorationPlan = plan;
+            synchronized (this) {
+                plan = this.ga$decorationPlan;
+                if (plan == null || plan.stepCount() != featureCache.stepCount) {
+                    plan = GA$DECORATION_COMPILER.get().compile(featureCache.featuresByStep);
+                    this.ga$decorationPlan = plan;
+                }
+            }
         }
         return plan;
     }
@@ -324,9 +351,14 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
     private BiomeSignatureFeatureMaskCache ga$getBiomeSignatureMaskCache(StepFeatureCache featureCache) {
         BiomeSignatureFeatureMaskCache cache = this.ga$biomeSignatureMaskCache;
         if (cache == null || this.ga$biomeSignatureFeatureCacheOwner != featureCache) {
-            cache = new BiomeSignatureFeatureMaskCache();
-            this.ga$biomeSignatureFeatureCacheOwner = featureCache;
-            this.ga$biomeSignatureMaskCache = cache;
+            synchronized (this) {
+                cache = this.ga$biomeSignatureMaskCache;
+                if (cache == null || this.ga$biomeSignatureFeatureCacheOwner != featureCache) {
+                    cache = new BiomeSignatureFeatureMaskCache();
+                    this.ga$biomeSignatureFeatureCacheOwner = featureCache;
+                    this.ga$biomeSignatureMaskCache = cache;
+                }
+            }
         }
         return cache;
     }
@@ -338,11 +370,16 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             return;
         }
 
-        this.ga$stepFeatureCache = null;
-        this.ga$decorationPlan = null;
-        this.ga$biomeSignatureFeatureCacheOwner = null;
-        this.ga$biomeSignatureMaskCache = null;
-        this.ga$featureCacheEpoch = epoch;
+        synchronized (this) {
+            if (this.ga$featureCacheEpoch == epoch) {
+                return;
+            }
+            this.ga$stepFeatureCache = null;
+            this.ga$decorationPlan = null;
+            this.ga$biomeSignatureFeatureCacheOwner = null;
+            this.ga$biomeSignatureMaskCache = null;
+            this.ga$featureCacheEpoch = epoch;
+        }
     }
 
     @Unique

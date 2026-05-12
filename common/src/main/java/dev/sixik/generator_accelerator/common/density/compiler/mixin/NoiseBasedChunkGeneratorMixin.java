@@ -15,9 +15,14 @@ import java.util.function.Supplier;
  */
 @Mixin(NoiseBasedChunkGenerator.class)
 public class NoiseBasedChunkGeneratorMixin {
+    private static final boolean GA$OVERRIDE_NOISE_EXECUTOR =
+            Boolean.getBoolean("ga.scheduler.overrideNoiseExecutor");
 
     @Redirect(method = "fillFromNoise", at = @At(value = "INVOKE", target = "Ljava/util/concurrent/CompletableFuture;supplyAsync(Ljava/util/function/Supplier;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;"))
     public <U> CompletableFuture<U> bts$fillFromNoise(Supplier<U> supplier, Executor executor) {
+        if (!GA$OVERRIDE_NOISE_EXECUTOR) {
+            return CompletableFuture.supplyAsync(supplier, executor);
+        }
         return GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, supplier);
     }
 }

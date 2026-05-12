@@ -45,13 +45,19 @@ public class GAConfig {
     @ConfigComment("GA scheduler workspace lane workers. 0 = auto.")
     public int schedulerWorkspaceWorkers = 0;
 
+    @ConfigComment("GA scheduler transactional lane workers. 0 = auto.")
+    public int schedulerTransactionalWorkers = 0;
+
+    @ConfigComment("GA scheduler serial lane workers. Values above 1 are clamped to 1 for ordered work.")
+    public int schedulerSerialWorkers = 1;
+
     @ConfigComment("GA scheduler commit/finalize lane workers. Keep 1 for deterministic chunk writes.")
     public int schedulerCommitWorkers = 1;
 
     @ConfigComment("Soft max queued tasks per lane. 0 = unlimited.")
     public int schedulerMaxQueuedTasks = 0;
 
-    @ConfigComment("Adaptive worldgen governor CPU target. Reserved for staged rollout.")
+    @ConfigComment("Adaptive worldgen governor CPU target for compile throttling under generation pressure.")
     public double schedulerCpuTarget = 0.85D;
 
     @ConfigComment("Max GA chunk workspaces allowed in-flight. 0 = auto.")

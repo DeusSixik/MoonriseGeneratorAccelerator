@@ -28,6 +28,7 @@ public final class DecorationPipelineCompatibility {
             .build();
     private static final ConcurrentHashMap<String, AtomicInteger> QUARANTINED_NAMESPACES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> DESCRIPTOR_FAILURES = new ConcurrentHashMap<>();
+    private static final AtomicInteger QUARANTINED_FEATURE_COUNT = new AtomicInteger();
 
     private DecorationPipelineCompatibility() {
     }
@@ -35,12 +36,13 @@ public final class DecorationPipelineCompatibility {
     public static void clearSessionCaches() {
         QUARANTINED_FEATURES.invalidateAll();
         QUARANTINED_FEATURES.cleanUp();
+        QUARANTINED_FEATURE_COUNT.set(0);
         QUARANTINED_NAMESPACES.clear();
         DESCRIPTOR_FAILURES.clear();
     }
 
     static boolean shouldUseSafeVanilla(@Nullable PlacedFeature feature) {
-        if (feature == null) {
+        if (feature == null || QUARANTINED_FEATURE_COUNT.get() == 0) {
             return false;
         }
         return QUARANTINED_FEATURES.getIfPresent(feature) != null;
@@ -71,6 +73,7 @@ public final class DecorationPipelineCompatibility {
         if (!firstFailure) {
             return;
         }
+        QUARANTINED_FEATURE_COUNT.incrementAndGet();
 
         String featureId = featureId(registry, feature);
         String namespace = namespace(featureId);

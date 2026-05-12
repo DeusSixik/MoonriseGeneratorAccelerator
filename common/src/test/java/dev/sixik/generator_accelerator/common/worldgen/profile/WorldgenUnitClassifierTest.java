@@ -20,10 +20,13 @@ import net.minecraft.world.level.levelgen.placement.PlacementContext;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import net.minecraft.world.level.levelgen.placement.PlacementModifierType;
 import net.minecraft.world.level.levelgen.structure.templatesystem.BlockMatchTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -39,6 +42,13 @@ class WorldgenUnitClassifierTest {
     static void bootstrap() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+    }
+
+    @AfterEach
+    void resetMetrics() {
+        WorldgenProfileMetrics.reset();
+        WorldgenProfileMetrics.setEnabled(false);
+        WorldgenEffectProfileCache.global().clear();
     }
 
     @Test
@@ -173,12 +183,140 @@ class WorldgenUnitClassifierTest {
         assertTrue(profile.hasEffect(WorldgenEffectFlag.CALLS_UNKNOWN_METHOD));
     }
 
+    @Test
+    void minecraftDensityAndSurfaceUnitsDefaultPureReadOnly() {
+        WorldgenUnitProfile density = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.DENSITY_FUNCTION,
+                "minecraft:overworld/base_3d_noise",
+                new Object()
+        );
+        WorldgenUnitProfile surface = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.SURFACE_RULE,
+                "minecraft:overworld",
+                SurfaceRuleStub.INSTANCE
+        );
+
+        assertEquals(WorldgenSafetyTier.PURE_READ_ONLY, density.safetyTier());
+        assertTrue(density.hasEffect(WorldgenEffectFlag.PURE));
+        assertEquals("DensityFunction.compute", density.entryPointMethod());
+        assertEquals(WorldgenSafetyTier.PURE_READ_ONLY, surface.safetyTier());
+        assertEquals("SurfaceRules.RuleSource.apply", surface.entryPointMethod());
+    }
+
+    @Test
+    void carverDefaultsToWriteTierForMinecraftAndSerialForMods() {
+        WorldgenUnitProfile vanilla = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.CARVER,
+                "minecraft:cave",
+                new Object()
+        );
+        WorldgenUnitProfile modded = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.CARVER,
+                "examplemod:cave",
+                new Object()
+        );
+
+        assertEquals(WorldgenSafetyTier.PARTIAL_NATIVE_VANILLA_FEATURE, vanilla.safetyTier());
+        assertTrue(vanilla.hasEffect(WorldgenEffectFlag.WRITES_BLOCKS));
+        assertEquals("WorldCarver.carve", vanilla.entryPointMethod());
+        assertEquals(WorldgenSafetyTier.SERIAL_ISOLATED, modded.safetyTier());
+        assertTrue(modded.hasEffect(WorldgenEffectFlag.USES_GLOBAL_MUTABLE_STATE));
+    }
+
+    @Test
+    void genericMapScanRecordsMetricsAndNamespacesFromIds() {
+        WorldgenProfileMetrics.setEnabled(true);
+        Map<String, Object> units = new LinkedHashMap<>();
+        units.put("minecraft:continentalness", new Object());
+        units.put("examplemod:custom_noise", new Object());
+
+        List<WorldgenUnitProfile> profiles = WorldgenUnitClassifier.scan(WorldgenUnitKind.DENSITY_FUNCTION, units);
+
+        Map<String, Object> snapshot = WorldgenProfileMetrics.snapshot();
+        assertEquals(2, profiles.size());
+        assertEquals(2L, snapshot.get("totalUnits"));
+        assertEquals(1L, namedCount(snapshot, "namespaces", "minecraft"));
+        assertEquals(1L, namedCount(snapshot, "namespaces", "examplemod"));
+        assertEquals(WorldgenSafetyTier.SERIAL_ISOLATED, profiles.get(1).safetyTier());
+    }
+
+    @Test
+    void unknownGenericUnitDefaultsSerialNotParallel() {
+        WorldgenUnitProfile profile = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.UNKNOWN,
+                "examplemod:mystery",
+                new CustomWorldgenHook()
+        );
+
+        assertEquals("examplemod", profile.namespace());
+        assertEquals(WorldgenSafetyTier.SERIAL_ISOLATED, profile.safetyTier());
+        assertTrue(profile.hasEffect(WorldgenEffectFlag.CALLS_UNKNOWN_METHOD));
+        assertEquals("unknown:examplemod:mystery", profile.id());
+    }
+
+    @Test
+    void explicitTransactionalCandidateGetsTierThreeMetadataOnly() {
+        WorldgenUnitProfile profile = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.FEATURE,
+                "examplemod:sandboxable",
+                new CustomTransactionalFeature()
+        );
+        WorldgenProfileRolloutMetadata rollout = profile.rolloutMetadata();
+
+        assertEquals(WorldgenSafetyTier.TRANSACTIONAL_UNKNOWN, profile.safetyTier());
+        assertTrue(profile.guards().contains("transaction sandbox required"));
+        assertEquals(WorldgenProfileRolloutMetadata.WorldgenRolloutLane.TRANSACTIONAL, rollout.lane());
+        assertEquals(true, rollout.requiresTransactionSandbox());
+        assertEquals(true, rollout.optimizedAllowed());
+    }
+
+    @Test
+    void effectScanDowngradesUnsafeTransactionalCandidate() {
+        WorldgenUnitProfile profile = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.FEATURE,
+                "examplemod:unsafe_sandboxable",
+                new UnsafeTransactionalFeature()
+        );
+
+        assertEquals(WorldgenSafetyTier.SERIAL_ISOLATED, profile.safetyTier());
+        assertTrue(profile.hasEffect(WorldgenEffectFlag.USES_IO));
+        assertTrue(profile.fallbackReason().contains("io constant"));
+        assertEquals(WorldgenProfileRolloutMetadata.WorldgenRolloutLane.SERIAL, profile.rolloutMetadata().lane());
+    }
+
+    @Test
+    void transactionalCandidateCanFailClosedByHook() {
+        WorldgenUnitProfile profile = WorldgenUnitClassifier.classifyUnit(
+                WorldgenUnitKind.FEATURE,
+                "examplemod:nope",
+                new DisabledTransactionalFeature()
+        );
+
+        assertEquals(WorldgenSafetyTier.SERIAL_ISOLATED, profile.safetyTier());
+        assertEquals(WorldgenProfileRolloutMetadata.WorldgenRolloutLane.SERIAL, profile.rolloutMetadata().lane());
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static ConfiguredFeature<?, ?> configured(Feature<?> feature, FeatureConfiguration config) {
         return new ConfiguredFeature((Feature) feature, config);
     }
 
     private static final class CustomWorldgenHook {
+    }
+
+    private static final class CustomTransactionalFeature implements WorldgenTransactionalCandidate {
+    }
+
+    private static final class DisabledTransactionalFeature implements WorldgenTransactionalCandidate {
+        @Override
+        public boolean gaCanUseTransactionalSandbox() {
+            return false;
+        }
+    }
+
+    private static final class UnsafeTransactionalFeature implements WorldgenTransactionalCandidate {
+        @SuppressWarnings("unused")
+        private java.io.File file;
     }
 
     private static final class CustomPlacementModifier extends PlacementModifier {
@@ -191,5 +329,14 @@ class WorldgenUnitClassifierTest {
         public PlacementModifierType<?> type() {
             return null;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static long namedCount(Map<String, Object> snapshot, String group, String key) {
+        return (long) ((Map<String, Object>) snapshot.get(group)).get(key);
+    }
+
+    private enum SurfaceRuleStub {
+        INSTANCE
     }
 }

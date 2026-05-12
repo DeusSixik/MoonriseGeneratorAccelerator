@@ -84,6 +84,10 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         boolean useSpark = Boolean.parseBoolean(System.getProperty("ga.benchmark.useSpark", "true"));
 
         if (!isProfilerStart && !benchmarkFinished && tickCounter >= startTick && server.overworld() != null) {
+            this.fakePlayer = this.sdm$makePlayer();
+            fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+            this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
+
             if (useSpark) {
                 var commandSource = server.createCommandSourceStack().withPermission(4);
                 server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
@@ -92,12 +96,15 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
                 DecorationPipelineMetrics.reset();
             }
             GADiagnostics.resetBaseline();
-            GADiagnostics.startJfrIfEnabled("ga-benchmark");
+            if (Boolean.getBoolean("ga.diagnostics.jfr")) {
+                GADiagnostics.restartRecording(
+                        "ga-benchmark",
+                        Boolean.getBoolean("ga.diagnostics.jfr.allocations")
+                );
+            } else {
+                GADiagnostics.startJfrIfEnabled("ga-benchmark");
+            }
             this.benchmarkStartNanos = System.nanoTime();
-
-            this.fakePlayer = this.sdm$makePlayer();
-            fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
-            this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
 
             isProfilerStart = true;
             this.generatedBatches = 0;

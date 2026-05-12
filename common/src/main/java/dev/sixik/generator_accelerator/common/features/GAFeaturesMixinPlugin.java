@@ -31,6 +31,10 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
                 ""));
 
+        create("biomesoplenty.core.BiomesOPlenty", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.biomesoplenty.BiomesOPlenty$WebbingFeatureMixin",
+                ""));
+
         create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.waystones.Waystones$WaystonePlacementMixin",
                 ""));
@@ -84,6 +88,7 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
             return true;
         }
         return mixinClassName.startsWith(prefix + "compats.artifacts.")
+                || mixinClassName.startsWith(prefix + "compats.biomesoplenty.")
                 || mixinClassName.startsWith(prefix + "compats.confluence.")
                 || mixinClassName.startsWith(prefix + "compats.oreberries.")
                 || mixinClassName.startsWith(prefix + "compats.repurposedstructures.")

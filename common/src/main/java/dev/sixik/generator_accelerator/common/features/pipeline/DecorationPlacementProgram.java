@@ -712,9 +712,6 @@ final class DecorationPlacementProgram {
             int z
     ) {
         BlockPos.MutableBlockPos pos = scratch.mutablePos.set(x, y, z);
-        if (!context.level().ensureCanWrite(pos)) {
-            return false;
-        }
         FeatureConfiguration config = configuredFeature.config();
         Feature feature = configuredFeature.feature();
         if (kernel.kind() == DecorationKernelKind.NATIVE_ORE
@@ -724,6 +721,9 @@ final class DecorationPlacementProgram {
             if (oreTargetPlan != null) {
                 if (!passesDescriptorGate(feature, scratch, x, y, z)) {
                     DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
+                    return false;
+                }
+                if (!context.level().ensureCanWrite(pos)) {
                     return false;
                 }
                 return placeOreNative(oreConfiguration, oreTargetPlan, context, scratch, x, y, z);
@@ -738,8 +738,20 @@ final class DecorationPlacementProgram {
                     DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_DESCRIPTOR);
                     return false;
                 }
+                if (!context.level().ensureCanWrite(pos)) {
+                    return false;
+                }
                 return placeScatteredOreNative(oreConfiguration, oreTargetPlan, context, scratch, x, y, z);
             }
+        }
+        if (kernel.kind() == DecorationKernelKind.PARTIAL_NATIVE_DESCRIPTOR_GATED) {
+            if (!passesDescriptorGate(feature, scratch, x, y, z)) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PARTIAL_NATIVE_DESCRIPTOR_REJECTED_CALLS);
+                return false;
+            }
+        }
+        if (!context.level().ensureCanWrite(pos)) {
+            return false;
         }
         if (kernel.kind() == DecorationKernelKind.NATIVE_RANDOM_PATCH_SIMPLE && config instanceof RandomPatchConfiguration randomPatchConfiguration) {
             Boolean placed = tryPlaceRandomPatchSimpleBlockNative(kernel, randomPatchConfiguration, context, scratch, placementContext, x, y, z);
@@ -802,12 +814,6 @@ final class DecorationPlacementProgram {
                 && config instanceof SimpleBlockConfiguration simpleBlockConfiguration) {
             return placeSimpleBlockNative(simpleBlockConfiguration, context, scratch, x, y, z);
         }
-        if (kernel.kind() == DecorationKernelKind.PARTIAL_NATIVE_DESCRIPTOR_GATED) {
-            if (!passesDescriptorGate(feature, scratch, x, y, z)) {
-                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PARTIAL_NATIVE_DESCRIPTOR_REJECTED_CALLS);
-                return false;
-            }
-        }
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.PARTIAL_NATIVE_OPTIMIZED_PLACEMENT_CALLS);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.FALLBACK_VANILLA_CALLS);
         boolean placed = feature.place(scratch.featurePlaceContext.set(context.level(), context.generator(), context.random(), pos, config));
@@ -861,7 +867,7 @@ final class DecorationPlacementProgram {
                 }
             }
         } finally {
-            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch));
+            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch), context.workspace());
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_CANDIDATE_NANOS, candidateStart);
         }
         return useBatch ? flushWriteJournal(context, scratch) : placedAny;
@@ -936,7 +942,7 @@ final class DecorationPlacementProgram {
                 }
             }
         } finally {
-            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch));
+            placementContext.set(context.level(), context.generator(), previousTopFeature, activeDescriptors(context, scratch), context.workspace());
             DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_CANDIDATE_NANOS, candidateStart);
         }
         return useBatch ? flushWriteJournal(context, scratch) : placedAny;
@@ -1148,7 +1154,22 @@ final class DecorationPlacementProgram {
 
                     if (shouldSkipAirCheck(random, airChance)
                             || !isAdjacentToAir(access, cachedSection, cachedRaw, airStates, tempPos, x, y, z, localX, localY, localZ, sectionIndex)) {
-                        commitOrePlacement(cachedSection, cachedRaw, target, currentStateId, airStates, targetPlan.placementMayBeAir(), localX, localY, localZ, sectionIndex);
+                        commitOrePlacement(
+                                context,
+                                cachedSection,
+                                cachedRaw,
+                                target,
+                                currentStateId,
+                                airStates,
+                                targetPlan.placementMayBeAir(),
+                                x,
+                                y,
+                                z,
+                                localX,
+                                localY,
+                                localZ,
+                                sectionIndex
+                        );
                         placedAny = true;
                         candidatePlaced = true;
                         break;
@@ -1320,6 +1341,11 @@ final class DecorationPlacementProgram {
         int levelMaxY = context.level().getMaxBuildHeight() - 1;
         int planeStride = width * height;
         int placedCount = 0;
+        boolean metricsEnabled = DecorationPipelineMetrics.ENABLED;
+        long metricSectionSwitches = 0L;
+        long metricBlockReads = 0L;
+        long metricCandidatesGenerated = 0L;
+        long metricKernelRejects = 0L;
 
         try (BulkSectionAccess access = new BulkSectionAccess(context.level())) {
             BlockPos.MutableBlockPos pos = scratch.mutablePos;
@@ -1401,14 +1427,14 @@ final class DecorationPlacementProgram {
                                 lastSecX = secX;
                                 lastSecY = secY;
                                 lastSecZ = secZ;
-                                if (DecorationPipelineMetrics.ENABLED) {
-                                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_SECTION_SWITCHES);
+                                if (metricsEnabled) {
+                                    metricSectionSwitches++;
                                 }
                             }
 
                             if (cachedSection == null) {
-                                if (DecorationPipelineMetrics.ENABLED) {
-                                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_KERNEL);
+                                if (metricsEnabled) {
+                                    metricKernelRejects++;
                                 }
                                 continue;
                             }
@@ -1426,9 +1452,9 @@ final class DecorationPlacementProgram {
                                 currentState = cachedSection.getBlockState(localX, localY, localZ);
                                 currentStateId = GA$BlockStateExtension.get(currentState).bts$getFastId();
                             }
-                            if (DecorationPipelineMetrics.ENABLED) {
-                                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_READS);
-                                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_GENERATED);
+                            if (metricsEnabled) {
+                                metricBlockReads++;
+                                metricCandidatesGenerated++;
                             }
 
                             for (int targetIndex = 0; targetIndex < targets.length; targetIndex++) {
@@ -1448,12 +1474,16 @@ final class DecorationPlacementProgram {
                                 if (shouldSkipAirCheck(random, airChance)
                                         || !isAdjacentToAir(access, cachedSection, cachedRaw, airStates, tempPos, blockX, blockY, blockZ, localX, localY, localZ, sectionIndex)) {
                                     commitOrePlacement(
+                                            context,
                                             cachedSection,
                                             cachedRaw,
                                             target,
                                             currentStateId,
                                             airStates,
                                             targetPlan.placementMayBeAir(),
+                                            blockX,
+                                            blockY,
+                                            blockZ,
                                             localX,
                                             localY,
                                             localZ,
@@ -1468,6 +1498,12 @@ final class DecorationPlacementProgram {
                 }
             }
         }
+        if (metricsEnabled) {
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_SECTION_SWITCHES, metricSectionSwitches);
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_READS, metricBlockReads);
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.NATIVE_CANDIDATES_GENERATED, metricCandidatesGenerated);
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_KERNEL, metricKernelRejects);
+        }
 
         return placedCount > 0;
     }
@@ -1481,12 +1517,16 @@ final class DecorationPlacementProgram {
     }
 
     private static void commitOrePlacement(
+            DecorationPipelineExecutor.ExecutionContext context,
             LevelChunkSection section,
             int[] raw,
             FastTarget target,
             int previousStateId,
             boolean[] airStates,
             boolean placementMayBeAir,
+            int blockX,
+            int blockY,
+            int blockZ,
             int localX,
             int localY,
             int localZ,
@@ -1497,6 +1537,15 @@ final class DecorationPlacementProgram {
             raw[sectionIndex] = target.placementStateId();
         } else {
             section.setBlockState(localX, localY, localZ, target.placementState(), false);
+        }
+        if (DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace())) {
+            DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(
+                    chunkFor(context, blockX, blockZ),
+                    blockX,
+                    blockY,
+                    blockZ,
+                    target.placementState()
+            );
         }
         DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, start);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
@@ -1783,14 +1832,17 @@ final class DecorationPlacementProgram {
 
                     BlockState state = config.stateProvider().getState(context.level(), context.random(), pos);
                     if (singleChunkDisk) {
-                        scratch.chunkWriter.setBlockState(pos, state);
+                        setChunkWriterBlockTracked(context, scratch, pos, state);
                         markAboveForPostProcessing(scratch, markPos.set(pos));
+                        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
+                        placedAny = true;
                     } else {
-                        context.level().setBlock(pos, state, 2);
-                        markAboveForPostProcessing(context.level(), markPos.set(pos));
+                        if (setBlockTracked(context, scratch, pos, state, 2)) {
+                            markAboveForPostProcessing(context.level(), markPos.set(pos));
+                            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
+                            placedAny = true;
+                        }
                     }
-                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
-                    placedAny = true;
                 }
             }
         }
@@ -2405,7 +2457,7 @@ final class DecorationPlacementProgram {
                 scratch.candidateY[candidate],
                 scratch.candidateZ[candidate]
         );
-        setChunkWriterBlockJournaled(scratch, currentChunk, pos, scratch.candidateSimpleBlockState[candidate]);
+        setChunkWriterBlockJournaled(context, scratch, currentChunk, pos, scratch.candidateSimpleBlockState[candidate]);
         if ((flags & DecorationPipelineScratch.WRITE_FLAG_MARK_ABOVE_FOR_POSTPROCESSING) != 0) {
             markAboveForPostProcessing(scratch, scratch.secondMutablePos.set(pos));
         }
@@ -2468,8 +2520,8 @@ final class DecorationPlacementProgram {
             }
             if (journaled) {
                 ChunkAccess chunk = journalChunk != null ? journalChunk : chunkFor(context, x, z);
-                setChunkWriterBlockJournaled(scratch, chunk, origin, state);
-                setChunkWriterBlockJournaled(scratch, chunk, above, state.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
+                setChunkWriterBlockJournaled(context, scratch, chunk, origin, state);
+                setChunkWriterBlockJournaled(context, scratch, chunk, above, state.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER));
                 DecorationPipelineMetrics.add(DecorationPipelineMetrics.JOURNAL_WRITES_COMMITTED, 2L);
             } else {
                 setChunkWriterBlockTracked(context, scratch, origin, state);
@@ -2480,7 +2532,7 @@ final class DecorationPlacementProgram {
         }
 
         if (journaled) {
-            setChunkWriterBlockJournaled(scratch, journalChunk != null ? journalChunk : chunkFor(context, x, z), origin, state);
+            setChunkWriterBlockJournaled(context, scratch, journalChunk != null ? journalChunk : chunkFor(context, x, z), origin, state);
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.JOURNAL_WRITES_COMMITTED);
         } else {
             setChunkWriterBlockTracked(context, scratch, origin, state);
@@ -2885,7 +2937,16 @@ final class DecorationPlacementProgram {
         WorldGenLevel level = context.level();
         boolean changed = level.setBlock(pos, state, flags);
         if (changed) {
-            noteBlockMutation(chunkFor(context, pos.getX(), pos.getZ()), scratch, pos.getX(), pos.getY(), pos.getZ());
+            boolean trackDescriptors = scratch.hasPreparedDescriptors();
+            boolean trackWorkspace = DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace());
+            if (!trackDescriptors && !trackWorkspace) {
+                return true;
+            }
+            ChunkAccess chunk = chunkFor(context, pos.getX(), pos.getZ());
+            if (trackWorkspace) {
+                DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
+            }
+            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), trackDescriptors, trackWorkspace);
         }
         return changed;
     }
@@ -2897,21 +2958,48 @@ final class DecorationPlacementProgram {
             BlockState state
     ) {
         scratch.chunkWriter.setBlockState(pos, state);
-        noteBlockMutation(chunkFor(context, pos.getX(), pos.getZ()), scratch, pos.getX(), pos.getY(), pos.getZ());
+        boolean trackDescriptors = scratch.hasPreparedDescriptors();
+        boolean trackWorkspace = DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace());
+        if (trackDescriptors || trackWorkspace) {
+            ChunkAccess chunk = chunkFor(context, pos.getX(), pos.getZ());
+            if (trackWorkspace) {
+                DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
+            }
+            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), trackDescriptors, trackWorkspace);
+        }
     }
 
     private static void setChunkWriterBlockJournaled(
+            DecorationPipelineExecutor.ExecutionContext context,
             DecorationPipelineScratch scratch,
             ChunkAccess chunk,
             BlockPos pos,
             BlockState state
     ) {
         scratch.chunkWriter.setBlockState(pos, state);
-        scratch.noteJournalMutation(chunk, pos.getX(), pos.getY(), pos.getZ());
+        if (DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace())) {
+            DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
+        }
+        if (scratch.hasPreparedDescriptors()) {
+            scratch.noteJournalMutation(chunk, pos.getX(), pos.getY(), pos.getZ());
+        }
     }
 
-    private static void noteBlockMutation(ChunkAccess chunk, DecorationPipelineScratch scratch, int blockX, int blockY, int blockZ) {
-        scratch.descriptors.noteBlockMutation(chunk, blockX, blockY, blockZ);
+    private static void noteBlockMutation(
+            ChunkAccess chunk,
+            DecorationPipelineScratch scratch,
+            int blockX,
+            int blockY,
+            int blockZ,
+            boolean trackDescriptors,
+            boolean trackWorkspace
+    ) {
+        if (trackDescriptors) {
+            scratch.descriptors.noteBlockMutation(chunk, blockX, blockY, blockZ);
+        }
+        if (trackWorkspace) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_DESCRIPTOR_REPAIRS);
+        }
     }
 
     private static int opcodeFor(PlacementModifier modifier) {

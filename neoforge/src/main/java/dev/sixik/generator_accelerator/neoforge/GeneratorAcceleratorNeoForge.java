@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.neoforge;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.diagnostics.GADiagnosticsCommands;
 import net.neoforged.bus.api.IEventBus;
@@ -31,6 +32,7 @@ public final class GeneratorAcceleratorNeoForge {
     }
 
     private void onServerStarting(ServerStartingEvent event) {
+        FastBlockStateCache.init(GeneratorAccelerator.Platform.NEOFORGE);
         DensityFunctionCompiler.onServerStarting(event.getServer());
     }
 

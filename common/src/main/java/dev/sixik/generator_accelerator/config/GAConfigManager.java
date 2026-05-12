@@ -84,6 +84,8 @@ public class GAConfigManager {
         config.schedulerNoiseWorkers = intOverride("ga.config.schedulerNoiseWorkers", config.schedulerNoiseWorkers);
         config.schedulerCompileWorkers = intOverride("ga.config.schedulerCompileWorkers", config.schedulerCompileWorkers);
         config.schedulerWorkspaceWorkers = intOverride("ga.config.schedulerWorkspaceWorkers", config.schedulerWorkspaceWorkers);
+        config.schedulerTransactionalWorkers = intOverride("ga.config.schedulerTransactionalWorkers", config.schedulerTransactionalWorkers);
+        config.schedulerSerialWorkers = intOverride("ga.config.schedulerSerialWorkers", config.schedulerSerialWorkers);
         config.schedulerCommitWorkers = intOverride("ga.config.schedulerCommitWorkers", config.schedulerCommitWorkers);
         config.schedulerMaxQueuedTasks = intOverride("ga.config.schedulerMaxQueuedTasks", config.schedulerMaxQueuedTasks);
         config.schedulerCpuTarget = doubleOverride("ga.config.schedulerCpuTarget", config.schedulerCpuTarget);

@@ -5,21 +5,24 @@ import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReferenceArray;
+
 public final class BiomeSignatureFeatureMaskCache {
     private static final int DEFAULT_CAPACITY = 64;
 
-    private final Entry[] entries;
-    private int filledSlots;
+    private final AtomicReferenceArray<Entry> entries;
+    private final AtomicInteger filledSlots = new AtomicInteger();
 
     public BiomeSignatureFeatureMaskCache() {
         this(DEFAULT_CAPACITY);
     }
 
     BiomeSignatureFeatureMaskCache(int capacity) {
-        this.entries = new Entry[Math.max(1, capacity)];
+        this.entries = new AtomicReferenceArray<>(Math.max(1, capacity));
     }
 
-    public synchronized boolean copyIfPresent(
+    public boolean copyIfPresent(
             ObjectArraySet<Holder<Biome>> biomes,
             BiomeDecorationScratch scratch,
             int stepCount,
@@ -38,7 +41,9 @@ public final class BiomeSignatureFeatureMaskCache {
             hashB ^= Long.rotateLeft(mixed, (int) (mixed & 63L));
         }
 
-        for (Entry entry : this.entries) {
+        int limit = Math.min(this.filledSlots.get(), this.entries.length());
+        for (int index = 0; index < limit; index++) {
+            Entry entry = this.entries.get(index);
             if (entry == null
                     || entry.biomeCount != biomeCount
                     || entry.hashA != hashA
@@ -61,14 +66,14 @@ public final class BiomeSignatureFeatureMaskCache {
         return false;
     }
 
-    public synchronized void store(
+    public void store(
             ObjectArraySet<Holder<Biome>> biomes,
             BiomeDecorationScratch scratch,
             int stepCount,
             int[] wordCountsByStep
     ) {
         int biomeCount = biomes.size();
-        if (biomeCount == 0 || this.filledSlots >= this.entries.length) {
+        if (biomeCount == 0) {
             return;
         }
 
@@ -98,7 +103,7 @@ public final class BiomeSignatureFeatureMaskCache {
             maskWordCount += wordCount;
         }
 
-        this.entries[this.filledSlots++] = new Entry(
+        Entry entry = new Entry(
                 copiedBiomes,
                 biomeCount,
                 hashA,
@@ -107,7 +112,25 @@ public final class BiomeSignatureFeatureMaskCache {
                 scratch.combinedNonEmptyStepBits(),
                 maskWordCount
         );
+        int slot = this.reserveSlot();
+        if (slot < 0) {
+            return;
+        }
+        this.entries.set(slot, entry);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.BIOME_SIGNATURE_CACHE_STORES);
+    }
+
+    private int reserveSlot() {
+        int length = this.entries.length();
+        for (;;) {
+            int slot = this.filledSlots.get();
+            if (slot >= length) {
+                return -1;
+            }
+            if (this.filledSlots.compareAndSet(slot, slot + 1)) {
+                return slot;
+            }
+        }
     }
 
     private static long mixBiome(Holder<Biome> biome) {

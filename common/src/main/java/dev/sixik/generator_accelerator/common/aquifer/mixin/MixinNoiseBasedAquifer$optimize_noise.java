@@ -6,6 +6,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.OverworldBiomeBuilder;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -84,13 +85,23 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     @Unique
     private int c2me$dist3;
     @Unique
-    private long c2me$pos1;
+    private int c2me$idx1;
     @Unique
-    private long c2me$pos2;
+    private int c2me$idx2;
     @Unique
-    private long c2me$pos3;
+    private int c2me$idx3;
     @Unique
     private double c2me$mutableDoubleThingy;
+    @Unique
+    private int[] ga$aquiferX;
+    @Unique
+    private int[] ga$aquiferY;
+    @Unique
+    private int[] ga$aquiferZ;
+    @Unique
+    private static final BlockState ga$AIR_STATE = Blocks.AIR.defaultBlockState();
+    @Unique
+    private static final BlockState ga$LAVA_STATE = Blocks.LAVA.defaultBlockState();
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void bts$init(
@@ -106,6 +117,9 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
             throw new AssertionError("Array length");
         }
         final int sizeY = this.aquiferLocationCache.length / (this.gridSizeX * this.gridSizeZ);
+        this.ga$aquiferX = new int[this.aquiferLocationCache.length];
+        this.ga$aquiferY = new int[this.aquiferLocationCache.length];
+        this.ga$aquiferZ = new int[this.aquiferLocationCache.length];
         final RandomSource random = SixikGenerationUtils.getRandom(this.positionalRandomFactory);
         // index: y, z, x
         for (int y = 0; y < sizeY; y++) {
@@ -120,6 +134,9 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
                     final int z2 = z1 * 16 + random.nextInt(10);
                     final int index = this.getIndex(x1, y1, z1);
                     this.aquiferLocationCache[index] = BlockPos.asLong(x2, y2, z2);
+                    this.ga$aquiferX[index] = x2;
+                    this.ga$aquiferY[index] = y2;
+                    this.ga$aquiferZ[index] = z2;
                 }
             }
         }
@@ -148,6 +165,15 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         return i >> 4;
     }
 
+    /**
+     * @author Sixik
+     * @reason Inline constant floor division used by aquifer grid indexing.
+     */
+    @Overwrite
+    protected int gridY(int i) {
+        return ga$floorDiv12(i);
+    }
+
 
     /**
      * @author
@@ -163,9 +189,9 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
             return null;
         } else {
             Aquifer.FluidStatus fluidLevel = this.globalFluidPicker.computeFluid(i, j, k);
-            if (fluidLevel.at(j).is(Blocks.LAVA)) {
+            if (ga$isAt(fluidLevel, j, Blocks.LAVA)) {
                 this.shouldScheduleFluidUpdate = false;
-                return Blocks.LAVA.defaultBlockState();
+                return ga$LAVA_STATE;
             } else {
                 aquiferExtracted$refreshDistPosIdx(i, j, k);
                 return aquiferExtracted$applyPost(context, substance, j, i, k);
@@ -182,9 +208,10 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     private double calculatePressure(DensityFunction.FunctionContext context, MutableDouble substance, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2) {
 
         final int i = context.blockY();
-        final BlockState blockState = fluidLevel.at(i);
-        final BlockState blockState2 = fluidLevel2.at(i);
-        if ((!blockState.is(Blocks.LAVA) || !blockState2.is(Blocks.WATER)) && (!blockState.is(Blocks.WATER) || !blockState2.is(Blocks.LAVA))) {
+        final Block firstBlock = ga$blockAt(fluidLevel, i);
+        final Block secondBlock = ga$blockAt(fluidLevel2, i);
+        if (!((firstBlock == Blocks.LAVA && secondBlock == Blocks.WATER)
+                || (firstBlock == Blocks.WATER && secondBlock == Blocks.LAVA))) {
             final int abs = Math.abs(fluidLevel.fluidLevel - fluidLevel2.fluidLevel);
             if (abs == 0) {
                 return 0.0;
@@ -209,7 +236,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         final int j = BlockPos.getY(pos);
         final int k = BlockPos.getZ(pos);
         final int l = i >> 4; // C2ME - inline: floorDiv(i, 16)
-        final int m = Math.floorDiv(j, 12); // C2ME - inline
+        final int m = ga$floorDiv12(j); // C2ME - inline
         final int n = k >> 4; // C2ME - inline: floorDiv(k, 16)
         final int o = this.getIndex(l, m, n);
         final Aquifer.FluidStatus fluidLevel = this.aquiferCache[o];
@@ -268,45 +295,46 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
     @Unique
     private @NotNull BlockState aquiferExtracted$applyPost(DensityFunction.FunctionContext pos, double density, int j, int i, int k) {
-        final Aquifer.FluidStatus fluidLevel2 = this.getAquiferStatus(this.c2me$pos1);
+        final Aquifer.FluidStatus fluidLevel2 = this.ga$getAquiferStatusByIndex(this.c2me$idx1);
         final double d = similarity(this.c2me$dist1, this.c2me$dist2);
-        final BlockState blockState = fluidLevel2.at(j);
+        final BlockState blockState = ga$at(fluidLevel2, j);
         if (d <= 0.0) {
             this.shouldScheduleFluidUpdate = d >= FLOWING_UPDATE_SIMULARITY;
             return blockState;
-        } else if (blockState.is(Blocks.WATER) && this.globalFluidPicker.computeFluid(i, j - 1, k).at(j - 1).is(Blocks.LAVA)) {
+        } else if (blockState.getBlock() == Blocks.WATER
+                && ga$isAt(this.globalFluidPicker.computeFluid(i, j - 1, k), j - 1, Blocks.LAVA)) {
             this.shouldScheduleFluidUpdate = true;
             return blockState;
         } else {
             this.c2me$mutableDoubleThingy = Double.NaN;
-            final Aquifer.FluidStatus fluidLevel3 = this.getAquiferStatus(this.c2me$pos2);
-            final double e = d * this.c2me$calculateDensityModified(pos, fluidLevel2, fluidLevel3);
+            final Aquifer.FluidStatus fluidLevel3 = this.ga$getAquiferStatusByIndex(this.c2me$idx2);
+            final double e = d * this.c2me$calculateDensityModified(pos, j, fluidLevel2, fluidLevel3);
             if (density + e > 0.0) {
                 this.shouldScheduleFluidUpdate = false;
                 return null;
             } else {
-                return aquiferExtracted$getFinalBlockState(pos, density, d, fluidLevel2, fluidLevel3, blockState);
+                return aquiferExtracted$getFinalBlockState(pos, j, density, d, fluidLevel2, fluidLevel3, blockState);
             }
         }
     }
 
     @Unique
-    private BlockState aquiferExtracted$getFinalBlockState(DensityFunction.FunctionContext pos, double density, double d, Aquifer.FluidStatus fluidLevel2, Aquifer.FluidStatus fluidLevel3, BlockState blockState) {
-        final Aquifer.FluidStatus fluidLevel4 = this.getAquiferStatus(this.c2me$pos3);
+    private BlockState aquiferExtracted$getFinalBlockState(DensityFunction.FunctionContext pos, int blockY, double density, double d, Aquifer.FluidStatus fluidLevel2, Aquifer.FluidStatus fluidLevel3, BlockState blockState) {
+        final Aquifer.FluidStatus fluidLevel4 = this.ga$getAquiferStatusByIndex(this.c2me$idx3);
         final double f = similarity(this.c2me$dist1, this.c2me$dist3);
-        if (aquiferExtracted$extractedCheckFG(pos, density, d, fluidLevel2, f, fluidLevel4)) return null;
+        if (aquiferExtracted$extractedCheckFG(pos, blockY, density, d, fluidLevel2, f, fluidLevel4)) return null;
 
         final double g = similarity(this.c2me$dist2, this.c2me$dist3);
-        if (aquiferExtracted$extractedCheckFG(pos, density, d, fluidLevel3, g, fluidLevel4)) return null;
+        if (aquiferExtracted$extractedCheckFG(pos, blockY, density, d, fluidLevel3, g, fluidLevel4)) return null;
 
         this.shouldScheduleFluidUpdate = true;
         return blockState;
     }
 
     @Unique
-    private boolean aquiferExtracted$extractedCheckFG(DensityFunction.FunctionContext pos, double density, double d, Aquifer.FluidStatus fluidLevel2, double f, Aquifer.FluidStatus fluidLevel4) {
+    private boolean aquiferExtracted$extractedCheckFG(DensityFunction.FunctionContext pos, int blockY, double density, double d, Aquifer.FluidStatus fluidLevel2, double f, Aquifer.FluidStatus fluidLevel4) {
         if (f > 0.0) {
-            final double g = d * f * this.c2me$calculateDensityModified(pos, fluidLevel2, fluidLevel4);
+            final double g = d * f * this.c2me$calculateDensityModified(pos, blockY, fluidLevel2, fluidLevel4);
             if (density + g > 0.0) {
                 this.shouldScheduleFluidUpdate = false;
                 return true;
@@ -318,20 +346,24 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     @Unique
     private void aquiferExtracted$refreshDistPosIdx(int x, int y, int z) {
         final int gx = (x - 5) >> 4;
-        final int gy = Math.floorDiv(y + 1, 12);
+        final int gy = ga$floorDiv12(y + 1);
         final int gz = (z - 5) >> 4;
 
         int localDist1 = Integer.MAX_VALUE;
         int localDist2 = Integer.MAX_VALUE;
         int localDist3 = Integer.MAX_VALUE;
-        long localPos1 = 0;
-        long localPos2 = 0;
-        long localPos3 = 0;
+        int localIdx1 = 0;
+        int localIdx2 = 0;
+        int localIdx3 = 0;
 
         final int strideY = this.gridSizeZ * this.gridSizeX;
         final int strideZ = this.gridSizeX;
+        final int[] aquiferX = this.ga$aquiferX;
+        final int[] aquiferY = this.ga$aquiferY;
+        final int[] aquiferZ = this.ga$aquiferZ;
 
-        int baseIndexY = this.getIndex(gx, gy - 1, gz);
+        int baseIndexY = (((gy - 1 - this.minGridY) * this.gridSizeZ + (gz - this.minGridZ)) * this.gridSizeX)
+                + (gx - this.minGridX);
 
         for (int offY = -1; offY <= 1; ++offY) {
 
@@ -341,58 +373,56 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
                 {
                     final int posIdx = baseIndexZ; // +0
-                    final long position = this.aquiferLocationCache[posIdx];
 
-                    final int dx = BlockPos.getX(position) - x;
-                    final int dy = BlockPos.getY(position) - y;
-                    final int dz = BlockPos.getZ(position) - z;
+                    final int dx = aquiferX[posIdx] - x;
+                    final int dy = aquiferY[posIdx] - y;
+                    final int dz = aquiferZ[posIdx] - z;
                     final int dist = dx * dx + dy * dy + dz * dz;
 
                     if (localDist3 >= dist) {
                         if (localDist2 >= dist) {
                             localDist3 = localDist2;
-                            localPos3 = localPos2;
+                            localIdx3 = localIdx2;
                             if (localDist1 >= dist) {
                                 localDist2 = localDist1;
-                                localPos2 = localPos1;
+                                localIdx2 = localIdx1;
                                 localDist1 = dist;
-                                localPos1 = position;
+                                localIdx1 = posIdx;
                             } else {
                                 localDist2 = dist;
-                                localPos2 = position;
+                                localIdx2 = posIdx;
                             }
                         } else {
                             localDist3 = dist;
-                            localPos3 = position;
+                            localIdx3 = posIdx;
                         }
                     }
                 }
 
                 {
                     final int posIdx = baseIndexZ + 1;
-                    final long position = this.aquiferLocationCache[posIdx];
 
-                    final int dx = BlockPos.getX(position) - x;
-                    final int dy = BlockPos.getY(position) - y;
-                    final int dz = BlockPos.getZ(position) - z;
+                    final int dx = aquiferX[posIdx] - x;
+                    final int dy = aquiferY[posIdx] - y;
+                    final int dz = aquiferZ[posIdx] - z;
                     final int dist = dx * dx + dy * dy + dz * dz;
 
                     if (localDist3 >= dist) {
                         if (localDist2 >= dist) {
                             localDist3 = localDist2;
-                            localPos3 = localPos2;
+                            localIdx3 = localIdx2;
                             if (localDist1 >= dist) {
                                 localDist2 = localDist1;
-                                localPos2 = localPos1;
+                                localIdx2 = localIdx1;
                                 localDist1 = dist;
-                                localPos1 = position;
+                                localIdx1 = posIdx;
                             } else {
                                 localDist2 = dist;
-                                localPos2 = position;
+                                localIdx2 = posIdx;
                             }
                         } else {
                             localDist3 = dist;
-                            localPos3 = position;
+                            localIdx3 = posIdx;
                         }
                     }
                 }
@@ -405,19 +435,59 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         this.c2me$dist1 = localDist1;
         this.c2me$dist2 = localDist2;
         this.c2me$dist3 = localDist3;
-        this.c2me$pos1 = localPos1;
-        this.c2me$pos2 = localPos2;
-        this.c2me$pos3 = localPos3;
+        this.c2me$idx1 = localIdx1;
+        this.c2me$idx2 = localIdx2;
+        this.c2me$idx3 = localIdx3;
+    }
+
+    @Unique
+    private Aquifer.FluidStatus ga$getAquiferStatusByIndex(int index) {
+        final Aquifer.FluidStatus cached = this.aquiferCache[index];
+        if (cached != null) {
+            return cached;
+        }
+        final Aquifer.FluidStatus computed = this.computeFluid(
+                this.ga$aquiferX[index],
+                this.ga$aquiferY[index],
+                this.ga$aquiferZ[index]
+        );
+        this.aquiferCache[index] = computed;
+        return computed;
+    }
+
+    @Unique
+    private static int ga$floorDiv12(int value) {
+        return value >= 0 ? value / 12 : -((-value + 11) / 12);
+    }
+
+    @Unique
+    private static BlockState ga$at(Aquifer.FluidStatus status, int y) {
+        return y < status.fluidLevel
+                ? ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType()
+                : ga$AIR_STATE;
+    }
+
+    @Unique
+    private static boolean ga$isAt(Aquifer.FluidStatus status, int y, Block block) {
+        return y < status.fluidLevel
+                && ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType().getBlock() == block;
+    }
+
+    @Unique
+    private static Block ga$blockAt(Aquifer.FluidStatus status, int y) {
+        return y < status.fluidLevel
+                ? ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType().getBlock()
+                : Blocks.AIR;
     }
 
     @Unique
     private double c2me$calculateDensityModified(
-            DensityFunction.FunctionContext pos, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2
+            DensityFunction.FunctionContext pos, int blockY, Aquifer.FluidStatus fluidLevel, Aquifer.FluidStatus fluidLevel2
     ) {
-        final int blockY = pos.blockY();
-        final BlockState blockState = fluidLevel.at(blockY);
-        final BlockState blockState2 = fluidLevel2.at(blockY);
-        if ((!blockState.is(Blocks.LAVA) || !blockState2.is(Blocks.WATER)) && (!blockState.is(Blocks.WATER) || !blockState2.is(Blocks.LAVA))) {
+        final Block firstBlock = ga$blockAt(fluidLevel, blockY);
+        final Block secondBlock = ga$blockAt(fluidLevel2, blockY);
+        if (!((firstBlock == Blocks.LAVA && secondBlock == Blocks.WATER)
+                || (firstBlock == Blocks.WATER && secondBlock == Blocks.LAVA))) {
             final int abs = Math.abs(fluidLevel.fluidLevel - fluidLevel2.fluidLevel);
             if (abs == 0) {
                 return 0.0;

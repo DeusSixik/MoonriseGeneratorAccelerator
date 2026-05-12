@@ -27,6 +27,16 @@ public final class GACommitCollisionResolver {
         if (policy == null) {
             throw new NullPointerException("policy");
         }
+        if (commands.isEmpty()) {
+            return new GACommitCollisionResult<>(List.of(), List.of(), 0);
+        }
+        if (commands.size() == 1) {
+            GACommitCommand<T> only = commands.iterator().next();
+            if (only == null) {
+                throw new NullPointerException("command");
+            }
+            return new GACommitCollisionResult<>(List.of(only), List.of(), 0);
+        }
 
         List<GACommitCommand<T>> ordered = new ArrayList<>(commands);
         ordered.sort(POSITION_THEN_ORDER);
@@ -35,15 +45,19 @@ public final class GACommitCollisionResolver {
         List<GACommitCommand<T>> rejected = new ArrayList<>();
 
         int index = 0;
+        int collisions = 0;
         while (index < ordered.size()) {
             int next = nextPositionGroup(ordered, index);
+            if (next - index > 1) {
+                collisions++;
+            }
             resolveGroup(ordered, index, next, policy, accepted, rejected);
             index = next;
         }
 
         accepted.sort(Comparator.comparing(GACommitCommand<T>::orderKey));
         rejected.sort(POSITION_THEN_ORDER);
-        return new GACommitCollisionResult<>(accepted, rejected);
+        return new GACommitCollisionResult<>(accepted, rejected, collisions);
     }
 
     private static <T> int nextPositionGroup(List<GACommitCommand<T>> ordered, int start) {

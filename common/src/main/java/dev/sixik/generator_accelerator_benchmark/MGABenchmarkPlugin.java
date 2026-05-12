@@ -25,7 +25,13 @@ public class MGABenchmarkPlugin implements IMixinConfigPlugin {
         LOGGER.info("MGABenchmarkPlugin | Is Developer Environment: {}", isDev);
         LOGGER.info("MGABenchmarkPlugin | Is Server Environment: {}", isServer);
 
-        GeneratorAccelerator.tryLoadNatives();
+        if (this.isServer) {
+            try {
+                GeneratorAccelerator.tryLoadNatives();
+            } catch (RuntimeException failure) {
+                LOGGER.warn("MGABenchmarkPlugin | Optional C3 natives unavailable; benchmark mixins stay enabled.", failure);
+            }
+        }
     }
 
     @Override

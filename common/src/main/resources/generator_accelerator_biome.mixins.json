@@ -8,8 +8,11 @@
     "MixinBiomeManager$optimize_biome_getter",
     "MixinBiomeSource$optimize_biome_getter",
     "MixinClimate$ParameterList$redirect_vanilla_climate_container_to_custom_implement",
+    "MixinClimate$Sampler$raw_sample",
     "MixinClimate$TargetPoint$optimize_allocation",
     "MixinLevelChunkSection$optimize_biome_iteration",
+    "compat.terrablender.Terrablender$MixinLevelChunkSection$raw_biome_lookup",
+    "compat.terrablender.Terrablender$MixinNoiseBasedChunkGenerator$reuse_uniqueness",
     "compat.terrablender.Terrablender$MixinParameterList$redirect_search"
   ],
   "injectors": {

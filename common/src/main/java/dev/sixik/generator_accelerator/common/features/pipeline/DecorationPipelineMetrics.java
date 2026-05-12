@@ -80,8 +80,12 @@ public final class DecorationPipelineMetrics {
     public static final int CLASSIFIER_PARTIAL_FEATURES = 68;
     public static final int CLASSIFIER_UNKNOWN_FEATURES = 69;
     public static final int CLASSIFIER_DESCRIPTOR_GATED = 70;
+    public static final int WORKSPACE_BLOCK_MIRRORS = 71;
+    public static final int WORKSPACE_BLOCK_MIRROR_SKIPS = 72;
+    public static final int WORKSPACE_BLOCK_READ_HITS = 73;
+    public static final int WORKSPACE_DESCRIPTOR_REPAIRS = 74;
 
-    public static final int COUNTER_COUNT = 71;
+    public static final int COUNTER_COUNT = 75;
 
     private static final String[] NAMES = {
             "decoration.totalNanos",
@@ -154,7 +158,11 @@ public final class DecorationPipelineMetrics {
             "classifier.nativeFeatures",
             "classifier.partialFeatures",
             "classifier.unknownFeatures",
-            "classifier.descriptorGated"
+            "classifier.descriptorGated",
+            "workspace.blockMirrors",
+            "workspace.blockMirrorSkips",
+            "workspace.blockReadHits",
+            "workspace.descriptorRepairs"
     };
 
     private static final AtomicLongArray COUNTERS = new AtomicLongArray(COUNTER_COUNT);
@@ -317,6 +325,10 @@ public final class DecorationPipelineMetrics {
                 + ", classifierPartialFeatures=" + value(CLASSIFIER_PARTIAL_FEATURES)
                 + ", classifierUnknownFeatures=" + value(CLASSIFIER_UNKNOWN_FEATURES)
                 + ", classifierDescriptorGated=" + value(CLASSIFIER_DESCRIPTOR_GATED)
+                + ", workspaceBlockMirrors=" + value(WORKSPACE_BLOCK_MIRRORS)
+                + ", workspaceBlockMirrorSkips=" + value(WORKSPACE_BLOCK_MIRROR_SKIPS)
+                + ", workspaceBlockReadHits=" + value(WORKSPACE_BLOCK_READ_HITS)
+                + ", workspaceDescriptorRepairs=" + value(WORKSPACE_DESCRIPTOR_REPAIRS)
                 + ", kindBreakdown=" + kindBreakdown()
                 + ", featureBreakdown=" + featureBreakdown();
     }

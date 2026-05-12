@@ -119,7 +119,7 @@ public final class DecorationPipelineExecutor {
     ) {
         context.random.setFeatureSeed(context.decorationSeed, featureIndex, step);
         context.beforeFallback(featureIndex, kernel.fallbackFeature());
-        placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
+        placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch), context.workspace);
 
         long start = DecorationPipelineMetrics.startTimer();
         long workspaceStart = context.workspace == null ? 0L : System.nanoTime();
@@ -158,7 +158,7 @@ public final class DecorationPipelineExecutor {
                     failure
             );
             context.random.setFeatureSeed(context.decorationSeed, featureIndex, step);
-            placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch));
+            placementContext.set(context.level, context.generator, kernel.fallbackFeatureOptional(), activeDescriptors(context, scratch), context.workspace);
             try {
                 elapsedCounter = DecorationPipelineMetrics.DECORATION_FALLBACK_NANOS;
                 this.executeSafeVanilla(kernel, context, placementContext, scratch);
@@ -371,8 +371,8 @@ public final class DecorationPipelineExecutor {
             this.decorationSeed = decorationSeed;
             this.placedFeatureRegistry = placedFeatureRegistry;
             this.fallbackHook = fallbackHook;
-            this.placementContext = placementContext.set(level, generator, java.util.Optional.empty(), null);
             this.workspace = GAChunkWorkspaceContext.current();
+            this.placementContext = placementContext.set(level, generator, java.util.Optional.empty(), null, this.workspace);
         }
 
         private void beforeFallback(int featureIndex, PlacedFeature feature) {

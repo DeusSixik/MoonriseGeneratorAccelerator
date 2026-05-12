@@ -22,10 +22,13 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public final class WorldgenUnitClassifier {
     private static final String MINECRAFT_NAMESPACE = "minecraft";
+    private static final boolean DEEP_UNKNOWN_EFFECT_SCAN =
+            Boolean.getBoolean("ga.worldgenProfile.deepUnknownScan");
 
     private WorldgenUnitClassifier() {
     }
@@ -117,6 +120,30 @@ public final class WorldgenUnitClassifier {
         );
     }
 
+    public static WorldgenUnitProfile classifyUnit(WorldgenUnitKind kind, String id, Object unit) {
+        WorldgenUnitKind effectiveKind = kind == null ? WorldgenUnitKind.UNKNOWN : kind;
+        WorldgenUnitProfile profile = classifyUnitUnrecorded(effectiveKind, id, unit);
+        WorldgenProfileMetrics.record(profile);
+        return profile;
+    }
+
+    public static List<WorldgenUnitProfile> scan(WorldgenUnitKind kind, Iterable<?> units) {
+        ArrayList<WorldgenUnitProfile> profiles = new ArrayList<>();
+        if (units == null) {
+            return profiles;
+        }
+        for (Object unit : units) {
+            String id = unit instanceof Map.Entry<?, ?> entry ? String.valueOf(entry.getKey()) : "";
+            Object value = unit instanceof Map.Entry<?, ?> entry ? entry.getValue() : unit;
+            profiles.add(classifyUnit(kind, id, value));
+        }
+        return List.copyOf(profiles);
+    }
+
+    public static List<WorldgenUnitProfile> scan(WorldgenUnitKind kind, Map<?, ?> units) {
+        return units == null ? List.of() : scan(kind, units.entrySet());
+    }
+
     public static WorldgenUnitProfile classifyClass(Class<?> unitClass) {
         return classifyClass(namespaceOf(unitClass), unitClass);
     }
@@ -126,7 +153,7 @@ public final class WorldgenUnitClassifier {
             return disabled("class:null", Object.class, "null class");
         }
         if (MINECRAFT_NAMESPACE.equals(namespace)) {
-            return profile(
+            return analyzedProfile(
                     "class:" + simpleId(unitClass),
                     namespace,
                     unitClass,
@@ -137,7 +164,7 @@ public final class WorldgenUnitClassifier {
                     "unknown vanilla worldgen class"
             );
         }
-        return profile(
+        return analyzedProfile(
                 "class:" + simpleId(unitClass),
                 namespace,
                 unitClass,
@@ -156,6 +183,205 @@ public final class WorldgenUnitClassifier {
         String packageName = unitClass.getPackageName();
         int firstDot = packageName.indexOf('.');
         return firstDot < 0 ? packageName.toLowerCase(Locale.ROOT) : packageName.substring(0, firstDot).toLowerCase(Locale.ROOT);
+    }
+
+    public static String namespaceOfId(String id) {
+        if (id == null || id.isBlank()) {
+            return "";
+        }
+        int separator = id.indexOf(':');
+        if (separator <= 0) {
+            return MINECRAFT_NAMESPACE;
+        }
+        return id.substring(0, separator).toLowerCase(Locale.ROOT);
+    }
+
+    static WorldgenUnitProfile classifyUnitUnrecorded(WorldgenUnitKind kind, String id, Object unit) {
+        if (unit == null) {
+            String namespace = namespaceOfId(id);
+            return profile(
+                    kindPrefix(kind, id),
+                    namespace.isBlank() ? MINECRAFT_NAMESPACE : namespace,
+                    Object.class,
+                    kind.defaultEntryPoint(),
+                    0,
+                    EnumSet.of(WorldgenEffectFlag.CALLS_UNKNOWN_METHOD),
+                    WorldgenSafetyTier.VANILLA_FALLBACK_DISABLED,
+                    "null " + kind.name().toLowerCase(Locale.ROOT)
+            );
+        }
+        if (kind == WorldgenUnitKind.FEATURE && unit instanceof ConfiguredFeature<?, ?> configuredFeature) {
+            return withRegistryIdentity(classify(configuredFeature), kind, id);
+        }
+        if (kind == WorldgenUnitKind.PLACED_FEATURE && unit instanceof PlacedFeature placedFeature) {
+            return withRegistryIdentity(classify(placedFeature), kind, id);
+        }
+        if (kind == WorldgenUnitKind.PLACEMENT_MODIFIER && unit instanceof PlacementModifier modifier) {
+            return withRegistryIdentity(classify(modifier), kind, id);
+        }
+
+        String namespace = namespaceOfId(id);
+        if (namespace.isBlank()) {
+            namespace = namespaceOf(unit.getClass());
+        }
+        WorldgenUnitProfile transactional = transactionalCandidate(kind, id, namespace, unit);
+        if (transactional != null) {
+            return transactional;
+        }
+
+        return switch (kind) {
+            case DENSITY_FUNCTION -> classifyReadOnlyLike(kind, id, namespace, unit);
+            case SURFACE_RULE -> classifyReadOnlyLike(kind, id, namespace, unit);
+            case CARVER -> classifyCarver(id, namespace, unit);
+            case STRUCTURE -> classifyStructure(id, namespace, unit);
+            case UNKNOWN, FEATURE, PLACED_FEATURE, PLACEMENT_MODIFIER -> classifyUnknownKind(kind, id, namespace, unit);
+        };
+    }
+
+    private static WorldgenUnitProfile classifyReadOnlyLike(WorldgenUnitKind kind, String id, String namespace, Object unit) {
+        if (MINECRAFT_NAMESPACE.equals(namespace)) {
+            return profile(
+                    kindPrefix(kind, id, unit.getClass()),
+                    namespace,
+                    unit.getClass(),
+                    kind.defaultEntryPoint(),
+                    1,
+                    EnumSet.of(WorldgenEffectFlag.PURE, WorldgenEffectFlag.READS_BLOCKS),
+                    WorldgenSafetyTier.PURE_READ_ONLY,
+                    "known read-only " + kind.name().toLowerCase(Locale.ROOT)
+            );
+        }
+        return unknownNamespaceProfile(kind, id, namespace, unit.getClass());
+    }
+
+    private static WorldgenUnitProfile classifyCarver(String id, String namespace, Object unit) {
+        if (MINECRAFT_NAMESPACE.equals(namespace)) {
+            return profile(
+                    kindPrefix(WorldgenUnitKind.CARVER, id, unit.getClass()),
+                    namespace,
+                    unit.getClass(),
+                    WorldgenUnitKind.CARVER.defaultEntryPoint(),
+                    4,
+                    EnumSet.of(WorldgenEffectFlag.READS_BLOCKS, WorldgenEffectFlag.WRITES_BLOCKS, WorldgenEffectFlag.USES_RANDOM, WorldgenEffectFlag.ORDER_SENSITIVE),
+                    WorldgenSafetyTier.PARTIAL_NATIVE_VANILLA_FEATURE,
+                    "known vanilla carver writes blocks"
+            );
+        }
+        return unknownNamespaceProfile(WorldgenUnitKind.CARVER, id, namespace, unit.getClass());
+    }
+
+    private static WorldgenUnitProfile classifyStructure(String id, String namespace, Object unit) {
+        if (MINECRAFT_NAMESPACE.equals(namespace)) {
+            return profile(
+                    kindPrefix(WorldgenUnitKind.STRUCTURE, id, unit.getClass()),
+                    namespace,
+                    unit.getClass(),
+                    WorldgenUnitKind.STRUCTURE.defaultEntryPoint(),
+                    3,
+                    EnumSet.of(WorldgenEffectFlag.READS_STRUCTURES, WorldgenEffectFlag.CALLS_UNKNOWN_METHOD),
+                    WorldgenSafetyTier.SERIAL_ISOLATED,
+                    "unknown vanilla structure kept serial"
+            );
+        }
+        return unknownNamespaceProfile(WorldgenUnitKind.STRUCTURE, id, namespace, unit.getClass());
+    }
+
+    private static WorldgenUnitProfile classifyUnknownKind(WorldgenUnitKind kind, String id, String namespace, Object unit) {
+        if (MINECRAFT_NAMESPACE.equals(namespace)) {
+            return profile(
+                    kindPrefix(kind, id, unit.getClass()),
+                    namespace,
+                    unit.getClass(),
+                    kind.defaultEntryPoint(),
+                    1,
+                    EnumSet.of(WorldgenEffectFlag.CALLS_UNKNOWN_METHOD),
+                    WorldgenSafetyTier.SERIAL_ISOLATED,
+                    "unknown vanilla worldgen unit"
+            );
+        }
+        return unknownNamespaceProfile(kind, id, namespace, unit.getClass());
+    }
+
+    private static WorldgenUnitProfile unknownNamespaceProfile(WorldgenUnitKind kind, String id, String namespace, Class<?> unitClass) {
+        return analyzedProfile(
+                kindPrefix(kind, id, unitClass),
+                namespace,
+                unitClass,
+                kind.defaultEntryPoint(),
+                1,
+                EnumSet.of(WorldgenEffectFlag.CALLS_UNKNOWN_METHOD, WorldgenEffectFlag.USES_GLOBAL_MUTABLE_STATE),
+                WorldgenSafetyTier.SERIAL_ISOLATED,
+                "unknown namespace defaults to serial safe vanilla"
+        );
+    }
+
+    private static WorldgenUnitProfile transactionalCandidate(WorldgenUnitKind kind, String id, String namespace, Object unit) {
+        if (!(unit instanceof WorldgenTransactionalCandidate candidate) || !candidate.gaCanUseTransactionalSandbox()) {
+            return null;
+        }
+        if (MINECRAFT_NAMESPACE.equals(namespace) || kind == WorldgenUnitKind.STRUCTURE || kind == WorldgenUnitKind.PLACEMENT_MODIFIER) {
+            return null;
+        }
+        WorldgenEffectProfile effectProfile = WorldgenEffectProfileCache.global().profile(unit.getClass(), kind.defaultEntryPoint());
+        EnumSet<WorldgenEffectFlag> flags = EnumSet.of(
+                WorldgenEffectFlag.READS_BLOCKS,
+                WorldgenEffectFlag.WRITES_BLOCKS,
+                WorldgenEffectFlag.USES_RANDOM,
+                WorldgenEffectFlag.CALLS_UNKNOWN_METHOD,
+                WorldgenEffectFlag.ORDER_SENSITIVE
+        );
+        flags.addAll(effectProfile.effectFlags());
+        if (effectProfile.hasHardUnsafeEffect() || !effectProfile.readable()) {
+            return new WorldgenUnitProfile(
+                    kindPrefix(kind, id, unit.getClass()),
+                    namespace,
+                    unit.getClass().getName(),
+                    effectProfile.fingerprint(),
+                    "",
+                    0L,
+                    kind.defaultEntryPoint(),
+                    2,
+                    flags,
+                    WorldgenSafetyTier.SERIAL_ISOLATED,
+                    List.of("transaction sandbox rejected by effect scan"),
+                    append("explicit transactional sandbox candidate", effectProfile.reasonSummary())
+            );
+        }
+        return new WorldgenUnitProfile(
+                kindPrefix(kind, id, unit.getClass()),
+                namespace,
+                unit.getClass().getName(),
+                effectProfile.fingerprint(),
+                "",
+                0L,
+                kind.defaultEntryPoint(),
+                2,
+                flags,
+                WorldgenSafetyTier.TRANSACTIONAL_UNKNOWN,
+                List.of("transaction sandbox required", "abort on unsupported API", "commit through deterministic journal"),
+                "explicit transactional sandbox candidate"
+        );
+    }
+
+    private static WorldgenUnitProfile withRegistryIdentity(WorldgenUnitProfile profile, WorldgenUnitKind kind, String id) {
+        String namespace = namespaceOfId(id);
+        if (id == null || id.isBlank()) {
+            return profile;
+        }
+        return new WorldgenUnitProfile(
+                kindPrefix(kind, id),
+                namespace.isBlank() ? profile.namespace() : namespace,
+                profile.className(),
+                profile.bytecodeHash(),
+                profile.configHash(),
+                profile.registryEpoch(),
+                profile.entryPointMethod().isBlank() ? kind.defaultEntryPoint() : profile.entryPointMethod(),
+                profile.estimatedCost(),
+                profile.effectFlags(),
+                profile.safetyTier(),
+                profile.guards(),
+                profile.fallbackReason()
+        );
     }
 
     private static WorldgenUnitProfile classifyFeature(Feature<?> feature, FeatureConfiguration config) {
@@ -308,6 +534,49 @@ public final class WorldgenUnitClassifier {
         );
     }
 
+    private static WorldgenUnitProfile analyzedProfile(
+            String id,
+            String namespace,
+            Class<?> unitClass,
+            String entryPoint,
+            int estimatedCost,
+            Set<WorldgenEffectFlag> flags,
+            WorldgenSafetyTier tier,
+            String reason
+    ) {
+        if (!DEEP_UNKNOWN_EFFECT_SCAN) {
+            return profile(id, namespace, unitClass, entryPoint, estimatedCost, flags, tier, reason);
+        }
+        WorldgenEffectProfile effectProfile = WorldgenEffectProfileCache.global().profile(unitClass, entryPoint);
+        EnumSet<WorldgenEffectFlag> enrichedFlags = copyFlags(flags);
+        enrichedFlags.addAll(effectProfile.effectFlags());
+        WorldgenSafetyTier enrichedTier = tier;
+        String enrichedReason = reason;
+        if (effectProfile.hasHardUnsafeEffect()) {
+            enrichedTier = moreConservative(enrichedTier, WorldgenSafetyTier.SERIAL_ISOLATED);
+            enrichedReason = append(enrichedReason, "effect scan unsafe: " + effectProfile.reasonSummary());
+        } else if (!effectProfile.readable()) {
+            enrichedTier = moreConservative(enrichedTier, WorldgenSafetyTier.SERIAL_ISOLATED);
+            enrichedReason = append(enrichedReason, "effect scan fail-closed: " + effectProfile.reasonSummary());
+        } else if (effectProfile.budgetExceeded()) {
+            enrichedReason = append(enrichedReason, "effect scan budgeted");
+        }
+        return new WorldgenUnitProfile(
+                id,
+                namespace,
+                unitClass.getName(),
+                effectProfile.fingerprint(),
+                "",
+                0L,
+                entryPoint,
+                estimatedCost,
+                enrichedFlags,
+                enrichedTier,
+                List.of(),
+                enrichedReason
+        );
+    }
+
     private static EnumSet<WorldgenEffectFlag> copyFlags(Set<WorldgenEffectFlag> flags) {
         if (flags == null || flags.isEmpty()) {
             return EnumSet.noneOf(WorldgenEffectFlag.class);
@@ -334,6 +603,32 @@ public final class WorldgenUnitClassifier {
             out.append("; ");
         }
         out.append(reason);
+    }
+
+    private static String append(String first, String second) {
+        if (second == null || second.isBlank()) {
+            return first == null ? "" : first;
+        }
+        if (first == null || first.isBlank()) {
+            return second;
+        }
+        return first + "; " + second;
+    }
+
+    private static String kindPrefix(WorldgenUnitKind kind, String id) {
+        if (id == null || id.isBlank()) {
+            return kind.name().toLowerCase(Locale.ROOT) + ":unknown";
+        }
+        String normalized = id.toLowerCase(Locale.ROOT);
+        String prefix = kind.name().toLowerCase(Locale.ROOT) + ":";
+        return normalized.startsWith(prefix) ? id : prefix + id;
+    }
+
+    private static String kindPrefix(WorldgenUnitKind kind, String id, Class<?> unitClass) {
+        if (id != null && !id.isBlank()) {
+            return kindPrefix(kind, id);
+        }
+        return kind.name().toLowerCase(Locale.ROOT) + ":" + simpleId(unitClass);
     }
 
     private static String simpleId(Class<?> unitClass) {
