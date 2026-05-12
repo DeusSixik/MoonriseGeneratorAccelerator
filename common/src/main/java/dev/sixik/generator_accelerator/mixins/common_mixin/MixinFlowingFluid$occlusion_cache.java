@@ -1,11 +1,10 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.common.fluid.GAFluidSpreadCache;
 import it.unimi.dsi.fastutil.longs.Long2ByteLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.shorts.Short2BooleanMap;
-import it.unimi.dsi.fastutil.shorts.Short2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.shorts.Short2ObjectMap;
-import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockGetter;
@@ -79,11 +78,8 @@ public abstract class MixinFlowingFluid$occlusion_cache {
     private static final ThreadLocal<BlockState[]> GA$SPREAD_STATES =
             ThreadLocal.withInitial(() -> new BlockState[GA$HORIZONTAL_DIRECTIONS.length]);
     @Unique
-    private static final ThreadLocal<Short2ObjectOpenHashMap<BlockState>> GA$SPREAD_STATE_CACHE =
-            ThreadLocal.withInitial(Short2ObjectOpenHashMap::new);
-    @Unique
-    private static final ThreadLocal<Short2BooleanOpenHashMap> GA$SPREAD_HOLE_CACHE =
-            ThreadLocal.withInitial(Short2BooleanOpenHashMap::new);
+    private static final ThreadLocal<GAFluidSpreadCache> GA$SPREAD_CACHE =
+            ThreadLocal.withInitial(GAFluidSpreadCache::new);
     @Unique
     private FluidState ga$sourceStill;
     @Unique
@@ -189,10 +185,9 @@ public abstract class MixinFlowingFluid$occlusion_cache {
     ) {
         int bestDistance = 1000;
         int spreadMask = 0;
-        Short2ObjectOpenHashMap<BlockState> stateCache = GA$SPREAD_STATE_CACHE.get();
-        stateCache.clear();
-        Short2BooleanOpenHashMap holeCache = GA$SPREAD_HOLE_CACHE.get();
-        holeCache.clear();
+        GAFluidSpreadCache cache = GA$SPREAD_CACHE.get();
+        cache.clear();
+        Fluid flowing = this.getFlowing();
 
         BlockPos.MutableBlockPos sidePos = GA$SPREAD_POS.get();
         BlockPos.MutableBlockPos belowPos = GA$SPREAD_BELOW_POS.get();
@@ -202,12 +197,11 @@ public abstract class MixinFlowingFluid$occlusion_cache {
             Direction direction = GA$HORIZONTAL_DIRECTIONS[i];
             sidePos.setWithOffset(pos, direction);
             short cacheKey = ga$getCacheKey(pos, sidePos);
-            BlockState sideState = ga$cachedState(level, sidePos, cacheKey, stateCache);
+            BlockState sideState = ga$cachedState(level, sidePos, cacheKey, cache.states);
             FluidState sideFluid = sideState.getFluidState();
-            FluidState newFluid = ga$fluidOrEmpty(this.getNewLiquid(level, sidePos, sideState));
             if (!this.canPassThrough(
                     level,
-                    newFluid.getType(),
+                    flowing,
                     pos,
                     state,
                     direction,
@@ -221,25 +215,22 @@ public abstract class MixinFlowingFluid$occlusion_cache {
             belowPos.setWithOffset(sidePos, Direction.DOWN);
             boolean waterHole = ga$cachedWaterHole(
                     level,
-                    newFluid.getType(),
+                    flowing,
                     sidePos,
                     sideState,
                     belowPos,
                     cacheKey,
-                    holeCache
+                    cache.holes
             );
             int distance = waterHole
                     ? 0
-                    : this.getSlopeDistance(level, sidePos, 1, direction.getOpposite(), sideState, pos, stateCache, holeCache);
+                    : this.ga$getSlopeDistanceFast(level, sidePos, 1, direction.getOpposite(), sideState, pos, cache);
             if (distance < bestDistance) {
-                for (int j = 0; j < i; j++) {
-                    spreadFluids[j] = null;
-                    spreadStates[j] = null;
-                }
                 spreadMask = 0;
                 bestDistance = distance;
             }
             if (distance <= bestDistance) {
+                FluidState newFluid = ga$fluidOrEmpty(this.getNewLiquid(level, sidePos, sideState));
                 spreadFluids[i] = newFluid;
                 spreadStates[i] = sideState;
                 spreadMask |= 1 << i;
@@ -305,6 +296,65 @@ public abstract class MixinFlowingFluid$occlusion_cache {
                         source,
                         stateCache,
                         holeCache
+                );
+                if (recursiveDistance < bestDistance) {
+                    bestDistance = recursiveDistance;
+                }
+            }
+        }
+        return bestDistance;
+    }
+
+    @Unique
+    private int ga$getSlopeDistanceFast(
+            LevelReader level,
+            BlockPos pos,
+            int distance,
+            Direction sourceDirection,
+            BlockState state,
+            BlockPos source,
+            GAFluidSpreadCache cache
+    ) {
+        state = ga$stateOrAir(state);
+        int bestDistance = 1000;
+        Fluid flowing = this.getFlowing();
+        int maxDistance = this.getSlopeFindDistance(level);
+        BlockPos.MutableBlockPos belowPos = GA$SPREAD_BELOW_POS.get();
+        for (int i = 0; i < GA$HORIZONTAL_DIRECTIONS.length; i++) {
+            Direction direction = GA$HORIZONTAL_DIRECTIONS[i];
+            if (direction == sourceDirection) {
+                continue;
+            }
+
+            BlockPos.MutableBlockPos sidePos = ga$slopePos(distance).setWithOffset(pos, direction);
+            short cacheKey = ga$getCacheKey(source, sidePos);
+            BlockState sideState = ga$cachedState(level, sidePos, cacheKey, cache.states);
+            FluidState sideFluid = sideState.getFluidState();
+            if (!this.canPassThrough(level, flowing, pos, state, direction, sidePos, sideState, sideFluid)) {
+                continue;
+            }
+
+            boolean waterHole = ga$cachedWaterHole(
+                    level,
+                    flowing,
+                    sidePos,
+                    sideState,
+                    belowPos.setWithOffset(sidePos, Direction.DOWN),
+                    cacheKey,
+                    cache.holes
+            );
+            if (waterHole) {
+                return distance;
+            }
+            if (distance < maxDistance) {
+                int recursiveDistance = this.ga$getSlopeDistanceFast(
+                        level,
+                        sidePos,
+                        distance + 1,
+                        direction.getOpposite(),
+                        sideState,
+                        source,
+                        cache
                 );
                 if (recursiveDistance < bestDistance) {
                     bestDistance = recursiveDistance;
@@ -520,6 +570,23 @@ public abstract class MixinFlowingFluid$occlusion_cache {
     }
 
     @Unique
+    private static BlockState ga$cachedState(
+            LevelReader level,
+            BlockPos pos,
+            short key,
+            GAFluidSpreadCache.StateCache cache
+    ) {
+        BlockState state = cache.get(key);
+        if (state != null) {
+            return state;
+        }
+        state = level.getBlockState(pos);
+        state = ga$stateOrAir(state);
+        cache.put(key, state);
+        return state;
+    }
+
+    @Unique
     private boolean ga$cachedWaterHole(
             BlockGetter level,
             Fluid fluid,
@@ -532,6 +599,26 @@ public abstract class MixinFlowingFluid$occlusion_cache {
         sideState = ga$stateOrAir(sideState);
         if (cache.containsKey(key)) {
             return cache.get(key);
+        }
+        boolean waterHole = this.isWaterHole(level, fluid, sidePos, sideState, belowPos, ga$stateOrAir(level.getBlockState(belowPos)));
+        cache.put(key, waterHole);
+        return waterHole;
+    }
+
+    @Unique
+    private boolean ga$cachedWaterHole(
+            BlockGetter level,
+            Fluid fluid,
+            BlockPos sidePos,
+            BlockState sideState,
+            BlockPos belowPos,
+            short key,
+            GAFluidSpreadCache.BooleanCache cache
+    ) {
+        sideState = ga$stateOrAir(sideState);
+        int index = cache.indexOf(key);
+        if (index >= 0) {
+            return cache.valueAt(index);
         }
         boolean waterHole = this.isWaterHole(level, fluid, sidePos, sideState, belowPos, ga$stateOrAir(level.getBlockState(belowPos)));
         cache.put(key, waterHole);

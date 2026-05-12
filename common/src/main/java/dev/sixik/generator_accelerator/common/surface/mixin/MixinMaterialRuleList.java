@@ -23,10 +23,18 @@ public abstract class MixinMaterialRuleList {
     private List<NoiseChunk.BlockStateFiller> materialRuleList;
     @Unique
     private NoiseChunk.BlockStateFiller[] ga$materialRuleArray;
+    @Unique
+    private NoiseChunk.BlockStateFiller ga$rule0;
+    @Unique
+    private NoiseChunk.BlockStateFiller ga$rule1;
+    @Unique
+    private NoiseChunk.BlockStateFiller ga$rule2;
+    @Unique
+    private int ga$ruleCount;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ga$cacheRuleArray(List<NoiseChunk.BlockStateFiller> materialRuleList, CallbackInfo ci) {
-        this.ga$materialRuleArray = materialRuleList.toArray(new NoiseChunk.BlockStateFiller[0]);
+        this.ga$initRules(materialRuleList.toArray(new NoiseChunk.BlockStateFiller[0]));
     }
 
     /**
@@ -37,8 +45,29 @@ public abstract class MixinMaterialRuleList {
     public BlockState calculate(DensityFunction.FunctionContext context) {
         NoiseChunk.BlockStateFiller[] rules = this.ga$materialRuleArray;
         if (rules == null) {
-            rules = this.materialRuleList.toArray(new NoiseChunk.BlockStateFiller[0]);
-            this.ga$materialRuleArray = rules;
+            this.ga$initRules(this.materialRuleList.toArray(new NoiseChunk.BlockStateFiller[0]));
+            rules = this.ga$materialRuleArray;
+        }
+
+        switch (this.ga$ruleCount) {
+            case 0:
+                return null;
+            case 1:
+                return this.ga$rule0.calculate(context);
+            case 2: {
+                BlockState state = this.ga$rule0.calculate(context);
+                return state != null ? state : this.ga$rule1.calculate(context);
+            }
+            case 3: {
+                BlockState state = this.ga$rule0.calculate(context);
+                if (state != null) {
+                    return state;
+                }
+                state = this.ga$rule1.calculate(context);
+                return state != null ? state : this.ga$rule2.calculate(context);
+            }
+            default:
+                break;
         }
         for (int i = 0; i < rules.length; i++) {
             BlockState state = rules[i].calculate(context);
@@ -47,5 +76,14 @@ public abstract class MixinMaterialRuleList {
             }
         }
         return null;
+    }
+
+    @Unique
+    private void ga$initRules(NoiseChunk.BlockStateFiller[] rules) {
+        this.ga$materialRuleArray = rules;
+        this.ga$ruleCount = rules.length;
+        this.ga$rule0 = rules.length > 0 ? rules[0] : null;
+        this.ga$rule1 = rules.length > 1 ? rules[1] : null;
+        this.ga$rule2 = rules.length > 2 ? rules[2] : null;
     }
 }

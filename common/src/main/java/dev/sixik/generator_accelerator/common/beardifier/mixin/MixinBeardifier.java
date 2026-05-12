@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.beardifier.mixin;
 import com.google.common.collect.Iterators;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import dev.sixik.generator_accelerator.common.beardifier.GABeardifierCellScratch;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.util.Mth;
@@ -13,6 +14,8 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.TerrainAdjustment;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import org.spongepowered.asm.mixin.*;
+
+import java.util.Arrays;
 
 @Mixin(Beardifier.class)
 public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker, DfcCellFillAccess {
@@ -39,6 +42,8 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     @Unique private static final int GA$TERRAIN_BEARD_BOX = TerrainAdjustment.BEARD_BOX.ordinal();
     @Unique private static final int GA$TERRAIN_ENCAPSULATE = TerrainAdjustment.ENCAPSULATE.ordinal();
     @Unique private static volatile float[] GA$BEARD_SAME_Y;
+    @Unique private static final ThreadLocal<GABeardifierCellScratch> GA$CELL_SCRATCH =
+            ThreadLocal.withInitial(GABeardifierCellScratch::new);
 
     private int[] c2me$pieceMinX;
     private int[] c2me$pieceMaxX;
@@ -64,6 +69,16 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private int ga$influenceMinZ;
     private int ga$influenceMaxZ;
     private boolean ga$hasInfluence;
+    private NoiseChunk ga$cachedCellChunk;
+    private int ga$cachedCellStartX;
+    private int ga$cachedCellStartY;
+    private int ga$cachedCellStartZ;
+    private int ga$cachedCellW;
+    private int ga$cachedCellH;
+    private int[] ga$cachedActivePieces;
+    private int[] ga$cachedActiveJunctions;
+    private int ga$cachedActivePieceCount;
+    private int ga$cachedActiveJunctionCount;
 
     @Unique
     private void c2me$initArrays() {
@@ -224,6 +239,156 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     }
 
     @Unique
+    private double ga$computeAtActive(int i, int j, int k, int[] activePieces, int activePieceCount, int[] activeJunctions, int activeJunctionCount) {
+        double d = 0.0;
+
+        int[] minX = this.c2me$pieceMinX;
+        int[] maxX = this.c2me$pieceMaxX;
+        int[] minY = this.c2me$pieceMinY;
+        int[] maxY = this.c2me$pieceMaxY;
+        int[] minZ = this.c2me$pieceMinZ;
+        int[] maxZ = this.c2me$pieceMaxZ;
+        int[] groundY = this.c2me$pieceGroundY;
+        int[] influenceMinX = this.c2me$pieceInfluenceMinX;
+        int[] influenceMaxX = this.c2me$pieceInfluenceMaxX;
+        int[] influenceMinY = this.c2me$pieceInfluenceMinY;
+        int[] influenceMaxY = this.c2me$pieceInfluenceMaxY;
+        int[] influenceMinZ = this.c2me$pieceInfluenceMinZ;
+        int[] influenceMaxZ = this.c2me$pieceInfluenceMaxZ;
+        byte[] terrain = this.c2me$pieceTerrain;
+        for (int activeIndex = 0; activeIndex < activePieceCount; activeIndex++) {
+            int i1 = activePieces[activeIndex];
+            int terrainKind = terrain[i1] & 0xFF;
+            if (i < influenceMinX[i1] || i > influenceMaxX[i1]
+                    || j < influenceMinY[i1] || j > influenceMaxY[i1]
+                    || k < influenceMinZ[i1] || k > influenceMaxZ[i1]) {
+                continue;
+            }
+            final int pieceMinX = minX[i1];
+            final int pieceMaxX = maxX[i1];
+            final int pieceMinZ = minZ[i1];
+            final int pieceMaxZ = maxZ[i1];
+
+            if (terrainKind == GA$TERRAIN_BURY) {
+                final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
+                final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
+                final int p = j - groundY[i1];
+                d += ga$getBuryContributionFast(m, (double) p / 2.0D, n);
+            } else if (terrainKind == GA$TERRAIN_BEARD_THIN) {
+                final int p = j - groundY[i1];
+                final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
+                final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
+                d += ga$getBeardContributionSameY(m, p, n) * 0.8D;
+            } else if (terrainKind == GA$TERRAIN_BEARD_BOX) {
+                final int o = groundY[i1];
+                final int pieceMaxY = maxY[i1];
+                final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
+                final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
+                final int p = j - o;
+                int yDistance = Math.max(0, Math.max(o - j, j - pieceMaxY));
+                d += ga$getBeardContributionUnchecked(m, yDistance, n, p) * 0.8D;
+            } else if (terrainKind == GA$TERRAIN_ENCAPSULATE) {
+                final int pieceMinY = minY[i1];
+                final int pieceMaxY = maxY[i1];
+                final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
+                final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
+                int yDistance = Math.max(0, Math.max(pieceMinY - j, j - pieceMaxY));
+                d += ga$getBuryContributionFast(
+                        (double) m / 2.0D,
+                        (double) yDistance / 2.0D,
+                        (double) n / 2.0D
+                ) * 0.8D;
+            }
+        }
+
+        int[] junctionX = this.c2me$junctionX;
+        int[] junctionY = this.c2me$junctionY;
+        int[] junctionZ = this.c2me$junctionZ;
+        for (int activeIndex = 0; activeIndex < activeJunctionCount; activeIndex++) {
+            int i1 = activeJunctions[activeIndex];
+            final int r = i - junctionX[i1];
+            final int l = j - junctionY[i1];
+            final int m = k - junctionZ[i1];
+            if (ga$inKernelRange(r) && ga$inKernelRange(l) && ga$inKernelRange(m)) {
+                d += ga$getBeardContributionSameY(r, l, m) * 0.4D;
+            }
+        }
+
+        return d;
+    }
+
+    @Unique
+    private void ga$ensureArraysReady() {
+        if (this.c2me$pieceTerrain == null || this.c2me$junctionX == null) {
+            this.c2me$initArrays();
+        }
+    }
+
+    @Unique
+    private boolean ga$cellOutsideInfluence(NoiseChunk chunk, int cellW, int cellH) {
+        return !this.ga$hasInfluence
+                || chunk.cellStartBlockX > this.ga$influenceMaxX
+                || chunk.cellStartBlockX + cellW - 1 < this.ga$influenceMinX
+                || chunk.cellStartBlockY > this.ga$influenceMaxY
+                || chunk.cellStartBlockY + cellH - 1 < this.ga$influenceMinY
+                || chunk.cellStartBlockZ > this.ga$influenceMaxZ
+                || chunk.cellStartBlockZ + cellW - 1 < this.ga$influenceMinZ;
+    }
+
+    @Unique
+    private int ga$collectActivePieces(NoiseChunk chunk, int cellW, int cellH, int[] activePieces) {
+        int minX = chunk.cellStartBlockX;
+        int maxX = minX + cellW - 1;
+        int minY = chunk.cellStartBlockY;
+        int maxY = minY + cellH - 1;
+        int minZ = chunk.cellStartBlockZ;
+        int maxZ = minZ + cellW - 1;
+        int count = 0;
+        byte[] terrain = this.c2me$pieceTerrain;
+        int[] influenceMinX = this.c2me$pieceInfluenceMinX;
+        int[] influenceMaxX = this.c2me$pieceInfluenceMaxX;
+        int[] influenceMinY = this.c2me$pieceInfluenceMinY;
+        int[] influenceMaxY = this.c2me$pieceInfluenceMaxY;
+        int[] influenceMinZ = this.c2me$pieceInfluenceMinZ;
+        int[] influenceMaxZ = this.c2me$pieceInfluenceMaxZ;
+        for (int i = 0; i < terrain.length; i++) {
+            if ((terrain[i] & 0xFF) == GA$TERRAIN_NONE) {
+                continue;
+            }
+            if (maxX < influenceMinX[i] || minX > influenceMaxX[i]
+                    || maxY < influenceMinY[i] || minY > influenceMaxY[i]
+                    || maxZ < influenceMinZ[i] || minZ > influenceMaxZ[i]) {
+                continue;
+            }
+            activePieces[count++] = i;
+        }
+        return count;
+    }
+
+    @Unique
+    private int ga$collectActiveJunctions(NoiseChunk chunk, int cellW, int cellH, int[] activeJunctions) {
+        int minX = chunk.cellStartBlockX;
+        int maxX = minX + cellW - 1;
+        int minY = chunk.cellStartBlockY;
+        int maxY = minY + cellH - 1;
+        int minZ = chunk.cellStartBlockZ;
+        int maxZ = minZ + cellW - 1;
+        int count = 0;
+        int[] junctionX = this.c2me$junctionX;
+        int[] junctionY = this.c2me$junctionY;
+        int[] junctionZ = this.c2me$junctionZ;
+        for (int i = 0; i < junctionX.length; i++) {
+            if (maxX < junctionX[i] - 12 || minX > junctionX[i] + 11
+                    || maxY < junctionY[i] - 12 || minY > junctionY[i] + 11
+                    || maxZ < junctionZ[i] - 12 || minZ > junctionZ[i] + 11) {
+                continue;
+            }
+            activeJunctions[count++] = i;
+        }
+        return count;
+    }
+
+    @Unique
     private void ga$initPieceInfluenceBounds(
             int index,
             int terrainKind,
@@ -340,23 +505,93 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
      */
     @Overwrite
     public double compute(FunctionContext context) {
+        if (context instanceof NoiseChunk chunk) {
+            return this.ga$computeAtNoiseChunkCell(chunk);
+        }
         return this.c2me$computeAt(context.blockX(), context.blockY(), context.blockZ());
+    }
+
+    @Unique
+    private double ga$computeAtNoiseChunkCell(NoiseChunk chunk) {
+        this.ga$ensureArraysReady();
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+            return 0.0D;
+        }
+        if (this.ga$cachedCellChunk != chunk
+                || this.ga$cachedCellStartX != chunk.cellStartBlockX
+                || this.ga$cachedCellStartY != chunk.cellStartBlockY
+                || this.ga$cachedCellStartZ != chunk.cellStartBlockZ
+                || this.ga$cachedCellW != cellW
+                || this.ga$cachedCellH != cellH) {
+            GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
+            int[] activePieces = scratch.pieces(this.c2me$pieceTerrain.length);
+            int activePieceCount = this.ga$collectActivePieces(chunk, cellW, cellH, activePieces);
+            int[] activeJunctions = scratch.junctions(this.c2me$junctionX.length);
+            int activeJunctionCount = this.ga$collectActiveJunctions(chunk, cellW, cellH, activeJunctions);
+            this.ga$cachedCellChunk = chunk;
+            this.ga$cachedCellStartX = chunk.cellStartBlockX;
+            this.ga$cachedCellStartY = chunk.cellStartBlockY;
+            this.ga$cachedCellStartZ = chunk.cellStartBlockZ;
+            this.ga$cachedCellW = cellW;
+            this.ga$cachedCellH = cellH;
+            this.ga$cachedActivePieces = activePieces;
+            this.ga$cachedActiveJunctions = activeJunctions;
+            this.ga$cachedActivePieceCount = activePieceCount;
+            this.ga$cachedActiveJunctionCount = activeJunctionCount;
+        }
+        if (this.ga$cachedActivePieceCount == 0 && this.ga$cachedActiveJunctionCount == 0) {
+            return 0.0D;
+        }
+        return this.ga$computeAtActive(
+                chunk.cellStartBlockX + chunk.inCellX,
+                chunk.cellStartBlockY + chunk.inCellY,
+                chunk.cellStartBlockZ + chunk.inCellZ,
+                this.ga$cachedActivePieces,
+                this.ga$cachedActivePieceCount,
+                this.ga$cachedActiveJunctions,
+                this.ga$cachedActiveJunctionCount
+        );
     }
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        this.ga$ensureArraysReady();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
+        int cellValues = cellW * cellW * cellH;
+        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+            Arrays.fill(out, 0, cellValues, 0.0D);
+            chunk.arrayIndex = cellValues;
+            return;
+        }
+        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
+        int[] activePieces = scratch.pieces(this.c2me$pieceTerrain.length);
+        int activePieceCount = this.ga$collectActivePieces(chunk, cellW, cellH, activePieces);
+        int[] activeJunctions = scratch.junctions(this.c2me$junctionX.length);
+        int activeJunctionCount = this.ga$collectActiveJunctions(chunk, cellW, cellH, activeJunctions);
+        if (activePieceCount == 0 && activeJunctionCount == 0) {
+            Arrays.fill(out, 0, cellValues, 0.0D);
+            chunk.arrayIndex = cellValues;
+            return;
+        }
+
         int idx = 0;
+        int startX = chunk.cellStartBlockX;
+        int startY = chunk.cellStartBlockY;
+        int startZ = chunk.cellStartBlockZ;
         chunk.arrayIndex = 0;
         for (int inCellX = 0; inCellX < cellW; inCellX++) {
             chunk.inCellX = inCellX;
+            int blockX = startX + inCellX;
             for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
                 chunk.inCellZ = inCellZ;
+                int blockZ = startZ + inCellZ;
                 for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
                     chunk.inCellY = inCellY;
                     chunk.arrayIndex = idx;
-                    out[idx] = this.c2me$computeAt(chunk.blockX(), chunk.blockY(), chunk.blockZ());
+                    out[idx] = this.ga$computeAtActive(blockX, startY + inCellY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
                     idx++;
                 }
             }
@@ -366,18 +601,39 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Override
     public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        this.ga$ensureArraysReady();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
+        int cellValues = cellW * cellW * cellH;
+        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+            chunk.arrayIndex = cellValues;
+            return;
+        }
+        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
+        int[] activePieces = scratch.pieces(this.c2me$pieceTerrain.length);
+        int activePieceCount = this.ga$collectActivePieces(chunk, cellW, cellH, activePieces);
+        int[] activeJunctions = scratch.junctions(this.c2me$junctionX.length);
+        int activeJunctionCount = this.ga$collectActiveJunctions(chunk, cellW, cellH, activeJunctions);
+        if (activePieceCount == 0 && activeJunctionCount == 0) {
+            chunk.arrayIndex = cellValues;
+            return;
+        }
+
         int idx = 0;
+        int startX = chunk.cellStartBlockX;
+        int startY = chunk.cellStartBlockY;
+        int startZ = chunk.cellStartBlockZ;
         chunk.arrayIndex = 0;
         for (int inCellX = 0; inCellX < cellW; inCellX++) {
             chunk.inCellX = inCellX;
+            int blockX = startX + inCellX;
             for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
                 chunk.inCellZ = inCellZ;
+                int blockZ = startZ + inCellZ;
                 for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
                     chunk.inCellY = inCellY;
                     chunk.arrayIndex = idx;
-                    out[idx] += this.c2me$computeAt(chunk.blockX(), chunk.blockY(), chunk.blockZ());
+                    out[idx] += this.ga$computeAtActive(blockX, startY + inCellY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
                     idx++;
                 }
             }

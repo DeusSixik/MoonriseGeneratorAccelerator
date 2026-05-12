@@ -32,6 +32,9 @@ side = "BOTH"
 config = "generator_accelerator.mixins.json"
 
 [[mixins]]
+config = "generator_accelerator_neoforge.mixins.json"
+
+[[mixins]]
 config = "generator_accelerator_density_compiler.mixins.json"
 
 [[mixins]]

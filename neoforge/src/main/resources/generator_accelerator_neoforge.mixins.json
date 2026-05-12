@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator.neoforge.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "mixins": [
+    "MixinFluidInteractionRegistry$fast_can_interact"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

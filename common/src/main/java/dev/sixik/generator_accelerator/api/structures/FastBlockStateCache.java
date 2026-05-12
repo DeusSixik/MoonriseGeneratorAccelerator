@@ -18,6 +18,7 @@ public class FastBlockStateCache {
     public static boolean[] RANDOM_TICKING_BLOCK_STATES;
     public static boolean[] FLUID_EMPTY_STATES;
     public static boolean[] RANDOM_TICKING_FLUID_STATES;
+    public static boolean[] LIGHT_EMITTING_STATES;
     private static int size;
 
     public static void init(GeneratorAccelerator.Platform platform) {
@@ -27,7 +28,8 @@ public class FastBlockStateCache {
         }
         if (initialized && size == registrySize && STATES != null && AIR_STATES != null
                 && EMPTY_STATES != null && RANDOM_TICKING_BLOCK_STATES != null
-                && FLUID_EMPTY_STATES != null && RANDOM_TICKING_FLUID_STATES != null) {
+                && FLUID_EMPTY_STATES != null && RANDOM_TICKING_FLUID_STATES != null
+                && LIGHT_EMITTING_STATES != null) {
             return;
         }
         synchronized (FastBlockStateCache.class) {
@@ -37,7 +39,8 @@ public class FastBlockStateCache {
             }
             if (initialized && size == registrySize && STATES != null && AIR_STATES != null
                     && EMPTY_STATES != null && RANDOM_TICKING_BLOCK_STATES != null
-                    && FLUID_EMPTY_STATES != null && RANDOM_TICKING_FLUID_STATES != null) {
+                    && FLUID_EMPTY_STATES != null && RANDOM_TICKING_FLUID_STATES != null
+                    && LIGHT_EMITTING_STATES != null) {
                 return;
             }
 
@@ -56,6 +59,7 @@ public class FastBlockStateCache {
             boolean[] randomTickingBlockStates = new boolean[capacity];
             boolean[] fluidEmptyStates = new boolean[capacity];
             boolean[] randomTickingFluidStates = new boolean[capacity];
+            boolean[] lightEmittingStates = new boolean[capacity];
 
             for (int i = 0; i < capacity; i++) {
                 states[i] = air;
@@ -77,6 +81,7 @@ public class FastBlockStateCache {
                     randomTickingBlockStates[fastId] = possibleState.isRandomlyTicking();
                     fluidEmptyStates[fastId] = fluidState.isEmpty();
                     randomTickingFluidStates[fastId] = !fluidEmptyStates[fastId] && fluidState.isRandomlyTicking();
+                    lightEmittingStates[fastId] = possibleState.getLightEmission() != 0;
                     GA$BlockStateExtension.get(possibleState).bts$setFastId(fastId);
                 }
             }
@@ -87,6 +92,7 @@ public class FastBlockStateCache {
             RANDOM_TICKING_BLOCK_STATES = randomTickingBlockStates;
             FLUID_EMPTY_STATES = fluidEmptyStates;
             RANDOM_TICKING_FLUID_STATES = randomTickingFluidStates;
+            LIGHT_EMITTING_STATES = lightEmittingStates;
             size = registrySize;
 
             GeneratorAccelerator.LOGGER.info("PLATFORM: {}", platform);
@@ -194,10 +200,27 @@ public class FastBlockStateCache {
         return randomTickingFluidStates[id];
     }
 
+    public static boolean hasLightEmission(int id) {
+        if (id < 0) {
+            return false;
+        }
+        boolean[] lightEmittingStates = LIGHT_EMITTING_STATES;
+        if (lightEmittingStates == null) {
+            init(GeneratorAccelerator.platform);
+            lightEmittingStates = LIGHT_EMITTING_STATES;
+        }
+        if (lightEmittingStates == null || id >= lightEmittingStates.length) {
+            return Block.stateById(id).getLightEmission() != 0;
+        }
+
+        return lightEmittingStates[id];
+    }
+
     private static void ensureInitialized() {
         if (STATES == null || AIR_STATES == null || EMPTY_STATES == null
                 || RANDOM_TICKING_BLOCK_STATES == null || FLUID_EMPTY_STATES == null
-                || RANDOM_TICKING_FLUID_STATES == null || size != Block.BLOCK_STATE_REGISTRY.size()) {
+                || RANDOM_TICKING_FLUID_STATES == null || LIGHT_EMITTING_STATES == null
+                || size != Block.BLOCK_STATE_REGISTRY.size()) {
             init(GeneratorAccelerator.platform);
         }
     }

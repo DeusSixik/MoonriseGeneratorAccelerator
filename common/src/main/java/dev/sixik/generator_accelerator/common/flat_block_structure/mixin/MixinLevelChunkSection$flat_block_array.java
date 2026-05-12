@@ -41,6 +41,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private int bts$rawDirtyIndexCount;
     @Unique
+    private int bts$rawLightEmissionCount;
+    @Unique
     private boolean bts$rawDirtyOverflow;
     @Unique
     private boolean bts$rawStartedOnlyAir;
@@ -64,10 +66,15 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     private static final MpmcArrayQueue<short[]> bts$RAW_DIRTY_INDEX_POOL =
             new MpmcArrayQueue<>(bts$RAW_DIRTY_INDEX_POOL_MAX);
     @Unique
+    private static final Predicate<BlockState> bts$HAS_LIGHT_EMISSION = state -> state.getLightEmission() != 0;
+    @Unique
     private static final int bts$RAW_BLOCK_DATA_PREALLOC = Math.max(0, Math.min(
             bts$RAW_BLOCK_DATA_POOL_MAX,
             Integer.getInteger("ga.flatBlockArray.rawPoolPrealloc", bts$RAW_BLOCK_DATA_POOL_MAX)
     ));
+    @Unique
+    private static final int bts$PACK_STARTED_ONLY_AIR_BITS = Math.max(4, Math.min(8,
+            Integer.getInteger("ga.flatBlockArray.packStartedOnlyAirBits", 6)));
     @Unique
     private static final int bts$RAW_DIRTY_INDEX_PREALLOC = Math.max(0, Math.min(
             bts$RAW_DIRTY_INDEX_POOL_MAX,
@@ -94,6 +101,35 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         return bts$rawBlockData;
     }
 
+    @Override
+    public boolean bts$setRawBlockStateForGeneration(int index, int stateId) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null) {
+            return false;
+        }
+
+        int oldId = raw[index];
+        if (oldId == stateId) {
+            return true;
+        }
+
+        raw[index] = stateId;
+        this.bts$updateRawLightEmissionCount(oldId, stateId);
+        if (this.bts$rawStartedOnlyAir) {
+            if (!this.bts$rawDirtyOverflow) {
+                this.bts$rawDirtyOverflow = true;
+            }
+            if (oldId == bts$AIR_STATE_ID && stateId != bts$AIR_STATE_ID) {
+                this.bts$incrementCountsById(stateId);
+            } else {
+                this.bts$updateCountsById(oldId, stateId);
+            }
+            return true;
+        }
+        this.bts$updateCountsById(oldId, stateId);
+        return true;
+    }
+
     /**
      * Распаковать данные из {@link net.minecraft.world.level.chunk.PalettedContainer}
      * в плоский массив {@code int[]} для сверхбыстрой генерации.
@@ -107,6 +143,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         this.bts$rawBlockData = raw;
         this.bts$releaseRawDirtyIndices();
         this.bts$rawDirtyIndexCount = 0;
+        this.bts$rawLightEmissionCount = 0;
         this.bts$rawDirtyOverflow = false;
 
         this.bts$rawStartedOnlyAir = this.nonEmptyBlockCount == 0;
@@ -122,7 +159,11 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
                     if (!state.isAir()) {
                         int index = (y << 8) | (z << 4) | x;
-                        raw[index] = GA$BlockStateExtension.get(state).bts$getFastId();
+                        int stateId = GA$BlockStateExtension.get(state).bts$getFastId();
+                        raw[index] = stateId;
+                        if (FastBlockStateCache.hasLightEmission(stateId)) {
+                            this.bts$rawLightEmissionCount++;
+                        }
                     }
                 }
             }
@@ -149,6 +190,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             this.bts$rawStartedOnlyAir = false;
             this.bts$rawBlockData = null;
             this.bts$rawDirtyIndexCount = 0;
+            this.bts$rawLightEmissionCount = 0;
             this.bts$rawDirtyOverflow = false;
             this.bts$releaseRawDirtyIndices();
             bts$releaseRawBlockData(raw);
@@ -246,6 +288,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
                 if (!acquired) {
                     states.acquire();
                     acquired = true;
+                    this.states.onResize(bts$PACK_STARTED_ONLY_AIR_BITS, lastState);
                 }
                 this.states.set(i, lastState);
 
@@ -402,6 +445,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
                 raw[index] = newId;
                 this.bts$recordRawDirtyIndex(index, oldId, newId);
                 this.bts$updateCountsById(oldId, newId);
+                this.bts$updateRawLightEmissionCount(oldId, newId);
             }
             oldState = FastBlockStateCache.getBlockState(oldId);
         } else {
@@ -464,6 +508,31 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
     }
 
+    @Unique
+    private void bts$incrementCountsById(int stateId) {
+        if (!FastBlockStateCache.isEmpty(stateId)) {
+            this.nonEmptyBlockCount++;
+            if (FastBlockStateCache.isRandomlyTickingBlock(stateId)) {
+                this.tickingBlockCount++;
+            }
+        }
+        if (!FastBlockStateCache.isFluidEmpty(stateId)) {
+            if (FastBlockStateCache.isRandomlyTickingFluid(stateId)) {
+                this.tickingFluidCount++;
+            }
+        }
+    }
+
+    @Unique
+    private void bts$updateRawLightEmissionCount(int oldId, int newId) {
+        boolean oldLight = FastBlockStateCache.hasLightEmission(oldId);
+        boolean newLight = FastBlockStateCache.hasLightEmission(newId);
+        if (oldLight == newLight) {
+            return;
+        }
+        this.bts$rawLightEmissionCount += newLight ? 1 : -1;
+    }
+
     /**
      * @author Sixik
      * @reason Avoid CallbackInfoReturnable allocation in hot section predicates.
@@ -480,5 +549,14 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             return false;
         }
         return this.states.maybeHas(predicate);
+    }
+
+    @Override
+    public boolean bts$maybeHasLightEmission() {
+        int[] raw = this.bts$rawBlockData;
+        if (raw != null) {
+            return this.bts$rawLightEmissionCount > 0;
+        }
+        return this.states.maybeHas(bts$HAS_LIGHT_EMISSION);
     }
 }

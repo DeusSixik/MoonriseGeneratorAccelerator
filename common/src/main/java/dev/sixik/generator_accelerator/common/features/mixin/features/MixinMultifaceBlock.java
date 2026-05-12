@@ -32,6 +32,20 @@ public abstract class MixinMultifaceBlock {
 
     /**
      * @author Sixik
+     * @reason Avoid Arrays.stream/Predicate allocation in sculk vein worldgen updates.
+     */
+    @Overwrite
+    protected static boolean hasAnyFace(BlockState state) {
+        return hasFace(state, Direction.DOWN)
+                || hasFace(state, Direction.UP)
+                || hasFace(state, Direction.NORTH)
+                || hasFace(state, Direction.SOUTH)
+                || hasFace(state, Direction.WEST)
+                || hasFace(state, Direction.EAST);
+    }
+
+    /**
+     * @author Sixik
      * @reason Avoid BlockPos.relative allocation in sculk/glow-lichen spread probes.
      */
     @Overwrite

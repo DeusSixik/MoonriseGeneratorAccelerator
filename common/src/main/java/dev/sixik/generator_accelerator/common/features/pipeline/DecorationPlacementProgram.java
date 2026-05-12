@@ -2150,27 +2150,30 @@ final class DecorationPlacementProgram {
         BlockPos.MutableBlockPos below = scratch.secondMutablePos;
         long writes = 0L;
 
-        scratch.chunkWriter.begin(context.chunk());
         for (int dx = 0; dx < 16; dx++) {
             int x = originX + dx;
             for (int dz = 0; dz < 16; dz++) {
                 int z = originZ + dz;
-                int y = fastHeight(context, scratch, Heightmap.Types.MOTION_BLOCKING, x, z);
+                // Top-layer freeze is visually sensitive: use the live vanilla heightmap
+                // and WorldGenRegion#setBlock path, not descriptor/chunk-writer shortcuts.
+                int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                 top.set(x, y, z);
                 below.set(x, y - 1, z);
                 Biome biome = level.getBiome(top).value();
 
-                if (biome.shouldFreeze(level, below, false)) {
-                    setChunkWriterBlockTracked(context, scratch, below, ICE_STATE);
+                if (biome.shouldFreeze(level, below, false)
+                        && setBlockTracked(context, scratch, below, ICE_STATE, 2)) {
                     writes++;
                 }
                 if (biome.shouldSnow(level, top)) {
-                    setChunkWriterBlockTracked(context, scratch, top, SNOW_STATE);
-                    writes++;
-                    BlockState belowState = scratch.chunkWriter.getBlockState(below);
-                    if (belowState.hasProperty(SnowyDirtBlock.SNOWY)) {
-                        setChunkWriterBlockTracked(context, scratch, below, belowState.setValue(SnowyDirtBlock.SNOWY, true));
+                    if (setBlockTracked(context, scratch, top, SNOW_STATE, 2)) {
                         writes++;
+                    }
+                    BlockState belowState = level.getBlockState(below);
+                    if (belowState.hasProperty(SnowyDirtBlock.SNOWY)) {
+                        if (setBlockTracked(context, scratch, below, belowState.setValue(SnowyDirtBlock.SNOWY, true), 2)) {
+                            writes++;
+                        }
                     }
                 }
             }
@@ -2946,7 +2949,7 @@ final class DecorationPlacementProgram {
             if (trackWorkspace) {
                 DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
             }
-            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), trackDescriptors, trackWorkspace);
+            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), state, trackDescriptors, trackWorkspace);
         }
         return changed;
     }
@@ -2965,7 +2968,7 @@ final class DecorationPlacementProgram {
             if (trackWorkspace) {
                 DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
             }
-            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), trackDescriptors, trackWorkspace);
+            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), state, trackDescriptors, trackWorkspace);
         }
     }
 
@@ -2991,11 +2994,12 @@ final class DecorationPlacementProgram {
             int blockX,
             int blockY,
             int blockZ,
+            BlockState state,
             boolean trackDescriptors,
             boolean trackWorkspace
     ) {
         if (trackDescriptors) {
-            scratch.descriptors.noteBlockMutation(chunk, blockX, blockY, blockZ);
+            scratch.descriptors.noteBlockMutation(chunk, blockX, blockY, blockZ, state);
         }
         if (trackWorkspace) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_DESCRIPTOR_REPAIRS);

@@ -35,6 +35,59 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.biomesoplenty.BiomesOPlenty$WebbingFeatureMixin",
                 ""));
 
+        create("net.potionstudios.biomeswevegone.BiomesWeveGone",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone.BiomesWeveGone$BasaltBarreraExtension$fast",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone.BiomesWeveGone$BlendUtil$fast_edge",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone.BiomesWeveGone$ChunkStatusTasksMixin$cache_biomes",
+                        "net.potionstudios.biomeswevegone.mixin.ChunkStatusTasksMixin"),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone.BiomesWeveGone$CragGardenExtension$fast",
+                        ""));
+
+        create("com.dtteam.dynamictrees.DynamicTrees",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$BasicBranchBlockMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$CaveRootedTreePlacementMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$CaveRootedTreeFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$CellKits$BasicSolverMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$ChunkTreeHelperMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$DynamicLeavesBlockMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$DynamicTreeFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$InflatorNodeMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$JoCodeMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$OverworldGroundFinderMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees.DynamicTrees$SubterraneanGroundFinderMixin",
+                        ""));
+
+        create("net.orcinus.galosphere.Galosphere", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.galosphere.Galosphere$CrystalSpikeFeatureMixin",
+                ""));
+
         create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.waystones.Waystones$WaystonePlacementMixin",
                 ""));
@@ -78,7 +131,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
 
     private boolean isFeatureVmMixin(String mixinClassName) {
         String prefix = "dev.sixik.generator_accelerator.common.features.mixin.";
-        if (mixinClassName.equals(prefix + "MixinChunkAccess")) {
+        if (mixinClassName.equals(prefix + "MixinChunkAccess")
+                || mixinClassName.equals(prefix + "MixinChunkAccess$fast_block_light_sources")) {
             return true;
         }
         if (mixinClassName.equals(prefix + "MixinChunkStatusTasks$generate_features")) {
@@ -88,8 +142,10 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
             return true;
         }
         return mixinClassName.startsWith(prefix + "compats.artifacts.")
+                || mixinClassName.startsWith(prefix + "compats.biomeswevegone.")
                 || mixinClassName.startsWith(prefix + "compats.biomesoplenty.")
                 || mixinClassName.startsWith(prefix + "compats.confluence.")
+                || mixinClassName.startsWith(prefix + "compats.galosphere.")
                 || mixinClassName.startsWith(prefix + "compats.oreberries.")
                 || mixinClassName.startsWith(prefix + "compats.repurposedstructures.")
                 || mixinClassName.startsWith(prefix + "compats.roots.")

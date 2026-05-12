@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.features.cache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Set;
@@ -18,8 +17,8 @@ public final class SharedWeakCache<K, V> {
             .initialCapacity(16)
             .weakKeys()
             .build();
-    private volatile WeakReference<K> lastKey;
-    private volatile WeakReference<V> lastValue;
+    private volatile K lastKey;
+    private volatile V lastValue;
 
     public SharedWeakCache() {
         synchronized (INSTANCES) {
@@ -28,10 +27,8 @@ public final class SharedWeakCache<K, V> {
     }
 
     public V getOrCompute(K key, Function<? super K, ? extends V> factory) {
-        WeakReference<K> lastKeyRef = this.lastKey;
-        WeakReference<V> lastValueRef = this.lastValue;
-        K cachedKey = lastKeyRef == null ? null : lastKeyRef.get();
-        V cachedValue = lastValueRef == null ? null : lastValueRef.get();
+        K cachedKey = this.lastKey;
+        V cachedValue = this.lastValue;
         if (cachedKey == key && cachedValue != null) {
             return cachedValue;
         }
@@ -71,14 +68,10 @@ public final class SharedWeakCache<K, V> {
     }
 
     private void storeLast(K key, V value) {
-        WeakReference<K> currentKeyRef = this.lastKey;
-        WeakReference<V> currentValueRef = this.lastValue;
-        if (currentKeyRef != null && currentValueRef != null
-                && currentKeyRef.get() == key
-                && currentValueRef.get() == value) {
+        if (this.lastKey == key && this.lastValue == value) {
             return;
         }
-        this.lastKey = new WeakReference<>(key);
-        this.lastValue = new WeakReference<>(value);
+        this.lastKey = key;
+        this.lastValue = value;
     }
 }

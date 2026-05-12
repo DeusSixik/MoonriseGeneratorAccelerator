@@ -463,6 +463,77 @@ public final class SectionDescriptor {
         this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
     }
 
+    void updateBlockState(int blockX, int blockY, int blockZ, BlockState newState) {
+        if (this.section == null || !this.containsBlockY(blockY)) {
+            return;
+        }
+        if (this.allAirSection) {
+            if (newState.isAir()) {
+                return;
+            }
+            this.build(this.chunk, this.section, this.sectionX, this.sectionY, this.sectionZ);
+            return;
+        }
+
+        int columnIndex = columnIndexFromBlock(blockX, blockZ);
+        int oldPaletteFlags = this.columnPaletteFlags[columnIndex];
+        int oldBlockClassFlags = this.columnBlockClassFlags[columnIndex];
+        int oldMinFilledLocalY = this.columnMinFilledLocalY[columnIndex];
+        int oldMaxFilledLocalY = this.columnMaxFilledLocalY[columnIndex];
+        int localY = blockY & 15;
+        int bit = 1 << localY;
+        int clearMask = ~bit;
+
+        int airMask = this.columnAirMask[columnIndex] & clearMask;
+        int waterMask = this.columnWaterMask[columnIndex] & clearMask;
+        int lavaMask = this.columnLavaMask[columnIndex] & clearMask;
+        int solidMask = this.columnSolidMask[columnIndex] & clearMask;
+        int motionBlockingMask = this.columnMotionBlockingMask[columnIndex] & clearMask;
+        int replaceableMask = this.columnReplaceableMask[columnIndex] & clearMask;
+        int stoneLikeMask = this.columnStoneLikeMask[columnIndex] & clearMask;
+        int dirtLikeMask = this.columnDirtLikeMask[columnIndex] & clearMask;
+        int treeSoilMask = this.columnTreeSoilMask[columnIndex] & clearMask;
+
+        int stateId = Block.getId(newState);
+        CachedStateFacts facts = stateFactsById();
+        int maskFlags = stateId >= 0 && stateId < facts.maskFlags.length
+                ? facts.maskFlags[stateId]
+                : maskFlagsForState(newState);
+
+        airMask |= (maskFlags & MASK_AIR) << localY;
+        waterMask |= ((maskFlags & MASK_WATER) << localY) >>> 1;
+        lavaMask |= ((maskFlags & MASK_LAVA) << localY) >>> 2;
+        solidMask |= ((maskFlags & MASK_SOLID) << localY) >>> 3;
+        motionBlockingMask |= ((maskFlags & MASK_MOTION_BLOCKING) << localY) >>> 4;
+        replaceableMask |= ((maskFlags & MASK_REPLACEABLE) << localY) >>> 5;
+        stoneLikeMask |= ((maskFlags & MASK_STONE_LIKE) << localY) >>> 6;
+        dirtLikeMask |= ((maskFlags & MASK_DIRT_LIKE) << localY) >>> 7;
+        treeSoilMask |= ((maskFlags & MASK_TREE_SOIL) << localY) >>> 8;
+
+        this.columnAirMask[columnIndex] = airMask;
+        this.columnWaterMask[columnIndex] = waterMask;
+        this.columnLavaMask[columnIndex] = lavaMask;
+        this.columnSolidMask[columnIndex] = solidMask;
+        this.columnMotionBlockingMask[columnIndex] = motionBlockingMask;
+        this.columnReplaceableMask[columnIndex] = replaceableMask;
+        this.columnStoneLikeMask[columnIndex] = stoneLikeMask;
+        this.columnDirtLikeMask[columnIndex] = dirtLikeMask;
+        this.columnTreeSoilMask[columnIndex] = treeSoilMask;
+
+        int paletteFlags = flagsFromColumnMasks(airMask, waterMask, lavaMask, solidMask);
+        int blockClassFlags = classFlagsFromColumnMasks(replaceableMask, stoneLikeMask, dirtLikeMask, treeSoilMask);
+        if (this.finishSurfaceCandidate(paletteFlags, blockClassFlags)) {
+            blockClassFlags |= CLASS_SURFACE_CANDIDATE;
+        }
+        this.columnPaletteFlags[columnIndex] = paletteFlags;
+        this.columnBlockClassFlags[columnIndex] = blockClassFlags;
+
+        int filledMask = (~airMask) & 0xFFFF;
+        this.columnMinFilledLocalY[columnIndex] = (byte) (filledMask == 0 ? EMPTY_LOCAL_Y : Integer.numberOfTrailingZeros(filledMask));
+        this.columnMaxFilledLocalY[columnIndex] = (byte) (filledMask == 0 ? EMPTY_LOCAL_Y : 31 - Integer.numberOfLeadingZeros(filledMask));
+        this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
+    }
+
     private void markAllAirSection() {
         this.allAirSection = true;
         this.paletteFlags = PALETTE_AIR;
@@ -1028,6 +1099,58 @@ public final class SectionDescriptor {
         blockClassFlagsById[index] = blockClassFlags;
         maskFlagsById[index] = maskFlags;
         filledBitsById[index] = 1;
+    }
+
+    private static int maskFlagsForState(BlockState state) {
+        Block block = state.getBlock();
+        FluidState fluidState = state.getFluidState();
+        if (state.isAir()) {
+            return MASK_AIR | MASK_REPLACEABLE;
+        }
+
+        int maskFlags = 0;
+        if (!fluidState.isEmpty()) {
+            if (fluidState.getType() == Fluids.WATER) {
+                maskFlags |= MASK_WATER | MASK_REPLACEABLE;
+            } else if (fluidState.getType() == Fluids.LAVA) {
+                maskFlags |= MASK_LAVA;
+            }
+        }
+        if (OCEAN_FLOOR_OPAQUE.test(state)) {
+            maskFlags |= MASK_SOLID;
+        }
+        if (MOTION_BLOCKING_OPAQUE.test(state)) {
+            maskFlags |= MASK_MOTION_BLOCKING;
+        }
+        if (isStoneLike(state, block)) {
+            maskFlags |= MASK_STONE_LIKE;
+        } else if (isDirtLike(state, block)) {
+            maskFlags |= MASK_DIRT_LIKE | MASK_TREE_SOIL;
+        } else if (isTreeSoilLike(state, block)) {
+            maskFlags |= MASK_TREE_SOIL;
+        }
+        if (isLooseReplaceable(block)) {
+            maskFlags |= MASK_REPLACEABLE;
+        }
+        return maskFlags;
+    }
+
+    private static int flagsFromColumnMasks(int airMask, int waterMask, int lavaMask, int solidMask) {
+        int flags = 0;
+        if (airMask != 0) flags |= PALETTE_AIR;
+        if (waterMask != 0) flags |= PALETTE_WATER;
+        if (lavaMask != 0) flags |= PALETTE_LAVA;
+        if (solidMask != 0) flags |= PALETTE_SOLID;
+        return flags;
+    }
+
+    private static int classFlagsFromColumnMasks(int replaceableMask, int stoneLikeMask, int dirtLikeMask, int treeSoilMask) {
+        int flags = 0;
+        if (replaceableMask != 0) flags |= CLASS_REPLACEABLE;
+        if (stoneLikeMask != 0) flags |= CLASS_STONE_LIKE | CLASS_ORE_TARGET;
+        if (dirtLikeMask != 0) flags |= CLASS_DIRT_LIKE | CLASS_TREE_SOIL;
+        if (treeSoilMask != 0) flags |= CLASS_TREE_SOIL;
+        return flags;
     }
 
     private static boolean isStoneLike(BlockState state, Block block) {

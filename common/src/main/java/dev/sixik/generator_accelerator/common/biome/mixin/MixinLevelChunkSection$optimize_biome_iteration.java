@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.biome.mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$SingleValuePaletteMutator;
+import dev.sixik.generator_accelerator.common.biome.GARawBiomeResolver;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeResolver;
@@ -11,6 +13,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+
+import java.util.Arrays;
 
 @Mixin(LevelChunkSection.class)
 public class MixinLevelChunkSection$optimize_biome_iteration {
@@ -24,6 +28,9 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
      */
     @Unique
     private static final ThreadLocal<Holder<Biome>[]> BTS_BIOME_BUFFER = ThreadLocal.withInitial(() -> new Holder[64]);
+
+    @Unique
+    private static final ThreadLocal<long[]> BTS_RAW_BIOME_TARGET = ThreadLocal.withInitial(() -> new long[6]);
 
 
     /**
@@ -49,7 +56,14 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
      */
     @Overwrite
     public void fillBiomesFromNoise(BiomeResolver biomeResolver, Climate.Sampler climateSampler, int x, int y, int z) {
-        final Holder<Biome> firstBiome = biomeResolver.getNoiseBiome(x, y, z, climateSampler);
+        final GARawBiomeResolver rawResolver = biomeResolver instanceof GARawBiomeResolver fastResolver
+                && fastResolver.ga$hasRawBiomeLookup(climateSampler)
+                ? fastResolver
+                : null;
+        final long[] rawTarget = rawResolver == null ? null : BTS_RAW_BIOME_TARGET.get();
+        final Holder<Biome> firstBiome = rawResolver != null
+                ? rawResolver.ga$getRawNoiseBiome(x, y, z, climateSampler, rawTarget)
+                : biomeResolver.getNoiseBiome(x, y, z, climateSampler);
 
         boolean isUniform = true;
 
@@ -59,39 +73,32 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
         Holder<Biome>[] buffer = null;
 
         /*
-            We start from i = 1 because i = 0 is (x, y, z) already sampled.
+            Keep the same storage index, but sample Y values next to each other for a
+            fixed X/Z column. TerraBlender's uniqueness is X/Z-only and climate lookups
+            warm-start better when only depth changes between adjacent queries.
          */
-        for (int i = 1; i < 64; i++) {
-            /*
-                i = (pY << 4) | (pZ << 2) | pX
-             */
-            final int pX = i & 3;
-            final int pZ = (i >> 2) & 3;
-            final int pY = (i >> 4);
+        for (int pZ = 0; pZ < 4; pZ++) {
+            for (int pX = 0; pX < 4; pX++) {
+                for (int pY = 0; pY < 4; pY++) {
+                    if ((pX | pY | pZ) == 0) {
+                        continue;
+                    }
+                    final int index = (pY << 4) | (pZ << 2) | pX;
+                    final Holder<Biome> biome = rawResolver != null
+                            ? rawResolver.ga$getRawNoiseBiome(x + pX, y + pY, z + pZ, climateSampler, rawTarget)
+                            : biomeResolver.getNoiseBiome(x + pX, y + pY, z + pZ, climateSampler);
 
-            final Holder<Biome> biome = biomeResolver.getNoiseBiome(x + pX, y + pY, z + pZ, climateSampler);
-
-            if (isUniform) {
-                /*
-                    Still uniform so far: check mismatch.
-                 */
-                if (biome != firstBiome) {
-                    isUniform = false;
-
-                    /*
-                     Allocate buffer only now, and backfill already-visited positions with firstBiome.
-                     This makes the uniform path pay 0 extra allocations.
-                    */
-                    buffer = BTS_BIOME_BUFFER.get();
-                    buffer[0] = firstBiome;
-                    for (int j = 1; j < i; j++) buffer[j] = firstBiome;
-                    buffer[i] = biome;
+                    if (isUniform) {
+                        if (biome != firstBiome) {
+                            isUniform = false;
+                            buffer = BTS_BIOME_BUFFER.get();
+                            Arrays.fill(buffer, firstBiome);
+                            buffer[index] = biome;
+                        }
+                    } else {
+                        buffer[index] = biome;
+                    }
                 }
-            } else {
-                /*
-                    Already non-uniform -> just store.
-                 */
-                buffer[i] = biome;
             }
         }
 
@@ -100,6 +107,11 @@ public class MixinLevelChunkSection$optimize_biome_iteration {
          */
         if (isUniform) {
             final PalettedContainer<Holder<Biome>> biomes = (PalettedContainer<Holder<Biome>>) this.biomes;
+            if (biomes.data.storage().getBits() == 0
+                    && biomes.data.palette instanceof GA$SingleValuePaletteMutator<?> mutator) {
+                ((GA$SingleValuePaletteMutator<Holder<Biome>>) mutator).ga$setSingleValue(firstBiome);
+                return;
+            }
 
             /*
                 Build a "single value" container (no 64 writes)

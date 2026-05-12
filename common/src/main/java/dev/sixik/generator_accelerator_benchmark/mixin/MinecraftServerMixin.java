@@ -9,13 +9,17 @@ import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.network.Connection;
+import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerInfo;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.thread.ReentrantBlockableEventLoop;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import net.minecraft.world.entity.player.Player;
@@ -180,7 +184,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
             @Override
             public boolean isSpectator() {
-                return false;
+                return true;
             }
 
             @Override
@@ -191,7 +195,26 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         EmbeddedChannel embeddedChannel = new EmbeddedChannel(connection);
         server.getPlayerList().placeNewPlayer(connection, serverPlayer, commonListenerCookie);
+        serverPlayer.connection = new GA$BenchmarkPacketListener(server, connection, serverPlayer, commonListenerCookie);
         return serverPlayer;
+    }
+
+    @Unique
+    private static final class GA$BenchmarkPacketListener extends ServerGamePacketListenerImpl {
+        private GA$BenchmarkPacketListener(MinecraftServer server, Connection connection, ServerPlayer player, CommonListenerCookie cookie) {
+            super(server, connection, player, cookie);
+        }
+
+        @Override
+        public void send(Packet<?> packet, PacketSendListener listener) {
+            if (packet instanceof ClientboundCustomPayloadPacket) {
+                if (listener != null) {
+                    listener.onSuccess();
+                }
+                return;
+            }
+            super.send(packet, listener);
+        }
     }
 
     @Unique

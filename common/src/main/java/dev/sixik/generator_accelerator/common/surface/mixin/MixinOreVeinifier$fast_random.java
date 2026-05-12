@@ -62,8 +62,12 @@ public abstract class MixinOreVeinifier$fast_random {
             PositionalRandomFactory randomFactory,
             DensityFunction.FunctionContext context
     ) {
-        double vein = veininess.compute(context);
         int y = context.blockY();
+        if (y < -60 || y > 50 || (y > -8 && y < 0)) {
+            return null;
+        }
+
+        double vein = veininess.compute(context);
         boolean copper = vein > 0.0;
         double absoluteVein = Math.abs(vein);
         int maxY = copper ? 50 : -8;

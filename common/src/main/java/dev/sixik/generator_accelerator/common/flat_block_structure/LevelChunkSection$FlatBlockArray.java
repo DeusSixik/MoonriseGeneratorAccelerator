@@ -29,6 +29,18 @@ public interface LevelChunkSection$FlatBlockArray {
     int @Nullable [] bts$getRawBlockData();
 
     /**
+     * Fast raw write path for dense generation passes. Returns false when the
+     * section is not unpacked and the caller must fall back to setBlockState.
+     */
+    boolean bts$setRawBlockStateForGeneration(int index, int stateId);
+
+    /**
+     * Returns true when the raw section contains any block state with vanilla light emission.
+     * Falls back to vanilla palette scanning when the section is not unpacked.
+     */
+    boolean bts$maybeHasLightEmission();
+
+    /**
      * Распаковать данные из {@link net.minecraft.world.level.chunk.PalettedContainer}
      * в плоский массив {@code int[]} для сверхбыстрой генерации.
      * Должен вызываться перед началом тяжелых циклов записи.

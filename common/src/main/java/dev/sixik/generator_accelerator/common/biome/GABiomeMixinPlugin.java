@@ -20,6 +20,36 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
                 new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinLevelChunkSection$raw_biome_lookup",
                         ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinMultiNoiseBiomeSource$raw_biome_resolver",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinBiomeSource$cache_possible_biomes",
+                        ""
+                )
+        );
+        create("com.terraformersmc.biolith.impl.Biolith",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$MixinSearchTree$fast",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestAccessor",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestSet$fast_iter",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$AnyOfCriterion$fast_iter",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$AllOfCriterion$fast_iter",
+                        ""
                 )
         );
     }
@@ -36,6 +66,16 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
         }
         if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinLevelChunkSection$raw_biome_lookup")) {
             return Boolean.parseBoolean(System.getProperty("ga.terrablender.rawBiomeLookup", "true"));
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinMultiNoiseBiomeSource$raw_biome_resolver")) {
+            return Boolean.parseBoolean(System.getProperty("ga.terrablender.rawBiomeLookup", "true"));
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestSet$fast_iter")) {
+            return Boolean.parseBoolean(System.getProperty("ga.biolith.fastSubBiomeSelect", "true"));
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$AnyOfCriterion$fast_iter")
+                || mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$AllOfCriterion$fast_iter")) {
+            return Boolean.parseBoolean(System.getProperty("ga.biolith.fastCriterionIter", "true"));
         }
         return true;
     }

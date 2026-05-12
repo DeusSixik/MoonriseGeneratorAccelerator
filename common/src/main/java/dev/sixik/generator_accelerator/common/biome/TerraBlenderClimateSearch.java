@@ -27,9 +27,15 @@ public final class TerraBlenderClimateSearch {
     public static Holder<Biome> findRaw(IExtendedParameterList<?> parameterList, long[] target, int x, int y, int z) {
         ParameterListCache cache = LAST_PARAMETER_LIST.get().bind(parameterList);
         int uniqueness = cache.getUniqueness(x, z);
-        Holder<Biome> biome = (Holder<Biome>) cache.search(uniqueness, target);
-        if (biome.is(Region.DEFERRED_PLACEHOLDER)) {
-            biome = (Holder<Biome>) cache.search(0, target);
+        long t = target[0];
+        long h = target[1];
+        long c = target[2];
+        long e = target[3];
+        long d = target[4];
+        long w = target[5];
+        Holder<Biome> biome = (Holder<Biome>) cache.search(uniqueness, t, h, c, e, d, w);
+        if (uniqueness != 0 && biome.is(Region.DEFERRED_PLACEHOLDER)) {
+            biome = (Holder<Biome>) cache.search(0, t, h, c, e, d, w);
         }
         return biome;
     }
@@ -100,7 +106,10 @@ public final class TerraBlenderClimateSearch {
             return uniqueness;
         }
 
-        Object search(int uniqueness, long[] target) {
+        Object search(int uniqueness, long t, long h, long c, long e, long d, long w) {
+            if (uniqueness < 0 || uniqueness >= this.indexes.length) {
+                uniqueness = 0;
+            }
             FlatClimateIndex<?> flatIndex = this.indexes[uniqueness];
             if (flatIndex == null) {
                 Climate.RTree<?> tree = this.trees[uniqueness];
@@ -111,7 +120,7 @@ public final class TerraBlenderClimateSearch {
                 flatIndex = TREE_CACHE.get(tree, FlatClimateIndex::new);
                 this.indexes[uniqueness] = flatIndex;
             }
-            return flatIndex.search(target);
+            return flatIndex.search(t, h, c, e, d, w);
         }
 
         private static int mix(long key) {
