@@ -122,6 +122,34 @@ class GAChunkBlockIoTest {
         assertFalse(workspace.isDirtySection(0));
     }
 
+    @Test
+    void repackDirtySectionsUsesFullRawCopyForDenseWorkspaceDiffs() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        LevelChunkSection section = flatSection(raw);
+        when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                .thenAnswer(invocation -> {
+                    System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
+                    return true;
+                });
+        ChunkAccess chunk = chunk(section);
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        GAChunkBlockIo.importToWorkspace(chunk, workspace);
+        int dirtId = Block.getId(Blocks.DIRT.defaultBlockState());
+
+        for (int index = 0; index < 1024; index++) {
+            workspace.writeTerrainBlockIdWorkspaceOnly(index, 0, index & 255, index >>> 8, dirtId);
+        }
+
+        long written = GAChunkBlockIo.repackDirtySections(chunk, workspace);
+
+        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, written);
+        assertEquals(dirtId, raw[0]);
+        assertEquals(dirtId, raw[1023]);
+        assertFalse(workspace.isDirtySection(0));
+        verify((LevelChunkSection$FlatBlockArray) section, times(1)).bts$copyRawBlockDataForGeneration(any(int[].class));
+        verify((LevelChunkSection$FlatBlockArray) section, never()).bts$setRawBlockStateForGeneration(anyInt(), anyInt());
+    }
+
     private static ChunkAccess chunk(LevelChunkSection... sections) {
         ChunkAccess chunk = mock(ChunkAccess.class);
         when(chunk.getPos()).thenReturn(new ChunkPos(0, 0));

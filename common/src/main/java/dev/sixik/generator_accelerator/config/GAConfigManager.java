@@ -117,6 +117,10 @@ public class GAConfigManager {
         config.enableChunkWorkspaceRuntime = boolOverride("ga.config.enableChunkWorkspaceRuntime", config.enableChunkWorkspaceRuntime);
         config.enableDecorationWorkspaceBridge = boolOverride("ga.config.enableDecorationWorkspaceBridge", config.enableDecorationWorkspaceBridge);
         config.enableWorkspaceFinalRepack = boolOverride("ga.config.enableWorkspaceFinalRepack", config.enableWorkspaceFinalRepack);
+        config.enableWorkspaceFinalRepackValidation = boolOverride("ga.config.enableWorkspaceFinalRepackValidation", config.enableWorkspaceFinalRepackValidation);
+        config.enableWorkspaceDenseFinalSectionCopy = boolOverride("ga.config.enableWorkspaceDenseFinalSectionCopy", config.enableWorkspaceDenseFinalSectionCopy);
+        config.workspaceDenseFinalSectionCopyThreshold = intOverride("ga.config.workspaceDenseFinalSectionCopyThreshold", config.workspaceDenseFinalSectionCopyThreshold);
+        config.enableWorkspaceOnlyCircuitBreaker = boolOverride("ga.config.enableWorkspaceOnlyCircuitBreaker", config.enableWorkspaceOnlyCircuitBreaker);
         config.enableWorkspaceOnlyBlockWrites = boolOverride("ga.config.enableWorkspaceOnlyBlockWrites", config.enableWorkspaceOnlyBlockWrites);
         config.enableKnownDecorationJournalWrites = boolOverride("ga.config.enableKnownDecorationJournalWrites", config.enableKnownDecorationJournalWrites);
         config.enableDecorationConflictScheduler = boolOverride("ga.config.enableDecorationConflictScheduler", config.enableDecorationConflictScheduler);
@@ -187,6 +191,9 @@ public class GAConfigManager {
         config.enableChunkWorkspaceRuntime = enabled;
         config.enableDecorationWorkspaceBridge = enabled;
         config.enableWorkspaceFinalRepack = enabled;
+        config.enableWorkspaceFinalRepackValidation = enabled;
+        config.enableWorkspaceDenseFinalSectionCopy = enabled;
+        config.enableWorkspaceOnlyCircuitBreaker = enabled;
         config.enableWorkspaceOnlyBlockWrites = enabled;
         config.enableKnownDecorationJournalWrites = enabled;
         config.enableDecorationConflictScheduler = enabled;

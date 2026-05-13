@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,6 +51,7 @@ class GAChunkWorkspaceRuntimeTest {
         GAChunkWorkspaceMetrics.resetGlobal();
         GACommitMetrics.resetGlobal();
         GACrossChunkMailboxRuntime.resetForTests();
+        GAWorkspaceWriteBridge.resetWorkspaceOnlyCircuitBreakerForTests();
     }
 
     @AfterEach
@@ -137,6 +139,62 @@ class GAChunkWorkspaceRuntimeTest {
 
         assertEquals(true, gates.get("workspaceFinalRepackCommitEngine"));
         assertEquals(true, gates.get("deterministicCommitRuntime"));
+    }
+
+    @Test
+    void finalRepackRepairsAirOnlySectionAfterWorkspaceOnlyWrites() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        AtomicBoolean repaired = new AtomicBoolean();
+        LevelChunkSection section = mock(LevelChunkSection.class,
+                withSettings().extraInterfaces(LevelChunkSection$FlatBlockArray.class));
+        when(section.hasOnlyAir()).thenAnswer(ignored -> !repaired.get());
+        when(((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData()).thenReturn(raw);
+        when(((LevelChunkSection$FlatBlockArray) section).bts$setRawBlockStateForGeneration(anyInt(), anyInt()))
+                .thenAnswer(invocation -> {
+                    raw[invocation.getArgument(0)] = invocation.getArgument(1);
+                    return true;
+                });
+        when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                .thenAnswer(invocation -> {
+                    System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
+                    repaired.set(true);
+                    return true;
+                });
+
+        GAChunkWorkspaceRuntime.Session session = GAChunkWorkspaceRuntime.acquireImported(chunk(section));
+        session.workspace().setBlockIdWorkspaceOnlyIfChanged(1, 2, 3, Block.getId(Blocks.DIRT.defaultBlockState()));
+        session.close();
+
+        assertTrue(repaired.get());
+        assertEquals(Block.getId(Blocks.DIRT.defaultBlockState()), raw[(2 << 8) | (3 << 4) | 1]);
+        assertEquals(1L, metric("finalRepackRepairs"));
+        assertEquals(0L, metric("finalizeFailures"));
+    }
+
+    @Test
+    void finalRepackFailureUsesEmergencyReplayBeforeDisablingWorkspaceOnly() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        LevelChunkSection section = mock(LevelChunkSection.class,
+                withSettings().extraInterfaces(LevelChunkSection$FlatBlockArray.class));
+        when(section.hasOnlyAir()).thenReturn(false);
+        when(((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData()).thenReturn(raw);
+        when(((LevelChunkSection$FlatBlockArray) section).bts$setRawBlockStateForGeneration(anyInt(), anyInt()))
+                .thenThrow(new IllegalStateException("simulated raw write failure"));
+        when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                .thenAnswer(invocation -> {
+                    System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
+                    return true;
+                });
+
+        GAChunkWorkspaceRuntime.Session session = GAChunkWorkspaceRuntime.acquireImported(chunk(section));
+        session.workspace().setBlockIdWorkspaceOnlyIfChanged(1, 2, 3, Block.getId(Blocks.DIRT.defaultBlockState()));
+        session.close();
+
+        assertEquals(Block.getId(Blocks.DIRT.defaultBlockState()), raw[(2 << 8) | (3 << 4) | 1]);
+        assertEquals(1L, metric("emergencyRepacks"));
+        assertEquals(0L, metric("emergencyRepackFailures"));
+        assertEquals(0L, metric("finalizeFailures"));
+        assertFalse(GAWorkspaceWriteBridge.workspaceOnlyWritesRuntimeDisabled());
     }
 
     @Test

@@ -136,6 +136,7 @@ public final class GAChunkWorkspace {
             blockIds = new int[requiredInts];
         }
         blockCapacity = Math.max(blockCapacity, requiredInts);
+        ensureDirtyBlockWordCapacity(Math.max(1, (blockCapacity + 63) >>> 6));
         blockBufferEnabled = true;
         metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
     }
@@ -234,6 +235,48 @@ public final class GAChunkWorkspace {
             workspaceOnlyWrites++;
         }
         return changed;
+    }
+
+    /**
+     * Hot terrain path for callers that already resolved chunk-local indexes.
+     * Returns true when the write is safely owned by the workspace, even if the
+     * block id was already present and no dirty diff had to be recorded.
+     */
+    public boolean writeTerrainBlockIdWorkspaceOnly(
+            int workspaceIndex,
+            int sectionIndex,
+            int columnIndex,
+            int y,
+            int blockId
+    ) {
+        if (!blockBufferEnabled || blockIds == null || blockId < 0
+                || workspaceIndex < 0 || workspaceIndex >= blockCapacity
+                || sectionIndex < 0 || sectionIndex >= sectionCount
+                || columnIndex < 0 || columnIndex >= COLUMN_COUNT) {
+            return false;
+        }
+
+        if (blockIds[workspaceIndex] != blockId) {
+            blockIds[workspaceIndex] = blockId;
+            markDirtyBlockIndex(workspaceIndex);
+            markDirtySection(sectionIndex);
+            markDirtyBlockColumnIndex(columnIndex);
+            markDirtyLightColumnIndex(columnIndex);
+            workspaceOnlyWrites++;
+        }
+        markDirtyHeightColumnIndex(columnIndex);
+        markDirtySurfaceColumnIndex(columnIndex);
+        markDirtyLightColumnIndex(columnIndex);
+        int height = heightCandidates[columnIndex];
+        if (height == UNKNOWN_HEIGHT || y >= height) {
+            heightCandidates[columnIndex] = y;
+            heightCandidatesDirty = true;
+            metrics.addHeightUpdates(1L);
+            if (surfaceBufferEnabled) {
+                surfaceBlockIds[columnIndex] = blockId;
+            }
+        }
+        return true;
     }
 
     public int blockId(int localX, int y, int localZ) {
@@ -553,22 +596,22 @@ public final class GAChunkWorkspace {
 
     public void markDirtyBlockColumn(int localX, int localZ) {
         int index = columnIndex(localX, localZ);
-        dirtyBlockColumnWords[index >>> 6] |= 1L << index;
+        markDirtyBlockColumnIndex(index);
     }
 
     public void markDirtyHeightColumn(int localX, int localZ) {
         int index = columnIndex(localX, localZ);
-        dirtyHeightColumnWords[index >>> 6] |= 1L << index;
+        markDirtyHeightColumnIndex(index);
     }
 
     public void markDirtySurfaceColumn(int localX, int localZ) {
         int index = columnIndex(localX, localZ);
-        dirtySurfaceColumnWords[index >>> 6] |= 1L << index;
+        markDirtySurfaceColumnIndex(index);
     }
 
     public void markDirtyLightColumn(int localX, int localZ) {
         int index = columnIndex(localX, localZ);
-        dirtyLightColumnWords[index >>> 6] |= 1L << index;
+        markDirtyLightColumnIndex(index);
     }
 
     public boolean isDirtySection(int sectionIndex) {
@@ -623,6 +666,36 @@ public final class GAChunkWorkspace {
         return false;
     }
 
+    public int dirtyBlockCountInSection(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount || dirtyBlockWords.length == 0) {
+            return 0;
+        }
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        if (minY >= maxY) {
+            return 0;
+        }
+
+        int firstIndex = (minY - minBuildHeight) << 8;
+        int lastIndexExclusive = (maxY - minBuildHeight) << 8;
+        int firstWord = firstIndex >>> 6;
+        int lastWord = (lastIndexExclusive - 1) >>> 6;
+        int count = 0;
+        for (int word = firstWord; word <= lastWord && word < dirtyBlockWords.length; word++) {
+            long mask = -1L;
+            if (word == firstWord) {
+                mask &= -1L << (firstIndex & 63);
+            }
+            if (word == lastWord && (lastIndexExclusive & 63) != 0) {
+                mask &= (1L << (lastIndexExclusive & 63)) - 1L;
+            }
+            count += Long.bitCount(dirtyBlockWords[word] & mask);
+        }
+        return count;
+    }
+
     public int[] dirtySectionIndices() {
         int count = 0;
         for (int sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
@@ -664,6 +737,14 @@ public final class GAChunkWorkspace {
     public boolean isDirtyLightColumn(int localX, int localZ) {
         int index = columnIndex(localX, localZ);
         return (dirtyLightColumnWords[index >>> 6] & (1L << index)) != 0L;
+    }
+
+    public void clearCommittedBlockDirtiesInSection(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            throw new IndexOutOfBoundsException("section index outside workspace: " + sectionIndex);
+        }
+        clearDirtySection(sectionIndex);
+        clearDirtyBlockSection(sectionIndex);
     }
 
     public long estimatedRetainedBytes() {
@@ -1092,6 +1173,22 @@ public final class GAChunkWorkspace {
         int word = index >>> 6;
         ensureDirtyBlockWordCapacity(word + 1);
         dirtyBlockWords[word] |= 1L << index;
+    }
+
+    private void markDirtyBlockColumnIndex(int index) {
+        dirtyBlockColumnWords[index >>> 6] |= 1L << index;
+    }
+
+    private void markDirtyHeightColumnIndex(int index) {
+        dirtyHeightColumnWords[index >>> 6] |= 1L << index;
+    }
+
+    private void markDirtySurfaceColumnIndex(int index) {
+        dirtySurfaceColumnWords[index >>> 6] |= 1L << index;
+    }
+
+    private void markDirtyLightColumnIndex(int index) {
+        dirtyLightColumnWords[index >>> 6] |= 1L << index;
     }
 
     private boolean isDirtyBlockIndex(int index) {

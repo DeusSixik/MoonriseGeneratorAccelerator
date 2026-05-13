@@ -22,6 +22,10 @@ public final class GAChunkWorkspaceMetrics {
     private static final AtomicLong GLOBAL_MIRRORED_BLOCK_WRITES = new AtomicLong();
     private static final AtomicLong GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES = new AtomicLong();
     private static final AtomicLong GLOBAL_FINAL_REPACK_SKIPS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_REPAIRS = new AtomicLong();
+    private static final AtomicLong GLOBAL_EMERGENCY_REPACKS = new AtomicLong();
+    private static final AtomicLong GLOBAL_EMERGENCY_REPACK_FAILURES = new AtomicLong();
 
     private long importNanos;
     private long computeNanos;
@@ -135,6 +139,22 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_FINAL_REPACK_SKIPS.incrementAndGet();
     }
 
+    public static void incrementFinalRepackDenseSectionCopies() {
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.incrementAndGet();
+    }
+
+    public static void incrementFinalRepackRepairs() {
+        GLOBAL_FINAL_REPACK_REPAIRS.incrementAndGet();
+    }
+
+    public static void incrementEmergencyRepacks() {
+        GLOBAL_EMERGENCY_REPACKS.incrementAndGet();
+    }
+
+    public static void incrementEmergencyRepackFailures() {
+        GLOBAL_EMERGENCY_REPACK_FAILURES.incrementAndGet();
+    }
+
     void setEstimatedRetainedBytes(long estimatedRetainedBytes) {
         this.estimatedRetainedBytes = estimatedRetainedBytes;
     }
@@ -202,6 +222,10 @@ public final class GAChunkWorkspaceMetrics {
         out.put("mirroredBlockWrites", GLOBAL_MIRRORED_BLOCK_WRITES.get());
         out.put("workspaceOnlyBlockWrites", GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.get());
         out.put("finalRepackSkips", GLOBAL_FINAL_REPACK_SKIPS.get());
+        out.put("finalRepackDenseSectionCopies", GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.get());
+        out.put("finalRepackRepairs", GLOBAL_FINAL_REPACK_REPAIRS.get());
+        out.put("emergencyRepacks", GLOBAL_EMERGENCY_REPACKS.get());
+        out.put("emergencyRepackFailures", GLOBAL_EMERGENCY_REPACK_FAILURES.get());
         return out;
     }
 
@@ -223,5 +247,9 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_MIRRORED_BLOCK_WRITES.set(0L);
         GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.set(0L);
         GLOBAL_FINAL_REPACK_SKIPS.set(0L);
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.set(0L);
+        GLOBAL_FINAL_REPACK_REPAIRS.set(0L);
+        GLOBAL_EMERGENCY_REPACKS.set(0L);
+        GLOBAL_EMERGENCY_REPACK_FAILURES.set(0L);
     }
 }

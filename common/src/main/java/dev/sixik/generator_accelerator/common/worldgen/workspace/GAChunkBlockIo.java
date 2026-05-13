@@ -3,6 +3,8 @@ package dev.sixik.generator_accelerator.common.worldgen.workspace;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -14,6 +16,20 @@ import java.util.Objects;
 
 /** Safe ChunkAccess adapter for detached workspace block-id import/repack. */
 public final class GAChunkBlockIo {
+    private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
+    private static final boolean VALIDATE_FINAL_REPACK = booleanProperty(
+            "ga.chunkWorkspace.finalRepack.validate",
+            CONFIG.enableWorkspaceFinalRepackValidation
+    );
+    private static final boolean DENSE_FINAL_SECTION_COPY = booleanProperty(
+            "ga.chunkWorkspace.finalRepack.denseSectionCopy.enabled",
+            CONFIG.enableWorkspaceDenseFinalSectionCopy
+    );
+    private static final int DENSE_FINAL_SECTION_COPY_THRESHOLD = intProperty(
+            "ga.chunkWorkspace.finalRepack.denseSectionCopy.threshold",
+            CONFIG.workspaceDenseFinalSectionCopyThreshold
+    );
+
     private GAChunkBlockIo() {
     }
 
@@ -124,8 +140,14 @@ public final class GAChunkBlockIo {
 
         LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
         int[] raw = flat == null ? null : flat.bts$getRawBlockData();
+        int dirtyBlocks = workspace.dirtyBlockCountInSection(sectionIndex);
+        if (raw != null && shouldDenseCopySection(dirtyBlocks)) {
+            return repackDenseSectionCopy(chunk, workspace, section, sectionIndex);
+        }
+
+        long written;
         if (raw != null) {
-            return workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
+            written = workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
                 int[] blockIds = workspace.blockIds();
                 for (int offset = 0; offset < length; offset++) {
                     int localIndex = sectionLocalIndex + offset;
@@ -141,8 +163,10 @@ public final class GAChunkBlockIo {
                     }
                 }
             });
+            validateOrRepairSection(chunk, workspace, section, sectionIndex, written);
+            return written;
         }
-        return workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
+        written = workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
             int[] blockIds = workspace.blockIds();
             for (int offset = 0; offset < length; offset++) {
                 int localIndex = sectionLocalIndex + offset;
@@ -155,6 +179,54 @@ public final class GAChunkBlockIo {
                 );
             }
         });
+        validateOrRepairSection(chunk, workspace, section, sectionIndex, written);
+        return written;
+    }
+
+    private static long repackDenseSectionCopy(
+            ChunkAccess chunk,
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex
+    ) {
+        long start = System.nanoTime();
+        long written = forceFullSectionCopy(workspace, section, sectionIndex);
+        workspace.clearCommittedBlockDirtiesInSection(sectionIndex);
+        workspace.metrics().addRepackNanos(System.nanoTime() - start);
+        GAChunkWorkspaceMetrics.incrementFinalRepackDenseSectionCopies();
+        validateOrRepairSection(chunk, workspace, section, sectionIndex, written);
+        return written;
+    }
+
+    public static long emergencyRepackDirtySections(ChunkAccess chunk, GAChunkWorkspace workspace) {
+        Objects.requireNonNull(chunk, "chunk");
+        Objects.requireNonNull(workspace, "workspace");
+        validateSameChunk(chunk, workspace);
+
+        long start = System.nanoTime();
+        long writtenBlocks = 0L;
+        int[] dirtySections = workspace.dirtySectionIndices();
+        int[] targetSections = dirtySections.length == 0 && workspace.hasWorkspaceOnlyWrites()
+                ? allSectionIndices(workspace)
+                : dirtySections;
+        LevelChunkSection[] sections = chunk.getSections();
+        for (int sectionIndex : targetSections) {
+            LevelChunkSection section = sectionAt(sections, sectionIndex);
+            if (section == null) {
+                throw new IllegalStateException("missing section " + sectionIndex);
+            }
+            writtenBlocks += forceFullSectionCopy(workspace, section, sectionIndex);
+            if (expectedNonAirBlocks(workspace, sectionIndex) > 0 && section.hasOnlyAir()) {
+                throw new IllegalStateException("emergency workspace repair left non-air section marked air-only: "
+                        + chunk.getPos() + " sectionIndex=" + sectionIndex);
+            }
+        }
+        workspace.clearCommittedBlockDirties();
+        workspace.metrics().addRepackNanos(System.nanoTime() - start);
+        if (writtenBlocks > 0L) {
+            GAChunkWorkspaceMetrics.incrementEmergencyRepacks();
+        }
+        return writtenBlocks;
     }
 
     private static int stateId(BlockState state) {
@@ -163,6 +235,115 @@ public final class GAChunkBlockIo {
 
     private static int airId() {
         return Block.getId(Blocks.AIR.defaultBlockState());
+    }
+
+    private static void validateOrRepairSection(
+            ChunkAccess chunk,
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex,
+            long written
+    ) {
+        if (!VALIDATE_FINAL_REPACK || written <= 0L) {
+            return;
+        }
+
+        int expectedNonAir = expectedNonAirBlocks(workspace, sectionIndex);
+        if (expectedNonAir <= 0 || !section.hasOnlyAir()) {
+            return;
+        }
+
+        // A workspace-only section with non-air ids must never publish as air-only.
+        forceFullSectionCopy(workspace, section, sectionIndex);
+        if (section.hasOnlyAir()) {
+            throw new IllegalStateException("workspace final repack left non-air section marked air-only for "
+                    + chunk.getPos() + " sectionIndex=" + sectionIndex);
+        }
+        GAChunkWorkspaceMetrics.incrementFinalRepackRepairs();
+    }
+
+    private static int expectedNonAirBlocks(GAChunkWorkspace workspace, int sectionIndex) {
+        int[] blockIds = workspace.blockIds();
+        if (!workspace.blockBufferEnabled() || blockIds == null) {
+            return 0;
+        }
+
+        int sectionY = workspace.minSectionY() + sectionIndex;
+        int sectionMinY = sectionY * GAChunkWorkspace.CHUNK_WIDTH;
+        int minY = Math.max(workspace.minBuildHeight(), sectionMinY);
+        int maxY = Math.min(workspace.minBuildHeight() + workspace.buildHeight(),
+                sectionMinY + GAChunkWorkspace.CHUNK_WIDTH);
+        int count = 0;
+        for (int y = minY; y < maxY; y++) {
+            int rowBase = (y - workspace.minBuildHeight()) << 8;
+            for (int column = 0; column < GAChunkWorkspace.COLUMN_COUNT; column++) {
+                if (!FastBlockStateCache.isEmpty(blockIds[rowBase | column])) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static long forceFullSectionCopy(
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex
+    ) {
+        int[] source = copyWorkspaceSection(workspace, sectionIndex);
+        LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
+        if (flat != null && flat.bts$copyRawBlockDataForGeneration(source)) {
+            return GAChunkWorkspace.BLOCKS_PER_SECTION;
+        }
+        if (flat != null && flat.bts$getRawBlockData() != null) {
+            throw new IllegalStateException("flat raw section rejected full workspace repair");
+        }
+
+        for (int localY = 0; localY < GAChunkWorkspace.CHUNK_WIDTH; localY++) {
+            for (int localZ = 0; localZ < GAChunkWorkspace.CHUNK_WIDTH; localZ++) {
+                int rowIndex = (localY << 8) | (localZ << 4);
+                for (int localX = 0; localX < GAChunkWorkspace.CHUNK_WIDTH; localX++) {
+                    section.setBlockState(
+                            localX,
+                            localY,
+                            localZ,
+                            FastBlockStateCache.getBlockState(source[rowIndex | localX]),
+                            false
+                    );
+                }
+            }
+        }
+        return GAChunkWorkspace.BLOCKS_PER_SECTION;
+    }
+
+    private static int[] copyWorkspaceSection(GAChunkWorkspace workspace, int sectionIndex) {
+        int[] source = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        Arrays.fill(source, airId());
+
+        int[] blockIds = workspace.blockIds();
+        if (!workspace.blockBufferEnabled() || blockIds == null) {
+            return source;
+        }
+
+        int sectionY = workspace.minSectionY() + sectionIndex;
+        int sectionMinY = sectionY * GAChunkWorkspace.CHUNK_WIDTH;
+        int minY = Math.max(workspace.minBuildHeight(), sectionMinY);
+        int maxY = Math.min(workspace.minBuildHeight() + workspace.buildHeight(),
+                sectionMinY + GAChunkWorkspace.CHUNK_WIDTH);
+        for (int y = minY; y < maxY; y++) {
+            int workspaceBase = (y - workspace.minBuildHeight()) << 8;
+            int sectionBase = (y & 15) << 8;
+            System.arraycopy(blockIds, workspaceBase, source, sectionBase, GAChunkWorkspace.COLUMN_COUNT);
+        }
+        return source;
+    }
+
+    private static int[] allSectionIndices(GAChunkWorkspace workspace) {
+        int[] sections = new int[workspace.sectionCount()];
+        for (int i = 0; i < sections.length; i++) {
+            sections[i] = i;
+        }
+        return sections;
     }
 
     private static LevelChunkSection sectionAt(LevelChunkSection[] sections, int sectionIndex) {
@@ -176,6 +357,29 @@ public final class GAChunkBlockIo {
     private static boolean isSectionAligned(GAChunkWorkspace workspace) {
         return workspace.minBuildHeight() == workspace.minSectionY() * GAChunkWorkspace.CHUNK_WIDTH
                 && workspace.buildHeight() == workspace.sectionCount() * GAChunkWorkspace.CHUNK_WIDTH;
+    }
+
+    private static boolean booleanProperty(String property, boolean fallback) {
+        String value = System.getProperty(property);
+        return value == null ? fallback : Boolean.parseBoolean(value);
+    }
+
+    private static int intProperty(String property, int fallback) {
+        String value = System.getProperty(property);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static boolean shouldDenseCopySection(int dirtyBlocks) {
+        return DENSE_FINAL_SECTION_COPY
+                && DENSE_FINAL_SECTION_COPY_THRESHOLD > 0
+                && dirtyBlocks >= Math.min(GAChunkWorkspace.BLOCKS_PER_SECTION, DENSE_FINAL_SECTION_COPY_THRESHOLD);
     }
 
     private static void validateSameChunk(ChunkAccess chunk, GAChunkWorkspace workspace) {

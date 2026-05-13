@@ -97,6 +97,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         boolean heightmapsDone = false;
         GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
         boolean workspaceTerrainWrites = workspace != null
+                && workspace.blockBufferEnabled()
+                && workspace.chunkX() == chunkPos.x
+                && workspace.chunkZ() == chunkPos.z
                 && GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
                 && GAChunkWorkspaceRuntime.finalRepackEnabled();
         long workspaceTerrainWriteCount = 0L;
@@ -145,13 +148,14 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
 
                                 int stateId = GA$BlockStateExtension.get(blockState).bts$getFastId();
                                 int localIndex = (localY << 8) | (localZ << 4) | localX;
+                                int columnIndex = (localZ << 4) | localX;
                                 boolean wroteWorkspaceOnly = workspaceTerrainWrites
-                                        && GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(
-                                                chunkAccess,
-                                                blockX,
+                                        && workspace.writeTerrainBlockIdWorkspaceOnly(
+                                                ((blockY - workspace.minBuildHeight()) << 8) | columnIndex,
+                                                sectionIndex,
+                                                columnIndex,
                                                 blockY,
-                                                blockZ,
-                                                blockState
+                                                stateId
                                         );
                                 if (wroteWorkspaceOnly) {
                                     workspaceTerrainWriteCount++;
@@ -163,7 +167,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 }
 
                                 if (!heightmapsDone) {
-                                    int columnIndex = (localZ << 4) | localX;
                                     long columnBit = 1L << (columnIndex & 63);
                                     if (columnIndex < 64) {
                                         if ((worldSurfaceDone0 & columnBit) == 0L) {

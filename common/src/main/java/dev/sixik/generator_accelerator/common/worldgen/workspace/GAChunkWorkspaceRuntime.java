@@ -164,21 +164,51 @@ public final class GAChunkWorkspaceRuntime {
                         () -> drainCrossChunkMailbox(chunk));
                 return;
             }
-            if (workspace.hasDirtySections()) {
-                GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
-                        () -> replayFinalRepackPlan(chunk, workspace));
-            }
             GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
-                    () -> drainCrossChunkMailbox(chunk));
+                    () -> {
+                        if (workspace.hasDirtySections()) {
+                            replayFinalRepackPlan(chunk, workspace);
+                        }
+                        drainCrossChunkMailbox(chunk);
+                    });
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            GAChunkWorkspaceMetrics.incrementFinalizeFailures();
-            logFinalizeFailure(chunk, interrupted);
+            handleFinalizeFailure(chunk, workspace, interrupted);
         } catch (ExecutionException | RuntimeException failure) {
-            GAChunkWorkspaceMetrics.incrementFinalizeFailures();
-            logFinalizeFailure(chunk, unwrap(failure));
+            handleFinalizeFailure(chunk, workspace, unwrap(failure));
         } finally {
             workspace.metrics().addFinalizeNanos(System.nanoTime() - start);
+        }
+    }
+
+    private static void handleFinalizeFailure(ChunkAccess chunk, GAChunkWorkspace workspace, Throwable failure) {
+        if (workspace != null && workspace.hasWorkspaceOnlyWrites() && tryEmergencyRepack(chunk, workspace, failure)) {
+            return;
+        }
+        GAChunkWorkspaceMetrics.incrementFinalizeFailures();
+        if (workspace != null && workspace.hasWorkspaceOnlyWrites()) {
+            GAWorkspaceWriteBridge.disableWorkspaceOnlyWritesForSession(
+                    "workspace final repack failed and emergency repair did not complete",
+                    failure
+            );
+        }
+        logFinalizeFailure(chunk, failure);
+    }
+
+    private static boolean tryEmergencyRepack(ChunkAccess chunk, GAChunkWorkspace workspace, Throwable cause) {
+        try {
+            long written = GAChunkBlockIo.emergencyRepackDirtySections(chunk, workspace);
+            GeneratorAccelerator.LOGGER.warn(
+                    "GA chunk workspace final repack failed for {}; emergency replay wrote {} blocks and kept the chunk publishable.",
+                    chunkLabel(chunk),
+                    written,
+                    cause
+            );
+            return true;
+        } catch (RuntimeException emergencyFailure) {
+            GAChunkWorkspaceMetrics.incrementEmergencyRepackFailures();
+            cause.addSuppressed(emergencyFailure);
+            return false;
         }
     }
 

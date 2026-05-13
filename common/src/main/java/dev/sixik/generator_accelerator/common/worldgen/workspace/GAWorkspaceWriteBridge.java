@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -8,6 +9,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Public bridge for optimized code paths that bypass WorldGenRegion#setBlock.
@@ -22,16 +26,50 @@ public final class GAWorkspaceWriteBridge {
             "ga.knownDecorationJournalWrites.enabled",
             CONFIG.enableKnownDecorationJournalWrites
     );
+    private static final boolean WORKSPACE_ONLY_CIRCUIT_BREAKER_ENABLED = booleanProperty(
+            "ga.workspaceOnlyBlockWrites.circuitBreaker.enabled",
+            CONFIG.enableWorkspaceOnlyCircuitBreaker
+    );
+    private static final AtomicBoolean WORKSPACE_ONLY_RUNTIME_DISABLED = new AtomicBoolean();
+    private static final AtomicReference<String> WORKSPACE_ONLY_DISABLE_REASON = new AtomicReference<>();
 
     private GAWorkspaceWriteBridge() {
     }
 
     public static boolean workspaceOnlyWritesEnabled() {
-        return WORKSPACE_ONLY_WRITES_ENABLED;
+        return WORKSPACE_ONLY_WRITES_ENABLED && !WORKSPACE_ONLY_RUNTIME_DISABLED.get();
     }
 
     public static boolean knownDecorationJournalWritesEnabled() {
         return KNOWN_DECORATION_JOURNAL_WRITES_ENABLED;
+    }
+
+    public static boolean workspaceOnlyWritesRuntimeDisabled() {
+        return WORKSPACE_ONLY_RUNTIME_DISABLED.get();
+    }
+
+    public static String workspaceOnlyDisableReason() {
+        return WORKSPACE_ONLY_DISABLE_REASON.get();
+    }
+
+    public static void disableWorkspaceOnlyWritesForSession(String reason, Throwable failure) {
+        if (!WORKSPACE_ONLY_CIRCUIT_BREAKER_ENABLED) {
+            return;
+        }
+        String safeReason = reason == null || reason.isBlank() ? "workspace-only safety circuit breaker" : reason;
+        if (WORKSPACE_ONLY_RUNTIME_DISABLED.compareAndSet(false, true)) {
+            WORKSPACE_ONLY_DISABLE_REASON.set(safeReason);
+            GeneratorAccelerator.LOGGER.warn(
+                    "GA workspace-only block writes disabled for this session: {}",
+                    safeReason,
+                    failure
+            );
+        }
+    }
+
+    public static void resetWorkspaceOnlyCircuitBreakerForTests() {
+        WORKSPACE_ONLY_RUNTIME_DISABLED.set(false);
+        WORKSPACE_ONLY_DISABLE_REASON.set(null);
     }
 
     public static BlockState readCurrent(BlockPos pos) {
@@ -146,6 +184,9 @@ public final class GAWorkspaceWriteBridge {
             boolean workspaceOnly,
             boolean trustedKnownDecoration
     ) {
+        if (workspaceOnly && WORKSPACE_ONLY_RUNTIME_DISABLED.get()) {
+            return false;
+        }
         if (workspaceOnly && !trustedKnownDecoration && !WORKSPACE_ONLY_WRITES_ENABLED) {
             return false;
         }

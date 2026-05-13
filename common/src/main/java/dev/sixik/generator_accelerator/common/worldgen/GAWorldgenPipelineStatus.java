@@ -98,9 +98,15 @@ public final class GAWorldgenPipelineStatus {
         out.put("decorationConflictSchedulerSnapshotRadius", DecorationPipelineExecutor.conflictSchedulerSnapshotRadius());
         out.put("decorationConflictScheduler", DecorationConflictSchedulerMetrics.snapshot());
         out.put("globalWorkspaceOnlyWritesEnabled", GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled());
+        out.put("workspaceOnlyWritesRuntimeDisabled", GAWorkspaceWriteBridge.workspaceOnlyWritesRuntimeDisabled());
+        out.put("workspaceOnlyDisableReason", GAWorkspaceWriteBridge.workspaceOnlyDisableReason());
         out.put("workspaceContextBound", contextBound);
         out.put("workspaceBlockImportRuntime", blockImported);
         out.put("workspaceFinalizeRuntime", finalized);
+        out.put("workspaceFinalDenseSectionCopies", number(workspaceMetrics, "finalRepackDenseSectionCopies"));
+        out.put("workspaceFinalRepackRepairs", number(workspaceMetrics, "finalRepackRepairs"));
+        out.put("workspaceEmergencyRepacks", number(workspaceMetrics, "emergencyRepacks"));
+        out.put("workspaceEmergencyRepackFailures", number(workspaceMetrics, "emergencyRepackFailures"));
         out.put("decorationWorkspaceRuntime", contextBound && DecorationWorkspaceBridge.enabled());
         out.put("knownKernelWorkspaceMirrors", mirroredWrites);
         out.put("workspaceBackedPlacementReads", contextBound && DecorationWorkspaceBridge.enabled());

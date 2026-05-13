@@ -59,6 +59,32 @@ class GAChunkWorkspaceTest {
     }
 
     @Test
+    void trustedTerrainWorkspaceWriteUsesResolvedIndexesAndTracksDirtyDiff() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2), true);
+        workspace.ensureSurfaceBuffer();
+
+        int localX = 2;
+        int y = 5;
+        int localZ = 7;
+        int columnIndex = (localZ << 4) | localX;
+        int workspaceIndex = (y << 8) | columnIndex;
+
+        assertTrue(workspace.writeTerrainBlockIdWorkspaceOnly(workspaceIndex, 0, columnIndex, y, 42));
+
+        assertEquals(42, workspace.blockId(localX, y, localZ));
+        assertEquals(42, workspace.surfaceBlockId(localX, localZ));
+        assertEquals(y, workspace.heightCandidate(localX, localZ));
+        assertEquals(1L, workspace.workspaceOnlyWrites());
+        assertEquals(1, workspace.dirtyBlockCountInSection(0));
+        assertTrue(workspace.isDirtySection(0));
+        assertTrue(workspace.isDirtyBlockColumn(localX, localZ));
+        assertTrue(workspace.isDirtyHeightColumn(localX, localZ));
+        assertTrue(workspace.isDirtySurfaceColumn(localX, localZ));
+        assertTrue(workspace.isDirtyLightColumn(localX, localZ));
+    }
+
+    @Test
     void importBlockIdsFillsFlatBufferWithoutDirtyingSections() {
         GAChunkWorkspace workspace = new GAChunkWorkspace();
         workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));

@@ -137,6 +137,18 @@ public class GAConfig {
     @ConfigComment("Replay dirty workspace block writes through the commit lane during workspace close.")
     public boolean enableWorkspaceFinalRepack = true;
 
+    @ConfigComment("Validate final workspace repack and repair sections that would otherwise look air-only after workspace-only writes.")
+    public boolean enableWorkspaceFinalRepackValidation = true;
+
+    @ConfigComment("Use a full raw section copy for dense workspace final repack sections instead of replaying many individual dirty runs.")
+    public boolean enableWorkspaceDenseFinalSectionCopy = true;
+
+    @ConfigComment("Dirty blocks per section required before dense final repack switches to full raw section copy.")
+    public int workspaceDenseFinalSectionCopyThreshold = 1024;
+
+    @ConfigComment("Disable workspace-only writes for the rest of the session if final repack cannot be repaired safely.")
+    public boolean enableWorkspaceOnlyCircuitBreaker = true;
+
     @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Disabled by default until integrated benchmarks prove it beats direct raw writes.")
     public boolean enableWorkspaceOnlyBlockWrites = false;
 
