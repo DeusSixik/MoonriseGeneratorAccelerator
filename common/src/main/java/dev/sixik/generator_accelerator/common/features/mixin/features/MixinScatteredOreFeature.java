@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
 import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
@@ -124,7 +125,14 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
 
                 BlockState currentState = null;
                 int currentStateId;
-                if (cachedRaw != null) {
+                Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(
+                        mutablePos.getX(),
+                        mutablePos.getY(),
+                        mutablePos.getZ()
+                );
+                if (workspaceStateId != null) {
+                    currentStateId = workspaceStateId;
+                } else if (cachedRaw != null) {
                     currentStateId = cachedRaw[sectionIndex];
                 } else {
                     currentState = cachedSection.getBlockState(localX, localY, localZ);
@@ -147,7 +155,19 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
 
                     if (ga$shouldSkipAirCheck(random, airChance)
                             || !ga$isAdjacentToAir(access, cachedSection, cachedRaw, airStates, mutablePos, localX, localY, localZ, sectionIndex)) {
-                        ga$commitPlacement(cachedSection, cachedRaw, target, currentStateId, airStates, placementMayBeAir, localX, localY, localZ, sectionIndex);
+                        ga$commitPlacement(
+                                cachedSection,
+                                cachedRaw,
+                                mutablePos,
+                                target,
+                                currentStateId,
+                                airStates,
+                                placementMayBeAir,
+                                localX,
+                                localY,
+                                localZ,
+                                sectionIndex
+                        );
                         placedAny = true;
                         break;
                     }
@@ -274,6 +294,7 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
     private static void ga$commitPlacement(
             LevelChunkSection section,
             int[] raw,
+            BlockPos.MutableBlockPos pos,
             FastTarget target,
             int previousStateId,
             boolean[] airStates,
@@ -283,12 +304,16 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
             int localZ,
             int sectionIndex
     ) {
+        BlockState placementState = target.placementState();
+        if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(null, pos, placementState)) {
+            return;
+        }
         if (raw != null && (!placementMayBeAir || airStates[previousStateId] == airStates[target.placementStateId()])) {
             raw[sectionIndex] = target.placementStateId();
             return;
         }
 
-        section.setBlockState(localX, localY, localZ, target.placementState(), false);
+        section.setBlockState(localX, localY, localZ, placementState, false);
     }
 
     @Unique
@@ -306,6 +331,15 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
         int globalX = pos.getX();
         int globalY = pos.getY();
         int globalZ = pos.getZ();
+
+        if (GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ) != null) {
+            return ga$isAirAt(access, airStates, globalX + 1, globalY, globalZ, pos)
+                    || ga$isAirAt(access, airStates, globalX - 1, globalY, globalZ, pos)
+                    || ga$isAirAt(access, airStates, globalX, globalY + 1, globalZ, pos)
+                    || ga$isAirAt(access, airStates, globalX, globalY - 1, globalZ, pos)
+                    || ga$isAirAt(access, airStates, globalX, globalY, globalZ + 1, pos)
+                    || ga$isAirAt(access, airStates, globalX, globalY, globalZ - 1, pos);
+        }
 
         if (raw != null) {
             if (localX > 0) {
@@ -374,6 +408,11 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
             int globalZ,
             BlockPos.MutableBlockPos pos
     ) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ);
+        if (workspaceStateId != null) {
+            return airStates[workspaceStateId];
+        }
+
         pos.set(globalX, globalY, globalZ);
         LevelChunkSection neighborSection = access.getSection(pos);
         if (neighborSection == null) {

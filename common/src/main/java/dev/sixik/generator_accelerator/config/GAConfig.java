@@ -60,9 +60,83 @@ public class GAConfig {
     @ConfigComment("Adaptive worldgen governor CPU target for compile throttling under generation pressure.")
     public double schedulerCpuTarget = 0.85D;
 
+    @ConfigComment("Enable GA async chunk-status dispatch. This moves synchronous vanilla generation stages onto GA scheduler lanes.")
+    public boolean enableChunkStatusPipeline = true;
+
+    @ConfigComment("Enable striped CAS guards around cross-chunk chunk-status writers.")
+    public boolean chunkPipelineGuards = true;
+
+    @ConfigComment("Run ChunkGenerator.createBiomes on the GA workspace lane instead of the vanilla background executor.")
+    public boolean chunkPipelineBiomes = true;
+
+    public boolean chunkPipelineNoise = true;
+
+    public boolean chunkPipelineStructureStarts = true;
+
+    public boolean chunkPipelineStructureReferences = true;
+
+    public boolean chunkPipelineSurface = true;
+
+    public boolean chunkPipelineCarvers = true;
+
+    public boolean chunkPipelineFeatures = true;
+
+    public boolean chunkPipelineSpawn = true;
+
+    @ConfigComment("Minimum guarded write radius for feature generation in chunks.")
+    public int chunkPipelineFeatureMinWriteRadius = 1;
+
+    @ConfigComment("Minimum guarded write radius for spawn generation in chunks.")
+    public int chunkPipelineSpawnMinWriteRadius = 1;
+
+    @ConfigComment("Striped CAS guard slots for chunk-status write admission. Rounded up to a power of two.")
+    public int chunkPipelineGuardStripes = 65536;
+
+    @ConfigComment("Spin attempts before a guarded chunk-status writer parks briefly.")
+    public int chunkPipelineGuardFastSpins = 128;
+
+    @ConfigComment("Maximum nanos to park while waiting for a guarded chunk-status region.")
+    public long chunkPipelineGuardMaxParkNanos = 250000L;
+
+    @ConfigComment("Enable GA custom chunk graph scheduler. This bypasses the vanilla layer-barrier worldgen mailbox and schedules ready DAG nodes directly.")
+    public boolean enableCustomChunkGraphScheduler = true;
+
+    @ConfigComment("Load the full generation-radius EMPTY dependency shell before building a custom chunk DAG.")
+    public boolean chunkGraphEagerEmptyRadius = true;
+
+    @ConfigComment("Coalesce overlapping custom chunk graph nodes that request the same holder/status future.")
+    public boolean chunkGraphCoalesceInFlight = true;
+
+    @ConfigComment("Lock-free in-flight step coalescing bucket count. Rounded up to a power of two.")
+    public int chunkGraphInFlightBuckets = 65536;
+
+    @ConfigComment("Lock-free in-flight step coalescing ways per bucket before falling back to direct scheduling.")
+    public int chunkGraphInFlightWays = 4;
+
     @ConfigComment("Max GA chunk workspaces allowed in-flight. 0 = auto.")
     public int maxInFlightWorkspaces = 0;
 
     @ConfigComment("Max retained bytes per GA chunk workspace before shrink. 0 = auto.")
     public long workspaceMaxRetainedBytes = 0L;
+
+    @ConfigComment("Bind imported GA chunk workspaces around controlled runtime worldgen statuses.")
+    public boolean enableChunkWorkspaceRuntime = true;
+
+    @ConfigComment("Mirror WorldGenRegion and GA decoration writes into the active chunk workspace.")
+    public boolean enableDecorationWorkspaceBridge = true;
+
+    @ConfigComment("Replay dirty workspace block writes through the commit lane during workspace close.")
+    public boolean enableWorkspaceFinalRepack = true;
+
+    @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Disabled by default until integrated benchmarks prove it beats direct raw writes.")
+    public boolean enableWorkspaceOnlyBlockWrites = false;
+
+    @ConfigComment("Route workspace-only neighbor chunk writes through a deterministic owner mailbox.")
+    public boolean enableCrossChunkMailboxRuntime = true;
+
+    @ConfigComment("Maximum queued cross-chunk mailbox block writes. 0 = unlimited.")
+    public int crossChunkMailboxMaxQueuedCommands = 262144;
+
+    @ConfigComment("Enable runtime dispatch for explicit transaction-sandbox worldgen units.")
+    public boolean enableTransactionSandboxRuntime = true;
 }

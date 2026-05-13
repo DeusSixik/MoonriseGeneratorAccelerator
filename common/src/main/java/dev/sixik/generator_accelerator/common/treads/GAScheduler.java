@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.treads;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 
@@ -118,6 +120,7 @@ public final class GAScheduler {
 
     public static <T> CompletableFuture<T> supplyAsync(Lane lane, Supplier<T> supplier) {
         ensureInitialized();
+        Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
         ForkJoinPool pool = forkJoinPool(lane);
@@ -133,7 +136,7 @@ public final class GAScheduler {
                 if (lane.canInlineWhenBacklogged()) {
                     INLINE_RUNS.incrementAndGet(index);
                     try {
-                        return CompletableFuture.completedFuture(runGoverned(lane, supplier));
+                        return CompletableFuture.completedFuture(runGoverned(lane, task));
                     } catch (Throwable throwable) {
                         return failedFuture(throwable);
                     }
@@ -151,7 +154,7 @@ public final class GAScheduler {
         try {
             CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
                 releaseQueueSlotIfHeld(lane, queueSlotHeld);
-                return runGoverned(lane, supplier);
+                return runGoverned(lane, task);
             }, pool);
             if (queueSlotHeld != null) {
                 future.whenComplete((ignored, failure) -> releaseQueueSlotIfHeld(lane, queueSlotHeld));
@@ -163,7 +166,7 @@ public final class GAScheduler {
             if (lane.canInlineWhenBacklogged()) {
                 INLINE_RUNS.incrementAndGet(index);
                 try {
-                    return CompletableFuture.completedFuture(runGoverned(lane, supplier));
+                    return CompletableFuture.completedFuture(runGoverned(lane, task));
                 } catch (Throwable throwable) {
                     rejected.addSuppressed(throwable);
                     return failedFuture(rejected);
@@ -335,7 +338,22 @@ public final class GAScheduler {
         if (lane == Lane.COMPILE) {
             return runCompileGoverned(supplier);
         }
+        if (lane.canThrottleWorldgen()) {
+            return runWorldgenGoverned(lane, supplier);
+        }
         return runMeasured(lane, supplier);
+    }
+
+    private static <T> Supplier<T> wrapWorkspaceContext(Supplier<T> supplier) {
+        GAChunkWorkspace capturedWorkspace = GAChunkWorkspaceContext.current();
+        if (capturedWorkspace == null) {
+            return supplier;
+        }
+        return () -> {
+            try (GAChunkWorkspaceContext.Scope ignored = GAChunkWorkspaceContext.bind(capturedWorkspace)) {
+                return supplier.get();
+            }
+        };
     }
 
     private static <T> T runCompileGoverned(Supplier<T> supplier) {
@@ -370,6 +388,41 @@ public final class GAScheduler {
         } finally {
             COMPILE_GOVERNOR_RUNNING.decrementAndGet();
         }
+    }
+
+    private static <T> T runWorldgenGoverned(Lane lane, Supplier<T> supplier) {
+        long waitStart = 0L;
+        boolean throttled = false;
+        for (;;) {
+            int limit = worldgenActiveLimit(configSnapshot);
+            long active = activeWorldgenWorkers();
+            if (active < limit) {
+                break;
+            }
+            if (!throttled) {
+                throttled = true;
+                waitStart = System.nanoTime();
+                GOVERNOR_THROTTLED.incrementAndGet(lane.ordinal());
+            }
+            LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(250L));
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+                throw new RejectedExecutionException("GA scheduler " + lane.jsonName()
+                        + " lane interrupted while throttled by worldgen governor");
+            }
+        }
+        if (throttled) {
+            GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), System.nanoTime() - waitStart);
+        }
+        return runMeasured(lane, supplier);
+    }
+
+    private static long activeWorldgenWorkers() {
+        long active = 0L;
+        for (Lane lane : Lane.worldgenThrottleLanes()) {
+            active += ACTIVE[lane.ordinal()].get();
+        }
+        return active;
     }
 
     private static <T> T runMeasured(Lane lane, Supplier<T> supplier) {
@@ -481,6 +534,10 @@ public final class GAScheduler {
         );
     }
 
+    private static int worldgenActiveLimit(ConfigSnapshot config) {
+        return Math.max(1, (int) Math.ceil(worldgenWorkers(config) * config.cpuTarget()));
+    }
+
     private static boolean tryReserveQueueSlot(Lane lane, int maxQueuedTasks) {
         int index = lane.ordinal();
         AtomicInteger queued = ADMITTED_QUEUED[index];
@@ -569,8 +626,16 @@ public final class GAScheduler {
             return this == COMPILE;
         }
 
+        boolean canThrottleWorldgen() {
+            return this == NOISE || this == WORKSPACE || this == TRANSACTIONAL;
+        }
+
         static Lane[] worldgenPressureLanes() {
             return new Lane[]{NOISE, WORKSPACE, TRANSACTIONAL, SERIAL, COMMIT};
+        }
+
+        static Lane[] worldgenThrottleLanes() {
+            return new Lane[]{NOISE, WORKSPACE, TRANSACTIONAL};
         }
     }
 
@@ -590,10 +655,12 @@ public final class GAScheduler {
         }
 
         static ConfigSnapshot from(GAConfig config, int processors, boolean isDev) {
-            int defaultNoise = Math.max(1, processors - (isDev ? 0 : 1));
-            int defaultCompile = Math.min(4, Math.max(1, processors / 2));
-            int defaultWorkspace = Math.min(Math.max(1, processors / 2), defaultNoise);
-            int defaultTransactional = defaultWorkspace;
+            int worldgenBudget = Math.max(2, processors - (isDev ? 0 : 1));
+            int activeWorldgenBudget = Math.max(1, worldgenBudget - 2);
+            int defaultNoise = Math.max(1, Math.round(activeWorldgenBudget * 0.60F));
+            int defaultWorkspace = Math.max(1, Math.round(activeWorldgenBudget * 0.30F));
+            int defaultTransactional = Math.max(1, activeWorldgenBudget - defaultNoise - defaultWorkspace);
+            int defaultCompile = Math.min(4, Math.max(1, processors / 3));
             return new ConfigSnapshot(
                     positiveOrDefault(config.schedulerNoiseWorkers, defaultNoise),
                     positiveOrDefault(config.schedulerCompileWorkers, defaultCompile),

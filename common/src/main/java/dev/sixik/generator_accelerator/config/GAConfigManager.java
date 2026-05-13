@@ -89,8 +89,35 @@ public class GAConfigManager {
         config.schedulerCommitWorkers = intOverride("ga.config.schedulerCommitWorkers", config.schedulerCommitWorkers);
         config.schedulerMaxQueuedTasks = intOverride("ga.config.schedulerMaxQueuedTasks", config.schedulerMaxQueuedTasks);
         config.schedulerCpuTarget = doubleOverride("ga.config.schedulerCpuTarget", config.schedulerCpuTarget);
+        config.enableChunkStatusPipeline = boolOverride("ga.config.enableChunkStatusPipeline", config.enableChunkStatusPipeline);
+        config.chunkPipelineGuards = boolOverride("ga.config.chunkPipelineGuards", config.chunkPipelineGuards);
+        config.chunkPipelineBiomes = boolOverride("ga.config.chunkPipelineBiomes", config.chunkPipelineBiomes);
+        config.chunkPipelineNoise = boolOverride("ga.config.chunkPipelineNoise", config.chunkPipelineNoise);
+        config.chunkPipelineStructureStarts = boolOverride("ga.config.chunkPipelineStructureStarts", config.chunkPipelineStructureStarts);
+        config.chunkPipelineStructureReferences = boolOverride("ga.config.chunkPipelineStructureReferences", config.chunkPipelineStructureReferences);
+        config.chunkPipelineSurface = boolOverride("ga.config.chunkPipelineSurface", config.chunkPipelineSurface);
+        config.chunkPipelineCarvers = boolOverride("ga.config.chunkPipelineCarvers", config.chunkPipelineCarvers);
+        config.chunkPipelineFeatures = boolOverride("ga.config.chunkPipelineFeatures", config.chunkPipelineFeatures);
+        config.chunkPipelineSpawn = boolOverride("ga.config.chunkPipelineSpawn", config.chunkPipelineSpawn);
+        config.chunkPipelineFeatureMinWriteRadius = intOverride("ga.config.chunkPipelineFeatureMinWriteRadius", config.chunkPipelineFeatureMinWriteRadius);
+        config.chunkPipelineSpawnMinWriteRadius = intOverride("ga.config.chunkPipelineSpawnMinWriteRadius", config.chunkPipelineSpawnMinWriteRadius);
+        config.chunkPipelineGuardStripes = intOverride("ga.config.chunkPipelineGuardStripes", config.chunkPipelineGuardStripes);
+        config.chunkPipelineGuardFastSpins = intOverride("ga.config.chunkPipelineGuardFastSpins", config.chunkPipelineGuardFastSpins);
+        config.chunkPipelineGuardMaxParkNanos = longOverride("ga.config.chunkPipelineGuardMaxParkNanos", config.chunkPipelineGuardMaxParkNanos);
+        config.enableCustomChunkGraphScheduler = boolOverride("ga.config.enableCustomChunkGraphScheduler", config.enableCustomChunkGraphScheduler);
+        config.chunkGraphEagerEmptyRadius = boolOverride("ga.config.chunkGraphEagerEmptyRadius", config.chunkGraphEagerEmptyRadius);
+        config.chunkGraphCoalesceInFlight = boolOverride("ga.config.chunkGraphCoalesceInFlight", config.chunkGraphCoalesceInFlight);
+        config.chunkGraphInFlightBuckets = intOverride("ga.config.chunkGraphInFlightBuckets", config.chunkGraphInFlightBuckets);
+        config.chunkGraphInFlightWays = intOverride("ga.config.chunkGraphInFlightWays", config.chunkGraphInFlightWays);
         config.maxInFlightWorkspaces = intOverride("ga.config.maxInFlightWorkspaces", config.maxInFlightWorkspaces);
         config.workspaceMaxRetainedBytes = longOverride("ga.config.workspaceMaxRetainedBytes", config.workspaceMaxRetainedBytes);
+        config.enableChunkWorkspaceRuntime = boolOverride("ga.config.enableChunkWorkspaceRuntime", config.enableChunkWorkspaceRuntime);
+        config.enableDecorationWorkspaceBridge = boolOverride("ga.config.enableDecorationWorkspaceBridge", config.enableDecorationWorkspaceBridge);
+        config.enableWorkspaceFinalRepack = boolOverride("ga.config.enableWorkspaceFinalRepack", config.enableWorkspaceFinalRepack);
+        config.enableWorkspaceOnlyBlockWrites = boolOverride("ga.config.enableWorkspaceOnlyBlockWrites", config.enableWorkspaceOnlyBlockWrites);
+        config.enableCrossChunkMailboxRuntime = boolOverride("ga.config.enableCrossChunkMailboxRuntime", config.enableCrossChunkMailboxRuntime);
+        config.crossChunkMailboxMaxQueuedCommands = intOverride("ga.config.crossChunkMailboxMaxQueuedCommands", config.crossChunkMailboxMaxQueuedCommands);
+        config.enableTransactionSandboxRuntime = boolOverride("ga.config.enableTransactionSandboxRuntime", config.enableTransactionSandboxRuntime);
     }
 
     private static boolean boolOverride(String property, boolean fallback) {
@@ -148,5 +175,13 @@ public class GAConfigManager {
         config.enablePalettedContainerPatch = enabled;
         config.enableStructuresPatch = enabled;
         config.enableSurfacePatch = enabled;
+        config.enableChunkStatusPipeline = enabled;
+        config.enableCustomChunkGraphScheduler = enabled;
+        config.enableChunkWorkspaceRuntime = enabled;
+        config.enableDecorationWorkspaceBridge = enabled;
+        config.enableWorkspaceFinalRepack = enabled;
+        config.enableWorkspaceOnlyBlockWrites = enabled;
+        config.enableCrossChunkMailboxRuntime = enabled;
+        config.enableTransactionSandboxRuntime = enabled;
     }
 }

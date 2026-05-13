@@ -69,6 +69,8 @@ public final class GAChunkWorkspace {
     private boolean carverReady;
     private boolean terrainFinalized;
     private boolean heightCandidatesDirty;
+    private long mirroredWrites;
+    private long workspaceOnlyWrites;
 
     public GAChunkWorkspace() {
         this(DEFAULT_MAX_RETAINED_BLOCK_INTS, DEFAULT_MAX_RETAINED_HEIGHT_INTS, DEFAULT_MAX_RETAINED_DIRTY_WORDS);
@@ -199,7 +201,7 @@ public final class GAChunkWorkspace {
         if (index >= blockCapacity) {
             throw new IndexOutOfBoundsException("block buffer is not sized for y=" + y);
         }
-        blockIds[index] = blockId;
+        setBlockIdRaw(index, blockId);
         markDirtyBlock(localX, y, localZ);
     }
 
@@ -212,9 +214,25 @@ public final class GAChunkWorkspace {
         if (blockIds[index] == blockId) {
             return false;
         }
-        blockIds[index] = blockId;
+        setBlockIdRaw(index, blockId);
         markDirtyBlock(localX, y, localZ);
         return true;
+    }
+
+    public boolean setBlockIdMirroredIfChanged(int localX, int y, int localZ, int blockId) {
+        boolean changed = setBlockIdIfChanged(localX, y, localZ, blockId);
+        if (changed) {
+            mirroredWrites++;
+        }
+        return changed;
+    }
+
+    public boolean setBlockIdWorkspaceOnlyIfChanged(int localX, int y, int localZ, int blockId) {
+        boolean changed = setBlockIdIfChanged(localX, y, localZ, blockId);
+        if (changed) {
+            workspaceOnlyWrites++;
+        }
+        return changed;
     }
 
     public int blockId(int localX, int y, int localZ) {
@@ -397,6 +415,28 @@ public final class GAChunkWorkspace {
         return writtenBlocks;
     }
 
+    public long copyDirtyBlockSectionToRaw(int sectionIndex, int[] target) {
+        if (target == null) {
+            throw new NullPointerException("target");
+        }
+        requireBlockBuffer();
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            throw new IndexOutOfBoundsException("section index outside workspace: " + sectionIndex);
+        }
+        if (target.length < BLOCKS_PER_SECTION) {
+            throw new IllegalArgumentException("target section buffer is too small");
+        }
+        if (!isDirtySection(sectionIndex)) {
+            return 0L;
+        }
+
+        long start = System.nanoTime();
+        System.arraycopy(blockIds, sectionIndex * BLOCKS_PER_SECTION, target, 0, BLOCKS_PER_SECTION);
+        clearDirtySection(sectionIndex);
+        metrics.addRepackNanos(System.nanoTime() - start);
+        return BLOCKS_PER_SECTION;
+    }
+
     public void clearCommittedBlockDirties() {
         clearDirtySections();
         clearDirtyBlockColumns();
@@ -536,6 +576,18 @@ public final class GAChunkWorkspace {
         bytes += retainedLongBytes(dirtySurfaceColumnWords);
         bytes += retainedLongBytes(dirtyLightColumnWords);
         return bytes;
+    }
+
+    public long mirroredWrites() {
+        return mirroredWrites;
+    }
+
+    public long workspaceOnlyWrites() {
+        return workspaceOnlyWrites;
+    }
+
+    public boolean hasWorkspaceOnlyWrites() {
+        return workspaceOnlyWrites > 0L;
     }
 
     public GAChunkWorkspaceMetrics metrics() {
@@ -784,6 +836,8 @@ public final class GAChunkWorkspace {
         carverReady = false;
         terrainFinalized = false;
         heightCandidatesDirty = false;
+        mirroredWrites = 0L;
+        workspaceOnlyWrites = 0L;
         imported = false;
     }
 
@@ -892,6 +946,13 @@ public final class GAChunkWorkspace {
         if (!imported) {
             throw new IllegalStateException("workspace metadata is not imported");
         }
+    }
+
+    private void setBlockIdRaw(int index, int blockId) {
+        if (blockId < 0) {
+            throw new IllegalArgumentException("blockId must be non-negative");
+        }
+        blockIds[index] = blockId;
     }
 
     private void clearDirtySections() {

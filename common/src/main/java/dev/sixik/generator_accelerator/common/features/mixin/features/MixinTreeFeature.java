@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import dev.sixik.generator_accelerator.common.features.TreeFeatureScratch;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -87,7 +88,7 @@ public abstract class MixinTreeFeature {
                 BoundingBox box = bts$calculateBoundingBox(foliage, roots, trunks, decorators);
 
                 if (box != null) {
-                    DiscreteVoxelShape shape = bts$updateLeavesFast(level, box, roots, trunks, foliage, scratch.mutablePos);
+                    DiscreteVoxelShape shape = bts$updateLeavesFast(level, box, roots, trunks, decorators, scratch.mutablePos);
                     StructureTemplate.updateShapeAtEdge(level, 3, shape, box.minX(), box.minY(), box.minZ());
                     return true;
                 }
@@ -108,20 +109,20 @@ public abstract class MixinTreeFeature {
             BoundingBox box,
             LongArrayList roots,
             LongArrayList trunks,
-            LongOpenHashSet foliage,
+            LongArrayList decorators,
             BlockPos.MutableBlockPos mPos
     ) {
         DiscreteVoxelShape shape = new BitSetDiscreteVoxelShape(box.getXSpan(), box.getYSpan(), box.getZSpan());
 
-        bts$fillShape(shape, box, trunks);
-        bts$fillShape(shape, box, foliage);
+        bts$fillShape(shape, box, roots);
+        bts$fillShape(shape, box, decorators);
 
         LongArrayList[] queues = BTS$SHARED_QUEUES.get();
         for (int i = 0; i < 7; i++)
             queues[i].clear();
 
-        for (int i = 0; i < roots.size(); i++) {
-            queues[0].add(roots.getLong(i));
+        for (int i = 0; i < trunks.size(); i++) {
+            queues[0].add(trunks.getLong(i));
         }
 
         int currentDist = 0;
@@ -165,7 +166,9 @@ public abstract class MixinTreeFeature {
                                 BlockState state = section.getBlockState(lx, ly, lz);
                                 if (state.hasProperty(BlockStateProperties.DISTANCE)) {
                                     // Запись без ванильных локов (false)!
-                                    section.setBlockState(lx, ly, lz, state.setValue(BlockStateProperties.DISTANCE, currentDist), false);
+                                    BlockState updatedState = state.setValue(BlockStateProperties.DISTANCE, currentDist);
+                                    section.setBlockState(lx, ly, lz, updatedState, false);
+                                    GAWorkspaceWriteBridge.mirrorCurrent(null, mPos, updatedState);
                                 }
                             }
                         }

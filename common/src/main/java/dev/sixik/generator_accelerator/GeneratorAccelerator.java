@@ -18,7 +18,7 @@ public final class GeneratorAccelerator {
         GeneratorAccelerator.platform = platform;
         GADiagnostics.onModInit();
         GAScheduler.init(isDev);
-        CUSTOM_POOL = Boolean.getBoolean("ga.scheduler.overrideNoiseExecutor") ? GAScheduler.noisePool() : null;
+        CUSTOM_POOL = Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")) ? GAScheduler.noisePool() : null;
     }
 
     public static void tryLoadNatives() {

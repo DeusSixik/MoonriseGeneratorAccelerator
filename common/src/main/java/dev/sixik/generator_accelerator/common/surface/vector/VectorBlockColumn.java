@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.block.Blocks;
@@ -57,6 +58,7 @@ public class VectorBlockColumn implements BlockColumn {
         LevelHeightAccessor levelheightaccessor = this.pChunk.getHeightAccessorForGeneration();
         if (y >= levelheightaccessor.getMinBuildHeight() && y < levelheightaccessor.getMaxBuildHeight()) {
             this.pChunk.setBlockState(this.columnPos.setY(y), state, false);
+            GAWorkspaceWriteBridge.mirrorCurrent(this.pChunk, this.columnPos, state);
             if (!state.getFluidState().isEmpty()) {
                 this.pChunk.markPosForPostprocessing(this.columnPos);
             }

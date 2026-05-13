@@ -35,6 +35,12 @@ public interface LevelChunkSection$FlatBlockArray {
     boolean bts$setRawBlockStateForGeneration(int index, int stateId);
 
     /**
+     * Bulk replace a raw section and update vanilla block/fluid counters.
+     * Returns false when the section is not unpacked.
+     */
+    boolean bts$copyRawBlockDataForGeneration(int[] source);
+
+    /**
      * Returns true when the raw section contains any block state with vanilla light emission.
      * Falls back to vanilla palette scanning when the section is not unpacked.
      */

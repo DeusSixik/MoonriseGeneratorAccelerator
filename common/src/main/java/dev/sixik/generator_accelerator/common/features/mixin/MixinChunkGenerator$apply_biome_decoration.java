@@ -187,7 +187,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 if (set.size() == 1) {
                     long maskCombineStart = DecorationPipelineMetrics.startTimer();
                     decorationScratch.addBiomeFeatureData(
-                            featureCache.featureDataFor(set.iterator().next(), this.generationSettingsGetter),
+                            featureCache.featureDataFor(this.ga$canonicalBiomeHolder(set.iterator().next(), possibleBiomes), this.generationSettingsGetter),
                             featureCache.featureMaskWordsByStep
                     );
                     DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.OUTER_MASK_COMBINE_NANOS, maskCombineStart);
@@ -197,7 +197,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                         long maskCombineStart = DecorationPipelineMetrics.startTimer();
                         for (Holder<Biome> biome : set) {
                             decorationScratch.addBiomeFeatureData(
-                                    featureCache.featureDataFor(biome, this.generationSettingsGetter),
+                                    featureCache.featureDataFor(this.ga$canonicalBiomeHolder(biome, possibleBiomes), this.generationSettingsGetter),
                                     featureCache.featureMaskWordsByStep
                             );
                         }
@@ -449,9 +449,24 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             ObjectArraySet<Holder<Biome>> biomesOut,
             Set<Holder<Biome>> possibleBiomes
     ) {
+        biomesOut.add(this.ga$canonicalBiomeHolder(biome, possibleBiomes));
+    }
+
+    @Unique
+    private Holder<Biome> ga$canonicalBiomeHolder(
+            Holder<Biome> biome,
+            Set<Holder<Biome>> possibleBiomes
+    ) {
         if (possibleBiomes.contains(biome)) {
-            biomesOut.add(biome);
+            return biome;
         }
+
+        for (Holder<Biome> possibleBiome : possibleBiomes) {
+            if (possibleBiome.equals(biome)) {
+                return possibleBiome;
+            }
+        }
+        return biome;
     }
 
 }

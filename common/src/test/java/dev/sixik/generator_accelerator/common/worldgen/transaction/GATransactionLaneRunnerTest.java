@@ -7,7 +7,15 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCommand;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitOrderKey;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GAPostprocessMarkValue;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GAScheduledTickValue;
+import net.minecraft.SharedConstants;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -22,8 +30,23 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class GATransactionLaneRunnerTest {
+    @BeforeAll
+    static void bootstrap() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
+    @BeforeEach
+    void resetMetrics() {
+        GATransactionRuntimeDispatcher.resetForTests();
+    }
+
     @AfterEach
     void shutdownScheduler() {
         GAScheduler.shutdownForTests();
@@ -132,6 +155,44 @@ class GATransactionLaneRunnerTest {
 
         assertTrue(result.success());
         assertTrue(threadName.get().startsWith("GA-TRANSACTIONAL-"), threadName.get());
+    }
+
+    @Test
+    void runtimeDispatcherCommitsSealedBlockJournal() {
+        ChunkAccess chunk = mock(ChunkAccess.class);
+        when(chunk.getPos()).thenReturn(new ChunkPos(0, 0));
+
+        GATransactionRuntimeDispatcher.DispatchResult result = GATransactionRuntimeDispatcher.dispatchAndCommit(
+                "explicit-unknown",
+                chunk,
+                baseKey(),
+                context -> context.setBlock(1, 2, 3, Blocks.DIRT.defaultBlockState(), 2)
+        );
+
+        assertTrue(result.committed());
+        assertEquals(1, result.acceptedWrites());
+        verify(chunk).setBlockState(eq(new BlockPos(1, 2, 3)), eq(Blocks.DIRT.defaultBlockState()), eq(false));
+        assertEquals(1L, GATransactionRuntimeDispatcher.snapshot().get("dispatched"));
+        assertEquals(1L, GATransactionRuntimeDispatcher.snapshot().get("committed"));
+    }
+
+    @Test
+    void runtimeDispatcherRecordsSerialFallbackForUnsafeUnit() {
+        ChunkAccess chunk = mock(ChunkAccess.class);
+        when(chunk.getPos()).thenReturn(new ChunkPos(0, 0));
+
+        GATransactionRuntimeDispatcher.DispatchResult result = GATransactionRuntimeDispatcher.dispatchAndCommit(
+                "unsafe-unknown",
+                chunk,
+                baseKey(),
+                context -> context.unsupportedWrite("block entity")
+        );
+
+        assertFalse(result.committed());
+        assertTrue(result.serialFallback());
+        assertTrue(result.quarantine());
+        assertEquals(1L, GATransactionRuntimeDispatcher.snapshot().get("serialFallback"));
+        assertEquals(1L, GATransactionRuntimeDispatcher.snapshot().get("quarantined"));
     }
 
     private static GACommitOrderKey baseKey() {

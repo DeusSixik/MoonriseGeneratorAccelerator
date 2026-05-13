@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.compats.terrainsla
 import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.features.FastTarget;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.countered.terrainslabs.block.ModSlabsMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -70,6 +71,9 @@ public abstract class Mixin$TerrainSlabs$OreFeature {
 
                 LevelChunkSection section = access.getSection(pos);
                 if (section != null) {
+                    if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(null, pos, newState)) {
+                        return;
+                    }
                     section.setBlockState(
                             SectionPos.sectionRelative(pos.getX()),
                             SectionPos.sectionRelative(pos.getY()),

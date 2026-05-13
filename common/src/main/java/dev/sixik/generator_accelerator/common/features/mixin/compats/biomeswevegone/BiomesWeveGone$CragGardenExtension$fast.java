@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone;
 
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -92,6 +93,7 @@ public abstract class BiomesWeveGone$CragGardenExtension$fast {
                         mutable.setY(blockY);
                     }
                     chunk.setBlockState(mutable, state, false);
+                    GAWorkspaceWriteBridge.mirrorCurrent(chunk, mutable, state);
                 }
             }
         }

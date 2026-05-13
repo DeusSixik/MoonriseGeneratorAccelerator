@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GAWorldgenPipelineStatusTest {
     @Test
     void snapshotReportsPhaseZeroToTwoRuntimeGates() {
+        dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics.resetGlobal();
+        dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics.resetGlobal();
+        dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionRuntimeDispatcher.resetForTests();
         Map<String, Object> snapshot = GAWorldgenPipelineStatus.snapshot();
 
         assertEquals("adaptive-worldgen-pipeline-status-v1", snapshot.get("schema"));
@@ -34,7 +37,11 @@ class GAWorldgenPipelineStatusTest {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> runtimeGates = (Map<String, Object>) snapshot.get("runtimeGates");
-        assertEquals(false, runtimeGates.get("schedulerNoiseLaneRuntime"));
+        assertEquals(true, runtimeGates.get("customChunkGraphSchedulerRuntime"));
+        assertTrue(runtimeGates.get("customChunkGraphScheduler") instanceof Map<?, ?>);
+        assertEquals(true, runtimeGates.get("chunkStatusPipelineRuntime"));
+        assertTrue(runtimeGates.get("chunkStatusPipeline") instanceof Map<?, ?>);
+        assertEquals(true, runtimeGates.get("schedulerNoiseLaneRuntime"));
         assertEquals(false, runtimeGates.get("workspaceContextBound"));
         assertEquals(false, runtimeGates.get("workspaceBlockImportRuntime"));
         assertEquals(false, runtimeGates.get("workspaceFinalizeRuntime"));

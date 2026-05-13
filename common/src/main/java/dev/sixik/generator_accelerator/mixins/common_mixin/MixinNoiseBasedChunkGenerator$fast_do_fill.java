@@ -3,6 +3,10 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkAccessAccessor;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
@@ -91,6 +95,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         long oceanFloorDone2 = 0L;
         long oceanFloorDone3 = 0L;
         boolean heightmapsDone = false;
+        GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
+        boolean workspaceTerrainWrites = workspace != null
+                && GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
+                && GAChunkWorkspaceRuntime.finalRepackEnabled();
+        long workspaceTerrainWriteCount = 0L;
 
         for (int cellX = 0; cellX < cellCountX; ++cellX) {
             noiseChunk.advanceCellX(cellX);
@@ -136,8 +145,21 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
 
                                 int stateId = GA$BlockStateExtension.get(blockState).bts$getFastId();
                                 int localIndex = (localY << 8) | (localZ << 4) | localX;
-                                if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
-                                    section.setBlockState(localX, localY, localZ, blockState, false);
+                                boolean wroteWorkspaceOnly = workspaceTerrainWrites
+                                        && GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(
+                                                chunkAccess,
+                                                blockX,
+                                                blockY,
+                                                blockZ,
+                                                blockState
+                                        );
+                                if (wroteWorkspaceOnly) {
+                                    workspaceTerrainWriteCount++;
+                                } else {
+                                    if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
+                                        section.setBlockState(localX, localY, localZ, blockState, false);
+                                    }
+                                    GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, blockState);
                                 }
 
                                 if (!heightmapsDone) {
@@ -196,6 +218,10 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         }
 
         noiseChunk.stopInterpolation();
+        if (workspaceTerrainWriteCount > 0L) {
+            workspace.metrics().addTerrainBlockWrites(workspaceTerrainWriteCount);
+            workspace.markTerrainFinalized();
+        }
         return chunkAccess;
     }
 

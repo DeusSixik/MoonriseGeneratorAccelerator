@@ -15,6 +15,7 @@ import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
 import dev.sixik.generator_accelerator.common.features.pipeline.ore.OreTargetPlan;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
@@ -1127,7 +1128,10 @@ final class DecorationPlacementProgram {
 
                 BlockState currentState = null;
                 int currentStateId;
-                if (cachedRaw != null) {
+                Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(x, y, z);
+                if (workspaceStateId != null) {
+                    currentStateId = workspaceStateId;
+                } else if (cachedRaw != null) {
                     currentStateId = cachedRaw[sectionIndex];
                 } else {
                     currentState = cachedSection.getBlockState(localX, localY, localZ);
@@ -1446,7 +1450,10 @@ final class DecorationPlacementProgram {
 
                             int currentStateId;
                             BlockState currentState = null;
-                            if (cachedRaw != null) {
+                            Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(blockX, blockY, blockZ);
+                            if (workspaceStateId != null) {
+                                currentStateId = workspaceStateId;
+                            } else if (cachedRaw != null) {
                                 currentStateId = cachedRaw[sectionIndex];
                             } else {
                                 currentState = cachedSection.getBlockState(localX, localY, localZ);
@@ -1533,18 +1540,30 @@ final class DecorationPlacementProgram {
             int sectionIndex
     ) {
         long start = DecorationPipelineMetrics.startTimer();
+        BlockState placementState = target.placementState();
+        boolean trackWorkspace = DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace());
+        if (trackWorkspace && DecorationWorkspaceBridge.writeCurrentWorkspaceOnly(
+                chunkFor(context, blockX, blockZ),
+                blockX,
+                blockY,
+                blockZ,
+                placementState
+        )) {
+            DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, start);
+            return;
+        }
         if (raw != null && (!placementMayBeAir || airStates[previousStateId] == airStates[target.placementStateId()])) {
             raw[sectionIndex] = target.placementStateId();
         } else {
-            section.setBlockState(localX, localY, localZ, target.placementState(), false);
+            section.setBlockState(localX, localY, localZ, placementState, false);
         }
-        if (DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace())) {
+        if (trackWorkspace) {
             DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(
                     chunkFor(context, blockX, blockZ),
                     blockX,
                     blockY,
                     blockZ,
-                    target.placementState()
+                    placementState
             );
         }
         DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, start);
@@ -1565,6 +1584,15 @@ final class DecorationPlacementProgram {
             int localZ,
             int sectionIndex
     ) {
+        if (GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ) != null) {
+            return isAirAt(access, airStates, globalX + 1, globalY, globalZ, tempPos)
+                    || isAirAt(access, airStates, globalX - 1, globalY, globalZ, tempPos)
+                    || isAirAt(access, airStates, globalX, globalY + 1, globalZ, tempPos)
+                    || isAirAt(access, airStates, globalX, globalY - 1, globalZ, tempPos)
+                    || isAirAt(access, airStates, globalX, globalY, globalZ + 1, tempPos)
+                    || isAirAt(access, airStates, globalX, globalY, globalZ - 1, tempPos);
+        }
+
         if (raw != null) {
             if (localX > 0) {
                 if (airStates[raw[sectionIndex - 1]]) return true;
@@ -1631,6 +1659,11 @@ final class DecorationPlacementProgram {
             int globalZ,
             BlockPos.MutableBlockPos tempPos
     ) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ);
+        if (workspaceStateId != null) {
+            return airStates[workspaceStateId];
+        }
+
         tempPos.set(globalX, globalY, globalZ);
         LevelChunkSection neighborSection = access.getSection(tempPos);
         if (neighborSection == null) {

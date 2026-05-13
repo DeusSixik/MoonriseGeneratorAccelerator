@@ -124,6 +124,16 @@ public final class GAChunkBlockIo {
             throw new IllegalStateException("missing section " + sectionIndex);
         }
 
+        LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
+        int[] raw = flat == null ? null : flat.bts$getRawBlockData();
+        if (raw != null) {
+            return workspace.repackDirtyBlockSection(sectionIndex, (localX, y, localZ, blockId) -> {
+                int index = ((y & 15) << 8) | (localZ << 4) | localX;
+                if (!flat.bts$setRawBlockStateForGeneration(index, blockId)) {
+                    section.setBlockState(localX, y & 15, localZ, FastBlockStateCache.getBlockState(blockId), false);
+                }
+            });
+        }
         return workspace.repackDirtyBlockSection(sectionIndex, (localX, y, localZ, blockId) ->
                 section.setBlockState(localX, y & 15, localZ, FastBlockStateCache.getBlockState(blockId), false));
     }

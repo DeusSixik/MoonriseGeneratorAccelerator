@@ -130,6 +130,25 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         return true;
     }
 
+    @Override
+    public boolean bts$copyRawBlockDataForGeneration(int[] source) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null) {
+            return false;
+        }
+        if (source == null || source.length < bts$RAW_BLOCK_DATA_LENGTH) {
+            throw new IllegalArgumentException("source section buffer is too small");
+        }
+
+        System.arraycopy(source, 0, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
+        this.bts$rawStartedOnlyAir = false;
+        this.bts$rawDirtyOverflow = true;
+        this.bts$rawDirtyIndexCount = 0;
+        this.bts$releaseRawDirtyIndices();
+        this.bts$recomputeRawCounters(raw);
+        return true;
+    }
+
     /**
      * Распаковать данные из {@link net.minecraft.world.level.chunk.PalettedContainer}
      * в плоский массив {@code int[]} для сверхбыстрой генерации.
@@ -521,6 +540,49 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
                 this.tickingFluidCount++;
             }
         }
+    }
+
+    @Unique
+    private void bts$recomputeRawCounters(int[] raw) {
+        short nonAir = 0;
+        short tickBlocks = 0;
+        short tickFluids = 0;
+        int lightEmission = 0;
+        int lastStateId = -1;
+        boolean lastEmpty = true;
+        boolean lastBlockTicking = false;
+        boolean lastFluidEmpty = true;
+        boolean lastFluidTicking = false;
+        boolean lastLight = false;
+
+        for (int i = 0; i < bts$RAW_BLOCK_DATA_LENGTH; i++) {
+            int stateId = raw[i];
+            if (stateId != lastStateId) {
+                lastStateId = stateId;
+                lastEmpty = FastBlockStateCache.isEmpty(stateId);
+                lastBlockTicking = FastBlockStateCache.isRandomlyTickingBlock(stateId);
+                lastFluidEmpty = FastBlockStateCache.isFluidEmpty(stateId);
+                lastFluidTicking = FastBlockStateCache.isRandomlyTickingFluid(stateId);
+                lastLight = FastBlockStateCache.hasLightEmission(stateId);
+            }
+            if (!lastEmpty) {
+                nonAir++;
+                if (lastBlockTicking) {
+                    tickBlocks++;
+                }
+            }
+            if (!lastFluidEmpty && lastFluidTicking) {
+                tickFluids++;
+            }
+            if (lastLight) {
+                lightEmission++;
+            }
+        }
+
+        this.nonEmptyBlockCount = nonAir;
+        this.tickingBlockCount = tickBlocks;
+        this.tickingFluidCount = tickFluids;
+        this.bts$rawLightEmissionCount = lightEmission;
     }
 
     @Unique

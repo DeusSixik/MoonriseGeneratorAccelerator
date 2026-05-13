@@ -13,6 +13,8 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.diagnostics.GAWorldgenDiagnosticsFeedback;
 import dev.sixik.generator_accelerator.common.worldgen.lifecycle.GAOuterLifecycleMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.optimizer.WorldgenOptimizerMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPipeline;
+import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenRegistryScanOrchestrator;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics;
@@ -175,6 +177,8 @@ public final class GADiagnostics {
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
+        GAChunkStatusPipeline.resetMetrics();
+        GACustomChunkGraphScheduler.resetMetrics();
         WorldgenProfileMetrics.reset();
         WorldgenRegistryScanOrchestrator.GLOBAL.reset();
         GACommitMetrics.resetGlobal();
@@ -539,6 +543,7 @@ public final class GADiagnostics {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("summary", GAScheduler.summary());
         out.putAll(GAScheduler.snapshot());
+        out.put("customChunkGraph", GACustomChunkGraphScheduler.snapshot());
         return out;
     }
 

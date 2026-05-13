@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.optimization;
 
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
@@ -76,6 +77,7 @@ public abstract class MixinStructurePiece {
                 int lz = pos.getZ() & 15;
 
                 BlockState oldState = section.setBlockState(lx, ly, lz, blockState);
+                GAWorkspaceWriteBridge.mirrorCurrent(chunk, pos, blockState);
 
                 if (blockState.hasBlockEntity()) {
                     if (chunk.getPersistedStatus().getChunkType() == net.minecraft.world.level.chunk.status.ChunkType.LEVELCHUNK) {

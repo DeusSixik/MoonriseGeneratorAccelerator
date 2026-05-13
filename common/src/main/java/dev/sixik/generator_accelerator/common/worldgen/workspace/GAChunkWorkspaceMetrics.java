@@ -18,6 +18,10 @@ public final class GAChunkWorkspaceMetrics {
     private static final AtomicLong GLOBAL_HEIGHT_UPDATES = new AtomicLong();
     private static final AtomicLong GLOBAL_FINALIZED_WORKSPACES = new AtomicLong();
     private static final AtomicLong GLOBAL_TERRAIN_FAILURES = new AtomicLong();
+    private static final AtomicLong GLOBAL_CONTEXT_BOUND_SESSIONS = new AtomicLong();
+    private static final AtomicLong GLOBAL_MIRRORED_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_SKIPS = new AtomicLong();
 
     private long importNanos;
     private long computeNanos;
@@ -115,6 +119,22 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_TERRAIN_FAILURES.incrementAndGet();
     }
 
+    public static void incrementContextBoundSessions() {
+        GLOBAL_CONTEXT_BOUND_SESSIONS.incrementAndGet();
+    }
+
+    public static void addMirroredBlockWrites(long writes) {
+        GLOBAL_MIRRORED_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
+    }
+
+    public static void addWorkspaceOnlyBlockWrites(long writes) {
+        GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
+    }
+
+    public static void incrementFinalRepackSkips() {
+        GLOBAL_FINAL_REPACK_SKIPS.incrementAndGet();
+    }
+
     void setEstimatedRetainedBytes(long estimatedRetainedBytes) {
         this.estimatedRetainedBytes = estimatedRetainedBytes;
     }
@@ -178,6 +198,10 @@ public final class GAChunkWorkspaceMetrics {
         out.put("heightUpdates", GLOBAL_HEIGHT_UPDATES.get());
         out.put("finalizedWorkspaces", GLOBAL_FINALIZED_WORKSPACES.get());
         out.put("terrainFailures", GLOBAL_TERRAIN_FAILURES.get());
+        out.put("contextBoundSessions", GLOBAL_CONTEXT_BOUND_SESSIONS.get());
+        out.put("mirroredBlockWrites", GLOBAL_MIRRORED_BLOCK_WRITES.get());
+        out.put("workspaceOnlyBlockWrites", GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.get());
+        out.put("finalRepackSkips", GLOBAL_FINAL_REPACK_SKIPS.get());
         return out;
     }
 
@@ -195,5 +219,9 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_HEIGHT_UPDATES.set(0L);
         GLOBAL_FINALIZED_WORKSPACES.set(0L);
         GLOBAL_TERRAIN_FAILURES.set(0L);
+        GLOBAL_CONTEXT_BOUND_SESSIONS.set(0L);
+        GLOBAL_MIRRORED_BLOCK_WRITES.set(0L);
+        GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.set(0L);
+        GLOBAL_FINAL_REPACK_SKIPS.set(0L);
     }
 }

@@ -1,118 +1,101 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
-import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 
 /**
  * Mirrors owned decoration writes into the current chunk workspace.
  */
-final class DecorationWorkspaceBridge {
+public final class DecorationWorkspaceBridge {
+    private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
     private static final boolean CURRENT_WORKSPACE_BRIDGE_ENABLED =
-            Boolean.getBoolean("ga.decorationWorkspace.currentBridge");
+            booleanProperty("ga.decorationWorkspace.currentBridge", CONFIG.enableDecorationWorkspaceBridge);
 
     private DecorationWorkspaceBridge() {
     }
 
-    static BlockState readCurrentWorkspaceBlock(BlockPos pos) {
+    public static boolean enabled() {
+        return CURRENT_WORKSPACE_BRIDGE_ENABLED;
+    }
+
+    public static BlockState readCurrentWorkspaceBlock(BlockPos pos) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return null;
         }
         return readBlock(GAChunkWorkspaceContext.current(), pos);
     }
 
-    static boolean hasCurrentWorkspace() {
+    public static boolean hasCurrentWorkspace() {
         return CURRENT_WORKSPACE_BRIDGE_ENABLED && GAChunkWorkspaceContext.current() != null;
     }
 
-    static boolean hasCurrentWorkspace(GAChunkWorkspace workspace) {
+    public static boolean hasCurrentWorkspace(GAChunkWorkspace workspace) {
         return CURRENT_WORKSPACE_BRIDGE_ENABLED && workspace != null;
     }
 
-    static BlockState readBlock(GAChunkWorkspace workspace, BlockPos pos) {
-        LocalBlock local = localBlock(workspace, null, pos.getX(), pos.getY(), pos.getZ());
-        if (local == null || !workspace.blockBufferEnabled()) {
+    public static BlockState readBlock(GAChunkWorkspace workspace, BlockPos pos) {
+        BlockState state = GAWorkspaceWriteBridge.read(workspace, pos);
+        if (state == null) {
             return null;
         }
-        try {
-            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_READ_HITS);
-            return FastBlockStateCache.getBlockState(workspace.blockId(local.localX(), pos.getY(), local.localZ()));
-        } catch (RuntimeException failure) {
-            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
-            return null;
-        }
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_READ_HITS);
+        return state;
     }
 
-    static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, BlockPos pos, BlockState state) {
+    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, BlockPos pos, BlockState state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return mirrorWrite(GAChunkWorkspaceContext.current(), chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, int x, int y, int z, BlockState state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return mirrorWrite(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    static boolean mirrorWrite(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
-        if (workspace == null || state == null || !workspace.blockBufferEnabled()) {
-            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
-            return false;
-        }
-        LocalBlock local = localBlock(workspace, chunk, x, y, z);
-        if (local == null) {
-            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
-            return false;
-        }
-
-        try {
-            int blockId = Block.getId(state);
-            workspace.setBlockIdIfChanged(local.localX(), y, local.localZ(), blockId);
-            workspace.markDirtyHeightColumn(local.localX(), local.localZ());
-            workspace.markDirtySurfaceColumn(local.localX(), local.localZ());
-            workspace.markDirtyLightColumn(local.localX(), local.localZ());
-            if (!state.isAir()) {
-                int height = workspace.heightCandidate(local.localX(), local.localZ());
-                if (height == GAChunkWorkspace.UNKNOWN_HEIGHT || y >= height) {
-                    workspace.setHeightCandidate(local.localX(), local.localZ(), y);
-                    if (workspace.surfaceBufferEnabled()) {
-                        workspace.setSurfaceBlockId(local.localX(), local.localZ(), blockId);
-                    }
-                }
-            }
+    public static boolean mirrorWrite(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+        if (GAWorkspaceWriteBridge.mirror(workspace, chunk, x, y, z, state)) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRRORS);
             return true;
-        } catch (RuntimeException failure) {
-            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
+        }
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
+        return false;
+    }
+
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, BlockPos pos, BlockState state) {
+        if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
+        return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    private static LocalBlock localBlock(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z) {
-        if (workspace == null) {
-            return null;
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+        if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
+            return false;
         }
-        if (chunk != null && (chunk.getPos().x != workspace.chunkX() || chunk.getPos().z != workspace.chunkZ())) {
-            return null;
-        }
-        if (y < workspace.minBuildHeight() || y >= workspace.minBuildHeight() + workspace.buildHeight()) {
-            return null;
-        }
-        int localX = x - workspace.minBlockX();
-        int localZ = z - workspace.minBlockZ();
-        if ((localX | localZ) < 0 || localX >= GAChunkWorkspace.CHUNK_WIDTH || localZ >= GAChunkWorkspace.CHUNK_WIDTH) {
-            return null;
-        }
-        return new LocalBlock(localX, localZ);
+        return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    private record LocalBlock(int localX, int localZ) {
+    public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+        if (GAWorkspaceWriteBridge.writeWorkspaceOnly(workspace, chunk, x, y, z, state)) {
+            DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRRORS);
+            return true;
+        }
+        DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRROR_SKIPS);
+        return false;
+    }
+
+    private static boolean booleanProperty(String property, boolean fallback) {
+        String value = System.getProperty(property);
+        return value == null ? fallback : Boolean.parseBoolean(value);
     }
 }

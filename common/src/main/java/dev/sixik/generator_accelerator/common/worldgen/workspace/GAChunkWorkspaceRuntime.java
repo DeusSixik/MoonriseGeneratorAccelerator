@@ -2,11 +2,25 @@ package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GABlockPosition;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitBatch;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCollisionPolicy;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCommand;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitEngine;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitOrderKey;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GAFinalRepackValue;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Supplier;
 
 /**
  * Runtime lifecycle wrapper for Phase 1 workspaces.
@@ -16,11 +30,92 @@ import java.util.concurrent.ExecutionException;
  * on the commit lane only if workspace sections became dirty.</p>
  */
 public final class GAChunkWorkspaceRuntime {
+    private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
+    private static final boolean RUNTIME_ENABLED = booleanProperty(
+            "ga.chunkWorkspace.runtime.enabled",
+            CONFIG.enableChunkWorkspaceRuntime
+    );
+    private static final boolean FINAL_REPACK_ENABLED = booleanProperty(
+            "ga.chunkWorkspace.finalRepack.enabled",
+            CONFIG.enableWorkspaceFinalRepack
+    );
+
     private GAChunkWorkspaceRuntime() {
+    }
+
+    public static boolean runtimeEnabled() {
+        return RUNTIME_ENABLED;
+    }
+
+    public static boolean finalRepackEnabled() {
+        return FINAL_REPACK_ENABLED;
+    }
+
+    public static <T> T withImportedWorkspace(ChunkAccess chunk, Supplier<T> task) {
+        Objects.requireNonNull(task, "task");
+        if (!RUNTIME_ENABLED) {
+            return task.get();
+        }
+
+        Session session = acquireImported(chunk);
+        boolean success = false;
+        try {
+            if (!session.active()) {
+                T result = task.get();
+                success = true;
+                return result;
+            }
+            GAChunkWorkspaceMetrics.incrementContextBoundSessions();
+            try (GAChunkWorkspaceContext.Scope ignored = GAChunkWorkspaceContext.bind(session.workspace())) {
+                T result = task.get();
+                success = true;
+                return result;
+            }
+        } finally {
+            if (!success) {
+                session.discard();
+            }
+            session.close();
+        }
+    }
+
+    public static <T> CompletableFuture<T> withImportedWorkspaceFuture(
+            ChunkAccess chunk,
+            Supplier<CompletableFuture<T>> task
+    ) {
+        Objects.requireNonNull(task, "task");
+        if (!RUNTIME_ENABLED) {
+            return requireFuture(task.get());
+        }
+
+        Session session = acquireImported(chunk);
+        if (!session.active()) {
+            return requireFuture(task.get());
+        }
+
+        GAChunkWorkspaceMetrics.incrementContextBoundSessions();
+        CompletableFuture<T> future;
+        try (GAChunkWorkspaceContext.Scope ignored = GAChunkWorkspaceContext.bind(session.workspace())) {
+            future = requireFuture(task.get());
+        } catch (RuntimeException | Error failure) {
+            session.discard();
+            session.close();
+            throw failure;
+        }
+
+        return future.whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                session.discard();
+            }
+            session.close();
+        });
     }
 
     public static Session acquireImported(ChunkAccess chunk) {
         Objects.requireNonNull(chunk, "chunk");
+        if (!RUNTIME_ENABLED) {
+            return Session.empty(chunk);
+        }
 
         GAChunkWorkspace workspace;
         try {
@@ -61,10 +156,20 @@ public final class GAChunkWorkspaceRuntime {
 
         long start = System.nanoTime();
         try {
+            GAChunkWorkspaceMetrics.addMirroredBlockWrites(workspace.mirroredWrites());
+            GAChunkWorkspaceMetrics.addWorkspaceOnlyBlockWrites(workspace.workspaceOnlyWrites());
+            if (!FINAL_REPACK_ENABLED || !workspace.hasWorkspaceOnlyWrites()) {
+                GAChunkWorkspaceMetrics.incrementFinalRepackSkips();
+                GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
+                        () -> drainCrossChunkMailbox(chunk));
+                return;
+            }
             if (workspace.hasDirtySections()) {
                 GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
                         () -> replayFinalRepackPlan(chunk, workspace));
             }
+            GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
+                    () -> drainCrossChunkMailbox(chunk));
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             GAChunkWorkspaceMetrics.incrementFinalizeFailures();
@@ -77,10 +182,49 @@ public final class GAChunkWorkspaceRuntime {
         }
     }
 
+    private static void drainCrossChunkMailbox(ChunkAccess chunk) {
+        GACommitEngine.GACommitExecution<?> execution = GACrossChunkMailboxRuntime.drainBlockWrites(chunk);
+        if (execution != null && !execution.failures().isEmpty()) {
+            throw new IllegalStateException("workspace cross-chunk mailbox commit failed for "
+                    + execution.failures().size() + " block writes");
+        }
+    }
+
     private static void replayFinalRepackPlan(ChunkAccess chunk, GAChunkWorkspace workspace) {
         int[] dirtySections = workspace.dirtySectionIndices();
-        for (int dirtySection : dirtySections) {
-            GAChunkBlockIo.repackDirtySection(chunk, workspace, dirtySection);
+        if (dirtySections.length == 0) {
+            return;
+        }
+
+        List<GACommitCommand<GAFinalRepackValue>> commands = new ArrayList<>(dirtySections.length);
+        for (int localIndex = 0; localIndex < dirtySections.length; localIndex++) {
+            int dirtySection = dirtySections[localIndex];
+            int sectionY = workspace.minSectionY() + dirtySection;
+            commands.add(new GACommitCommand<>(
+                    new GABlockPosition(workspace.minBlockX(), sectionY << 4, workspace.minBlockZ()),
+                    GACommitOrderKey.chunkLocal(
+                            0,
+                            sectionY,
+                            workspace.chunkX(),
+                            workspace.chunkZ(),
+                            localIndex,
+                            localIndex
+                    ),
+                    new GAFinalRepackValue(sectionY, 0L, 0L)
+            ));
+        }
+
+        GACommitEngine.GACommitExecution<GAFinalRepackValue> execution = GACommitEngine.execute(
+                GACommitBatch.of(commands),
+                GACommitCollisionPolicy.FIRST_WRITE_WINS,
+                command -> {
+                    int sectionIndex = command.value().sectionY() - workspace.minSectionY();
+                    GAChunkBlockIo.repackDirtySection(chunk, workspace, sectionIndex);
+                }
+        );
+        if (!execution.failures().isEmpty()) {
+            throw new IllegalStateException("workspace final repack commit failed for "
+                    + execution.failures().size() + " dirty sections");
         }
         workspace.clearCommittedBlockDirties();
     }
@@ -109,6 +253,13 @@ public final class GAChunkWorkspaceRuntime {
             return failure.getCause();
         }
         return failure;
+    }
+
+    private static <T> CompletableFuture<T> requireFuture(CompletableFuture<T> future) {
+        if (future == null) {
+            throw new NullPointerException("worldgen task returned null future");
+        }
+        return future;
     }
 
     private static void logImportFailure(ChunkAccess chunk, Throwable failure) {
@@ -144,6 +295,11 @@ public final class GAChunkWorkspaceRuntime {
         }
     }
 
+    private static boolean booleanProperty(String property, boolean fallback) {
+        String value = System.getProperty(property);
+        return value == null ? fallback : Boolean.parseBoolean(value);
+    }
+
     public static final class Session implements AutoCloseable {
         private final ChunkAccess chunk;
         private final GAChunkWorkspace workspace;
@@ -177,6 +333,10 @@ public final class GAChunkWorkspaceRuntime {
             }
             finalized = true;
             GAChunkWorkspaceRuntime.finalizeWorkspace(chunk, workspace);
+        }
+
+        public void discard() {
+            finalized = true;
         }
 
         @Override

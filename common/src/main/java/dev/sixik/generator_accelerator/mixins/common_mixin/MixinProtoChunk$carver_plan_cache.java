@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.Unique;
 public class MixinProtoChunk$carver_plan_cache implements GA$CarverChunkCache {
 
     @Unique
-    private CarverChunkPlan[] ga$carverChunkPlans;
+    private volatile CarverChunkPlan[] ga$carverChunkPlans;
 
     @Unique
     private long[] ga$carverChunkPlanSeeds;
@@ -47,8 +47,11 @@ public class MixinProtoChunk$carver_plan_cache implements GA$CarverChunkCache {
         }
 
         int size = GenerationStep.Carving.values().length;
-        this.ga$carverChunkPlans = new CarverChunkPlan[size];
-        this.ga$carverChunkPlanSeeds = new long[size];
-        this.ga$carverChunkPlanValid = new boolean[size];
+        CarverChunkPlan[] plans = new CarverChunkPlan[size];
+        long[] seeds = new long[size];
+        boolean[] valid = new boolean[size];
+        this.ga$carverChunkPlanSeeds = seeds;
+        this.ga$carverChunkPlanValid = valid;
+        this.ga$carverChunkPlans = plans;
     }
 }

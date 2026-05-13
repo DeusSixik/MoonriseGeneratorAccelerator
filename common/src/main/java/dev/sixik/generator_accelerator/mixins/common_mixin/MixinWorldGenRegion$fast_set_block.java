@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationWorkspaceBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.WorldGenLevel;
@@ -42,6 +43,10 @@ public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLeve
      */
     @Overwrite
     public BlockState getBlockState(BlockPos blockPos) {
+        BlockState workspaceState = DecorationWorkspaceBridge.readCurrentWorkspaceBlock(blockPos);
+        if (workspaceState != null) {
+            return workspaceState;
+        }
         return this.ga$getCachedChunk(blockPos).getBlockState(blockPos);
     }
 
@@ -51,7 +56,29 @@ public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLeve
      */
     @Overwrite
     public FluidState getFluidState(BlockPos blockPos) {
+        BlockState workspaceState = DecorationWorkspaceBridge.readCurrentWorkspaceBlock(blockPos);
+        if (workspaceState != null) {
+            return workspaceState.getFluidState();
+        }
         return this.ga$getCachedChunk(blockPos).getFluidState(blockPos);
+    }
+
+    @Redirect(
+            method = "setBlock",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/world/level/chunk/ChunkAccess;setBlockState(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/level/block/state/BlockState;"
+            )
+    )
+    private BlockState ga$setBlockStateAndMirrorWorkspace(
+            ChunkAccess chunk,
+            BlockPos pos,
+            BlockState state,
+            boolean moved
+    ) {
+        BlockState previous = chunk.setBlockState(pos, state, moved);
+        DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
+        return previous;
     }
 
     @Unique

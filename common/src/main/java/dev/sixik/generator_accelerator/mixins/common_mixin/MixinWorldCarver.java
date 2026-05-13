@@ -8,6 +8,7 @@ import dev.sixik.generator_accelerator.common.carver.CarverReplaceableCache;
 import dev.sixik.generator_accelerator.common.carver.CanyonSkipChecker;
 import dev.sixik.generator_accelerator.common.carver.CaveSkipChecker;
 import dev.sixik.generator_accelerator.common.carver.MutableFunctionContext;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinNoiseBasedAquiferAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -243,7 +244,10 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             MutableBoolean mutableBoolean
     ) {
         CarverChunkWriter chunkWriter = this.ga$getCarverChunkWriter();
-        int originalStateId = chunkWriter.getStateId(mutableBlockPos);
+        boolean writerActive = chunkWriter.isActive();
+        int originalStateId = writerActive
+                ? chunkWriter.getStateId(mutableBlockPos)
+                : GA$BlockStateExtension.get(chunkAccess.getBlockState(mutableBlockPos)).bts$getFastId();
         CarveStateScratch carveStateScratch = this.ga$getCarveStateScratch();
         boolean restoreSurface = !carveStateScratch.isActive() || carveStateScratch.shouldRestoreSurface();
         if (restoreSurface && (originalStateId == GA$GRASS_STATE_ID || originalStateId == GA$MYCELIUM_STATE_ID)) {
@@ -257,7 +261,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
                 if (originalStateId < 0 || originalStateId >= replaceableStateIds.length || !replaceableStateIds[originalStateId]) {
                     return false;
                 }
-            } else if (!this.canReplaceBlock(carverConfiguration, chunkWriter.getBlockState(mutableBlockPos))) {
+            } else if (!this.canReplaceBlock(carverConfiguration, chunkAccess.getBlockState(mutableBlockPos))) {
                 return false;
             }
         }
@@ -278,6 +282,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             chunkWriter.setStateId(mutableBlockPos, carvedStateId, carvedState);
         } else {
             chunkAccess.setBlockState(mutableBlockPos, carvedState, false);
+            GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, mutableBlockPos, carvedState);
         }
         FluidState carvedFluid = carvedState.getFluidState();
         if (aquifer.shouldScheduleFluidUpdate() && !carvedFluid.isEmpty()) {
@@ -290,7 +295,10 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
 
         if (restoreSurface && mutableBoolean.isTrue()) {
             mutableBlockPos2.setWithOffset(mutableBlockPos, net.minecraft.core.Direction.DOWN);
-            if (chunkWriter.getStateId(mutableBlockPos2) == GA$DIRT_STATE_ID) {
+            int belowStateId = writerActive
+                    ? chunkWriter.getStateId(mutableBlockPos2)
+                    : GA$BlockStateExtension.get(chunkAccess.getBlockState(mutableBlockPos2)).bts$getFastId();
+            if (belowStateId == GA$DIRT_STATE_ID) {
                 Optional<BlockState> topMaterial = carvingContext.topMaterial(function, chunkAccess, mutableBlockPos2, !carvedFluid.isEmpty());
                 if (topMaterial.isPresent()) {
                     BlockState state = topMaterial.get();
@@ -298,6 +306,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
                         chunkWriter.setBlockState(mutableBlockPos2, state);
                     } else {
                         chunkAccess.setBlockState(mutableBlockPos2, state, false);
+                        GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, mutableBlockPos2, state);
                     }
                     if (!state.getFluidState().isEmpty()) {
                         if (chunkWriter.isActive()) {
