@@ -149,7 +149,11 @@ public final class GACustomChunkGraphScheduler {
     }
 
     private static GAScheduler.Lane laneFor(ChunkStatus status) {
-        if (status == ChunkStatus.EMPTY || status == ChunkStatus.FULL) {
+        if (status == ChunkStatus.EMPTY) {
+            // EMPTY loads only submit/load holder futures; do not serialize them behind commit work.
+            return GAScheduler.Lane.WORKSPACE;
+        }
+        if (status == ChunkStatus.FULL) {
             return GAScheduler.Lane.COMMIT;
         }
         if (status == ChunkStatus.FEATURES || status == ChunkStatus.SPAWN) {

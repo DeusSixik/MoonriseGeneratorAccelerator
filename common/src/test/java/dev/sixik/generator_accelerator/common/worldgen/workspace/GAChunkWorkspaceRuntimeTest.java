@@ -127,7 +127,7 @@ class GAChunkWorkspaceRuntimeTest {
     }
 
     @Test
-    void terrainWorkspaceFutureCanUseAirInitializedWorkspace() {
+    void terrainWorkspaceFutureSkipsWhenWorkspaceOnlyWritesAreDisabled() {
         LevelChunkSection section = mock(LevelChunkSection.class);
         when(section.hasOnlyAir()).thenReturn(true);
         ChunkAccess chunk = chunk(section);
@@ -138,9 +138,8 @@ class GAChunkWorkspaceRuntimeTest {
             return CompletableFuture.completedFuture(chunk);
         }).join();
 
-        assertNotNull(captured.get());
-        assertFalse(captured.get().active());
-        assertEquals(1L, metric("terrainAirImports"));
+        assertNull(captured.get());
+        assertEquals(0L, metric("terrainAirImports"));
         verify(section, never()).getBlockState(anyInt(), anyInt(), anyInt());
     }
 
@@ -151,18 +150,17 @@ class GAChunkWorkspaceRuntimeTest {
         ChunkAccess chunk = chunk(section);
         int dirtId = Block.getId(Blocks.DIRT.defaultBlockState());
 
-        GAChunkWorkspaceRuntime.withTerrainWorkspaceFuture(chunk, () -> {
-            GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
-            assertNotNull(workspace);
-            assertTrue(workspace.writeTerrainBlockIdWorkspaceOnlySectionDirty(
-                    (2 << 8) | (3 << 4) | 1,
-                    0,
-                    dirtId
-            ));
-            workspace.metrics().addTerrainBlockWrites(1L);
-            workspace.markTerrainFinalized();
-            return CompletableFuture.completedFuture(chunk);
-        }).join();
+        GAChunkWorkspaceRuntime.Session session = GAChunkWorkspaceRuntime.acquireImported(chunk);
+        GAChunkWorkspace workspace = session.workspace();
+        assertNotNull(workspace);
+        assertTrue(workspace.writeTerrainBlockIdWorkspaceOnlySectionDirty(
+                (2 << 8) | (3 << 4) | 1,
+                0,
+                dirtId
+        ));
+        workspace.metrics().addTerrainBlockWrites(1L);
+        workspace.markTerrainFinalized();
+        session.close();
 
         assertEquals(dirtId, raw[(2 << 8) | (3 << 4) | 1]);
         assertEquals(1L, metric("finalRepackLocalTerrainSections"));

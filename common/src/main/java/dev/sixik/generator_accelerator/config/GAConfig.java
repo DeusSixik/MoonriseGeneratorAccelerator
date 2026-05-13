@@ -161,8 +161,8 @@ public class GAConfig {
     @ConfigComment("Disable workspace-only writes for the rest of the session if final repack cannot be repaired safely.")
     public boolean enableWorkspaceOnlyCircuitBreaker = true;
 
-    @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Guarded by final repack validation and the runtime circuit breaker.")
-    public boolean enableWorkspaceOnlyBlockWrites = true;
+    @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Experimental; disabled by default because terrain mirroring/final repack can regress chunk throughput.")
+    public boolean enableWorkspaceOnlyBlockWrites = false;
 
     @ConfigComment("Route safe known decoration kernels through compact workspace diff journals instead of immediate section writes. Experimental; direct raw writes are faster for sparse ores in current runtime.")
     public boolean enableKnownDecorationJournalWrites = false;

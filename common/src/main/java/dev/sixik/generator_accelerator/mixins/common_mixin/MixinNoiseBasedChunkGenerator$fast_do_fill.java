@@ -44,6 +44,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             "ga.chunkWorkspace.terrain.sectionOnlyDirty.enabled",
             Boolean.toString(GA$CONFIG.enableWorkspaceTerrainSectionOnlyDirtyTracking)
     ));
+    @Unique
+    private static final boolean GA$MIRROR_DIRECT_TERRAIN_WRITES = Boolean.parseBoolean(System.getProperty(
+            "ga.chunkWorkspace.terrain.mirrorDirectWrites.enabled",
+            "false"
+    ));
 
     @Shadow
     @Final
@@ -275,7 +280,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                     if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
                                         section.setBlockState(localX, localY, localZ, blockState, false);
                                     }
-                                    GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, blockState);
+                                    if (GA$MIRROR_DIRECT_TERRAIN_WRITES) {
+                                        GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, blockState);
+                                    }
                                 }
 
                                 if (!heightmapsDone) {

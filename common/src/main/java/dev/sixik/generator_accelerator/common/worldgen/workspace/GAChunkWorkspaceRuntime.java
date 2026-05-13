@@ -47,6 +47,10 @@ public final class GAChunkWorkspaceRuntime {
             "ga.chunkWorkspace.terrain.localFinalRepack.enabled",
             CONFIG.enableWorkspaceLocalTerrainFinalRepack
     );
+    private static final boolean BIND_TERRAIN_WITHOUT_WORKSPACE_ONLY = booleanProperty(
+            "ga.chunkWorkspace.terrain.bindWithoutWorkspaceOnly.enabled",
+            false
+    );
 
     private GAChunkWorkspaceRuntime() {
     }
@@ -125,6 +129,9 @@ public final class GAChunkWorkspaceRuntime {
     ) {
         Objects.requireNonNull(task, "task");
         if (!RUNTIME_ENABLED) {
+            return requireFuture(task.get());
+        }
+        if (!shouldBindTerrainWorkspace()) {
             return requireFuture(task.get());
         }
 
@@ -238,8 +245,7 @@ public final class GAChunkWorkspaceRuntime {
             GAChunkWorkspaceMetrics.addWorkspaceOnlyBlockWrites(workspace.workspaceOnlyWrites());
             if (!FINAL_REPACK_ENABLED || !workspace.hasWorkspaceOnlyWrites()) {
                 GAChunkWorkspaceMetrics.incrementFinalRepackSkips();
-                GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
-                        () -> drainCrossChunkMailbox(chunk));
+                drainCrossChunkMailboxIfQueued(chunk);
                 return;
             }
             if (canFinalizeTerrainLocally(workspace)) {
@@ -269,6 +275,10 @@ public final class GAChunkWorkspaceRuntime {
                 && workspace != null
                 && workspace.terrainFinalized()
                 && workspace.hasOnlyTerrainWorkspaceOnlyWrites();
+    }
+
+    private static boolean shouldBindTerrainWorkspace() {
+        return GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled() || BIND_TERRAIN_WITHOUT_WORKSPACE_ONLY;
     }
 
     private static void replayLocalTerrainFinalRepack(ChunkAccess chunk, GAChunkWorkspace workspace) {
