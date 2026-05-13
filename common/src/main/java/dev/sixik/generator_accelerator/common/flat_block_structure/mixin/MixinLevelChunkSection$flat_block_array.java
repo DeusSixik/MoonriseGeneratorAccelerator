@@ -132,20 +132,54 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
     @Override
     public boolean bts$copyRawBlockDataForGeneration(int[] source) {
+        return this.bts$copyRawBlockDataForGeneration(source, 0);
+    }
+
+    @Override
+    public boolean bts$copyRawBlockDataForGeneration(int[] source, int sourceOffset) {
         int[] raw = this.bts$rawBlockData;
         if (raw == null) {
             return false;
         }
-        if (source == null || source.length < bts$RAW_BLOCK_DATA_LENGTH) {
+        if (source == null || sourceOffset < 0 || source.length - sourceOffset < bts$RAW_BLOCK_DATA_LENGTH) {
             throw new IllegalArgumentException("source section buffer is too small");
         }
 
-        System.arraycopy(source, 0, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
+        System.arraycopy(source, sourceOffset, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
         this.bts$rawStartedOnlyAir = false;
         this.bts$rawDirtyOverflow = true;
         this.bts$rawDirtyIndexCount = 0;
         this.bts$releaseRawDirtyIndices();
         this.bts$recomputeRawCounters(raw);
+        return true;
+    }
+
+    @Override
+    public boolean bts$copyRawBlockDataForGeneration(
+            int[] source,
+            int sourceOffset,
+            int nonEmptyBlockCount,
+            int tickingBlockCount,
+            int tickingFluidCount,
+            int lightEmissionCount
+    ) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null) {
+            return false;
+        }
+        if (source == null || sourceOffset < 0 || source.length - sourceOffset < bts$RAW_BLOCK_DATA_LENGTH) {
+            throw new IllegalArgumentException("source section buffer is too small");
+        }
+
+        System.arraycopy(source, sourceOffset, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
+        this.bts$rawStartedOnlyAir = false;
+        this.bts$rawDirtyOverflow = true;
+        this.bts$rawDirtyIndexCount = 0;
+        this.bts$releaseRawDirtyIndices();
+        this.nonEmptyBlockCount = (short) Math.max(0, Math.min(bts$RAW_BLOCK_DATA_LENGTH, nonEmptyBlockCount));
+        this.tickingBlockCount = (short) Math.max(0, Math.min(bts$RAW_BLOCK_DATA_LENGTH, tickingBlockCount));
+        this.tickingFluidCount = (short) Math.max(0, Math.min(bts$RAW_BLOCK_DATA_LENGTH, tickingFluidCount));
+        this.bts$rawLightEmissionCount = Math.max(0, Math.min(bts$RAW_BLOCK_DATA_LENGTH, lightEmissionCount));
         return true;
     }
 

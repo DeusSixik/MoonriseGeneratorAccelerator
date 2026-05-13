@@ -39,6 +39,14 @@ public final class GAChunkWorkspaceRuntime {
             "ga.chunkWorkspace.finalRepack.enabled",
             CONFIG.enableWorkspaceFinalRepack
     );
+    private static final boolean TERRAIN_AIR_IMPORT_ENABLED = booleanProperty(
+            "ga.chunkWorkspace.terrain.airImport.enabled",
+            CONFIG.enableWorkspaceTerrainAirImport
+    );
+    private static final boolean LOCAL_TERRAIN_FINAL_REPACK_ENABLED = booleanProperty(
+            "ga.chunkWorkspace.terrain.localFinalRepack.enabled",
+            CONFIG.enableWorkspaceLocalTerrainFinalRepack
+    );
 
     private GAChunkWorkspaceRuntime() {
     }
@@ -111,6 +119,38 @@ public final class GAChunkWorkspaceRuntime {
         });
     }
 
+    public static <T> CompletableFuture<T> withTerrainWorkspaceFuture(
+            ChunkAccess chunk,
+            Supplier<CompletableFuture<T>> task
+    ) {
+        Objects.requireNonNull(task, "task");
+        if (!RUNTIME_ENABLED) {
+            return requireFuture(task.get());
+        }
+
+        Session session = acquireTerrainWorkspace(chunk);
+        if (!session.active()) {
+            return requireFuture(task.get());
+        }
+
+        GAChunkWorkspaceMetrics.incrementContextBoundSessions();
+        CompletableFuture<T> future;
+        try (GAChunkWorkspaceContext.Scope ignored = GAChunkWorkspaceContext.bind(session.workspace())) {
+            future = requireFuture(task.get());
+        } catch (RuntimeException | Error failure) {
+            session.discard();
+            session.close();
+            throw failure;
+        }
+
+        return future.whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                session.discard();
+            }
+            session.close();
+        });
+    }
+
     public static Session acquireImported(ChunkAccess chunk) {
         Objects.requireNonNull(chunk, "chunk");
         if (!RUNTIME_ENABLED) {
@@ -149,6 +189,44 @@ public final class GAChunkWorkspaceRuntime {
         }
     }
 
+    private static Session acquireTerrainWorkspace(ChunkAccess chunk) {
+        if (TERRAIN_AIR_IMPORT_ENABLED) {
+            try {
+                if (GAChunkBlockIo.canInitializeAirWorkspace(chunk)) {
+                    return acquireAirInitialized(chunk);
+                }
+            } catch (RuntimeException ignored) {
+                // Fall back to full import; correctness beats the terrain fast path.
+            }
+        }
+        return acquireImported(chunk);
+    }
+
+    private static Session acquireAirInitialized(ChunkAccess chunk) {
+        GAChunkWorkspace workspace;
+        try {
+            workspace = GAChunkWorkspacePool.acquire(chunk, false);
+        } catch (RuntimeException failure) {
+            GAChunkWorkspaceMetrics.incrementImportFailures();
+            logImportFailure(chunk, failure);
+            return Session.empty(chunk);
+        }
+
+        if (workspace == null) {
+            return Session.empty(chunk);
+        }
+
+        try {
+            GAChunkBlockIo.initializeAirWorkspace(chunk, workspace);
+            return new Session(chunk, workspace);
+        } catch (RuntimeException failure) {
+            GAChunkWorkspaceMetrics.incrementImportFailures();
+            logImportFailure(chunk, failure);
+            GAChunkWorkspacePool.release(workspace);
+            return Session.empty(chunk);
+        }
+    }
+
     private static void finalizeWorkspace(ChunkAccess chunk, GAChunkWorkspace workspace) {
         if (workspace == null) {
             return;
@@ -162,6 +240,11 @@ public final class GAChunkWorkspaceRuntime {
                 GAChunkWorkspaceMetrics.incrementFinalRepackSkips();
                 GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
                         () -> drainCrossChunkMailbox(chunk));
+                return;
+            }
+            if (canFinalizeTerrainLocally(workspace)) {
+                replayLocalTerrainFinalRepack(chunk, workspace);
+                drainCrossChunkMailboxIfQueued(chunk);
                 return;
             }
             GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT,
@@ -178,6 +261,21 @@ public final class GAChunkWorkspaceRuntime {
             handleFinalizeFailure(chunk, workspace, unwrap(failure));
         } finally {
             workspace.metrics().addFinalizeNanos(System.nanoTime() - start);
+        }
+    }
+
+    private static boolean canFinalizeTerrainLocally(GAChunkWorkspace workspace) {
+        return LOCAL_TERRAIN_FINAL_REPACK_ENABLED
+                && workspace != null
+                && workspace.terrainFinalized()
+                && workspace.hasOnlyTerrainWorkspaceOnlyWrites();
+    }
+
+    private static void replayLocalTerrainFinalRepack(ChunkAccess chunk, GAChunkWorkspace workspace) {
+        int[] dirtySections = workspace.dirtySectionIndices();
+        if (dirtySections.length > 0) {
+            GAChunkBlockIo.repackLocalTerrainDirtySections(chunk, workspace, dirtySections);
+            GAChunkWorkspaceMetrics.addFinalRepackLocalTerrainSections(dirtySections.length);
         }
     }
 
@@ -218,6 +316,13 @@ public final class GAChunkWorkspaceRuntime {
             throw new IllegalStateException("workspace cross-chunk mailbox commit failed for "
                     + execution.failures().size() + " block writes");
         }
+    }
+
+    private static void drainCrossChunkMailboxIfQueued(ChunkAccess chunk) throws InterruptedException, ExecutionException {
+        if (!GACrossChunkMailboxRuntime.hasQueuedBlockWrites(chunk)) {
+            return;
+        }
+        GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT, () -> drainCrossChunkMailbox(chunk));
     }
 
     private static void replayFinalRepackPlan(ChunkAccess chunk, GAChunkWorkspace workspace) {

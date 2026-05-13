@@ -74,6 +74,26 @@ class GAChunkBlockIoTest {
     }
 
     @Test
+    void initializeAirWorkspaceAllocatesAirBufferWithoutSectionStateReads() {
+        LevelChunkSection section = mock(LevelChunkSection.class);
+        when(section.hasOnlyAir()).thenReturn(true);
+        ChunkAccess chunk = chunk(section);
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+
+        assertTrue(GAChunkBlockIo.canInitializeAirWorkspace(chunk));
+        long initialized = GAChunkBlockIo.initializeAirWorkspace(chunk, workspace);
+
+        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, initialized);
+        assertTrue(workspace.imported());
+        assertTrue(workspace.blockBufferEnabled());
+        assertTrue(workspace.lazyAirBlockBuffer());
+        assertFalse(workspace.isLazyAirSectionInitialized(0));
+        assertEquals(Block.getId(Blocks.AIR.defaultBlockState()), workspace.blockId(3, 4, 5));
+        assertFalse(workspace.isDirtySection(0));
+        verify(section, never()).getBlockState(anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
     void repackDirtySectionsWritesOnlyDirtyBlockRunsThroughSafeSectionWrites() {
         BlockState air = Blocks.AIR.defaultBlockState();
         BlockState dirt = Blocks.DIRT.defaultBlockState();
@@ -146,6 +166,32 @@ class GAChunkBlockIoTest {
         assertEquals(dirtId, raw[0]);
         assertEquals(dirtId, raw[1023]);
         assertFalse(workspace.isDirtySection(0));
+        verify((LevelChunkSection$FlatBlockArray) section, times(1)).bts$copyRawBlockDataForGeneration(any(int[].class));
+        verify((LevelChunkSection$FlatBlockArray) section, never()).bts$setRawBlockStateForGeneration(anyInt(), anyInt());
+    }
+
+    @Test
+    void repackDirtySectionsFullCopiesTerrainSectionOnlyDirties() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        LevelChunkSection section = flatSection(raw);
+        when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                .thenAnswer(invocation -> {
+                    System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
+                    return true;
+                });
+        ChunkAccess chunk = chunk(section);
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        GAChunkBlockIo.initializeAirWorkspace(chunk, workspace);
+        int dirtId = Block.getId(Blocks.DIRT.defaultBlockState());
+
+        assertTrue(workspace.writeTerrainBlockIdWorkspaceOnlySectionDirty((2 << 8) | (3 << 4) | 1, 0, dirtId));
+        long written = GAChunkBlockIo.repackDirtySections(chunk, workspace);
+
+        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, written);
+        assertEquals(dirtId, raw[(2 << 8) | (3 << 4) | 1]);
+        assertEquals(Block.getId(Blocks.AIR.defaultBlockState()), raw[0]);
+        assertFalse(workspace.isDirtySection(0));
+        assertFalse(workspace.hasTerrainSectionOnlyDirtiesInSection(0));
         verify((LevelChunkSection$FlatBlockArray) section, times(1)).bts$copyRawBlockDataForGeneration(any(int[].class));
         verify((LevelChunkSection$FlatBlockArray) section, never()).bts$setRawBlockStateForGeneration(anyInt(), anyInt());
     }

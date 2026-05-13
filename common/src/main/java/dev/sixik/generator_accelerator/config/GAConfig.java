@@ -146,11 +146,23 @@ public class GAConfig {
     @ConfigComment("Dirty blocks per section required before dense final repack switches to full raw section copy.")
     public int workspaceDenseFinalSectionCopyThreshold = 1024;
 
+    @ConfigComment("For NOISE terrain workspace-only chunks whose sections are still air, initialize the workspace as air instead of importing all raw block ids.")
+    public boolean enableWorkspaceTerrainAirImport = true;
+
+    @ConfigComment("For terrain air-imported workspaces, clear air sections lazily on first write instead of filling the whole chunk buffer upfront.")
+    public boolean enableWorkspaceTerrainLazyAirImport = true;
+
+    @ConfigComment("Track terrain workspace-only dirtiness at section granularity so final terrain publication can use full raw section copies without per-block dirty bits.")
+    public boolean enableWorkspaceTerrainSectionOnlyDirtyTracking = true;
+
+    @ConfigComment("Publish terrain-only workspace final repack on the owning generation thread instead of queueing every section through the commit lane.")
+    public boolean enableWorkspaceLocalTerrainFinalRepack = true;
+
     @ConfigComment("Disable workspace-only writes for the rest of the session if final repack cannot be repaired safely.")
     public boolean enableWorkspaceOnlyCircuitBreaker = true;
 
-    @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Disabled by default until integrated benchmarks prove it beats direct raw writes.")
-    public boolean enableWorkspaceOnlyBlockWrites = false;
+    @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Guarded by final repack validation and the runtime circuit breaker.")
+    public boolean enableWorkspaceOnlyBlockWrites = true;
 
     @ConfigComment("Route safe known decoration kernels through compact workspace diff journals instead of immediate section writes. Experimental; direct raw writes are faster for sparse ores in current runtime.")
     public boolean enableKnownDecorationJournalWrites = false;

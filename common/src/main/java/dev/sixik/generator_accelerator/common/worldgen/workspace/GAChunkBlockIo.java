@@ -29,6 +29,10 @@ public final class GAChunkBlockIo {
             "ga.chunkWorkspace.finalRepack.denseSectionCopy.threshold",
             CONFIG.workspaceDenseFinalSectionCopyThreshold
     );
+    private static final boolean TERRAIN_LAZY_AIR_IMPORT = booleanProperty(
+            "ga.chunkWorkspace.terrain.lazyAirImport.enabled",
+            CONFIG.enableWorkspaceTerrainLazyAirImport
+    );
 
     private GAChunkBlockIo() {
     }
@@ -44,6 +48,7 @@ public final class GAChunkBlockIo {
 
         long start = System.nanoTime();
         workspace.ensureBlockBufferCapacity(workspace.blockCount());
+        workspace.disableLazyAirBlockBuffer();
         int[] blocks = workspace.blockIds();
         LevelChunkSection[] sections = chunk.getSections();
         int importedBlocks;
@@ -56,6 +61,44 @@ public final class GAChunkBlockIo {
         workspace.metrics().addImportNanos(System.nanoTime() - start);
         workspace.metrics();
         return importedBlocks;
+    }
+
+    public static boolean canInitializeAirWorkspace(ChunkAccess chunk) {
+        Objects.requireNonNull(chunk, "chunk");
+        LevelChunkSection[] sections = chunk.getSections();
+        int sectionCount = chunk.getSectionsCount();
+        for (int sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
+            LevelChunkSection section = sectionAt(sections, sectionIndex);
+            if (section != null && !section.hasOnlyAir()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static long initializeAirWorkspace(ChunkAccess chunk, GAChunkWorkspace workspace) {
+        Objects.requireNonNull(chunk, "chunk");
+        Objects.requireNonNull(workspace, "workspace");
+        if (!workspace.imported()) {
+            workspace.begin(chunk, !TERRAIN_LAZY_AIR_IMPORT);
+        } else {
+            validateSameChunk(chunk, workspace);
+        }
+
+        long start = System.nanoTime();
+        if (TERRAIN_LAZY_AIR_IMPORT) {
+            workspace.initializeLazyAirBlockBuffer(airId());
+            GAChunkWorkspaceMetrics.incrementTerrainLazyAirImports();
+        } else {
+            workspace.ensureBlockBufferCapacity(workspace.blockCount());
+            workspace.disableLazyAirBlockBuffer();
+            Arrays.fill(workspace.blockIds(), 0, workspace.blockCount(), airId());
+        }
+        workspace.clearCommittedBlockDirties();
+        workspace.metrics().addImportNanos(System.nanoTime() - start);
+        workspace.metrics();
+        GAChunkWorkspaceMetrics.incrementTerrainAirImports();
+        return workspace.blockCount();
     }
 
     private static int importAlignedSections(GAChunkWorkspace workspace, LevelChunkSection[] sections, int[] blocks) {
@@ -141,7 +184,8 @@ public final class GAChunkBlockIo {
         LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
         int[] raw = flat == null ? null : flat.bts$getRawBlockData();
         int dirtyBlocks = workspace.dirtyBlockCountInSection(sectionIndex);
-        if (raw != null && shouldDenseCopySection(dirtyBlocks)) {
+        if (workspace.hasTerrainSectionOnlyDirtiesInSection(sectionIndex)
+                || (raw != null && shouldDenseCopySection(dirtyBlocks))) {
             return repackDenseSectionCopy(chunk, workspace, section, sectionIndex);
         }
 
@@ -183,18 +227,91 @@ public final class GAChunkBlockIo {
         return written;
     }
 
+    public static long repackLocalTerrainDirtySection(ChunkAccess chunk, GAChunkWorkspace workspace, int sectionIndex) {
+        Objects.requireNonNull(chunk, "chunk");
+        Objects.requireNonNull(workspace, "workspace");
+        validateSameChunk(chunk, workspace);
+        LevelChunkSection section = sectionAt(chunk.getSections(), sectionIndex);
+        if (section == null) {
+            throw new IllegalStateException("missing section " + sectionIndex);
+        }
+        return repackDenseSectionCopy(chunk, workspace, section, sectionIndex, true);
+    }
+
+    public static long repackLocalTerrainDirtySections(
+            ChunkAccess chunk,
+            GAChunkWorkspace workspace,
+            int[] sectionIndices
+    ) {
+        Objects.requireNonNull(chunk, "chunk");
+        Objects.requireNonNull(workspace, "workspace");
+        Objects.requireNonNull(sectionIndices, "sectionIndices");
+        validateSameChunk(chunk, workspace);
+        if (sectionIndices.length == 0) {
+            return 0L;
+        }
+
+        long start = System.nanoTime();
+        long writtenBlocks = 0L;
+        long terrainCopies = 0L;
+        LevelChunkSection[] sections = chunk.getSections();
+        try {
+            for (int sectionIndex : sectionIndices) {
+                LevelChunkSection section = sectionAt(sections, sectionIndex);
+                if (section == null) {
+                    throw new IllegalStateException("missing section " + sectionIndex);
+                }
+                boolean terrainSectionOnly = workspace.hasTerrainSectionOnlyDirtiesInSection(sectionIndex);
+                long written = forceFullSectionCopy(workspace, section, sectionIndex, true);
+                if (terrainSectionOnly) {
+                    workspace.clearCommittedTerrainSectionOnlyDirtiesInSection(sectionIndex);
+                } else {
+                    workspace.clearCommittedBlockDirtiesInSection(sectionIndex);
+                }
+                validateOrRepairSection(chunk, workspace, section, sectionIndex, written, true);
+                writtenBlocks += written;
+                if (terrainSectionOnly) {
+                    terrainCopies++;
+                }
+            }
+        } finally {
+            workspace.metrics().addRepackNanos(System.nanoTime() - start);
+        }
+        GAChunkWorkspaceMetrics.addFinalRepackDenseSectionCopies(sectionIndices.length);
+        GAChunkWorkspaceMetrics.addFinalRepackTerrainSectionCopies(terrainCopies);
+        return writtenBlocks;
+    }
+
     private static long repackDenseSectionCopy(
             ChunkAccess chunk,
             GAChunkWorkspace workspace,
             LevelChunkSection section,
             int sectionIndex
     ) {
+        return repackDenseSectionCopy(chunk, workspace, section, sectionIndex, false);
+    }
+
+    private static long repackDenseSectionCopy(
+            ChunkAccess chunk,
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex,
+            boolean trustedTerrainCounts
+    ) {
         long start = System.nanoTime();
-        long written = forceFullSectionCopy(workspace, section, sectionIndex);
-        workspace.clearCommittedBlockDirtiesInSection(sectionIndex);
+        boolean terrainSectionOnly = workspace.hasTerrainSectionOnlyDirtiesInSection(sectionIndex);
+        long written = forceFullSectionCopy(workspace, section, sectionIndex, trustedTerrainCounts);
+        if (terrainSectionOnly) {
+            workspace.clearCommittedTerrainSectionOnlyDirtiesInSection(sectionIndex);
+        } else {
+            workspace.clearCommittedBlockDirtiesInSection(sectionIndex);
+        }
         workspace.metrics().addRepackNanos(System.nanoTime() - start);
         GAChunkWorkspaceMetrics.incrementFinalRepackDenseSectionCopies();
-        validateOrRepairSection(chunk, workspace, section, sectionIndex, written);
+        if (terrainSectionOnly) {
+            GAChunkWorkspaceMetrics.incrementFinalRepackTerrainSectionCopies();
+        }
+        validateOrRepairSection(chunk, workspace, section, sectionIndex, written, trustedTerrainCounts);
         return written;
     }
 
@@ -244,11 +361,24 @@ public final class GAChunkBlockIo {
             int sectionIndex,
             long written
     ) {
+        validateOrRepairSection(chunk, workspace, section, sectionIndex, written, false);
+    }
+
+    private static void validateOrRepairSection(
+            ChunkAccess chunk,
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex,
+            long written,
+            boolean trustedTerrainCounts
+    ) {
         if (!VALIDATE_FINAL_REPACK || written <= 0L) {
             return;
         }
 
-        int expectedNonAir = expectedNonAirBlocks(workspace, sectionIndex);
+        int expectedNonAir = trustedTerrainCounts && workspace.hasKnownTerrainSectionCounts(sectionIndex)
+                ? workspace.terrainNonEmptyBlockCountInSection(sectionIndex)
+                : expectedNonAirBlocks(workspace, sectionIndex);
         if (expectedNonAir <= 0 || !section.hasOnlyAir()) {
             return;
         }
@@ -265,6 +395,9 @@ public final class GAChunkBlockIo {
     private static int expectedNonAirBlocks(GAChunkWorkspace workspace, int sectionIndex) {
         int[] blockIds = workspace.blockIds();
         if (!workspace.blockBufferEnabled() || blockIds == null) {
+            return 0;
+        }
+        if (workspace.lazyAirBlockBuffer() && !workspace.isLazyAirSectionInitialized(sectionIndex)) {
             return 0;
         }
 
@@ -290,13 +423,44 @@ public final class GAChunkBlockIo {
             LevelChunkSection section,
             int sectionIndex
     ) {
-        int[] source = copyWorkspaceSection(workspace, sectionIndex);
+        return forceFullSectionCopy(workspace, section, sectionIndex, false);
+    }
+
+    private static long forceFullSectionCopy(
+            GAChunkWorkspace workspace,
+            LevelChunkSection section,
+            int sectionIndex,
+            boolean trustedTerrainCounts
+    ) {
         LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
-        if (flat != null && flat.bts$copyRawBlockDataForGeneration(source)) {
-            return GAChunkWorkspace.BLOCKS_PER_SECTION;
+        int[] blockIds = workspace.blockIds();
+        boolean lazyUninitialized = workspace.lazyAirBlockBuffer() && !workspace.isLazyAirSectionInitialized(sectionIndex);
+        if (!lazyUninitialized && flat != null && workspace.blockBufferEnabled() && blockIds != null && isSectionAligned(workspace)) {
+            int sourceOffset = sectionIndex * GAChunkWorkspace.BLOCKS_PER_SECTION;
+            if (trustedTerrainCounts && workspace.hasKnownTerrainSectionCounts(sectionIndex)
+                    && flat.bts$copyRawBlockDataForGeneration(
+                            blockIds,
+                            sourceOffset,
+                            workspace.terrainNonEmptyBlockCountInSection(sectionIndex),
+                            workspace.terrainTickingBlockCountInSection(sectionIndex),
+                            workspace.terrainTickingFluidCountInSection(sectionIndex),
+                            workspace.terrainLightEmissionCountInSection(sectionIndex)
+                    )) {
+                return GAChunkWorkspace.BLOCKS_PER_SECTION;
+            }
+            if (flat.bts$copyRawBlockDataForGeneration(blockIds, sourceOffset)) {
+                return GAChunkWorkspace.BLOCKS_PER_SECTION;
+            }
         }
-        if (flat != null && flat.bts$getRawBlockData() != null) {
-            throw new IllegalStateException("flat raw section rejected full workspace repair");
+
+        int[] source = copyWorkspaceSection(workspace, sectionIndex);
+        if (flat != null) {
+            if (flat.bts$copyRawBlockDataForGeneration(source)) {
+                return GAChunkWorkspace.BLOCKS_PER_SECTION;
+            }
+            if (flat.bts$getRawBlockData() != null) {
+                throw new IllegalStateException("flat raw section rejected full workspace repair");
+            }
         }
 
         for (int localY = 0; localY < GAChunkWorkspace.CHUNK_WIDTH; localY++) {
@@ -322,6 +486,9 @@ public final class GAChunkBlockIo {
 
         int[] blockIds = workspace.blockIds();
         if (!workspace.blockBufferEnabled() || blockIds == null) {
+            return source;
+        }
+        if (workspace.lazyAirBlockBuffer() && !workspace.isLazyAirSectionInitialized(sectionIndex)) {
             return source;
         }
 

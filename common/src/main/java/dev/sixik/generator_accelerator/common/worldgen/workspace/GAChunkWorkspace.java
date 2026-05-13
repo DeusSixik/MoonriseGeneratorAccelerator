@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 
@@ -59,6 +60,13 @@ public final class GAChunkWorkspace {
     private int[] heightCandidates = new int[COLUMN_COUNT];
     private long[] dirtySectionWords = new long[1];
     private long[] dirtyBlockWords = new long[1];
+    private long[] terrainSectionOnlyDirtyWords = new long[1];
+    private long[] lazyAirInitializedSectionWords = new long[1];
+    private long[] terrainSectionCounterKnownWords = new long[1];
+    private short[] terrainNonEmptySectionCounts;
+    private short[] terrainTickingBlockSectionCounts;
+    private short[] terrainTickingFluidSectionCounts;
+    private int[] terrainLightEmissionSectionCounts;
     private final long[] dirtyColumnWords = new long[4];
     private final long[] dirtyBlockColumnWords = new long[4];
     private final long[] dirtyHeightColumnWords = new long[4];
@@ -70,8 +78,11 @@ public final class GAChunkWorkspace {
     private boolean carverReady;
     private boolean terrainFinalized;
     private boolean heightCandidatesDirty;
+    private boolean lazyAirBlockBuffer;
+    private int lazyAirBlockId = EMPTY_BLOCK_ID;
     private long mirroredWrites;
     private long workspaceOnlyWrites;
+    private long terrainWorkspaceOnlyWrites;
 
     public GAChunkWorkspace() {
         this(DEFAULT_MAX_RETAINED_BLOCK_INTS, DEFAULT_MAX_RETAINED_HEIGHT_INTS, DEFAULT_MAX_RETAINED_DIRTY_WORDS);
@@ -104,6 +115,8 @@ public final class GAChunkWorkspace {
         if (allocateBlockBuffer) {
             ensureBlockBufferCapacity(requiredBlockCapacity());
             blockBufferEnabled = true;
+            lazyAirBlockBuffer = false;
+            clearLazyAirInitializedSections();
             Arrays.fill(blockIds, 0, blockCapacity, EMPTY_BLOCK_ID);
         }
 
@@ -139,6 +152,23 @@ public final class GAChunkWorkspace {
         ensureDirtyBlockWordCapacity(Math.max(1, (blockCapacity + 63) >>> 6));
         blockBufferEnabled = true;
         metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+    }
+
+    public void initializeLazyAirBlockBuffer(int airBlockId) {
+        requireImported();
+        ensureBlockBufferCapacity(requiredBlockCapacity());
+        lazyAirBlockBuffer = true;
+        lazyAirBlockId = airBlockId;
+        clearLazyAirInitializedSections();
+        clearTerrainSectionCounters();
+        metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+    }
+
+    public void disableLazyAirBlockBuffer() {
+        lazyAirBlockBuffer = false;
+        lazyAirBlockId = EMPTY_BLOCK_ID;
+        clearLazyAirInitializedSections();
+        clearTerrainSectionCounters();
     }
 
     public void ensureDensityBufferCapacity(int requiredDoubles) {
@@ -213,6 +243,7 @@ public final class GAChunkWorkspace {
         if (index >= blockCapacity) {
             throw new IndexOutOfBoundsException("block buffer is not sized for y=" + y);
         }
+        materializeLazyAirSection(sectionIndexForY(y));
         if (blockIds[index] == blockId) {
             return false;
         }
@@ -256,6 +287,7 @@ public final class GAChunkWorkspace {
             return false;
         }
 
+        materializeLazyAirSection(sectionIndex);
         if (blockIds[workspaceIndex] != blockId) {
             blockIds[workspaceIndex] = blockId;
             markDirtyBlockIndex(workspaceIndex);
@@ -263,6 +295,7 @@ public final class GAChunkWorkspace {
             markDirtyBlockColumnIndex(columnIndex);
             markDirtyLightColumnIndex(columnIndex);
             workspaceOnlyWrites++;
+            terrainWorkspaceOnlyWrites++;
         }
         markDirtyHeightColumnIndex(columnIndex);
         markDirtySurfaceColumnIndex(columnIndex);
@@ -279,11 +312,117 @@ public final class GAChunkWorkspace {
         return true;
     }
 
+    /**
+     * Terrain-only hot path for local final repack. It dirties whole terrain
+     * sections instead of recording per-block diff bits, so finalization can
+     * publish the section by one raw copy without risking missed terrain blocks.
+     */
+    public boolean writeTerrainBlockIdWorkspaceOnlySectionDirty(
+            int workspaceIndex,
+            int sectionIndex,
+            int blockId
+    ) {
+        if (!blockBufferEnabled || blockIds == null || blockId < 0
+                || workspaceIndex < 0 || workspaceIndex >= blockCapacity
+                || sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+
+        materializeLazyAirSection(sectionIndex);
+        ensureTerrainSectionCountersKnown(sectionIndex);
+        int oldBlockId = blockIds[workspaceIndex];
+        if (oldBlockId != blockId) {
+            if (oldBlockId == lazyAirBlockId) {
+                incrementTerrainSectionCountsFromAir(sectionIndex, blockId);
+            } else {
+                updateTerrainSectionCounts(sectionIndex, oldBlockId, blockId);
+            }
+            blockIds[workspaceIndex] = blockId;
+            markDirtySection(sectionIndex);
+            markTerrainSectionOnlyDirty(sectionIndex);
+            workspaceOnlyWrites++;
+            terrainWorkspaceOnlyWrites++;
+        }
+        return true;
+    }
+
+    /**
+     * Prepare a section once for the terrain section-dirty hot path. Callers
+     * can then use writePreparedTerrainBlockIdWorkspaceOnlySectionDirty without
+     * paying lazy-air materialization and counter setup on every block write.
+     */
+    public boolean prepareTerrainBlockIdWorkspaceOnlySection(int sectionIndex) {
+        if (!blockBufferEnabled || blockIds == null || sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+
+        materializeLazyAirSection(sectionIndex);
+        ensureTerrainSectionCountersKnown(sectionIndex);
+        return true;
+    }
+
+    public boolean writePreparedTerrainBlockIdWorkspaceOnlySectionDirty(
+            int workspaceIndex,
+            int sectionIndex,
+            int blockId
+    ) {
+        if (!blockBufferEnabled || blockIds == null || blockId < 0
+                || workspaceIndex < 0 || workspaceIndex >= blockCapacity
+                || sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+
+        int oldBlockId = blockIds[workspaceIndex];
+        if (oldBlockId != blockId) {
+            if (oldBlockId == lazyAirBlockId) {
+                incrementTerrainSectionCountsFromAir(sectionIndex, blockId);
+            } else {
+                updateTerrainSectionCounts(sectionIndex, oldBlockId, blockId);
+            }
+            blockIds[workspaceIndex] = blockId;
+            markDirtySection(sectionIndex);
+            markTerrainSectionOnlyDirty(sectionIndex);
+            workspaceOnlyWrites++;
+            terrainWorkspaceOnlyWrites++;
+        }
+        return true;
+    }
+
+    public boolean commitPreparedTerrainSectionOnlyWrites(
+            int sectionIndex,
+            int nonEmptyBlockCount,
+            int tickingBlockCount,
+            int tickingFluidCount,
+            int lightEmissionCount,
+            int writtenBlocks
+    ) {
+        if (!blockBufferEnabled || blockIds == null || sectionIndex < 0 || sectionIndex >= sectionCount
+                || writtenBlocks <= 0) {
+            return false;
+        }
+
+        setTerrainSectionCounts(
+                sectionIndex,
+                Math.max(0, Math.min(BLOCKS_PER_SECTION, nonEmptyBlockCount)),
+                Math.max(0, Math.min(BLOCKS_PER_SECTION, tickingBlockCount)),
+                Math.max(0, Math.min(BLOCKS_PER_SECTION, tickingFluidCount)),
+                Math.max(0, Math.min(BLOCKS_PER_SECTION, lightEmissionCount))
+        );
+        markDirtySection(sectionIndex);
+        markTerrainSectionOnlyDirty(sectionIndex);
+        workspaceOnlyWrites += writtenBlocks;
+        terrainWorkspaceOnlyWrites += writtenBlocks;
+        return true;
+    }
+
     public int blockId(int localX, int y, int localZ) {
         requireBlockBuffer();
         int index = blockIndex(localX, y, localZ);
         if (index >= blockCapacity) {
             throw new IndexOutOfBoundsException("block buffer is not sized for y=" + y);
+        }
+        if (lazyAirBlockBuffer && !isLazyAirSectionInitialized(sectionIndexForY(y))) {
+            return lazyAirBlockId;
         }
         return blockIds[index];
     }
@@ -377,6 +516,9 @@ public final class GAChunkWorkspace {
         long start = System.nanoTime();
         long importedBlocks = 0L;
         ensureBlockBufferCapacity(requiredBlockCapacity());
+        lazyAirBlockBuffer = false;
+        clearLazyAirInitializedSections();
+        clearTerrainSectionCounters();
         int index = 0;
         int maxY = minBuildHeight + buildHeight;
         for (int y = minBuildHeight; y < maxY; y++) {
@@ -390,6 +532,7 @@ public final class GAChunkWorkspace {
         clearDirtySections();
         clearDirtyBlocks();
         clearDirtyBlockColumns();
+        clearTerrainSectionOnlyDirties();
         metrics.addImportNanos(System.nanoTime() - start);
         metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
         return importedBlocks;
@@ -424,6 +567,7 @@ public final class GAChunkWorkspace {
         clearDirtySections();
         clearDirtyBlocks();
         clearDirtyBlockColumns();
+        clearTerrainSectionOnlyDirties();
         metrics.addRepackNanos(System.nanoTime() - start);
         return writtenBlocks;
     }
@@ -458,6 +602,7 @@ public final class GAChunkWorkspace {
         }
         clearDirtySection(sectionIndex);
         clearDirtyBlockSection(sectionIndex);
+        clearTerrainSectionOnlyDirty(sectionIndex);
         metrics.addRepackNanos(System.nanoTime() - start);
         return writtenBlocks;
     }
@@ -527,6 +672,7 @@ public final class GAChunkWorkspace {
 
         clearDirtyBlockSection(sectionIndex);
         clearDirtySection(sectionIndex);
+        clearTerrainSectionOnlyDirty(sectionIndex);
         metrics.addRepackNanos(System.nanoTime() - start);
         return writtenBlocks;
     }
@@ -550,6 +696,7 @@ public final class GAChunkWorkspace {
         System.arraycopy(blockIds, sectionIndex * BLOCKS_PER_SECTION, target, 0, BLOCKS_PER_SECTION);
         clearDirtySection(sectionIndex);
         clearDirtyBlockSection(sectionIndex);
+        clearTerrainSectionOnlyDirty(sectionIndex);
         metrics.addRepackNanos(System.nanoTime() - start);
         return BLOCKS_PER_SECTION;
     }
@@ -558,6 +705,7 @@ public final class GAChunkWorkspace {
         clearDirtySections();
         clearDirtyBlocks();
         clearDirtyBlockColumns();
+        clearTerrainSectionOnlyDirties();
     }
 
     public void setHeightCandidate(int localX, int localZ, int y) {
@@ -745,6 +893,15 @@ public final class GAChunkWorkspace {
         }
         clearDirtySection(sectionIndex);
         clearDirtyBlockSection(sectionIndex);
+        clearTerrainSectionOnlyDirty(sectionIndex);
+    }
+
+    public void clearCommittedTerrainSectionOnlyDirtiesInSection(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            throw new IndexOutOfBoundsException("section index outside workspace: " + sectionIndex);
+        }
+        clearDirtySection(sectionIndex);
+        clearTerrainSectionOnlyDirty(sectionIndex);
     }
 
     public long estimatedRetainedBytes() {
@@ -758,6 +915,13 @@ public final class GAChunkWorkspace {
         bytes += retainedIntBytes(heightCandidates);
         bytes += retainedLongBytes(dirtySectionWords);
         bytes += retainedLongBytes(dirtyBlockWords);
+        bytes += retainedLongBytes(terrainSectionOnlyDirtyWords);
+        bytes += retainedLongBytes(lazyAirInitializedSectionWords);
+        bytes += retainedLongBytes(terrainSectionCounterKnownWords);
+        bytes += retainedShortBytes(terrainNonEmptySectionCounts);
+        bytes += retainedShortBytes(terrainTickingBlockSectionCounts);
+        bytes += retainedShortBytes(terrainTickingFluidSectionCounts);
+        bytes += retainedIntBytes(terrainLightEmissionSectionCounts);
         bytes += retainedLongBytes(dirtyColumnWords);
         bytes += retainedLongBytes(dirtyBlockColumnWords);
         bytes += retainedLongBytes(dirtyHeightColumnWords);
@@ -776,6 +940,64 @@ public final class GAChunkWorkspace {
 
     public boolean hasWorkspaceOnlyWrites() {
         return workspaceOnlyWrites > 0L;
+    }
+
+    public long terrainWorkspaceOnlyWrites() {
+        return terrainWorkspaceOnlyWrites;
+    }
+
+    public boolean hasOnlyTerrainWorkspaceOnlyWrites() {
+        return workspaceOnlyWrites > 0L && workspaceOnlyWrites == terrainWorkspaceOnlyWrites;
+    }
+
+    public boolean hasTerrainSectionOnlyDirtiesInSection(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+        int word = sectionIndex >>> 6;
+        return word < terrainSectionOnlyDirtyWords.length
+                && (terrainSectionOnlyDirtyWords[word] & (1L << (sectionIndex & 63))) != 0L;
+    }
+
+    public boolean lazyAirBlockBuffer() {
+        return lazyAirBlockBuffer;
+    }
+
+    public boolean isLazyAirSectionInitialized(int sectionIndex) {
+        if (!lazyAirBlockBuffer) {
+            return true;
+        }
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+        int word = sectionIndex >>> 6;
+        return word < lazyAirInitializedSectionWords.length
+                && (lazyAirInitializedSectionWords[word] & (1L << (sectionIndex & 63))) != 0L;
+    }
+
+    public boolean hasKnownTerrainSectionCounts(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            return false;
+        }
+        int word = sectionIndex >>> 6;
+        return word < terrainSectionCounterKnownWords.length
+                && (terrainSectionCounterKnownWords[word] & (1L << (sectionIndex & 63))) != 0L;
+    }
+
+    public int terrainNonEmptyBlockCountInSection(int sectionIndex) {
+        return terrainNonEmptySectionCounts == null ? 0 : terrainNonEmptySectionCounts[sectionIndex] & 0xFFFF;
+    }
+
+    public int terrainTickingBlockCountInSection(int sectionIndex) {
+        return terrainTickingBlockSectionCounts == null ? 0 : terrainTickingBlockSectionCounts[sectionIndex] & 0xFFFF;
+    }
+
+    public int terrainTickingFluidCountInSection(int sectionIndex) {
+        return terrainTickingFluidSectionCounts == null ? 0 : terrainTickingFluidSectionCounts[sectionIndex] & 0xFFFF;
+    }
+
+    public int terrainLightEmissionCountInSection(int sectionIndex) {
+        return terrainLightEmissionSectionCounts == null ? 0 : terrainLightEmissionSectionCounts[sectionIndex];
     }
 
     public GAChunkWorkspaceMetrics metrics() {
@@ -989,6 +1211,8 @@ public final class GAChunkWorkspace {
         minSectionY = chunk.getMinSection();
         maxSectionY = chunk.getMaxSection();
         ensureDirtySectionWordCapacity(Math.max(1, (sectionCount + 63) >>> 6));
+        ensureLazyAirSectionWordCapacity(Math.max(1, (sectionCount + 63) >>> 6));
+        ensureTerrainSectionCounterWordCapacity(Math.max(1, (sectionCount + 63) >>> 6));
     }
 
     private void resetForBegin() {
@@ -1022,6 +1246,9 @@ public final class GAChunkWorkspace {
         carverMaskCapacity = 0;
         clearDirtySections();
         clearDirtyBlocks();
+        clearTerrainSectionOnlyDirties();
+        clearLazyAirInitializedSections();
+        clearTerrainSectionCounters();
         clearDirtyColumns();
         densityReady = false;
         aquiferReady = false;
@@ -1029,8 +1256,11 @@ public final class GAChunkWorkspace {
         carverReady = false;
         terrainFinalized = false;
         heightCandidatesDirty = false;
+        lazyAirBlockBuffer = false;
+        lazyAirBlockId = EMPTY_BLOCK_ID;
         mirroredWrites = 0L;
         workspaceOnlyWrites = 0L;
+        terrainWorkspaceOnlyWrites = 0L;
         imported = false;
     }
 
@@ -1063,6 +1293,15 @@ public final class GAChunkWorkspace {
         }
         if (dirtySectionWords.length > maxRetainedDirtyWords) {
             dirtySectionWords = new long[Math.max(1, maxRetainedDirtyWords)];
+        }
+        if (terrainSectionOnlyDirtyWords.length > maxRetainedDirtyWords) {
+            terrainSectionOnlyDirtyWords = new long[Math.max(1, maxRetainedDirtyWords)];
+        }
+        if (lazyAirInitializedSectionWords.length > maxRetainedDirtyWords) {
+            lazyAirInitializedSectionWords = new long[Math.max(1, maxRetainedDirtyWords)];
+        }
+        if (terrainSectionCounterKnownWords.length > maxRetainedDirtyWords) {
+            terrainSectionCounterKnownWords = new long[Math.max(1, maxRetainedDirtyWords)];
         }
         int maxRetainedDirtyBlockWords = Math.max(1, maxRetainedBlockInts >>> 6);
         if (dirtyBlockWords.length > maxRetainedDirtyBlockWords) {
@@ -1101,12 +1340,211 @@ public final class GAChunkWorkspace {
         if (dirtySectionWords.length < requiredWords) {
             dirtySectionWords = Arrays.copyOf(dirtySectionWords, requiredWords);
         }
+        if (terrainSectionOnlyDirtyWords.length < requiredWords) {
+            terrainSectionOnlyDirtyWords = Arrays.copyOf(terrainSectionOnlyDirtyWords, requiredWords);
+        }
     }
 
     private void ensureDirtyBlockWordCapacity(int requiredWords) {
         if (dirtyBlockWords.length < requiredWords) {
             dirtyBlockWords = Arrays.copyOf(dirtyBlockWords, requiredWords);
         }
+    }
+
+    private void ensureLazyAirSectionWordCapacity(int requiredWords) {
+        if (lazyAirInitializedSectionWords.length < requiredWords) {
+            lazyAirInitializedSectionWords = Arrays.copyOf(lazyAirInitializedSectionWords, requiredWords);
+        }
+    }
+
+    private void ensureTerrainSectionCounterWordCapacity(int requiredWords) {
+        if (terrainSectionCounterKnownWords.length < requiredWords) {
+            terrainSectionCounterKnownWords = Arrays.copyOf(terrainSectionCounterKnownWords, requiredWords);
+        }
+    }
+
+    private void ensureTerrainSectionCounterCapacity() {
+        if (terrainNonEmptySectionCounts == null || terrainNonEmptySectionCounts.length < sectionCount) {
+            terrainNonEmptySectionCounts = new short[sectionCount];
+            terrainTickingBlockSectionCounts = new short[sectionCount];
+            terrainTickingFluidSectionCounts = new short[sectionCount];
+            terrainLightEmissionSectionCounts = new int[sectionCount];
+            clearTerrainSectionCounterKnownWords();
+            metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+        }
+    }
+
+    private void materializeLazyAirSectionForWorkspaceIndex(int workspaceIndex) {
+        if (!lazyAirBlockBuffer) {
+            return;
+        }
+        int y = minBuildHeight + (workspaceIndex >>> 8);
+        materializeLazyAirSection(sectionIndexForY(y));
+    }
+
+    private void materializeLazyAirSection(int sectionIndex) {
+        if (!lazyAirBlockBuffer || isLazyAirSectionInitialized(sectionIndex)) {
+            return;
+        }
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            throw new IndexOutOfBoundsException("section index outside workspace: " + sectionIndex);
+        }
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        if (minY < maxY) {
+            int firstIndex = (minY - minBuildHeight) << 8;
+            int lastIndexExclusive = (maxY - minBuildHeight) << 8;
+            Arrays.fill(blockIds, firstIndex, lastIndexExclusive, lazyAirBlockId);
+            GAChunkWorkspaceMetrics.incrementTerrainLazyAirSectionClears();
+        }
+        setTerrainSectionCounts(sectionIndex, 0, 0, 0, 0);
+        markLazyAirSectionInitialized(sectionIndex);
+    }
+
+    private void markLazyAirSectionInitialized(int sectionIndex) {
+        int word = sectionIndex >>> 6;
+        ensureLazyAirSectionWordCapacity(word + 1);
+        lazyAirInitializedSectionWords[word] |= 1L << (sectionIndex & 63);
+    }
+
+    private void clearLazyAirInitializedSections() {
+        Arrays.fill(lazyAirInitializedSectionWords, 0L);
+    }
+
+    private void clearTerrainSectionCounters() {
+        if (terrainNonEmptySectionCounts != null) {
+            Arrays.fill(terrainNonEmptySectionCounts, (short) 0);
+            Arrays.fill(terrainTickingBlockSectionCounts, (short) 0);
+            Arrays.fill(terrainTickingFluidSectionCounts, (short) 0);
+            Arrays.fill(terrainLightEmissionSectionCounts, 0);
+        }
+        clearTerrainSectionCounterKnownWords();
+    }
+
+    private void clearTerrainSectionCounterKnownWords() {
+        Arrays.fill(terrainSectionCounterKnownWords, 0L);
+    }
+
+    private void ensureTerrainSectionCountersKnown(int sectionIndex) {
+        if (hasKnownTerrainSectionCounts(sectionIndex)) {
+            return;
+        }
+        ensureTerrainSectionCounterCapacity();
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        int nonEmpty = 0;
+        int tickingBlocks = 0;
+        int tickingFluids = 0;
+        int lightEmission = 0;
+        for (int y = minY; y < maxY; y++) {
+            int baseIndex = (y - minBuildHeight) << 8;
+            for (int column = 0; column < COLUMN_COUNT; column++) {
+                int blockId = blockIds[baseIndex | column];
+                if (!FastBlockStateCache.isEmpty(blockId)) {
+                    nonEmpty++;
+                    if (FastBlockStateCache.isRandomlyTickingBlock(blockId)) {
+                        tickingBlocks++;
+                    }
+                }
+                if (!FastBlockStateCache.isFluidEmpty(blockId)
+                        && FastBlockStateCache.isRandomlyTickingFluid(blockId)) {
+                    tickingFluids++;
+                }
+                if (FastBlockStateCache.hasLightEmission(blockId)) {
+                    lightEmission++;
+                }
+            }
+        }
+        setTerrainSectionCounts(sectionIndex, nonEmpty, tickingBlocks, tickingFluids, lightEmission);
+    }
+
+    private void setTerrainSectionCounts(
+            int sectionIndex,
+            int nonEmpty,
+            int tickingBlocks,
+            int tickingFluids,
+            int lightEmission
+    ) {
+        ensureTerrainSectionCounterCapacity();
+        terrainNonEmptySectionCounts[sectionIndex] = (short) nonEmpty;
+        terrainTickingBlockSectionCounts[sectionIndex] = (short) tickingBlocks;
+        terrainTickingFluidSectionCounts[sectionIndex] = (short) tickingFluids;
+        terrainLightEmissionSectionCounts[sectionIndex] = lightEmission;
+        int word = sectionIndex >>> 6;
+        ensureTerrainSectionCounterWordCapacity(word + 1);
+        terrainSectionCounterKnownWords[word] |= 1L << (sectionIndex & 63);
+    }
+
+    private void incrementTerrainSectionCountsFromAir(int sectionIndex, int newId) {
+        if (!hasKnownTerrainSectionCounts(sectionIndex)) {
+            return;
+        }
+        int nonEmpty = terrainNonEmptySectionCounts[sectionIndex] & 0xFFFF;
+        int tickingBlocks = terrainTickingBlockSectionCounts[sectionIndex] & 0xFFFF;
+        int tickingFluids = terrainTickingFluidSectionCounts[sectionIndex] & 0xFFFF;
+        int lightEmission = terrainLightEmissionSectionCounts[sectionIndex];
+
+        if (!FastBlockStateCache.isEmpty(newId)) {
+            nonEmpty++;
+            if (FastBlockStateCache.isRandomlyTickingBlock(newId)) {
+                tickingBlocks++;
+            }
+        }
+        if (!FastBlockStateCache.isFluidEmpty(newId) && FastBlockStateCache.isRandomlyTickingFluid(newId)) {
+            tickingFluids++;
+        }
+        if (FastBlockStateCache.hasLightEmission(newId)) {
+            lightEmission++;
+        }
+
+        terrainNonEmptySectionCounts[sectionIndex] = (short) nonEmpty;
+        terrainTickingBlockSectionCounts[sectionIndex] = (short) tickingBlocks;
+        terrainTickingFluidSectionCounts[sectionIndex] = (short) tickingFluids;
+        terrainLightEmissionSectionCounts[sectionIndex] = lightEmission;
+    }
+
+    private void updateTerrainSectionCounts(int sectionIndex, int oldId, int newId) {
+        if (oldId == newId || !hasKnownTerrainSectionCounts(sectionIndex)) {
+            return;
+        }
+        int nonEmpty = terrainNonEmptySectionCounts[sectionIndex] & 0xFFFF;
+        int tickingBlocks = terrainTickingBlockSectionCounts[sectionIndex] & 0xFFFF;
+        int tickingFluids = terrainTickingFluidSectionCounts[sectionIndex] & 0xFFFF;
+        int lightEmission = terrainLightEmissionSectionCounts[sectionIndex];
+
+        if (!FastBlockStateCache.isEmpty(oldId)) {
+            nonEmpty--;
+            if (FastBlockStateCache.isRandomlyTickingBlock(oldId)) {
+                tickingBlocks--;
+            }
+        }
+        if (!FastBlockStateCache.isFluidEmpty(oldId) && FastBlockStateCache.isRandomlyTickingFluid(oldId)) {
+            tickingFluids--;
+        }
+        if (FastBlockStateCache.hasLightEmission(oldId)) {
+            lightEmission--;
+        }
+        if (!FastBlockStateCache.isEmpty(newId)) {
+            nonEmpty++;
+            if (FastBlockStateCache.isRandomlyTickingBlock(newId)) {
+                tickingBlocks++;
+            }
+        }
+        if (!FastBlockStateCache.isFluidEmpty(newId) && FastBlockStateCache.isRandomlyTickingFluid(newId)) {
+            tickingFluids++;
+        }
+        if (FastBlockStateCache.hasLightEmission(newId)) {
+            lightEmission++;
+        }
+
+        terrainNonEmptySectionCounts[sectionIndex] = (short) Math.max(0, nonEmpty);
+        terrainTickingBlockSectionCounts[sectionIndex] = (short) Math.max(0, tickingBlocks);
+        terrainTickingFluidSectionCounts[sectionIndex] = (short) Math.max(0, tickingFluids);
+        terrainLightEmissionSectionCounts[sectionIndex] = Math.max(0, lightEmission);
     }
 
     private void requireBlockBuffer() {
@@ -1155,6 +1593,7 @@ public final class GAChunkWorkspace {
         if (blockId < 0) {
             throw new IllegalArgumentException("blockId must be non-negative");
         }
+        materializeLazyAirSectionForWorkspaceIndex(index);
         blockIds[index] = blockId;
     }
 
@@ -1166,6 +1605,23 @@ public final class GAChunkWorkspace {
         int word = sectionIndex >>> 6;
         if (word < dirtySectionWords.length) {
             dirtySectionWords[word] &= ~(1L << sectionIndex);
+        }
+    }
+
+    private void markTerrainSectionOnlyDirty(int sectionIndex) {
+        int word = sectionIndex >>> 6;
+        ensureDirtySectionWordCapacity(word + 1);
+        terrainSectionOnlyDirtyWords[word] |= 1L << (sectionIndex & 63);
+    }
+
+    private void clearTerrainSectionOnlyDirties() {
+        Arrays.fill(terrainSectionOnlyDirtyWords, 0L);
+    }
+
+    private void clearTerrainSectionOnlyDirty(int sectionIndex) {
+        int word = sectionIndex >>> 6;
+        if (word < terrainSectionOnlyDirtyWords.length) {
+            terrainSectionOnlyDirtyWords[word] &= ~(1L << (sectionIndex & 63));
         }
     }
 
@@ -1265,6 +1721,10 @@ public final class GAChunkWorkspace {
 
     private static long retainedIntBytes(int[] values) {
         return values == null ? 0L : 16L + (long) values.length * Integer.BYTES;
+    }
+
+    private static long retainedShortBytes(short[] values) {
+        return values == null ? 0L : 16L + (long) values.length * Short.BYTES;
     }
 
     private static long retainedLongBytes(long[] values) {

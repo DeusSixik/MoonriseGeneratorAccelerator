@@ -21,8 +21,13 @@ public final class GAChunkWorkspaceMetrics {
     private static final AtomicLong GLOBAL_CONTEXT_BOUND_SESSIONS = new AtomicLong();
     private static final AtomicLong GLOBAL_MIRRORED_BLOCK_WRITES = new AtomicLong();
     private static final AtomicLong GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_AIR_IMPORTS = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_LAZY_AIR_IMPORTS = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS = new AtomicLong();
     private static final AtomicLong GLOBAL_FINAL_REPACK_SKIPS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS = new AtomicLong();
     private static final AtomicLong GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES = new AtomicLong();
     private static final AtomicLong GLOBAL_FINAL_REPACK_REPAIRS = new AtomicLong();
     private static final AtomicLong GLOBAL_EMERGENCY_REPACKS = new AtomicLong();
     private static final AtomicLong GLOBAL_EMERGENCY_REPACK_FAILURES = new AtomicLong();
@@ -135,12 +140,40 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
     }
 
+    public static void incrementTerrainAirImports() {
+        GLOBAL_TERRAIN_AIR_IMPORTS.incrementAndGet();
+    }
+
+    public static void incrementTerrainLazyAirImports() {
+        GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.incrementAndGet();
+    }
+
+    public static void incrementTerrainLazyAirSectionClears() {
+        GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.incrementAndGet();
+    }
+
     public static void incrementFinalRepackSkips() {
         GLOBAL_FINAL_REPACK_SKIPS.incrementAndGet();
     }
 
+    public static void addFinalRepackLocalTerrainSections(long sections) {
+        GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.addAndGet(Math.max(0L, sections));
+    }
+
     public static void incrementFinalRepackDenseSectionCopies() {
         GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.incrementAndGet();
+    }
+
+    public static void addFinalRepackDenseSectionCopies(long sections) {
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.addAndGet(Math.max(0L, sections));
+    }
+
+    public static void incrementFinalRepackTerrainSectionCopies() {
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.incrementAndGet();
+    }
+
+    public static void addFinalRepackTerrainSectionCopies(long sections) {
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.addAndGet(Math.max(0L, sections));
     }
 
     public static void incrementFinalRepackRepairs() {
@@ -221,8 +254,13 @@ public final class GAChunkWorkspaceMetrics {
         out.put("contextBoundSessions", GLOBAL_CONTEXT_BOUND_SESSIONS.get());
         out.put("mirroredBlockWrites", GLOBAL_MIRRORED_BLOCK_WRITES.get());
         out.put("workspaceOnlyBlockWrites", GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.get());
+        out.put("terrainAirImports", GLOBAL_TERRAIN_AIR_IMPORTS.get());
+        out.put("terrainLazyAirImports", GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.get());
+        out.put("terrainLazyAirSectionClears", GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.get());
         out.put("finalRepackSkips", GLOBAL_FINAL_REPACK_SKIPS.get());
+        out.put("finalRepackLocalTerrainSections", GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.get());
         out.put("finalRepackDenseSectionCopies", GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.get());
+        out.put("finalRepackTerrainSectionCopies", GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.get());
         out.put("finalRepackRepairs", GLOBAL_FINAL_REPACK_REPAIRS.get());
         out.put("emergencyRepacks", GLOBAL_EMERGENCY_REPACKS.get());
         out.put("emergencyRepackFailures", GLOBAL_EMERGENCY_REPACK_FAILURES.get());
@@ -246,8 +284,13 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_CONTEXT_BOUND_SESSIONS.set(0L);
         GLOBAL_MIRRORED_BLOCK_WRITES.set(0L);
         GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.set(0L);
+        GLOBAL_TERRAIN_AIR_IMPORTS.set(0L);
+        GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.set(0L);
+        GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.set(0L);
         GLOBAL_FINAL_REPACK_SKIPS.set(0L);
+        GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.set(0L);
         GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.set(0L);
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.set(0L);
         GLOBAL_FINAL_REPACK_REPAIRS.set(0L);
         GLOBAL_EMERGENCY_REPACKS.set(0L);
         GLOBAL_EMERGENCY_REPACK_FAILURES.set(0L);

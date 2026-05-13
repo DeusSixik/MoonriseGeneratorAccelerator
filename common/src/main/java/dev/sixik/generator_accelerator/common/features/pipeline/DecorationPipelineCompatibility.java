@@ -4,11 +4,17 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
 import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.feature.WeightedPlacedFeature;
+import net.minecraft.world.level.levelgen.feature.configurations.RandomBooleanFeatureConfiguration;
+import net.minecraft.world.level.levelgen.feature.configurations.RandomFeatureConfiguration;
+import net.minecraft.world.level.levelgen.feature.configurations.RandomPatchConfiguration;
+import net.minecraft.world.level.levelgen.feature.configurations.SimpleRandomFeatureConfiguration;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +28,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * routed through a conservative vanilla-style path for the rest of the session.
  */
 public final class DecorationPipelineCompatibility {
+    private static final int TREE_LIKE_SCAN_DEPTH = 8;
+    private static final Cache<PlacedFeature, Boolean> TREE_LIKE_FEATURES = Caffeine.newBuilder()
+            .initialCapacity(64)
+            .weakKeys()
+            .build();
     private static final Cache<PlacedFeature, Boolean> QUARANTINED_FEATURES = Caffeine.newBuilder()
             .initialCapacity(32)
             .weakKeys()
@@ -34,6 +45,8 @@ public final class DecorationPipelineCompatibility {
     }
 
     public static void clearSessionCaches() {
+        TREE_LIKE_FEATURES.invalidateAll();
+        TREE_LIKE_FEATURES.cleanUp();
         QUARANTINED_FEATURES.invalidateAll();
         QUARANTINED_FEATURES.cleanUp();
         QUARANTINED_FEATURE_COUNT.set(0);
@@ -42,10 +55,66 @@ public final class DecorationPipelineCompatibility {
     }
 
     static boolean shouldUseSafeVanilla(@Nullable PlacedFeature feature) {
-        if (feature == null || QUARANTINED_FEATURE_COUNT.get() == 0) {
+        if (feature == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(TREE_LIKE_FEATURES.get(feature, placedFeature ->
+                isTreeLikePlacedFeature(placedFeature, 0)))) {
+            return true;
+        }
+        if (QUARANTINED_FEATURE_COUNT.get() == 0) {
             return false;
         }
         return QUARANTINED_FEATURES.getIfPresent(feature) != null;
+    }
+
+    private static boolean isTreeLikePlacedFeature(@Nullable PlacedFeature feature, int depth) {
+        if (feature == null || depth > TREE_LIKE_SCAN_DEPTH) {
+            return false;
+        }
+        try {
+            Holder<ConfiguredFeature<?, ?>> holder = feature.feature();
+            return holder != null && isTreeLikeConfiguredFeature(holder.value(), depth + 1);
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isTreeLikeConfiguredFeature(@Nullable ConfiguredFeature<?, ?> configuredFeature, int depth) {
+        if (configuredFeature == null || depth > TREE_LIKE_SCAN_DEPTH) {
+            return false;
+        }
+
+        Feature<?> feature = configuredFeature.feature();
+        if (feature == Feature.TREE) {
+            return true;
+        }
+
+        Object config = configuredFeature.config();
+        if (config instanceof RandomPatchConfiguration randomPatch) {
+            return isTreeLikePlacedFeature(randomPatch.feature().value(), depth + 1);
+        }
+        if (config instanceof RandomFeatureConfiguration randomFeature) {
+            for (WeightedPlacedFeature entry : randomFeature.features) {
+                if (isTreeLikePlacedFeature(entry.feature.value(), depth + 1)) {
+                    return true;
+                }
+            }
+            return isTreeLikePlacedFeature(randomFeature.defaultFeature.value(), depth + 1);
+        }
+        if (config instanceof RandomBooleanFeatureConfiguration randomBoolean) {
+            return isTreeLikePlacedFeature(randomBoolean.featureTrue.value(), depth + 1)
+                    || isTreeLikePlacedFeature(randomBoolean.featureFalse.value(), depth + 1);
+        }
+        if (config instanceof SimpleRandomFeatureConfiguration simpleRandom) {
+            HolderSet<PlacedFeature> features = simpleRandom.features;
+            for (int i = 0, size = features.size(); i < size; i++) {
+                if (isTreeLikePlacedFeature(features.get(i).value(), depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     static void quarantine(

@@ -30,7 +30,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                 GAScheduler.Lane.NOISE,
                 step,
                 chunk,
-                () -> GAChunkWorkspaceRuntime.withImportedWorkspaceFuture(
+                () -> GAChunkWorkspaceRuntime.withTerrainWorkspaceFuture(
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )

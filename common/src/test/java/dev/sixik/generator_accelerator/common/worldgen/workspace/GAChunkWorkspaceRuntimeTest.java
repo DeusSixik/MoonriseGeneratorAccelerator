@@ -127,6 +127,51 @@ class GAChunkWorkspaceRuntimeTest {
     }
 
     @Test
+    void terrainWorkspaceFutureCanUseAirInitializedWorkspace() {
+        LevelChunkSection section = mock(LevelChunkSection.class);
+        when(section.hasOnlyAir()).thenReturn(true);
+        ChunkAccess chunk = chunk(section);
+        AtomicReference<GAChunkWorkspace> captured = new AtomicReference<>();
+
+        GAChunkWorkspaceRuntime.withTerrainWorkspaceFuture(chunk, () -> {
+            captured.set(GAChunkWorkspaceContext.current());
+            return CompletableFuture.completedFuture(chunk);
+        }).join();
+
+        assertNotNull(captured.get());
+        assertFalse(captured.get().active());
+        assertEquals(1L, metric("terrainAirImports"));
+        verify(section, never()).getBlockState(anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void terrainOnlyWorkspaceFinalRepackRunsLocallyWithoutCommitBatch() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        LevelChunkSection section = flatSection(raw);
+        ChunkAccess chunk = chunk(section);
+        int dirtId = Block.getId(Blocks.DIRT.defaultBlockState());
+
+        GAChunkWorkspaceRuntime.withTerrainWorkspaceFuture(chunk, () -> {
+            GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
+            assertNotNull(workspace);
+            assertTrue(workspace.writeTerrainBlockIdWorkspaceOnlySectionDirty(
+                    (2 << 8) | (3 << 4) | 1,
+                    0,
+                    dirtId
+            ));
+            workspace.metrics().addTerrainBlockWrites(1L);
+            workspace.markTerrainFinalized();
+            return CompletableFuture.completedFuture(chunk);
+        }).join();
+
+        assertEquals(dirtId, raw[(2 << 8) | (3 << 4) | 1]);
+        assertEquals(1L, metric("finalRepackLocalTerrainSections"));
+        assertEquals(1L, metric("finalRepackTerrainSectionCopies"));
+        assertEquals(0L, metric(GACommitMetrics.snapshotGlobal(), "accepted"));
+        assertEquals(0L, metric("finalizeFailures"));
+    }
+
+    @Test
     void diagnosticsReportRuntimeCommitAfterWorkspaceOnlyRepack() {
         LevelChunkSection section = flatSection(new int[GAChunkWorkspace.BLOCKS_PER_SECTION]);
         ChunkAccess chunk = chunk(section);
@@ -286,6 +331,11 @@ class GAChunkWorkspaceRuntimeTest {
         when(((LevelChunkSection$FlatBlockArray) section).bts$setRawBlockStateForGeneration(anyInt(), anyInt()))
                 .thenAnswer(invocation -> {
                     raw[invocation.getArgument(0)] = invocation.getArgument(1);
+                    return true;
+                });
+        when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                .thenAnswer(invocation -> {
+                    System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
                     return true;
                 });
         return section;

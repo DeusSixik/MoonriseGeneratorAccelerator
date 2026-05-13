@@ -123,6 +123,9 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         if (!super.shouldApplyMixin(targetClassName, mixinClassName)) {
             return false;
         }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.features.mixin.features.MixinTreeFeature")) {
+            return Boolean.getBoolean("ga.features.fastTreeFeature.enabled");
+        }
         if (Boolean.getBoolean("ga.benchmark.featureVmOnly")) {
             return Boolean.getBoolean("ga.benchmark.featureVm") && isFeatureVmMixin(mixinClassName);
         }

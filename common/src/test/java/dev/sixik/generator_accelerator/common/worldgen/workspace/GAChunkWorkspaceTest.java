@@ -76,12 +76,91 @@ class GAChunkWorkspaceTest {
         assertEquals(42, workspace.surfaceBlockId(localX, localZ));
         assertEquals(y, workspace.heightCandidate(localX, localZ));
         assertEquals(1L, workspace.workspaceOnlyWrites());
+        assertEquals(1L, workspace.terrainWorkspaceOnlyWrites());
+        assertTrue(workspace.hasOnlyTerrainWorkspaceOnlyWrites());
         assertEquals(1, workspace.dirtyBlockCountInSection(0));
         assertTrue(workspace.isDirtySection(0));
         assertTrue(workspace.isDirtyBlockColumn(localX, localZ));
         assertTrue(workspace.isDirtyHeightColumn(localX, localZ));
         assertTrue(workspace.isDirtySurfaceColumn(localX, localZ));
         assertTrue(workspace.isDirtyLightColumn(localX, localZ));
+    }
+
+    @Test
+    void sectionDirtyTerrainWriteAvoidsPerBlockDirtyBitsForFullSectionPublish() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+        workspace.initializeLazyAirBlockBuffer(GAChunkWorkspace.EMPTY_BLOCK_ID);
+
+        int localX = 2;
+        int y = 5;
+        int localZ = 7;
+        int sectionIndex = 0;
+        int columnIndex = (localZ << 4) | localX;
+        int workspaceIndex = (y << 8) | columnIndex;
+
+        assertEquals(GAChunkWorkspace.EMPTY_BLOCK_ID, workspace.blockId(1, 20, 1));
+        assertTrue(workspace.writeTerrainBlockIdWorkspaceOnlySectionDirty(workspaceIndex, sectionIndex, 42));
+
+        assertEquals(42, workspace.blockId(localX, y, localZ));
+        assertEquals(1L, workspace.workspaceOnlyWrites());
+        assertEquals(1L, workspace.terrainWorkspaceOnlyWrites());
+        assertTrue(workspace.hasOnlyTerrainWorkspaceOnlyWrites());
+        assertTrue(workspace.isDirtySection(sectionIndex));
+        assertTrue(workspace.hasTerrainSectionOnlyDirtiesInSection(sectionIndex));
+        assertEquals(0, workspace.dirtyBlockCountInSection(sectionIndex));
+        assertFalse(workspace.isDirtyBlockColumn(localX, localZ));
+        assertFalse(workspace.isDirtyHeightColumn(localX, localZ));
+    }
+
+    @Test
+    void preparedSectionDirtyTerrainWriteReusesSectionSetup() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+        workspace.initializeLazyAirBlockBuffer(GAChunkWorkspace.EMPTY_BLOCK_ID);
+
+        int localX = 4;
+        int y = 6;
+        int localZ = 9;
+        int sectionIndex = 0;
+        int workspaceIndex = (y << 8) | (localZ << 4) | localX;
+
+        assertTrue(workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex));
+        assertFalse(workspace.isDirtySection(sectionIndex));
+        assertTrue(workspace.writePreparedTerrainBlockIdWorkspaceOnlySectionDirty(
+                workspaceIndex,
+                sectionIndex,
+                42
+        ));
+
+        assertEquals(42, workspace.blockId(localX, y, localZ));
+        assertEquals(1L, workspace.workspaceOnlyWrites());
+        assertEquals(1L, workspace.terrainWorkspaceOnlyWrites());
+        assertTrue(workspace.hasOnlyTerrainWorkspaceOnlyWrites());
+        assertTrue(workspace.isDirtySection(sectionIndex));
+        assertTrue(workspace.hasTerrainSectionOnlyDirtiesInSection(sectionIndex));
+        assertEquals(0, workspace.dirtyBlockCountInSection(sectionIndex));
+    }
+
+    @Test
+    void committedPreparedTerrainSectionMarksWholeSectionWithoutDirtyBlocks() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+        workspace.begin(chunk(0, 0, 0, 32, 2, 0, 2));
+        workspace.initializeLazyAirBlockBuffer(GAChunkWorkspace.EMPTY_BLOCK_ID);
+
+        assertTrue(workspace.prepareTerrainBlockIdWorkspaceOnlySection(0));
+        workspace.blockIds()[(6 << 8) | (9 << 4) | 4] = 42;
+
+        assertTrue(workspace.commitPreparedTerrainSectionOnlyWrites(0, 1, 0, 0, 0, 1));
+
+        assertEquals(42, workspace.blockId(4, 6, 9));
+        assertEquals(1L, workspace.workspaceOnlyWrites());
+        assertEquals(1L, workspace.terrainWorkspaceOnlyWrites());
+        assertTrue(workspace.hasOnlyTerrainWorkspaceOnlyWrites());
+        assertTrue(workspace.isDirtySection(0));
+        assertTrue(workspace.hasTerrainSectionOnlyDirtiesInSection(0));
+        assertEquals(0, workspace.dirtyBlockCountInSection(0));
+        assertEquals(1, workspace.terrainNonEmptyBlockCountInSection(0));
     }
 
     @Test

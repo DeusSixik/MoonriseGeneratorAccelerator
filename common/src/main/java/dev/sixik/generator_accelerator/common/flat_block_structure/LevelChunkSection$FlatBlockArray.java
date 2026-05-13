@@ -41,6 +41,37 @@ public interface LevelChunkSection$FlatBlockArray {
     boolean bts$copyRawBlockDataForGeneration(int[] source);
 
     /**
+     * Bulk replace a raw section from a larger section-aligned source array.
+     * Implementations can avoid allocating a temporary 4096-int section copy.
+     */
+    default boolean bts$copyRawBlockDataForGeneration(int[] source, int sourceOffset) {
+        if (sourceOffset == 0) {
+            return bts$copyRawBlockDataForGeneration(source);
+        }
+        if (source == null || sourceOffset < 0 || source.length - sourceOffset < 4096) {
+            throw new IllegalArgumentException("source section buffer is too small");
+        }
+        int[] section = new int[4096];
+        System.arraycopy(source, sourceOffset, section, 0, section.length);
+        return bts$copyRawBlockDataForGeneration(section);
+    }
+
+    /**
+     * Bulk replace a raw section when the caller already computed vanilla
+     * counters for the 4096 source ids.
+     */
+    default boolean bts$copyRawBlockDataForGeneration(
+            int[] source,
+            int sourceOffset,
+            int nonEmptyBlockCount,
+            int tickingBlockCount,
+            int tickingFluidCount,
+            int lightEmissionCount
+    ) {
+        return bts$copyRawBlockDataForGeneration(source, sourceOffset);
+    }
+
+    /**
      * Returns true when the raw section contains any block state with vanilla light emission.
      * Falls back to vanilla palette scanning when the section is not unpacked.
      */

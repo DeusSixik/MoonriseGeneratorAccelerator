@@ -103,7 +103,12 @@ public final class GAWorldgenPipelineStatus {
         out.put("workspaceContextBound", contextBound);
         out.put("workspaceBlockImportRuntime", blockImported);
         out.put("workspaceFinalizeRuntime", finalized);
+        out.put("workspaceTerrainAirImports", number(workspaceMetrics, "terrainAirImports"));
+        out.put("workspaceTerrainLazyAirImports", number(workspaceMetrics, "terrainLazyAirImports"));
+        out.put("workspaceTerrainLazyAirSectionClears", number(workspaceMetrics, "terrainLazyAirSectionClears"));
+        out.put("workspaceLocalTerrainFinalSections", number(workspaceMetrics, "finalRepackLocalTerrainSections"));
         out.put("workspaceFinalDenseSectionCopies", number(workspaceMetrics, "finalRepackDenseSectionCopies"));
+        out.put("workspaceFinalTerrainSectionCopies", number(workspaceMetrics, "finalRepackTerrainSectionCopies"));
         out.put("workspaceFinalRepackRepairs", number(workspaceMetrics, "finalRepackRepairs"));
         out.put("workspaceEmergencyRepacks", number(workspaceMetrics, "emergencyRepacks"));
         out.put("workspaceEmergencyRepackFailures", number(workspaceMetrics, "emergencyRepackFailures"));

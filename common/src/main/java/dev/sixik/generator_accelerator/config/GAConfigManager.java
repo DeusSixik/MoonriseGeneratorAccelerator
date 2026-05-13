@@ -120,6 +120,10 @@ public class GAConfigManager {
         config.enableWorkspaceFinalRepackValidation = boolOverride("ga.config.enableWorkspaceFinalRepackValidation", config.enableWorkspaceFinalRepackValidation);
         config.enableWorkspaceDenseFinalSectionCopy = boolOverride("ga.config.enableWorkspaceDenseFinalSectionCopy", config.enableWorkspaceDenseFinalSectionCopy);
         config.workspaceDenseFinalSectionCopyThreshold = intOverride("ga.config.workspaceDenseFinalSectionCopyThreshold", config.workspaceDenseFinalSectionCopyThreshold);
+        config.enableWorkspaceTerrainAirImport = boolOverride("ga.config.enableWorkspaceTerrainAirImport", config.enableWorkspaceTerrainAirImport);
+        config.enableWorkspaceTerrainLazyAirImport = boolOverride("ga.config.enableWorkspaceTerrainLazyAirImport", config.enableWorkspaceTerrainLazyAirImport);
+        config.enableWorkspaceTerrainSectionOnlyDirtyTracking = boolOverride("ga.config.enableWorkspaceTerrainSectionOnlyDirtyTracking", config.enableWorkspaceTerrainSectionOnlyDirtyTracking);
+        config.enableWorkspaceLocalTerrainFinalRepack = boolOverride("ga.config.enableWorkspaceLocalTerrainFinalRepack", config.enableWorkspaceLocalTerrainFinalRepack);
         config.enableWorkspaceOnlyCircuitBreaker = boolOverride("ga.config.enableWorkspaceOnlyCircuitBreaker", config.enableWorkspaceOnlyCircuitBreaker);
         config.enableWorkspaceOnlyBlockWrites = boolOverride("ga.config.enableWorkspaceOnlyBlockWrites", config.enableWorkspaceOnlyBlockWrites);
         config.enableKnownDecorationJournalWrites = boolOverride("ga.config.enableKnownDecorationJournalWrites", config.enableKnownDecorationJournalWrites);
@@ -193,6 +197,10 @@ public class GAConfigManager {
         config.enableWorkspaceFinalRepack = enabled;
         config.enableWorkspaceFinalRepackValidation = enabled;
         config.enableWorkspaceDenseFinalSectionCopy = enabled;
+        config.enableWorkspaceTerrainAirImport = enabled;
+        config.enableWorkspaceTerrainLazyAirImport = enabled;
+        config.enableWorkspaceTerrainSectionOnlyDirtyTracking = enabled;
+        config.enableWorkspaceLocalTerrainFinalRepack = enabled;
         config.enableWorkspaceOnlyCircuitBreaker = enabled;
         config.enableWorkspaceOnlyBlockWrites = enabled;
         config.enableKnownDecorationJournalWrites = enabled;

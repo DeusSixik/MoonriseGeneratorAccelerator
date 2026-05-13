@@ -7,6 +7,8 @@ import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspac
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkAccessAccessor;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
@@ -35,6 +37,13 @@ import org.spongepowered.asm.mixin.Unique;
 public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     @Unique
     private static final int GA$POST_PROCESS_INITIAL_CAPACITY = 512;
+    @Unique
+    private static final GAConfig GA$CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
+    @Unique
+    private static final boolean GA$TERRAIN_SECTION_ONLY_DIRTY = Boolean.parseBoolean(System.getProperty(
+            "ga.chunkWorkspace.terrain.sectionOnlyDirty.enabled",
+            Boolean.toString(GA$CONFIG.enableWorkspaceTerrainSectionOnlyDirtyTracking)
+    ));
 
     @Shadow
     @Final
@@ -102,7 +111,31 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                 && workspace.chunkZ() == chunkPos.z
                 && GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
                 && GAChunkWorkspaceRuntime.finalRepackEnabled();
+        boolean directLazyAirTerrainWrites = workspaceTerrainWrites
+                && GA$TERRAIN_SECTION_ONLY_DIRTY
+                && workspace.lazyAirBlockBuffer()
+                && workspace.sectionCount() <= Long.SIZE
+                && workspace.blockIds() != null
+                && workspace.blockCapacity() >= workspace.blockCount();
+        int[] workspaceBlockIds = directLazyAirTerrainWrites ? workspace.blockIds() : null;
+        int directTerrainSectionCount = directLazyAirTerrainWrites ? workspace.sectionCount() : 0;
+        int[] directTerrainWritesBySection = directLazyAirTerrainWrites ? new int[directTerrainSectionCount] : null;
+        int[] directTerrainNonEmptyBySection = directLazyAirTerrainWrites ? new int[directTerrainSectionCount] : null;
+        int[] directTerrainTickingBlocksBySection = directLazyAirTerrainWrites ? new int[directTerrainSectionCount] : null;
+        int[] directTerrainTickingFluidsBySection = directLazyAirTerrainWrites ? new int[directTerrainSectionCount] : null;
+        int[] directTerrainLightBySection = directLazyAirTerrainWrites ? new int[directTerrainSectionCount] : null;
+        boolean[] directEmptyStates = directLazyAirTerrainWrites ? FastBlockStateCache.EMPTY_STATES : null;
+        boolean[] directTickingBlockStates = directLazyAirTerrainWrites ? FastBlockStateCache.RANDOM_TICKING_BLOCK_STATES : null;
+        boolean[] directFluidEmptyStates = directLazyAirTerrainWrites ? FastBlockStateCache.FLUID_EMPTY_STATES : null;
+        boolean[] directTickingFluidStates = directLazyAirTerrainWrites ? FastBlockStateCache.RANDOM_TICKING_FLUID_STATES : null;
+        boolean[] directLightStates = directLazyAirTerrainWrites ? FastBlockStateCache.LIGHT_EMITTING_STATES : null;
+        boolean directStateCachesReady = directEmptyStates != null
+                && directTickingBlockStates != null
+                && directFluidEmptyStates != null
+                && directTickingFluidStates != null
+                && directLightStates != null;
         long workspaceTerrainWriteCount = 0L;
+        long workspacePreparedTerrainSections = 0L;
 
         for (int cellX = 0; cellX < cellCountX; ++cellX) {
             noiseChunk.advanceCellX(cellX);
@@ -110,8 +143,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
 
             for (int cellZ = 0; cellZ < cellCountZ; ++cellZ) {
                 int sectionIndex = topSectionIndex;
-                LevelChunkSection section = chunkAccess.getSection(sectionIndex);
-                LevelChunkSection$FlatBlockArray flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                LevelChunkSection section = workspaceTerrainWrites ? null : chunkAccess.getSection(sectionIndex);
+                LevelChunkSection$FlatBlockArray flatSection = section == null ? null : LevelChunkSection$FlatBlockArray.get(section);
+                int loadedSectionIndex = section == null ? Integer.MIN_VALUE : sectionIndex;
                 int baseBlockZ = minBlockZ + cellZ * cellWidth;
 
                 for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
@@ -123,8 +157,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         int newSectionIndex = chunkAccess.getSectionIndex(blockY);
                         if (sectionIndex != newSectionIndex) {
                             sectionIndex = newSectionIndex;
-                            section = chunkAccess.getSection(sectionIndex);
-                            flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                            if (!workspaceTerrainWrites) {
+                                section = chunkAccess.getSection(sectionIndex);
+                                flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                                loadedSectionIndex = sectionIndex;
+                            }
                         }
                         noiseChunk.updateForY(blockY, (double) localCellY * invCellHeight);
 
@@ -147,19 +184,94 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 }
 
                                 int stateId = GA$BlockStateExtension.get(blockState).bts$getFastId();
-                                int localIndex = (localY << 8) | (localZ << 4) | localX;
                                 int columnIndex = (localZ << 4) | localX;
-                                boolean wroteWorkspaceOnly = workspaceTerrainWrites
-                                        && workspace.writeTerrainBlockIdWorkspaceOnly(
-                                                ((blockY - workspace.minBuildHeight()) << 8) | columnIndex,
+                                boolean wroteWorkspaceOnly = false;
+                                if (workspaceTerrainWrites) {
+                                    int workspaceIndex = ((blockY - workspace.minBuildHeight()) << 8) | columnIndex;
+                                    if (directLazyAirTerrainWrites) {
+                                        boolean prepared = sectionIndex >= 0 && sectionIndex < directTerrainSectionCount;
+                                        if (prepared) {
+                                            long sectionBit = 1L << sectionIndex;
+                                            prepared = (workspacePreparedTerrainSections & sectionBit) != 0L;
+                                            if (!prepared) {
+                                                prepared = workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex);
+                                                if (prepared) {
+                                                    workspacePreparedTerrainSections |= sectionBit;
+                                                }
+                                            }
+                                        }
+                                        if (prepared && workspaceIndex >= 0 && workspaceIndex < workspaceBlockIds.length) {
+                                            workspaceBlockIds[workspaceIndex] = stateId;
+                                            directTerrainWritesBySection[sectionIndex]++;
+                                            if (directStateCachesReady && stateId >= 0 && stateId < directEmptyStates.length) {
+                                                if (!directEmptyStates[stateId]) {
+                                                    directTerrainNonEmptyBySection[sectionIndex]++;
+                                                    if (directTickingBlockStates[stateId]) {
+                                                        directTerrainTickingBlocksBySection[sectionIndex]++;
+                                                    }
+                                                }
+                                                if (!directFluidEmptyStates[stateId] && directTickingFluidStates[stateId]) {
+                                                    directTerrainTickingFluidsBySection[sectionIndex]++;
+                                                }
+                                                if (directLightStates[stateId]) {
+                                                    directTerrainLightBySection[sectionIndex]++;
+                                                }
+                                            } else {
+                                                if (!FastBlockStateCache.isEmpty(stateId)) {
+                                                    directTerrainNonEmptyBySection[sectionIndex]++;
+                                                    if (FastBlockStateCache.isRandomlyTickingBlock(stateId)) {
+                                                        directTerrainTickingBlocksBySection[sectionIndex]++;
+                                                    }
+                                                }
+                                                if (!FastBlockStateCache.isFluidEmpty(stateId)
+                                                        && FastBlockStateCache.isRandomlyTickingFluid(stateId)) {
+                                                    directTerrainTickingFluidsBySection[sectionIndex]++;
+                                                }
+                                                if (FastBlockStateCache.hasLightEmission(stateId)) {
+                                                    directTerrainLightBySection[sectionIndex]++;
+                                                }
+                                            }
+                                            wroteWorkspaceOnly = true;
+                                        }
+                                    } else if (GA$TERRAIN_SECTION_ONLY_DIRTY) {
+                                        boolean prepared;
+                                        if (sectionIndex >= 0 && sectionIndex < Long.SIZE) {
+                                            long sectionBit = 1L << sectionIndex;
+                                            prepared = (workspacePreparedTerrainSections & sectionBit) != 0L;
+                                            if (!prepared) {
+                                                prepared = workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex);
+                                                if (prepared) {
+                                                    workspacePreparedTerrainSections |= sectionBit;
+                                                }
+                                            }
+                                        } else {
+                                            prepared = workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex);
+                                        }
+                                        wroteWorkspaceOnly = prepared
+                                                && workspace.writePreparedTerrainBlockIdWorkspaceOnlySectionDirty(
+                                                        workspaceIndex,
+                                                        sectionIndex,
+                                                        stateId
+                                                );
+                                    } else {
+                                        wroteWorkspaceOnly = workspace.writeTerrainBlockIdWorkspaceOnly(
+                                                workspaceIndex,
                                                 sectionIndex,
                                                 columnIndex,
                                                 blockY,
                                                 stateId
                                         );
+                                    }
+                                }
                                 if (wroteWorkspaceOnly) {
                                     workspaceTerrainWriteCount++;
                                 } else {
+                                    if (section == null || loadedSectionIndex != sectionIndex) {
+                                        section = chunkAccess.getSection(sectionIndex);
+                                        flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                                        loadedSectionIndex = sectionIndex;
+                                    }
+                                    int localIndex = (localY << 8) | (localZ << 4) | localX;
                                     if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
                                         section.setBlockState(localX, localY, localZ, blockState, false);
                                     }
@@ -221,6 +333,22 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         }
 
         noiseChunk.stopInterpolation();
+        if (directLazyAirTerrainWrites && workspaceTerrainWriteCount > 0L) {
+            for (int sectionIndex = 0; sectionIndex < directTerrainSectionCount; sectionIndex++) {
+                int writtenBlocks = directTerrainWritesBySection[sectionIndex];
+                if (writtenBlocks <= 0) {
+                    continue;
+                }
+                workspace.commitPreparedTerrainSectionOnlyWrites(
+                        sectionIndex,
+                        directTerrainNonEmptyBySection[sectionIndex],
+                        directTerrainTickingBlocksBySection[sectionIndex],
+                        directTerrainTickingFluidsBySection[sectionIndex],
+                        directTerrainLightBySection[sectionIndex],
+                        writtenBlocks
+                );
+            }
+        }
         if (workspaceTerrainWriteCount > 0L) {
             workspace.metrics().addTerrainBlockWrites(workspaceTerrainWriteCount);
             workspace.markTerrainFinalized();

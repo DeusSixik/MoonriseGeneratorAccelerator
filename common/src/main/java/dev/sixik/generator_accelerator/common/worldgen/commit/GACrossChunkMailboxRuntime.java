@@ -57,6 +57,16 @@ public final class GACrossChunkMailboxRuntime {
         }
     }
 
+    public static boolean hasQueuedBlockWrites(ChunkAccess targetChunk) {
+        if (targetChunk == null) {
+            return false;
+        }
+        synchronized (LOCK) {
+            List<GACommitCommand<GABlockWriteValue>> commands = QUEUES.get(targetChunk.getPos().toLong());
+            return commands != null && !commands.isEmpty();
+        }
+    }
+
     public static boolean enqueueBlockWrite(
             int ownerChunkX,
             int ownerChunkZ,
