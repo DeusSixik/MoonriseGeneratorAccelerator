@@ -31,6 +31,11 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
                 ""));
 
+        create("com.github.alexmodguy.alexscaves.AlexsCaves", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.alexscaves.AlexsCaves$ChunkGeneratorMixin$applyBiomeDecoration",
+                "com.github.alexmodguy.alexscaves.mixin.ChunkGeneratorMixin"
+        ));
+
         create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.waystones.Waystones$WaystonePlacementMixin",
                 ""));
