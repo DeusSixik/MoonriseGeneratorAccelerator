@@ -11,6 +11,7 @@
     "MixinChunkGenerator$apply_biome_decoration",
     "MixinChunkStatusTasks$generate_features",
     "compats.accessories.AccessoriesBasedStackHandlerMixin",
+    "compats.alexscaves.AlexsCaves$ChunkGeneratorMixin$applyBiomeDecoration",
     "compats.artifacts.Artifacts$CampsiteHeightRangePlacementMixin",
     "compats.confluence.Confluence$FeaturePlacementCompatMixin",
     "compats.confluence.Confluence$SecretFlagPlacementMixin",
