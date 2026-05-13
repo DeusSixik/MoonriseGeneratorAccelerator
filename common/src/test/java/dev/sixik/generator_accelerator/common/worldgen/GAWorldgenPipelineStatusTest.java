@@ -46,6 +46,10 @@ class GAWorldgenPipelineStatusTest {
         assertEquals(false, runtimeGates.get("workspaceBlockImportRuntime"));
         assertEquals(false, runtimeGates.get("workspaceFinalizeRuntime"));
         assertEquals(false, runtimeGates.get("decorationWorkspaceRuntime"));
+        assertEquals(false, runtimeGates.get("decorationConflictSchedulerRuntimeEnabled"));
+        assertEquals(true, runtimeGates.get("decorationConflictSchedulerDetachedSnapshots"));
+        assertEquals(0, runtimeGates.get("decorationConflictSchedulerSnapshotRadius"));
+        assertTrue(runtimeGates.get("decorationConflictScheduler") instanceof Map<?, ?>);
         assertEquals(false, runtimeGates.get("knownKernelWorkspaceMirrors"));
         assertEquals(false, runtimeGates.get("workspaceBackedPlacementReads"));
         assertEquals(true, runtimeGates.get("schedulerWorkspaceLaneRuntime"));

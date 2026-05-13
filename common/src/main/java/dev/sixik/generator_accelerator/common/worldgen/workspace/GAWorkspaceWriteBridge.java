@@ -18,12 +18,20 @@ public final class GAWorkspaceWriteBridge {
             "ga.workspaceOnlyBlockWrites.enabled",
             CONFIG.enableWorkspaceOnlyBlockWrites
     );
+    private static final boolean KNOWN_DECORATION_JOURNAL_WRITES_ENABLED = booleanProperty(
+            "ga.knownDecorationJournalWrites.enabled",
+            CONFIG.enableKnownDecorationJournalWrites
+    );
 
     private GAWorkspaceWriteBridge() {
     }
 
     public static boolean workspaceOnlyWritesEnabled() {
         return WORKSPACE_ONLY_WRITES_ENABLED;
+    }
+
+    public static boolean knownDecorationJournalWritesEnabled() {
+        return KNOWN_DECORATION_JOURNAL_WRITES_ENABLED;
     }
 
     public static BlockState readCurrent(BlockPos pos) {
@@ -40,6 +48,13 @@ public final class GAWorkspaceWriteBridge {
     }
 
     public static BlockState read(GAChunkWorkspace workspace, BlockPos pos) {
+        GADecorationWriteJournal journal = GADecorationJournalContext.current();
+        if (journal != null) {
+            BlockState state = journal.stateAt(pos);
+            if (state != null) {
+                return state;
+            }
+        }
         if (workspace == null || pos == null || !workspace.blockBufferEnabled()) {
             return null;
         }
@@ -48,6 +63,13 @@ public final class GAWorkspaceWriteBridge {
     }
 
     public static Integer readBlockId(GAChunkWorkspace workspace, int x, int y, int z) {
+        GADecorationWriteJournal journal = GADecorationJournalContext.current();
+        if (journal != null) {
+            Integer blockId = journal.blockIdAt(x, y, z);
+            if (blockId != null) {
+                return blockId;
+            }
+        }
         if (workspace == null || !workspace.blockBufferEnabled()) {
             return null;
         }
@@ -89,15 +111,55 @@ public final class GAWorkspaceWriteBridge {
     }
 
     public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
-        return write(workspace, chunk, x, y, z, state, true);
+        return write(workspace, chunk, x, y, z, state, true, false);
+    }
+
+    public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, BlockPos pos, BlockState state) {
+        if (pos == null) {
+            return false;
+        }
+        return writeCurrentKnownDecorationWorkspaceOnly(chunk, pos.getX(), pos.getY(), pos.getZ(), state);
+    }
+
+    public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+        return writeKnownDecorationWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
+    }
+
+    public static boolean writeKnownDecorationWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+        if (!KNOWN_DECORATION_JOURNAL_WRITES_ENABLED) {
+            return false;
+        }
+        return write(workspace, chunk, x, y, z, state, true, true);
     }
 
     private static boolean write(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state, boolean workspaceOnly) {
-        if (workspaceOnly && !WORKSPACE_ONLY_WRITES_ENABLED) {
+        return write(workspace, chunk, x, y, z, state, workspaceOnly, false);
+    }
+
+    private static boolean write(
+            GAChunkWorkspace workspace,
+            ChunkAccess chunk,
+            int x,
+            int y,
+            int z,
+            BlockState state,
+            boolean workspaceOnly,
+            boolean trustedKnownDecoration
+    ) {
+        if (workspaceOnly && !trustedKnownDecoration && !WORKSPACE_ONLY_WRITES_ENABLED) {
             return false;
         }
         if (workspace == null || state == null || !workspace.blockBufferEnabled()) {
             return false;
+        }
+        if (trustedKnownDecoration) {
+            GADecorationWriteJournal journal = GADecorationJournalContext.current();
+            if (journal != null) {
+                if (y < workspace.minBuildHeight() || y >= workspace.minBuildHeight() + workspace.buildHeight()) {
+                    return false;
+                }
+                return journal.add(x, y, z, state);
+            }
         }
         if (workspaceOnly && ((x >> 4) != workspace.chunkX() || (z >> 4) != workspace.chunkZ())) {
             return GACrossChunkMailboxRuntime.enqueueBlockWrite(

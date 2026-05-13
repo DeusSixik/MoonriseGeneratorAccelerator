@@ -74,7 +74,7 @@ class GAChunkBlockIoTest {
     }
 
     @Test
-    void repackDirtySectionsWritesOnlyDirtySectionsThroughSafeSectionWrites() {
+    void repackDirtySectionsWritesOnlyDirtyBlockRunsThroughSafeSectionWrites() {
         BlockState air = Blocks.AIR.defaultBlockState();
         BlockState dirt = Blocks.DIRT.defaultBlockState();
         LevelChunkSection first = mock(LevelChunkSection.class);
@@ -90,7 +90,7 @@ class GAChunkBlockIoTest {
 
         long written = GAChunkBlockIo.repackDirtySections(chunk, workspace);
 
-        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, written);
+        assertEquals(1L, written);
         verify(first).setBlockState(eq(1), eq(2), eq(3), eq(dirt), eq(false));
         verify(second, never()).setBlockState(anyInt(), anyInt(), anyInt(), eq(dirt), eq(false));
         assertFalse(workspace.isDirtySection(0));
@@ -98,7 +98,7 @@ class GAChunkBlockIoTest {
     }
 
     @Test
-    void repackDirtySectionsWritesFullDirtySectionWithFastCacheStatesAndNoUpdateFlag() {
+    void repackDirtySectionsWritesOnlyDirtyDiffsWithFastCacheStatesAndNoUpdateFlag() {
         LevelChunkSection section = flatSection(new int[GAChunkWorkspace.BLOCKS_PER_SECTION]);
         ChunkAccess chunk = chunk(section);
         GAChunkWorkspace workspace = new GAChunkWorkspace();
@@ -112,8 +112,8 @@ class GAChunkBlockIoTest {
 
         long written = GAChunkBlockIo.repackDirtySections(chunk, workspace);
 
-        assertEquals(GAChunkWorkspace.BLOCKS_PER_SECTION, written);
-        verify(section, times(GAChunkWorkspace.BLOCKS_PER_SECTION))
+        assertEquals(3L, written);
+        verify(section, times(3))
                 .setBlockState(anyInt(), anyInt(), anyInt(), any(BlockState.class), eq(false));
         verify(section).setBlockState(eq(1), eq(2), eq(3), eq(air), eq(false));
         verify(section).setBlockState(eq(4), eq(5), eq(6), eq(water), eq(false));

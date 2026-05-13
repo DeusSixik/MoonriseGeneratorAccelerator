@@ -2,12 +2,15 @@ package dev.sixik.generator_accelerator.common.worldgen;
 
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPipeline;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationConflictSchedulerMetrics;
+import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineExecutor;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationWorkspaceBridge;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionRuntimeDispatcher;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.server.Bootstrap;
 
 import java.util.LinkedHashMap;
@@ -26,7 +29,7 @@ public final class GAWorldgenPipelineStatus {
     public static Map<String, Object> snapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("schema", "adaptive-worldgen-pipeline-status-v1");
-        out.put("summary", "Adaptive worldgen pipeline is live for custom chunk DAG scheduling and chunk-status dispatch; workspace import/final-repack remains disabled for parity.");
+        out.put("summary", "Adaptive worldgen pipeline is live for custom chunk DAG scheduling and chunk-status dispatch; known-decoration workspace journals remain opt-in until integrated benchmarks prove a net win.");
         out.put("phaseCompletionPercent", phaseCompletionPercent());
         out.put("phaseStatus", phaseStatus());
         out.put("runtimeGates", runtimeGates());
@@ -54,12 +57,12 @@ public final class GAWorldgenPipelineStatus {
     private static Map<String, Object> phaseStatus() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("phase0Contracts", "complete-decoration-contracts-locked");
-        out.put("phase1Workspace", "complete-skeleton-detached-import-finalize-release;not bound to live decoration");
+        out.put("phase1Workspace", "complete-import-finalize-release;live for trusted known-decoration journals");
         out.put("phase2Scheduler", "complete-unified-lanes-governor-metrics-lazy-pool-admission;live custom chunk DAG scheduler and chunk-status dispatch");
         out.put("phase3TerrainWorkspace", "complete-staged-density-aquifer-biome-surface-carver-detached-pipeline;not wired to vanilla terrain");
         out.put("phase4Classifier", "complete-cheap-tier-registry-scan-rollout-metadata");
-        out.put("phase5CommitEngine", "complete-detached-deterministic-plans-fast-collision-stats;live chunk repack disabled");
-        out.put("phase6DecorationWorkspace", "live feature-status dispatch guarded by lock-free striped chunk-region admission; workspace snapshot/repack still guarded off");
+        out.put("phase5CommitEngine", "complete-deterministic-plans-fast-collision-stats;live dirty diff-run workspace finalization");
+        out.put("phase6DecorationWorkspace", "opt-in trusted known-decoration workspace-only journals; conflict scheduler uses detached read snapshots for parallel ore kernels");
         out.put("phase7TransactionSandbox", "complete-detached-transaction-lane-command-journal-handoff;not live-dispatched");
         out.put("phase8EffectAnalysis", "complete-lightweight-classfile-scan-cache-hot-analysis-downgrade");
         out.put("phase9PatternOptimizer", "complete-detached-pattern-recognizer-guards-parity-metrics");
@@ -89,6 +92,12 @@ public final class GAWorldgenPipelineStatus {
                 ? GAChunkStatusPipeline.snapshot()
                 : unavailableUntilBootstrap("minecraft bootstrap not complete"));
         out.put("workspaceRuntimeEnabled", GAChunkWorkspaceRuntime.runtimeEnabled());
+        out.put("knownDecorationJournalRuntimeEnabled", GAWorkspaceWriteBridge.knownDecorationJournalWritesEnabled());
+        out.put("decorationConflictSchedulerRuntimeEnabled", DecorationPipelineExecutor.conflictSchedulerRuntimeEnabled());
+        out.put("decorationConflictSchedulerDetachedSnapshots", true);
+        out.put("decorationConflictSchedulerSnapshotRadius", DecorationPipelineExecutor.conflictSchedulerSnapshotRadius());
+        out.put("decorationConflictScheduler", DecorationConflictSchedulerMetrics.snapshot());
+        out.put("globalWorkspaceOnlyWritesEnabled", GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled());
         out.put("workspaceContextBound", contextBound);
         out.put("workspaceBlockImportRuntime", blockImported);
         out.put("workspaceFinalizeRuntime", finalized);
@@ -108,6 +117,7 @@ public final class GAWorldgenPipelineStatus {
         out.put("terrainWorkspaceBackend", true);
         out.put("terrainWorkspacePipelineRuntime", terrainWorkspace);
         out.put("terrainWorkspacePassesDetached", true);
+        out.put("workspaceFinalDiffRunCommitEngine", GAChunkWorkspaceRuntime.finalRepackEnabled() && workspaceOnlyWrites && commitApplied);
         out.put("workspaceFinalRepackCommitEngine", GAChunkWorkspaceRuntime.finalRepackEnabled() && workspaceOnlyWrites && commitApplied);
         out.put("deterministicCommitRuntime", commitApplied);
         out.put("detachedCommitEngineRuntime", true);
@@ -141,7 +151,7 @@ public final class GAWorldgenPipelineStatus {
 
     private static Map<String, Object> majorMissingPieces() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("decorationWorkspaceRuntime", "Feature status is live-dispatched through GA with lock-free striped region guards; workspace import/repack remains disabled because vanilla/mod feature writes are authoritative.");
+        out.put("decorationWorkspaceRuntime", "Known ore/scattered-ore/disk/simple/block-column kernels can journal into workspace-only diff runs; parallel ore scheduling uses detached snapshots and falls back sequentially on snapshot misses.");
         out.put("terrainRuntime", "Terrain workspace passes are detached helpers; vanilla terrain mixins do not commit chunks through them yet.");
         out.put("transactionRuntime", "Transaction sandbox value path exists, but unknown worldgen is not live-dispatched through it.");
         out.put("serialUnsafeRuntime", "Live unsafe serial fallback dispatch remains loader-compat gated; serial lane itself is bounded and clamped");

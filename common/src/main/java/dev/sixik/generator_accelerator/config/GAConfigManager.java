@@ -89,6 +89,9 @@ public class GAConfigManager {
         config.schedulerCommitWorkers = intOverride("ga.config.schedulerCommitWorkers", config.schedulerCommitWorkers);
         config.schedulerMaxQueuedTasks = intOverride("ga.config.schedulerMaxQueuedTasks", config.schedulerMaxQueuedTasks);
         config.schedulerCpuTarget = doubleOverride("ga.config.schedulerCpuTarget", config.schedulerCpuTarget);
+        config.schedulerCommitBacklogThrottleThreshold = intOverride("ga.config.schedulerCommitBacklogThrottleThreshold", config.schedulerCommitBacklogThrottleThreshold);
+        config.schedulerMailboxBacklogThrottleThreshold = intOverride("ga.config.schedulerMailboxBacklogThrottleThreshold", config.schedulerMailboxBacklogThrottleThreshold);
+        config.schedulerHeapPressureTarget = doubleOverride("ga.config.schedulerHeapPressureTarget", config.schedulerHeapPressureTarget);
         config.enableChunkStatusPipeline = boolOverride("ga.config.enableChunkStatusPipeline", config.enableChunkStatusPipeline);
         config.chunkPipelineGuards = boolOverride("ga.config.chunkPipelineGuards", config.chunkPipelineGuards);
         config.chunkPipelineBiomes = boolOverride("ga.config.chunkPipelineBiomes", config.chunkPipelineBiomes);
@@ -115,6 +118,10 @@ public class GAConfigManager {
         config.enableDecorationWorkspaceBridge = boolOverride("ga.config.enableDecorationWorkspaceBridge", config.enableDecorationWorkspaceBridge);
         config.enableWorkspaceFinalRepack = boolOverride("ga.config.enableWorkspaceFinalRepack", config.enableWorkspaceFinalRepack);
         config.enableWorkspaceOnlyBlockWrites = boolOverride("ga.config.enableWorkspaceOnlyBlockWrites", config.enableWorkspaceOnlyBlockWrites);
+        config.enableKnownDecorationJournalWrites = boolOverride("ga.config.enableKnownDecorationJournalWrites", config.enableKnownDecorationJournalWrites);
+        config.enableDecorationConflictScheduler = boolOverride("ga.config.enableDecorationConflictScheduler", config.enableDecorationConflictScheduler);
+        config.decorationConflictSchedulerMinBatch = intOverride("ga.config.decorationConflictSchedulerMinBatch", config.decorationConflictSchedulerMinBatch);
+        config.decorationConflictSchedulerSnapshotRadius = intOverride("ga.config.decorationConflictSchedulerSnapshotRadius", config.decorationConflictSchedulerSnapshotRadius);
         config.enableCrossChunkMailboxRuntime = boolOverride("ga.config.enableCrossChunkMailboxRuntime", config.enableCrossChunkMailboxRuntime);
         config.crossChunkMailboxMaxQueuedCommands = intOverride("ga.config.crossChunkMailboxMaxQueuedCommands", config.crossChunkMailboxMaxQueuedCommands);
         config.enableTransactionSandboxRuntime = boolOverride("ga.config.enableTransactionSandboxRuntime", config.enableTransactionSandboxRuntime);
@@ -181,6 +188,8 @@ public class GAConfigManager {
         config.enableDecorationWorkspaceBridge = enabled;
         config.enableWorkspaceFinalRepack = enabled;
         config.enableWorkspaceOnlyBlockWrites = enabled;
+        config.enableKnownDecorationJournalWrites = enabled;
+        config.enableDecorationConflictScheduler = enabled;
         config.enableCrossChunkMailboxRuntime = enabled;
         config.enableTransactionSandboxRuntime = enabled;
     }

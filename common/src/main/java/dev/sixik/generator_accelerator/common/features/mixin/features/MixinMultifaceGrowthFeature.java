@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
 import dev.sixik.generator_accelerator.common.features.GAMultifaceSpreaderAccess;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -94,6 +95,9 @@ public abstract class MixinMultifaceGrowthFeature extends Feature<MultifaceGrowt
                 return false;
             }
 
+            if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)) {
+                return false;
+            }
             level.setBlock(pos, placementState, 3);
             level.getChunk(pos).markPosForPostprocessing(pos);
             if (random.nextFloat() < config.chanceOfSpreading) {

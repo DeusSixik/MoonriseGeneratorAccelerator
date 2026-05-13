@@ -30,10 +30,18 @@ public final class GACrossChunkMailboxRuntime {
     private static final Object LOCK = new Object();
     private static final Map<Long, List<GACommitCommand<GABlockWriteValue>>> QUEUES = new LinkedHashMap<>();
     private static final AtomicLong SEQUENCE = new AtomicLong();
+    private static final AtomicLong ATTEMPTED = new AtomicLong();
     private static final AtomicLong ENQUEUED = new AtomicLong();
     private static final AtomicLong DRAINED = new AtomicLong();
     private static final AtomicLong REJECTED = new AtomicLong();
     private static final AtomicLong OVERFLOW = new AtomicLong();
+    private static final AtomicLong DRAIN_EXECUTIONS = new AtomicLong();
+    private static final AtomicLong DRAIN_REJECTED = new AtomicLong();
+    private static final AtomicLong DRAIN_COLLISIONS = new AtomicLong();
+    private static final AtomicLong DRAIN_FAILURES = new AtomicLong();
+    private static final AtomicLong MAX_QUEUE_DEPTH = new AtomicLong();
+    private static final AtomicLong MAX_TARGET_CHUNKS = new AtomicLong();
+    private static final AtomicLong LAST_OVERFLOW_TARGET = new AtomicLong(Long.MIN_VALUE);
     private static int queuedCommands;
 
     private GACrossChunkMailboxRuntime() {
@@ -41,6 +49,12 @@ public final class GACrossChunkMailboxRuntime {
 
     public static boolean enabled() {
         return ENABLED;
+    }
+
+    public static int queuedCommands() {
+        synchronized (LOCK) {
+            return queuedCommands;
+        }
     }
 
     public static boolean enqueueBlockWrite(
@@ -52,6 +66,7 @@ public final class GACrossChunkMailboxRuntime {
             BlockState state,
             int flags
     ) {
+        ATTEMPTED.incrementAndGet();
         if (!ENABLED || state == null) {
             REJECTED.incrementAndGet();
             return false;
@@ -81,11 +96,14 @@ public final class GACrossChunkMailboxRuntime {
         synchronized (LOCK) {
             if (MAX_QUEUED_COMMANDS > 0 && queuedCommands >= MAX_QUEUED_COMMANDS) {
                 OVERFLOW.incrementAndGet();
+                LAST_OVERFLOW_TARGET.set(ChunkPos.asLong(targetChunkX, targetChunkZ));
                 return false;
             }
             long targetKey = ChunkPos.asLong(targetChunkX, targetChunkZ);
             QUEUES.computeIfAbsent(targetKey, ignored -> new ArrayList<>()).add(command);
             queuedCommands++;
+            updateMax(MAX_QUEUE_DEPTH, queuedCommands);
+            updateMax(MAX_TARGET_CHUNKS, QUEUES.size());
             ENQUEUED.incrementAndGet();
             return true;
         }
@@ -116,7 +134,11 @@ public final class GACrossChunkMailboxRuntime {
                     targetChunk.setBlockState(new BlockPos(position.x(), position.y(), position.z()), blockState, false);
                 }
         );
+        DRAIN_EXECUTIONS.incrementAndGet();
         DRAINED.addAndGet(execution.metrics().acceptedCount());
+        DRAIN_REJECTED.addAndGet(execution.metrics().rejectedCount());
+        DRAIN_COLLISIONS.addAndGet(execution.metrics().collisionCount());
+        DRAIN_FAILURES.addAndGet(execution.metrics().failureCount());
         return execution;
     }
 
@@ -128,10 +150,22 @@ public final class GACrossChunkMailboxRuntime {
         }
         out.put("enabled", ENABLED);
         out.put("maxQueuedCommands", MAX_QUEUED_COMMANDS);
+        out.put("attempted", ATTEMPTED.get());
         out.put("enqueued", ENQUEUED.get());
         out.put("drained", DRAINED.get());
         out.put("rejected", REJECTED.get());
         out.put("overflow", OVERFLOW.get());
+        out.put("drainExecutions", DRAIN_EXECUTIONS.get());
+        out.put("drainRejected", DRAIN_REJECTED.get());
+        out.put("drainCollisions", DRAIN_COLLISIONS.get());
+        out.put("drainFailures", DRAIN_FAILURES.get());
+        out.put("maxQueueDepth", MAX_QUEUE_DEPTH.get());
+        out.put("maxTargetChunks", MAX_TARGET_CHUNKS.get());
+        out.put("fallbackRatio", ratio(REJECTED.get() + OVERFLOW.get(), ATTEMPTED.get()));
+        long lastOverflowTarget = LAST_OVERFLOW_TARGET.get();
+        if (lastOverflowTarget != Long.MIN_VALUE) {
+            out.put("lastOverflowTargetChunk", new ChunkPos(lastOverflowTarget).toString());
+        }
         return out;
     }
 
@@ -141,10 +175,18 @@ public final class GACrossChunkMailboxRuntime {
             queuedCommands = 0;
         }
         SEQUENCE.set(0L);
+        ATTEMPTED.set(0L);
         ENQUEUED.set(0L);
         DRAINED.set(0L);
         REJECTED.set(0L);
         OVERFLOW.set(0L);
+        DRAIN_EXECUTIONS.set(0L);
+        DRAIN_REJECTED.set(0L);
+        DRAIN_COLLISIONS.set(0L);
+        DRAIN_FAILURES.set(0L);
+        MAX_QUEUE_DEPTH.set(0L);
+        MAX_TARGET_CHUNKS.set(0L);
+        LAST_OVERFLOW_TARGET.set(Long.MIN_VALUE);
     }
 
     private static boolean booleanProperty(String property, boolean fallback) {
@@ -162,5 +204,19 @@ public final class GACrossChunkMailboxRuntime {
         } catch (NumberFormatException ignored) {
             return fallback;
         }
+    }
+
+    private static double ratio(long numerator, long denominator) {
+        return denominator <= 0L ? 0.0D : (double) numerator / (double) denominator;
+    }
+
+    private static void updateMax(AtomicLong value, long next) {
+        long current;
+        do {
+            current = value.get();
+            if (next <= current) {
+                return;
+            }
+        } while (!value.compareAndSet(current, next));
     }
 }

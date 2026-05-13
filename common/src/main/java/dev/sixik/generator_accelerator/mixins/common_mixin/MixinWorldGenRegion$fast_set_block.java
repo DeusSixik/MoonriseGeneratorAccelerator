@@ -1,13 +1,19 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationWorkspaceBridge;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.status.ChunkStep;
 import net.minecraft.world.level.material.FluidState;
 import org.jetbrains.annotations.NotNull;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
@@ -16,13 +22,24 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 @Mixin(WorldGenRegion.class)
-public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLevel {
+public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLevel, GAWorldGenRegionAccess {
 
     @Shadow
     public abstract boolean ensureCanWrite(BlockPos pos);
 
     @Shadow
     public abstract @NotNull ChunkAccess getChunk(int x, int z);
+
+    @Shadow
+    public abstract ChunkPos getCenter();
+
+    @Shadow
+    @Final
+    private ChunkStep generatingStep;
+
+    @Shadow
+    @Final
+    private ChunkAccess center;
 
     @Unique
     private int bts$lastChunkX = Integer.MIN_VALUE;
@@ -95,5 +112,21 @@ public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLeve
             this.bts$lastChunk = chunkAccess;
             return chunkAccess;
         }
+    }
+
+    @Override
+    public boolean ga$canWriteWithoutLogging(BlockPos pos) {
+        int chunkX = SectionPos.blockToSectionCoord(pos.getX());
+        int chunkZ = SectionPos.blockToSectionCoord(pos.getZ());
+        ChunkPos centerPos = this.getCenter();
+        int radius = Math.max(0, this.generatingStep.blockStateWriteRadius());
+        if (Math.abs(centerPos.x - chunkX) > radius || Math.abs(centerPos.z - chunkZ) > radius) {
+            return false;
+        }
+        if (!this.center.isUpgrading()) {
+            return true;
+        }
+        LevelHeightAccessor height = this.center.getHeightAccessorForGeneration();
+        return pos.getY() >= height.getMinBuildHeight() && pos.getY() < height.getMaxBuildHeight();
     }
 }

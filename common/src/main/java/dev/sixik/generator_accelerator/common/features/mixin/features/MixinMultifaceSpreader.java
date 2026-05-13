@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import dev.sixik.generator_accelerator.common.features.GAMultifaceSpreaderAccess;
 import dev.sixik.generator_accelerator.common.features.GAMultifaceSpreadScratch;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -317,6 +318,9 @@ public abstract class MixinMultifaceSpreader implements GAMultifaceSpreaderAcces
 
     @Unique
     private boolean ga$spreadToFace(LevelAccessor level, MultifaceSpreader.SpreadPos spreadPos, boolean markForPostprocessing) {
+        if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, spreadPos.pos())) {
+            return false;
+        }
         BlockState state = level.getBlockState(spreadPos.pos());
         return this.config.placeBlock(level, spreadPos, state, markForPostprocessing);
     }

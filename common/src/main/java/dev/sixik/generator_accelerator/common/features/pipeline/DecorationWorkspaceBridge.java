@@ -86,7 +86,7 @@ public final class DecorationWorkspaceBridge {
     }
 
     public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
-        if (GAWorkspaceWriteBridge.writeWorkspaceOnly(workspace, chunk, x, y, z, state)) {
+        if (GAWorkspaceWriteBridge.writeKnownDecorationWorkspaceOnly(workspace, chunk, x, y, z, state)) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRRORS);
             return true;
         }

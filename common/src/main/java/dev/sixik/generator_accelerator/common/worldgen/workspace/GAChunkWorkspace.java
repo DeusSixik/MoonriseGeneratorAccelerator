@@ -58,6 +58,7 @@ public final class GAChunkWorkspace {
     private boolean carverMaskEnabled;
     private int[] heightCandidates = new int[COLUMN_COUNT];
     private long[] dirtySectionWords = new long[1];
+    private long[] dirtyBlockWords = new long[1];
     private final long[] dirtyColumnWords = new long[4];
     private final long[] dirtyBlockColumnWords = new long[4];
     private final long[] dirtyHeightColumnWords = new long[4];
@@ -344,6 +345,7 @@ public final class GAChunkWorkspace {
             }
         }
         clearDirtySections();
+        clearDirtyBlocks();
         clearDirtyBlockColumns();
         metrics.addImportNanos(System.nanoTime() - start);
         metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
@@ -377,6 +379,7 @@ public final class GAChunkWorkspace {
             }
         }
         clearDirtySections();
+        clearDirtyBlocks();
         clearDirtyBlockColumns();
         metrics.addRepackNanos(System.nanoTime() - start);
         return writtenBlocks;
@@ -411,6 +414,76 @@ public final class GAChunkWorkspace {
             }
         }
         clearDirtySection(sectionIndex);
+        clearDirtyBlockSection(sectionIndex);
+        metrics.addRepackNanos(System.nanoTime() - start);
+        return writtenBlocks;
+    }
+
+    public long repackDirtyBlockRunsInSection(int sectionIndex, DirtyBlockRunWriter writer) {
+        if (writer == null) {
+            throw new NullPointerException("writer");
+        }
+        requireBlockBuffer();
+        if (sectionIndex < 0 || sectionIndex >= sectionCount) {
+            throw new IndexOutOfBoundsException("section index outside workspace: " + sectionIndex);
+        }
+        if (!isDirtySection(sectionIndex) || !hasDirtyBlocksInSection(sectionIndex)) {
+            return 0L;
+        }
+
+        long start = System.nanoTime();
+        long writtenBlocks = 0L;
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        int runSectionLocalIndex = -1;
+        int runWorkspaceIndex = -1;
+        int runLength = 0;
+
+        for (int y = minY; y < maxY; y++) {
+            int workspaceBaseIndex = (y - minBuildHeight) << 8;
+            int sectionBaseIndex = (y & 15) << 8;
+            for (int localZ = 0; localZ < CHUNK_WIDTH; localZ++) {
+                int workspaceRowIndex = workspaceBaseIndex | (localZ << 4);
+                int sectionRowIndex = sectionBaseIndex | (localZ << 4);
+                for (int localX = 0; localX < CHUNK_WIDTH; localX++) {
+                    int workspaceIndex = workspaceRowIndex | localX;
+                    if (!isDirtyBlockIndex(workspaceIndex)) {
+                        if (runLength > 0) {
+                            writer.writeRun(runSectionLocalIndex, runWorkspaceIndex, runLength);
+                            writtenBlocks += runLength;
+                            runLength = 0;
+                        }
+                        continue;
+                    }
+
+                    int sectionLocalIndex = sectionRowIndex | localX;
+                    if (runLength == 0) {
+                        runSectionLocalIndex = sectionLocalIndex;
+                        runWorkspaceIndex = workspaceIndex;
+                        runLength = 1;
+                    } else if (workspaceIndex == runWorkspaceIndex + runLength
+                            && sectionLocalIndex == runSectionLocalIndex + runLength) {
+                        runLength++;
+                    } else {
+                        writer.writeRun(runSectionLocalIndex, runWorkspaceIndex, runLength);
+                        writtenBlocks += runLength;
+                        runSectionLocalIndex = sectionLocalIndex;
+                        runWorkspaceIndex = workspaceIndex;
+                        runLength = 1;
+                    }
+                }
+            }
+        }
+
+        if (runLength > 0) {
+            writer.writeRun(runSectionLocalIndex, runWorkspaceIndex, runLength);
+            writtenBlocks += runLength;
+        }
+
+        clearDirtyBlockSection(sectionIndex);
+        clearDirtySection(sectionIndex);
         metrics.addRepackNanos(System.nanoTime() - start);
         return writtenBlocks;
     }
@@ -433,12 +506,14 @@ public final class GAChunkWorkspace {
         long start = System.nanoTime();
         System.arraycopy(blockIds, sectionIndex * BLOCKS_PER_SECTION, target, 0, BLOCKS_PER_SECTION);
         clearDirtySection(sectionIndex);
+        clearDirtyBlockSection(sectionIndex);
         metrics.addRepackNanos(System.nanoTime() - start);
         return BLOCKS_PER_SECTION;
     }
 
     public void clearCommittedBlockDirties() {
         clearDirtySections();
+        clearDirtyBlocks();
         clearDirtyBlockColumns();
     }
 
@@ -454,6 +529,7 @@ public final class GAChunkWorkspace {
     }
 
     public void markDirtyBlock(int localX, int y, int localZ) {
+        markDirtyBlockIndex(blockIndex(localX, y, localZ));
         markDirtyBlockColumn(localX, localZ);
         markDirtyLightColumn(localX, localZ);
         markDirtySection(sectionIndexForY(y));
@@ -517,6 +593,36 @@ public final class GAChunkWorkspace {
         return false;
     }
 
+    public boolean hasDirtyBlocksInSection(int sectionIndex) {
+        if (sectionIndex < 0 || sectionIndex >= sectionCount || dirtyBlockWords.length == 0) {
+            return false;
+        }
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        if (minY >= maxY) {
+            return false;
+        }
+        int firstIndex = (minY - minBuildHeight) << 8;
+        int lastIndexExclusive = ((maxY - minBuildHeight) << 8);
+        int firstWord = firstIndex >>> 6;
+        int lastWord = (lastIndexExclusive - 1) >>> 6;
+        for (int word = firstWord; word <= lastWord && word < dirtyBlockWords.length; word++) {
+            long mask = dirtyBlockWords[word];
+            if (word == firstWord) {
+                mask &= -1L << firstIndex;
+            }
+            if (word == lastWord && (lastIndexExclusive & 63) != 0) {
+                mask &= (1L << (lastIndexExclusive & 63)) - 1L;
+            }
+            if (mask != 0L) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int[] dirtySectionIndices() {
         int count = 0;
         for (int sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
@@ -570,6 +676,7 @@ public final class GAChunkWorkspace {
         bytes += retainedLongBytes(carverMaskWords);
         bytes += retainedIntBytes(heightCandidates);
         bytes += retainedLongBytes(dirtySectionWords);
+        bytes += retainedLongBytes(dirtyBlockWords);
         bytes += retainedLongBytes(dirtyColumnWords);
         bytes += retainedLongBytes(dirtyBlockColumnWords);
         bytes += retainedLongBytes(dirtyHeightColumnWords);
@@ -764,6 +871,10 @@ public final class GAChunkWorkspace {
         return dirtySectionWords;
     }
 
+    public long[] dirtyBlockWords() {
+        return dirtyBlockWords;
+    }
+
     public long[] dirtyColumnWords() {
         mergeDirtyColumnWords();
         return dirtyColumnWords;
@@ -829,6 +940,7 @@ public final class GAChunkWorkspace {
         carverMaskEnabled = false;
         carverMaskCapacity = 0;
         clearDirtySections();
+        clearDirtyBlocks();
         clearDirtyColumns();
         densityReady = false;
         aquiferReady = false;
@@ -871,6 +983,10 @@ public final class GAChunkWorkspace {
         if (dirtySectionWords.length > maxRetainedDirtyWords) {
             dirtySectionWords = new long[Math.max(1, maxRetainedDirtyWords)];
         }
+        int maxRetainedDirtyBlockWords = Math.max(1, maxRetainedBlockInts >>> 6);
+        if (dirtyBlockWords.length > maxRetainedDirtyBlockWords) {
+            dirtyBlockWords = new long[Math.max(1, maxRetainedDirtyBlockWords)];
+        }
         if (carverMaskWords.length > maxRetainedDirtyWords) {
             carverMaskWords = new long[Math.max(1, maxRetainedDirtyWords)];
         }
@@ -903,6 +1019,12 @@ public final class GAChunkWorkspace {
     private void ensureDirtySectionWordCapacity(int requiredWords) {
         if (dirtySectionWords.length < requiredWords) {
             dirtySectionWords = Arrays.copyOf(dirtySectionWords, requiredWords);
+        }
+    }
+
+    private void ensureDirtyBlockWordCapacity(int requiredWords) {
+        if (dirtyBlockWords.length < requiredWords) {
+            dirtyBlockWords = Arrays.copyOf(dirtyBlockWords, requiredWords);
         }
     }
 
@@ -966,6 +1088,45 @@ public final class GAChunkWorkspace {
         }
     }
 
+    private void markDirtyBlockIndex(int index) {
+        int word = index >>> 6;
+        ensureDirtyBlockWordCapacity(word + 1);
+        dirtyBlockWords[word] |= 1L << index;
+    }
+
+    private boolean isDirtyBlockIndex(int index) {
+        int word = index >>> 6;
+        return word < dirtyBlockWords.length && (dirtyBlockWords[word] & (1L << index)) != 0L;
+    }
+
+    private void clearDirtyBlocks() {
+        Arrays.fill(dirtyBlockWords, 0L);
+    }
+
+    private void clearDirtyBlockSection(int sectionIndex) {
+        int sectionY = minSectionY + sectionIndex;
+        int sectionMinY = sectionY * CHUNK_WIDTH;
+        int minY = Math.max(minBuildHeight, sectionMinY);
+        int maxY = Math.min(minBuildHeight + buildHeight, sectionMinY + CHUNK_WIDTH);
+        if (minY >= maxY) {
+            return;
+        }
+        int firstIndex = (minY - minBuildHeight) << 8;
+        int lastIndexExclusive = ((maxY - minBuildHeight) << 8);
+        int firstWord = firstIndex >>> 6;
+        int lastWord = (lastIndexExclusive - 1) >>> 6;
+        for (int word = firstWord; word <= lastWord && word < dirtyBlockWords.length; word++) {
+            long mask = -1L;
+            if (word == firstWord) {
+                mask &= -1L << firstIndex;
+            }
+            if (word == lastWord && (lastIndexExclusive & 63) != 0) {
+                mask &= (1L << (lastIndexExclusive & 63)) - 1L;
+            }
+            dirtyBlockWords[word] &= ~mask;
+        }
+    }
+
     public void clearCarverMask() {
         Arrays.fill(carverMaskWords, 0L);
     }
@@ -1025,5 +1186,10 @@ public final class GAChunkWorkspace {
     @FunctionalInterface
     public interface BlockIdWriter {
         void writeBlockId(int localX, int y, int localZ, int blockId);
+    }
+
+    @FunctionalInterface
+    public interface DirtyBlockRunWriter {
+        void writeRun(int sectionLocalIndex, int workspaceIndex, int length);
     }
 }

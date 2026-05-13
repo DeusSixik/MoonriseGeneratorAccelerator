@@ -102,16 +102,14 @@ public final class GAChunkBlockIo {
         Objects.requireNonNull(chunk, "chunk");
         Objects.requireNonNull(workspace, "workspace");
         validateSameChunk(chunk, workspace);
-        LevelChunkSection[] sections = chunk.getSections();
 
-        return workspace.repackDirtyBlockIds((localX, y, localZ, blockId) -> {
-            int sectionIndex = sectionIndexForY(workspace, y);
-            LevelChunkSection section = sectionAt(sections, sectionIndex);
-            if (section == null) {
-                throw new IllegalStateException("missing section " + sectionIndex + " for y=" + y);
-            }
-            section.setBlockState(localX, y & 15, localZ, FastBlockStateCache.getBlockState(blockId), false);
-        });
+        long writtenBlocks = 0L;
+        int[] dirtySections = workspace.dirtySectionIndices();
+        for (int dirtySection : dirtySections) {
+            writtenBlocks += repackDirtySection(chunk, workspace, dirtySection);
+        }
+        workspace.clearCommittedBlockDirties();
+        return writtenBlocks;
     }
 
     public static long repackDirtySection(ChunkAccess chunk, GAChunkWorkspace workspace, int sectionIndex) {
@@ -127,15 +125,36 @@ public final class GAChunkBlockIo {
         LevelChunkSection$FlatBlockArray flat = section instanceof LevelChunkSection$FlatBlockArray array ? array : null;
         int[] raw = flat == null ? null : flat.bts$getRawBlockData();
         if (raw != null) {
-            return workspace.repackDirtyBlockSection(sectionIndex, (localX, y, localZ, blockId) -> {
-                int index = ((y & 15) << 8) | (localZ << 4) | localX;
-                if (!flat.bts$setRawBlockStateForGeneration(index, blockId)) {
-                    section.setBlockState(localX, y & 15, localZ, FastBlockStateCache.getBlockState(blockId), false);
+            return workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
+                int[] blockIds = workspace.blockIds();
+                for (int offset = 0; offset < length; offset++) {
+                    int localIndex = sectionLocalIndex + offset;
+                    int blockId = blockIds[workspaceIndex + offset];
+                    if (!flat.bts$setRawBlockStateForGeneration(localIndex, blockId)) {
+                        section.setBlockState(
+                                localIndex & 15,
+                                (localIndex >>> 8) & 15,
+                                (localIndex >>> 4) & 15,
+                                FastBlockStateCache.getBlockState(blockId),
+                                false
+                        );
+                    }
                 }
             });
         }
-        return workspace.repackDirtyBlockSection(sectionIndex, (localX, y, localZ, blockId) ->
-                section.setBlockState(localX, y & 15, localZ, FastBlockStateCache.getBlockState(blockId), false));
+        return workspace.repackDirtyBlockRunsInSection(sectionIndex, (sectionLocalIndex, workspaceIndex, length) -> {
+            int[] blockIds = workspace.blockIds();
+            for (int offset = 0; offset < length; offset++) {
+                int localIndex = sectionLocalIndex + offset;
+                section.setBlockState(
+                        localIndex & 15,
+                        (localIndex >>> 8) & 15,
+                        (localIndex >>> 4) & 15,
+                        FastBlockStateCache.getBlockState(blockIds[workspaceIndex + offset]),
+                        false
+                );
+            }
+        });
     }
 
     private static int stateId(BlockState state) {

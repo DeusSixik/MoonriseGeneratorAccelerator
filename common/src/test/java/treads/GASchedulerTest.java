@@ -30,7 +30,10 @@ class GASchedulerTest {
             "ga.config.schedulerSerialWorkers",
             "ga.config.schedulerCommitWorkers",
             "ga.config.schedulerCpuTarget",
-            "ga.config.schedulerMaxQueuedTasks"
+            "ga.config.schedulerMaxQueuedTasks",
+            "ga.config.schedulerCommitBacklogThrottleThreshold",
+            "ga.config.schedulerMailboxBacklogThrottleThreshold",
+            "ga.config.schedulerHeapPressureTarget"
     };
 
     @BeforeEach
@@ -250,6 +253,52 @@ class GASchedulerTest {
         } finally {
             release.countDown();
         }
+    }
+
+    @Test
+    void nestedSameLaneWorkRunsInlineToAvoidWorkerStarvation() throws Exception {
+        System.setProperty("ga.config.schedulerTransactionalWorkers", "1");
+        System.setProperty("ga.config.schedulerMaxQueuedTasks", "0");
+        resetCachedConfig();
+        GAScheduler.shutdownForTests();
+
+        CompletableFuture<String> parent = GAScheduler.supplyAsync(GAScheduler.Lane.TRANSACTIONAL, () ->
+                GAScheduler.supplyNestedAsync(GAScheduler.Lane.TRANSACTIONAL, () ->
+                        Thread.currentThread().getName()
+                ).join()
+        );
+
+        String childThread = parent.get(10, TimeUnit.SECONDS);
+        assertTrue(childThread.startsWith("GA-TRANSACTIONAL-"), childThread);
+        assertEquals(1L, laneMetric(GAScheduler.Lane.TRANSACTIONAL, "inlineRuns"));
+    }
+
+    @Test
+    void invokeBlockingFromWorldgenWorkerBypassesGovernorToAvoidSelfDeadlock() throws Exception {
+        System.setProperty("ga.config.schedulerNoiseWorkers", "1");
+        System.setProperty("ga.config.schedulerWorkspaceWorkers", "1");
+        System.setProperty("ga.config.schedulerTransactionalWorkers", "1");
+        System.setProperty("ga.config.schedulerCpuTarget", "0.1");
+        System.setProperty("ga.config.schedulerMaxQueuedTasks", "0");
+        resetCachedConfig();
+        GAScheduler.shutdownForTests();
+
+        CompletableFuture<String> parent = GAScheduler.supplyAsync(GAScheduler.Lane.TRANSACTIONAL, () -> {
+            try {
+                GAScheduler.invokeBlocking(GAScheduler.Lane.WORKSPACE, () -> {
+                });
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(interrupted);
+            } catch (ExecutionException failure) {
+                throw new RuntimeException(failure);
+            }
+            return "done";
+        });
+
+        assertEquals("done", parent.get(10, TimeUnit.SECONDS));
+        assertEquals(1L, laneMetric(GAScheduler.Lane.WORKSPACE, "admissionAccepted"));
+        assertEquals(1L, laneMetric(GAScheduler.Lane.WORKSPACE, "inlineRuns"));
     }
 
     @Test

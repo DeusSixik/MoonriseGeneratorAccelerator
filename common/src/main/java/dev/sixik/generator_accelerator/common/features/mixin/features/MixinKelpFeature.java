@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -78,17 +79,22 @@ public abstract class MixinKelpFeature extends Feature<NoneFeatureConfiguration>
                     && level.getBlockState(abovePos).is(Blocks.WATER)
                     && GA$KELP_PLANT.canSurvive(level, pos)) {
                 if (step == maxHeight) {
-                    level.setBlock(pos, GA$KELP_HEADS[random.nextInt(4)], 2);
-                    placedHeads++;
+                    if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)) {
+                        level.setBlock(pos, GA$KELP_HEADS[random.nextInt(4)], 2);
+                        placedHeads++;
+                    }
                     break;
                 }
 
-                level.setBlock(pos, GA$KELP_PLANT, 2);
+                if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)) {
+                    level.setBlock(pos, GA$KELP_PLANT, 2);
+                }
             } else if (step > 0) {
                 belowPos.setWithOffset(pos, Direction.DOWN);
                 if (GA$KELP_HEADS[0].canSurvive(level, belowPos)) {
                     abovePos.setWithOffset(belowPos, Direction.DOWN);
-                    if (!level.getBlockState(abovePos).is(Blocks.KELP)) {
+                    if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, belowPos)
+                            && !level.getBlockState(abovePos).is(Blocks.KELP)) {
                         level.setBlock(belowPos, GA$KELP_HEADS[random.nextInt(4)], 2);
                         placedHeads++;
                     }

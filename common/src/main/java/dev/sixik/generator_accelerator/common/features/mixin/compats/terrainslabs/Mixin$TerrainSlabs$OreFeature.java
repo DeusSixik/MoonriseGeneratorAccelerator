@@ -71,7 +71,7 @@ public abstract class Mixin$TerrainSlabs$OreFeature {
 
                 LevelChunkSection section = access.getSection(pos);
                 if (section != null) {
-                    if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(null, pos, newState)) {
+                    if (GAWorkspaceWriteBridge.writeCurrentKnownDecorationWorkspaceOnly(null, pos, newState)) {
                         return;
                     }
                     section.setBlockState(

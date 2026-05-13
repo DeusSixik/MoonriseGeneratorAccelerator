@@ -60,6 +60,15 @@ public class GAConfig {
     @ConfigComment("Adaptive worldgen governor CPU target for compile throttling under generation pressure.")
     public double schedulerCpuTarget = 0.85D;
 
+    @ConfigComment("Throttle new worldgen compute tasks when commit lane backlog reaches this many queued/running tasks. 0 = disabled.")
+    public int schedulerCommitBacklogThrottleThreshold = 64;
+
+    @ConfigComment("Throttle new worldgen compute tasks when cross-chunk mailbox backlog reaches this many queued commands. 0 = disabled.")
+    public int schedulerMailboxBacklogThrottleThreshold = 8192;
+
+    @ConfigComment("Throttle new worldgen compute tasks when heap usage ratio reaches this value. 0 = disabled.")
+    public double schedulerHeapPressureTarget = 0.92D;
+
     @ConfigComment("Enable GA async chunk-status dispatch. This moves synchronous vanilla generation stages onto GA scheduler lanes.")
     public boolean enableChunkStatusPipeline = true;
 
@@ -130,6 +139,18 @@ public class GAConfig {
 
     @ConfigComment("Enable workspace-only block writes for hot worldgen paths. Disabled by default until integrated benchmarks prove it beats direct raw writes.")
     public boolean enableWorkspaceOnlyBlockWrites = false;
+
+    @ConfigComment("Route safe known decoration kernels through compact workspace diff journals instead of immediate section writes. Experimental; direct raw writes are faster for sparse ores in current runtime.")
+    public boolean enableKnownDecorationJournalWrites = false;
+
+    @ConfigComment("Compute non-conflicting known decoration journal kernels in parallel against detached read snapshots, then merge their journals deterministically. Experimental; disabled by default because snapshot/fallback overhead currently regresses chunk generation.")
+    public boolean enableDecorationConflictScheduler = false;
+
+    @ConfigComment("Minimum same-family known decoration kernels in a row before the conflict scheduler parallelizes them.")
+    public int decorationConflictSchedulerMinBatch = 4;
+
+    @ConfigComment("Detached chunk radius copied for parallel decoration reads. 0 = center chunk only; boundary misses fall back to the safe sequential path.")
+    public int decorationConflictSchedulerSnapshotRadius = 0;
 
     @ConfigComment("Route workspace-only neighbor chunk writes through a deterministic owner mailbox.")
     public boolean enableCrossChunkMailboxRuntime = true;

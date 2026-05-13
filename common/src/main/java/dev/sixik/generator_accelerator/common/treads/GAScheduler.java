@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.treads;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -43,6 +44,9 @@ public final class GAScheduler {
     private static final AtomicInteger[] ADMITTED_QUEUED = new AtomicInteger[Lane.values().length];
     private static final AtomicInteger COMPILE_GOVERNOR_RUNNING = new AtomicInteger();
     private static final AtomicLong MAX_WORLDGEN_PRESSURE = new AtomicLong();
+    private static final AtomicLong MAX_COMMIT_BACKLOG = new AtomicLong();
+    private static final AtomicLong MAX_MAILBOX_BACKLOG = new AtomicLong();
+    private static final AtomicLong BOTTLENECK_THROTTLES = new AtomicLong();
 
     private static volatile boolean initialized;
     private static volatile ForkJoinPool noisePool;
@@ -123,6 +127,14 @@ public final class GAScheduler {
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
+        if (isCurrentLaneWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            try {
+                return CompletableFuture.completedFuture(runMeasured(lane, task));
+            } catch (Throwable throwable) {
+                return failedFuture(throwable);
+            }
+        }
         ForkJoinPool pool = forkJoinPool(lane);
         long queued = queuedTaskEstimate(lane, pool);
         updateMax(MAX_QUEUED, index, queued);
@@ -177,6 +189,46 @@ public final class GAScheduler {
         }
     }
 
+    /**
+     * Runs bounded nested worldgen work without governor throttling. This is for
+     * parent tasks that synchronously join child tasks; throttling them can
+     * deadlock all workers while parents wait for children.
+     */
+    public static <T> CompletableFuture<T> supplyNestedAsync(Lane lane, Supplier<T> supplier) {
+        ensureInitialized();
+        Supplier<T> task = wrapWorkspaceContext(supplier);
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        if (isCurrentLaneWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                return CompletableFuture.completedFuture(runMeasured(lane, task));
+            } catch (Throwable throwable) {
+                return failedFuture(throwable);
+            }
+        }
+        if (shouldInlineNestedFromGaWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                return CompletableFuture.completedFuture(runMeasured(lane, task));
+            } catch (Throwable throwable) {
+                return failedFuture(throwable);
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
+        try {
+            return CompletableFuture.supplyAsync(() -> runMeasured(lane, task), pool);
+        } catch (RejectedExecutionException rejected) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            return failedFuture(rejected);
+        }
+    }
+
     public static void execute(Lane lane, Runnable runnable) {
         supplyAsync(lane, () -> {
             runnable.run();
@@ -189,6 +241,17 @@ public final class GAScheduler {
         if (isCurrentLaneWorker(lane)) {
             int index = lane.ordinal();
             SUBMITTED.incrementAndGet(index);
+            runMeasured(lane, () -> {
+                runnable.run();
+                return null;
+            });
+            return;
+        }
+        if (isCurrentGaWorker()) {
+            int index = lane.ordinal();
+            SUBMITTED.incrementAndGet(index);
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
             runMeasured(lane, () -> {
                 runnable.run();
                 return null;
@@ -252,6 +315,9 @@ public final class GAScheduler {
             GOVERNOR_WAIT_NANOS.set(i, 0L);
         }
         MAX_WORLDGEN_PRESSURE.set(0L);
+        MAX_COMMIT_BACKLOG.set(0L);
+        MAX_MAILBOX_BACKLOG.set(0L);
+        BOTTLENECK_THROTTLES.set(0L);
         COMPILE_GOVERNOR_RUNNING.set(0);
     }
 
@@ -321,16 +387,32 @@ public final class GAScheduler {
     private static Map<String, Object> governorSnapshot() {
         ConfigSnapshot config = configSnapshot;
         long worldgenPressure = worldgenPressure();
+        long commitBacklog = commitBacklog();
+        long mailboxBacklog = mailboxBacklog();
+        double heapUsedRatio = heapUsedRatio();
         updateMax(MAX_WORLDGEN_PRESSURE, worldgenPressure);
+        updateMax(MAX_COMMIT_BACKLOG, commitBacklog);
+        updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cpuTarget", config.cpuTarget());
         out.put("worldgenWorkers", worldgenWorkers(config));
         out.put("worldgenPressureTarget", worldgenPressureTarget(config));
         out.put("worldgenPressure", worldgenPressure);
         out.put("maxWorldgenPressure", MAX_WORLDGEN_PRESSURE.get());
+        out.put("worldgenActiveLimit", worldgenActiveLimit(config));
         out.put("compileActiveLimit", compileActiveLimit(config, worldgenPressure));
         out.put("compileGovernorRunning", COMPILE_GOVERNOR_RUNNING.get());
         out.put("compileThrottleEnabled", config.compileWorkers() > 1);
+        out.put("commitBacklog", commitBacklog);
+        out.put("maxCommitBacklog", MAX_COMMIT_BACKLOG.get());
+        out.put("commitBacklogThrottleThreshold", config.commitBacklogThrottleThreshold());
+        out.put("mailboxBacklog", mailboxBacklog);
+        out.put("maxMailboxBacklog", MAX_MAILBOX_BACKLOG.get());
+        out.put("mailboxBacklogThrottleThreshold", config.mailboxBacklogThrottleThreshold());
+        out.put("heapUsedRatio", heapUsedRatio);
+        out.put("heapPressureTarget", config.heapPressureTarget());
+        out.put("bottleneckThrottleActive", bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio));
+        out.put("bottleneckThrottles", BOTTLENECK_THROTTLES.get());
         return out;
     }
 
@@ -394,7 +476,14 @@ public final class GAScheduler {
         long waitStart = 0L;
         boolean throttled = false;
         for (;;) {
-            int limit = worldgenActiveLimit(configSnapshot);
+            ConfigSnapshot config = configSnapshot;
+            long commitBacklog = commitBacklog();
+            long mailboxBacklog = mailboxBacklog();
+            double heapUsedRatio = heapUsedRatio();
+            updateMax(MAX_COMMIT_BACKLOG, commitBacklog);
+            updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
+            boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
+            int limit = worldgenActiveLimit(config, bottleneckActive);
             long active = activeWorldgenWorkers();
             if (active < limit) {
                 break;
@@ -403,6 +492,9 @@ public final class GAScheduler {
                 throttled = true;
                 waitStart = System.nanoTime();
                 GOVERNOR_THROTTLED.incrementAndGet(lane.ordinal());
+                if (bottleneckActive) {
+                    BOTTLENECK_THROTTLES.incrementAndGet();
+                }
             }
             LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(250L));
             if (Thread.interrupted()) {
@@ -535,7 +627,45 @@ public final class GAScheduler {
     }
 
     private static int worldgenActiveLimit(ConfigSnapshot config) {
-        return Math.max(1, (int) Math.ceil(worldgenWorkers(config) * config.cpuTarget()));
+        return worldgenActiveLimit(config, bottleneckThrottleActive(config, commitBacklog(), mailboxBacklog(), heapUsedRatio()));
+    }
+
+    private static int worldgenActiveLimit(ConfigSnapshot config, boolean bottleneckActive) {
+        int cpuLimit = Math.max(1, (int) Math.ceil(worldgenWorkers(config) * config.cpuTarget()));
+        if (!bottleneckActive) {
+            return cpuLimit;
+        }
+        return Math.max(1, Math.min(cpuLimit, config.bottleneckActiveLimit()));
+    }
+
+    private static boolean bottleneckThrottleActive(
+            ConfigSnapshot config,
+            long commitBacklog,
+            long mailboxBacklog,
+            double heapUsedRatio
+    ) {
+        return (config.commitBacklogThrottleThreshold() > 0 && commitBacklog >= config.commitBacklogThrottleThreshold())
+                || (config.mailboxBacklogThrottleThreshold() > 0 && mailboxBacklog >= config.mailboxBacklogThrottleThreshold())
+                || (config.heapPressureTarget() > 0.0D && heapUsedRatio >= config.heapPressureTarget());
+    }
+
+    private static long commitBacklog() {
+        ForkJoinPool commit = existingPool(Lane.COMMIT);
+        return ACTIVE[Lane.COMMIT.ordinal()].get() + queuedTaskEstimate(Lane.COMMIT, commit);
+    }
+
+    private static long mailboxBacklog() {
+        return GACrossChunkMailboxRuntime.queuedCommands();
+    }
+
+    private static double heapUsedRatio() {
+        Runtime runtime = Runtime.getRuntime();
+        long max = runtime.maxMemory();
+        if (max <= 0L || max == Long.MAX_VALUE) {
+            return 0.0D;
+        }
+        long used = runtime.totalMemory() - runtime.freeMemory();
+        return Math.max(0.0D, Math.min(1.0D, (double) used / (double) max));
     }
 
     private static boolean tryReserveQueueSlot(Lane lane, int maxQueuedTasks) {
@@ -588,6 +718,22 @@ public final class GAScheduler {
 
     private static boolean isCurrentLaneWorker(Lane lane) {
         return Thread.currentThread().getName().startsWith("GA-" + lane.name() + "-");
+    }
+
+    private static boolean isCurrentGaWorker() {
+        return Thread.currentThread().getName().startsWith("GA-");
+    }
+
+    private static boolean shouldInlineNestedFromGaWorker(Lane lane) {
+        if (!isCurrentGaWorker() || !lane.canThrottleWorldgen()) {
+            return false;
+        }
+        ConfigSnapshot config = configSnapshot;
+        long commitBacklog = commitBacklog();
+        long mailboxBacklog = mailboxBacklog();
+        double heapUsedRatio = heapUsedRatio();
+        boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
+        return activeWorldgenWorkers() >= worldgenActiveLimit(config, bottleneckActive);
     }
 
     private static void updateMax(AtomicLongArray array, int index, long value) {
@@ -647,7 +793,11 @@ public final class GAScheduler {
             int serialWorkers,
             int commitWorkers,
             int maxQueuedTasks,
-            double cpuTarget
+            double cpuTarget,
+            int commitBacklogThrottleThreshold,
+            int mailboxBacklogThrottleThreshold,
+            double heapPressureTarget,
+            int bottleneckActiveLimit
     ) {
         static ConfigSnapshot defaults() {
             int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
@@ -669,7 +819,11 @@ public final class GAScheduler {
                     serialWorkers(config.schedulerSerialWorkers),
                     positiveOrDefault(config.schedulerCommitWorkers, 1),
                     Math.max(0, config.schedulerMaxQueuedTasks),
-                    config.schedulerCpuTarget <= 0.0D ? 0.85D : Math.min(1.0D, config.schedulerCpuTarget)
+                    config.schedulerCpuTarget <= 0.0D ? 0.85D : Math.min(1.0D, config.schedulerCpuTarget),
+                    Math.max(0, config.schedulerCommitBacklogThrottleThreshold),
+                    Math.max(0, config.schedulerMailboxBacklogThrottleThreshold),
+                    config.schedulerHeapPressureTarget <= 0.0D ? 0.0D : Math.min(1.0D, config.schedulerHeapPressureTarget),
+                    1
             );
         }
 
@@ -683,6 +837,10 @@ public final class GAScheduler {
             out.put("commitWorkers", commitWorkers);
             out.put("maxQueuedTasks", maxQueuedTasks);
             out.put("cpuTarget", cpuTarget);
+            out.put("commitBacklogThrottleThreshold", commitBacklogThrottleThreshold);
+            out.put("mailboxBacklogThrottleThreshold", mailboxBacklogThrottleThreshold);
+            out.put("heapPressureTarget", heapPressureTarget);
+            out.put("bottleneckActiveLimit", bottleneckActiveLimit);
             return out;
         }
 

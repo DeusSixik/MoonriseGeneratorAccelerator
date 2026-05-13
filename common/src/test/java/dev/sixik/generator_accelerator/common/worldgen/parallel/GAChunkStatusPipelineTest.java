@@ -23,7 +23,10 @@ class GAChunkStatusPipelineTest {
             "ga.config.schedulerNoiseWorkers",
             "ga.config.schedulerWorkspaceWorkers",
             "ga.config.schedulerTransactionalWorkers",
-            "ga.config.schedulerMaxQueuedTasks"
+            "ga.config.schedulerMaxQueuedTasks",
+            "ga.config.schedulerCommitBacklogThrottleThreshold",
+            "ga.config.schedulerMailboxBacklogThrottleThreshold",
+            "ga.config.schedulerHeapPressureTarget"
     };
 
     @BeforeEach

@@ -79,6 +79,15 @@ public final class CarverChunkWriter {
     }
 
     public int getStateId(BlockPos blockPos) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(
+                blockPos.getX(),
+                blockPos.getY(),
+                blockPos.getZ()
+        );
+        if (workspaceStateId != null) {
+            return workspaceStateId;
+        }
+
         if (!this.fastPath) {
             return GA$BlockStateExtension.get(this.chunk.getBlockState(blockPos)).bts$getFastId();
         }

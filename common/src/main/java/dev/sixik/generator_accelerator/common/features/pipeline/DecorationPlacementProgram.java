@@ -86,6 +86,7 @@ import net.minecraft.world.level.levelgen.placement.RepeatingPlacement;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 final class DecorationPlacementProgram {
@@ -145,6 +146,7 @@ final class DecorationPlacementProgram {
     private final GA$PlacementFilterAccess[] placementFilters;
     private final boolean hasVanillaModifier;
     private final boolean hasBiomeFilter;
+    private final boolean hasParallelUnsafeModifier;
 
     private DecorationPlacementProgram(
             int[] opcodes,
@@ -156,7 +158,8 @@ final class DecorationPlacementProgram {
             GA$RepeatingPlacementAccess[] repeatingPlacements,
             GA$PlacementFilterAccess[] placementFilters,
             boolean hasVanillaModifier,
-            boolean hasBiomeFilter
+            boolean hasBiomeFilter,
+            boolean hasParallelUnsafeModifier
     ) {
         this.opcodes = opcodes;
         this.modifiers = modifiers;
@@ -168,6 +171,7 @@ final class DecorationPlacementProgram {
         this.placementFilters = placementFilters;
         this.hasVanillaModifier = hasVanillaModifier;
         this.hasBiomeFilter = hasBiomeFilter;
+        this.hasParallelUnsafeModifier = hasParallelUnsafeModifier;
     }
 
     static DecorationPlacementProgram compile(PlacedFeature feature) {
@@ -183,6 +187,7 @@ final class DecorationPlacementProgram {
         GA$PlacementFilterAccess[] placementFilters = new GA$PlacementFilterAccess[size];
         boolean hasVanillaModifier = false;
         boolean hasBiomeFilter = false;
+        boolean hasParallelUnsafeModifier = false;
 
         for (int i = 0; i < size; i++) {
             PlacementModifier modifier = placement.get(i);
@@ -191,6 +196,9 @@ final class DecorationPlacementProgram {
             opcodes[i] = opcode;
             if (opcode == BIOME_FILTER) {
                 hasBiomeFilter = true;
+            }
+            if (opcode == HEIGHTMAP || opcode == PLACEMENT_FILTER || opcode == FAST_POSITIONS || opcode == VANILLA_MODIFIER) {
+                hasParallelUnsafeModifier = true;
             }
             switch (opcode) {
                 case HEIGHT_RANGE -> heightProviders[i] = ((GA$HeightRangePlacementAccess) modifier).ga$heightProvider();
@@ -218,7 +226,8 @@ final class DecorationPlacementProgram {
                 repeatingPlacements,
                 placementFilters,
                 hasVanillaModifier,
-                hasBiomeFilter
+                hasBiomeFilter,
+                hasParallelUnsafeModifier
         );
     }
 
@@ -228,6 +237,10 @@ final class DecorationPlacementProgram {
 
     boolean hasBiomeFilter() {
         return this.hasBiomeFilter;
+    }
+
+    boolean hasParallelUnsafeModifier() {
+        return this.hasParallelUnsafeModifier;
     }
 
     boolean isIdentity() {
@@ -1073,6 +1086,11 @@ final class DecorationPlacementProgram {
             int originZ
     ) {
         // Native scattered ore avoids FeaturePlaceContext plus repeated virtual feature dispatch.
+        DecorationReadSnapshot snapshot = DecorationReadSnapshotContext.current();
+        if (snapshot != null) {
+            return placeScatteredOreNativeSnapshot(config, targetPlan, context, snapshot, originX, originY, originZ);
+        }
+
         FastTarget[] targets = targetPlan.targets();
         BlockState[] states = fastStateCache();
         boolean[] airStates = FastBlockStateCache.AIR_STATES;
@@ -1189,6 +1207,75 @@ final class DecorationPlacementProgram {
         return placedAny;
     }
 
+    private static boolean placeScatteredOreNativeSnapshot(
+            OreConfiguration config,
+            OreTargetPlan targetPlan,
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationReadSnapshot snapshot,
+            int originX,
+            int originY,
+            int originZ
+    ) {
+        FastTarget[] targets = targetPlan.targets();
+        BlockState[] states = fastStateCache();
+        boolean[] airStates = FastBlockStateCache.AIR_STATES;
+        RandomSource random = context.random();
+        int count = random.nextInt(config.size + 1);
+        float airChance = config.discardChanceOnAirExposure;
+        boolean placedAny = false;
+
+        for (int i = 0; i < count; i++) {
+            int spread = Math.min(i, 7);
+            int x = originX + scatteredOreSpread(random, spread);
+            int y = originY + scatteredOreSpread(random, spread);
+            int z = originZ + scatteredOreSpread(random, spread);
+            if (DecorationPipelineMetrics.ENABLED) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_GENERATED);
+            }
+
+            Integer currentStateIdBoxed = readSnapshotBlockId(snapshot, x, y, z);
+            if (currentStateIdBoxed == null) {
+                if (DecorationPipelineMetrics.ENABLED) {
+                    DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_KERNEL);
+                }
+                continue;
+            }
+
+            int currentStateId = currentStateIdBoxed;
+            BlockState currentState = null;
+            if (DecorationPipelineMetrics.ENABLED) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_READS);
+            }
+
+            boolean candidatePlaced = false;
+            for (int targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+                FastTarget target = targets[targetIndex];
+                boolean matched = target.matchesStateId(currentStateId);
+                if (!matched && target.requiresFallbackState()) {
+                    currentState = currentState == null ? fastStateOrNull(states, currentStateId) : currentState;
+                    matched = currentState != null && target.fallbackRule().test(currentState, random);
+                }
+
+                if (!matched) {
+                    continue;
+                }
+
+                if (shouldSkipAirCheck(random, airChance) || !isAdjacentToAir(snapshot, airStates, x, y, z)) {
+                    commitOrePlacementSnapshot(context, target, x, y, z);
+                    placedAny = true;
+                    candidatePlaced = true;
+                    break;
+                }
+            }
+
+            if (!candidatePlaced && DecorationPipelineMetrics.ENABLED) {
+                DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_KERNEL);
+            }
+        }
+
+        return placedAny;
+    }
+
     private static boolean placeOreNative(
             OreConfiguration config,
             OreTargetPlan targetPlan,
@@ -1245,6 +1332,11 @@ final class DecorationPlacementProgram {
             int startZ,
             int width
     ) {
+        DecorationReadSnapshot snapshot = DecorationReadSnapshotContext.current();
+        if (snapshot != null) {
+            return oreHasSurfaceBelowSnapshot(context, snapshot, startX, startY, startZ, width);
+        }
+
         WorldGenLevel level = context.level();
         ChunkAccess cachedChunk = null;
         Heightmap cachedHeightmap = null;
@@ -1274,6 +1366,51 @@ final class DecorationPlacementProgram {
         }
 
         return false;
+    }
+
+    private static boolean oreHasSurfaceBelowSnapshot(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationReadSnapshot snapshot,
+            int startX,
+            int startY,
+            int startZ,
+            int width
+    ) {
+        BlockState[] states = fastStateCache();
+        Predicate<BlockState> opaque = Heightmap.Types.OCEAN_FLOOR_WG.isOpaque();
+        int minY = context.level().getMinBuildHeight();
+        int maxY = context.level().getMaxBuildHeight() - 1;
+        for (int x = startX; x <= startX + width; x++) {
+            for (int z = startZ; z <= startZ + width; z++) {
+                int firstAvailable = firstAvailableHeightSnapshot(snapshot, states, opaque, x, z, minY, maxY);
+                if (startY <= firstAvailable - 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int firstAvailableHeightSnapshot(
+            DecorationReadSnapshot snapshot,
+            BlockState[] states,
+            Predicate<BlockState> opaque,
+            int x,
+            int z,
+            int minY,
+            int maxY
+    ) {
+        for (int y = maxY; y >= minY; y--) {
+            Integer blockId = readSnapshotBlockId(snapshot, x, y, z);
+            if (blockId == null) {
+                continue;
+            }
+            BlockState state = fastStateOrNull(states, blockId);
+            if (state != null && opaque.test(state)) {
+                return y + 1;
+            }
+        }
+        return minY;
     }
 
     private static boolean doPlaceOreNative(
@@ -1350,6 +1487,30 @@ final class DecorationPlacementProgram {
         long metricBlockReads = 0L;
         long metricCandidatesGenerated = 0L;
         long metricKernelRejects = 0L;
+
+        DecorationReadSnapshot snapshot = DecorationReadSnapshotContext.current();
+        if (snapshot != null) {
+            return doPlaceOreNativeSnapshot(
+                    context,
+                    snapshot,
+                    startX,
+                    startY,
+                    startZ,
+                    width,
+                    height,
+                    size,
+                    visited,
+                    veinData,
+                    targets,
+                    states,
+                    airStates,
+                    airChance,
+                    levelMinY,
+                    levelMaxY,
+                    planeStride,
+                    metricsEnabled
+            );
+        }
 
         try (BulkSectionAccess access = new BulkSectionAccess(context.level())) {
             BlockPos.MutableBlockPos pos = scratch.mutablePos;
@@ -1515,6 +1676,139 @@ final class DecorationPlacementProgram {
         return placedCount > 0;
     }
 
+    private static boolean doPlaceOreNativeSnapshot(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationReadSnapshot snapshot,
+            int startX,
+            int startY,
+            int startZ,
+            int width,
+            int height,
+            int size,
+            long[] visited,
+            double[] veinData,
+            FastTarget[] targets,
+            BlockState[] states,
+            boolean[] airStates,
+            float airChance,
+            int levelMinY,
+            int levelMaxY,
+            int planeStride,
+            boolean metricsEnabled
+    ) {
+        RandomSource random = context.random();
+        int placedCount = 0;
+        long metricBlockReads = 0L;
+        long metricCandidatesGenerated = 0L;
+        long metricKernelRejects = 0L;
+
+        for (int vein = 0; vein < size; vein++) {
+            int base = vein * 4;
+            double radius = veinData[base + 3];
+            if (radius < 0.0) {
+                continue;
+            }
+
+            double centerX = veinData[base];
+            double centerY = veinData[base + 1];
+            double centerZ = veinData[base + 2];
+            double shiftedCenterX = centerX - 0.5D;
+            double shiftedCenterY = centerY - 0.5D;
+            double shiftedCenterZ = centerZ - 0.5D;
+
+            int minBlockY = Math.max(Math.max(Mth.ceil(shiftedCenterY - radius), startY), levelMinY);
+            int maxBlockY = Math.min(Math.min(Mth.floor(shiftedCenterY + radius), startY + height - 1), levelMaxY);
+            if (minBlockY > maxBlockY) {
+                continue;
+            }
+
+            double invRadius = 1.0 / radius;
+            for (int blockY = minBlockY; blockY <= maxBlockY; blockY++) {
+                double dy = (blockY - shiftedCenterY) * invRadius;
+                double dySq = dy * dy;
+                if (dySq >= 1.0) {
+                    continue;
+                }
+
+                double zRadius = Math.sqrt(1.0 - dySq) * radius;
+                int minBlockZ = Math.max(Mth.ceil(shiftedCenterZ - zRadius), startZ);
+                int maxBlockZ = Math.min(Mth.floor(shiftedCenterZ + zRadius), startZ + width - 1);
+                if (minBlockZ > maxBlockZ) {
+                    continue;
+                }
+
+                int bitIndexY = (blockY - startY) * width;
+                for (int blockZ = minBlockZ; blockZ <= maxBlockZ; blockZ++) {
+                    double dz = (blockZ - shiftedCenterZ) * invRadius;
+                    double dyzSq = dySq + dz * dz;
+                    if (dyzSq >= 1.0) {
+                        continue;
+                    }
+
+                    double xRadius = Math.sqrt(1.0 - dyzSq) * radius;
+                    int minBlockX = Math.max(Mth.ceil(shiftedCenterX - xRadius), startX);
+                    int maxBlockX = Math.min(Mth.floor(shiftedCenterX + xRadius), startX + width - 1);
+                    if (minBlockX > maxBlockX) {
+                        continue;
+                    }
+
+                    int bitIndexYZ = bitIndexY + (blockZ - startZ) * planeStride;
+                    for (int blockX = minBlockX; blockX <= maxBlockX; blockX++) {
+                        int bitIndex = (blockX - startX) + bitIndexYZ;
+                        int wordIndex = bitIndex >>> 6;
+                        long bitMask = 1L << (bitIndex & 63);
+                        if ((visited[wordIndex] & bitMask) != 0L) {
+                            continue;
+                        }
+                        visited[wordIndex] |= bitMask;
+
+                        Integer currentStateIdBoxed = readSnapshotBlockId(snapshot, blockX, blockY, blockZ);
+                        if (currentStateIdBoxed == null) {
+                            if (metricsEnabled) {
+                                metricKernelRejects++;
+                            }
+                            continue;
+                        }
+
+                        int currentStateId = currentStateIdBoxed;
+                        BlockState currentState = null;
+                        if (metricsEnabled) {
+                            metricBlockReads++;
+                            metricCandidatesGenerated++;
+                        }
+
+                        for (int targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+                            FastTarget target = targets[targetIndex];
+                            boolean matched = target.matchesStateId(currentStateId);
+                            if (!matched && target.requiresFallbackState()) {
+                                currentState = currentState == null ? fastStateOrNull(states, currentStateId) : currentState;
+                                matched = currentState != null && target.fallbackRule().test(currentState, random);
+                            }
+
+                            if (!matched) {
+                                continue;
+                            }
+
+                            if (shouldSkipAirCheck(random, airChance)
+                                    || !isAdjacentToAir(snapshot, airStates, blockX, blockY, blockZ)) {
+                                commitOrePlacementSnapshot(context, target, blockX, blockY, blockZ);
+                                placedCount++;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (metricsEnabled) {
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.WORLD_BLOCK_READS, metricBlockReads);
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.NATIVE_CANDIDATES_GENERATED, metricCandidatesGenerated);
+            DecorationPipelineMetrics.add(DecorationPipelineMetrics.NATIVE_CANDIDATES_REJECTED_BY_KERNEL, metricKernelRejects);
+        }
+        return placedCount > 0;
+    }
+
     private static int scatteredOreSpread(RandomSource random, int spread) {
         return Math.round((random.nextFloat() - random.nextFloat()) * (float) spread);
     }
@@ -1568,6 +1862,35 @@ final class DecorationPlacementProgram {
         }
         DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, start);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
+    }
+
+    private static void commitOrePlacementSnapshot(
+            DecorationPipelineExecutor.ExecutionContext context,
+            FastTarget target,
+            int blockX,
+            int blockY,
+        int blockZ
+    ) {
+        long start = DecorationPipelineMetrics.startTimer();
+        if (!DecorationWorkspaceBridge.writeWorkspaceOnly(context.workspace(), null, blockX, blockY, blockZ, target.placementState())) {
+            throw new DecorationParallelJournalFallback("parallel ore journal write missed workspace");
+        }
+        DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_COMMIT_NANOS, start);
+    }
+
+    private static boolean isAdjacentToAir(
+            DecorationReadSnapshot snapshot,
+            boolean[] airStates,
+            int globalX,
+            int globalY,
+            int globalZ
+    ) {
+        return isAirAt(snapshot, airStates, globalX + 1, globalY, globalZ)
+                || isAirAt(snapshot, airStates, globalX - 1, globalY, globalZ)
+                || isAirAt(snapshot, airStates, globalX, globalY + 1, globalZ)
+                || isAirAt(snapshot, airStates, globalX, globalY - 1, globalZ)
+                || isAirAt(snapshot, airStates, globalX, globalY, globalZ + 1)
+                || isAirAt(snapshot, airStates, globalX, globalY, globalZ - 1);
     }
 
     private static boolean isAdjacentToAir(
@@ -1677,6 +2000,49 @@ final class DecorationPlacementProgram {
         }
 
         return access.getBlockState(tempPos).isAir();
+    }
+
+    private static boolean isAirAt(
+            DecorationReadSnapshot snapshot,
+            boolean[] airStates,
+            int globalX,
+            int globalY,
+            int globalZ
+    ) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ);
+        if (workspaceStateId != null) {
+            return isAirState(airStates, workspaceStateId);
+        }
+        if (!snapshot.containsY(globalY)) {
+            return true;
+        }
+        if (!snapshot.containsChunk(globalX >> 4, globalZ >> 4)) {
+            throw new DecorationParallelJournalFallback("parallel ore snapshot radius miss");
+        }
+        Integer snapshotStateId = snapshot.blockIdAt(globalX, globalY, globalZ);
+        return snapshotStateId == null || isAirState(airStates, snapshotStateId);
+    }
+
+    private static Integer readSnapshotBlockId(DecorationReadSnapshot snapshot, int globalX, int globalY, int globalZ) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ);
+        if (workspaceStateId != null) {
+            return workspaceStateId;
+        }
+        if (!snapshot.containsY(globalY)) {
+            return null;
+        }
+        if (!snapshot.containsChunk(globalX >> 4, globalZ >> 4)) {
+            throw new DecorationParallelJournalFallback("parallel ore snapshot radius miss");
+        }
+        return snapshot.blockIdAt(globalX, globalY, globalZ);
+    }
+
+    private static BlockState fastStateOrNull(BlockState[] states, int blockId) {
+        return blockId >= 0 && blockId < states.length ? states[blockId] : null;
+    }
+
+    private static boolean isAirState(boolean[] airStates, int blockId) {
+        return blockId >= 0 && blockId < airStates.length && airStates[blockId];
     }
 
     private static BlockState[] fastStateCache() {
@@ -1870,7 +2236,7 @@ final class DecorationPlacementProgram {
                         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                         placedAny = true;
                     } else {
-                        if (setBlockTracked(context, scratch, pos, state, 2)) {
+                        if (setKnownDecorationBlockTracked(context, scratch, pos, state, 2)) {
                             markAboveForPostProcessing(context.level(), markPos.set(pos));
                             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                             placedAny = true;
@@ -1932,7 +2298,7 @@ final class DecorationPlacementProgram {
                 if (!context.level().ensureCanWrite(placePos)) {
                     return placedAny;
                 }
-                setBlockTracked(context, scratch, placePos, layer.state().getState(context.random(), placePos), 2);
+                setKnownDecorationBlockTracked(context, scratch, placePos, layer.state().getState(context.random(), placePos), 2);
                 DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORLD_BLOCK_WRITES);
                 placedAny = true;
                 placePos.move(direction);
@@ -2889,7 +3255,16 @@ final class DecorationPlacementProgram {
         if (feature == null) {
             return false;
         }
-        Holder<Biome> biome = context.level().getBiome(scratch.mutablePos.set(x, y, z));
+        DecorationReadSnapshot snapshot = DecorationReadSnapshotContext.current();
+        Holder<Biome> biome;
+        if (snapshot != null) {
+            biome = snapshot.biomeAt(x, y, z);
+            if (biome == null) {
+                throw new DecorationParallelJournalFallback("parallel decoration biome snapshot miss");
+            }
+        } else {
+            biome = context.level().getBiome(scratch.mutablePos.set(x, y, z));
+        }
         return scratch.biomeFeatureCache.hasFeature(context.generator(), biome, feature);
     }
 
@@ -2987,17 +3362,49 @@ final class DecorationPlacementProgram {
         return changed;
     }
 
+    private static boolean setKnownDecorationBlockTracked(
+            DecorationPipelineExecutor.ExecutionContext context,
+            DecorationPipelineScratch scratch,
+            BlockPos pos,
+            BlockState state,
+            int flags
+    ) {
+        boolean trackWorkspace = DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace());
+        if (trackWorkspace) {
+            ChunkAccess chunk = chunkFor(context, pos.getX(), pos.getZ());
+            if (DecorationWorkspaceBridge.writeCurrentWorkspaceOnly(chunk, pos, state)) {
+                noteBlockMutation(
+                        chunk,
+                        scratch,
+                        pos.getX(),
+                        pos.getY(),
+                        pos.getZ(),
+                        state,
+                        scratch.hasPreparedDescriptors(),
+                        true
+                );
+                return true;
+            }
+        }
+        return setBlockTracked(context, scratch, pos, state, flags);
+    }
+
     private static void setChunkWriterBlockTracked(
             DecorationPipelineExecutor.ExecutionContext context,
             DecorationPipelineScratch scratch,
             BlockPos pos,
             BlockState state
     ) {
-        scratch.chunkWriter.setBlockState(pos, state);
         boolean trackDescriptors = scratch.hasPreparedDescriptors();
         boolean trackWorkspace = DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace());
+        ChunkAccess chunk = trackDescriptors || trackWorkspace ? chunkFor(context, pos.getX(), pos.getZ()) : null;
+        if (trackWorkspace && DecorationWorkspaceBridge.writeCurrentWorkspaceOnly(chunk, pos, state)) {
+            noteBlockMutation(chunk, scratch, pos.getX(), pos.getY(), pos.getZ(), state, trackDescriptors, true);
+            return;
+        }
+
+        scratch.chunkWriter.setBlockState(pos, state);
         if (trackDescriptors || trackWorkspace) {
-            ChunkAccess chunk = chunkFor(context, pos.getX(), pos.getZ());
             if (trackWorkspace) {
                 DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
             }
@@ -3012,6 +3419,14 @@ final class DecorationPlacementProgram {
             BlockPos pos,
             BlockState state
     ) {
+        if (DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace())
+                && DecorationWorkspaceBridge.writeCurrentWorkspaceOnly(chunk, pos, state)) {
+            if (scratch.hasPreparedDescriptors()) {
+                scratch.noteJournalMutation(chunk, pos.getX(), pos.getY(), pos.getZ(), state);
+            }
+            return;
+        }
+
         scratch.chunkWriter.setBlockState(pos, state);
         if (DecorationWorkspaceBridge.hasCurrentWorkspace(context.workspace())) {
             DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);

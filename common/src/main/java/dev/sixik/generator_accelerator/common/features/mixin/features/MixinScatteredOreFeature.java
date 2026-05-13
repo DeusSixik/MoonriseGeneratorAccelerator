@@ -305,7 +305,7 @@ public abstract class MixinScatteredOreFeature extends Feature<OreConfiguration>
             int sectionIndex
     ) {
         BlockState placementState = target.placementState();
-        if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(null, pos, placementState)) {
+        if (GAWorkspaceWriteBridge.writeCurrentKnownDecorationWorkspaceOnly(null, pos, placementState)) {
             return;
         }
         if (raw != null && (!placementMayBeAir || airStates[previousStateId] == airStates[target.placementStateId()])) {
