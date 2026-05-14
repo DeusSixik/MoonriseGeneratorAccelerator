@@ -258,10 +258,42 @@ class GAChunkWorkspaceRuntimeTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> gatesBeforeDrain =
                 (Map<String, Object>) GAWorldgenPipelineStatus.snapshot().get("runtimeGates");
-        assertEquals(true, gatesBeforeDrain.get("crossChunkMailboxRuntime"));
+        assertEquals(true, gatesBeforeDrain.get("crossChunkMailboxQueued"));
+        assertEquals(false, gatesBeforeDrain.get("crossChunkMailboxRuntime"));
 
         GAChunkWorkspaceRuntime.Session targetSession = GAChunkWorkspaceRuntime.acquireImported(target);
         targetSession.close();
+
+        verify(target).setBlockState(
+                eq(new net.minecraft.core.BlockPos(16, 2, 3)),
+                eq(Blocks.DIRT.defaultBlockState()),
+                eq(false)
+        );
+        assertEquals(1L, metric(GACrossChunkMailboxRuntime.snapshot(), "drained"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> gatesAfterDrain =
+                (Map<String, Object>) GAWorldgenPipelineStatus.snapshot().get("runtimeGates");
+        assertEquals(true, gatesAfterDrain.get("crossChunkMailboxLiveDrains"));
+        assertEquals(true, gatesAfterDrain.get("crossChunkMailboxRuntime"));
+    }
+
+    @Test
+    void mailboxDrainCanRunWithoutWorkspaceSession() {
+        LevelChunkSection targetSection = flatSection(new int[GAChunkWorkspace.BLOCKS_PER_SECTION]);
+        ChunkAccess target = chunkAt(1, 0, targetSection);
+
+        assertTrue(GACrossChunkMailboxRuntime.enqueueBlockWrite(
+                0,
+                0,
+                16,
+                2,
+                3,
+                Blocks.DIRT.defaultBlockState(),
+                2
+        ));
+
+        GAChunkWorkspaceRuntime.drainCrossChunkMailboxIfQueued(target);
 
         verify(target).setBlockState(
                 eq(new net.minecraft.core.BlockPos(16, 2, 3)),

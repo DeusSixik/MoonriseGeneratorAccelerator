@@ -18,6 +18,9 @@ public final class SurfaceMetrics {
     private static final LongAdder CACHE_HITS = new LongAdder();
     private static final LongAdder CACHE_MISSES = new LongAdder();
     private static final LongAdder LAST_ENTRY_HITS = new LongAdder();
+    private static final LongAdder UNSUPPORTED_PROGRAMS = new LongAdder();
+    private static final LongAdder UNSUPPORTED_CACHE_HITS = new LongAdder();
+    private static final LongAdder VANILLA_FALLBACKS = new LongAdder();
 
     private static final LongAdder SECTIONS_PROCESSED = new LongAdder();
     private static final LongAdder EMPTY_SECTIONS_SKIPPED = new LongAdder();
@@ -106,6 +109,21 @@ public final class SurfaceMetrics {
     public static void lastEntryHit() {
         if (!ENABLED) return;
         LAST_ENTRY_HITS.increment();
+    }
+
+    static void unsupportedProgram() {
+        if (!ENABLED) return;
+        UNSUPPORTED_PROGRAMS.increment();
+    }
+
+    static void unsupportedCacheHit() {
+        if (!ENABLED) return;
+        UNSUPPORTED_CACHE_HITS.increment();
+    }
+
+    public static void vanillaFallback() {
+        if (!ENABLED) return;
+        VANILLA_FALLBACKS.increment();
     }
 
     public static void sectionProcessed() {
@@ -255,6 +273,18 @@ public final class SurfaceMetrics {
         return LAST_ENTRY_HITS.sum();
     }
 
+    public static long unsupportedPrograms() {
+        return UNSUPPORTED_PROGRAMS.sum();
+    }
+
+    public static long unsupportedCacheHits() {
+        return UNSUPPORTED_CACHE_HITS.sum();
+    }
+
+    public static long vanillaFallbacks() {
+        return VANILLA_FALLBACKS.sum();
+    }
+
     public static long sectionsProcessed() {
         return SECTIONS_PROCESSED.sum();
     }
@@ -298,6 +328,9 @@ public final class SurfaceMetrics {
         CACHE_HITS.reset();
         CACHE_MISSES.reset();
         LAST_ENTRY_HITS.reset();
+        UNSUPPORTED_PROGRAMS.reset();
+        UNSUPPORTED_CACHE_HITS.reset();
+        VANILLA_FALLBACKS.reset();
         SECTIONS_PROCESSED.reset();
         EMPTY_SECTIONS_SKIPPED.reset();
         RAW_BLOCK_ARRAY_MISSES.reset();

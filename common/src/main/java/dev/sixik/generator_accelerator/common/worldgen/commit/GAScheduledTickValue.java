@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.worldgen.commit;
 import java.util.Objects;
 
 /**
- * Detached placeholder payload for block/fluid scheduled tick side effects.
+ * Value-only payload for future owner-applied block/fluid scheduled tick side effects.
  */
 public record GAScheduledTickValue(
         GAScheduledTickType type,

@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
 /**
- * Detached placeholder payload for final dirty-section/palette repack work.
+ * Commit-lane payload for final dirty-section/palette repack work.
  */
 public record GAFinalRepackValue(
         int sectionY,

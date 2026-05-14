@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.worldgen.commit;
 import java.util.Objects;
 
 /**
- * Detached placeholder payload for owner-applied heightmap repair/update work.
+ * Value-only payload for future owner-applied heightmap repair/update work.
  */
 public record GAHeightmapUpdateValue(
         String heightmapId,

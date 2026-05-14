@@ -12,6 +12,7 @@ class GAWorldgenPipelineStatusTest {
     void snapshotReportsPhaseZeroToTwoRuntimeGates() {
         dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics.resetGlobal();
         dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics.resetGlobal();
+        dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime.resetForTests();
         dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionRuntimeDispatcher.resetForTests();
         Map<String, Object> snapshot = GAWorldgenPipelineStatus.snapshot();
 
@@ -25,14 +26,14 @@ class GAWorldgenPipelineStatusTest {
         assertEquals(100, completion.get("phase0Contracts"));
         assertEquals(100, completion.get("phase1WorkspaceSkeleton"));
         assertEquals(100, completion.get("phase2UnifiedScheduler"));
-        assertEquals(100, completion.get("phase3TerrainWorkspace"));
+        assertEquals(80, completion.get("phase3TerrainWorkspace"));
         assertEquals(100, completion.get("phase4Classifier"));
-        assertEquals(100, completion.get("phase5CommitEngine"));
+        assertEquals(90, completion.get("phase5CommitEngine"));
         assertEquals(100, completion.get("phase6DecorationWorkspace"));
-        assertEquals(100, completion.get("phase7TransactionSandbox"));
+        assertEquals(70, completion.get("phase7TransactionSandbox"));
         assertEquals(100, completion.get("phase8EffectAnalysis"));
-        assertEquals(100, completion.get("phase9PatternOptimizer"));
-        assertEquals(100, completion.get("phase10OuterLifecycle"));
+        assertEquals(70, completion.get("phase9PatternOptimizer"));
+        assertEquals(85, completion.get("phase10OuterLifecycle"));
         assertEquals(100, completion.get("phase11Diagnostics"));
 
         @SuppressWarnings("unchecked")
@@ -57,6 +58,7 @@ class GAWorldgenPipelineStatusTest {
         assertEquals(true, runtimeGates.get("schedulerCommitLaneRuntime"));
         assertEquals(true, runtimeGates.get("adaptiveGovernorRuntime"));
         assertEquals(true, runtimeGates.get("terrainWorkspaceBackend"));
+        assertEquals(false, runtimeGates.get("terrainWorkspaceVanillaHookRuntime"));
         assertEquals(false, runtimeGates.get("terrainWorkspacePipelineRuntime"));
         assertEquals(true, runtimeGates.get("terrainWorkspacePassesDetached"));
         assertEquals(true, runtimeGates.get("classifierRuntimeDecision"));
@@ -64,19 +66,31 @@ class GAWorldgenPipelineStatusTest {
         assertEquals(true, runtimeGates.get("classifierReloadScanOrchestrator"));
         assertEquals(false, runtimeGates.get("workspaceFinalRepackCommitEngine"));
         assertEquals(false, runtimeGates.get("deterministicCommitRuntime"));
-        assertEquals(true, runtimeGates.get("detachedCommitEngineRuntime"));
+        assertEquals(true, runtimeGates.get("detachedCommitEngineAvailable"));
+        assertEquals(false, runtimeGates.get("detachedCommitEngineRuntime"));
+        assertEquals(true, runtimeGates.get("commitSideEffectValueApi"));
+        assertEquals(false, runtimeGates.get("commitSideEffectRuntime"));
         assertEquals(true, runtimeGates.get("crossChunkMailboxPrototype"));
+        assertEquals(true, runtimeGates.get("crossChunkMailboxRuntimeEnabled"));
+        assertEquals(true, runtimeGates.get("crossChunkMailboxValueApi"));
+        assertEquals(false, runtimeGates.get("crossChunkMailboxLiveDrains"));
+        assertEquals(false, runtimeGates.get("crossChunkMailboxQueued"));
+        assertEquals(true, runtimeGates.get("transactionSandboxDispatcherEnabled"));
+        assertEquals(false, runtimeGates.get("transactionSandboxExplicitRuntime"));
+        assertEquals(false, runtimeGates.get("transactionSandboxLiveHook"));
         assertEquals(false, runtimeGates.get("transactionSandboxRuntime"));
         assertEquals(true, runtimeGates.get("transactionSuccessOnlyCommandJournal"));
         assertEquals(true, runtimeGates.get("transactionAbortDowngradeHandoff"));
         assertEquals(true, runtimeGates.get("effectAnalysisRuntime"));
         assertEquals(true, runtimeGates.get("effectAnalysisScheduler"));
         assertEquals(true, runtimeGates.get("effectAnalysisClassifierDowngrade"));
-        assertEquals(true, runtimeGates.get("patternOptimizerRuntime"));
+        assertEquals(true, runtimeGates.get("patternOptimizerPlannerAvailable"));
+        assertEquals(false, runtimeGates.get("patternOptimizerRuntime"));
         assertEquals(true, runtimeGates.get("patternOptimizerGuards"));
         assertEquals(true, runtimeGates.get("patternOptimizerParitySampler"));
         assertEquals(true, runtimeGates.get("outerLifecycleRuntime"));
         assertEquals(true, runtimeGates.get("lightingHandoffMasks"));
+        assertEquals(false, runtimeGates.get("lightingIoPromotionRuntime"));
         assertEquals(true, runtimeGates.get("serializationBatchPlanning"));
         assertEquals(true, runtimeGates.get("publishingGuardRuntime"));
         assertEquals(true, runtimeGates.get("diagnosticsFeedbackRuntime"));

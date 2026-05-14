@@ -564,6 +564,9 @@ public final class GADiagnostics {
         out.put("cacheHits", SurfaceMetrics.cacheHits());
         out.put("cacheMisses", SurfaceMetrics.cacheMisses());
         out.put("lastEntryHits", SurfaceMetrics.lastEntryHits());
+        out.put("unsupportedPrograms", SurfaceMetrics.unsupportedPrograms());
+        out.put("unsupportedCacheHits", SurfaceMetrics.unsupportedCacheHits());
+        out.put("vanillaFallbacks", SurfaceMetrics.vanillaFallbacks());
         out.put("sectionsProcessed", SurfaceMetrics.sectionsProcessed());
         out.put("emptySectionsSkipped", SurfaceMetrics.emptySectionsSkipped());
         out.put("rawBlockArrayMisses", SurfaceMetrics.rawBlockArrayMisses());

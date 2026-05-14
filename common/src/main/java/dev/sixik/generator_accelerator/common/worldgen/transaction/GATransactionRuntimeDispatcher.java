@@ -134,10 +134,11 @@ public final class GATransactionRuntimeDispatcher {
             GATransactionSnapshot snapshot,
             GACommitOrderKey baseOrderKey
     ) {
-        List<GACommitCommand<GABlockWriteValue>> commands = GATransactionCommitBridge.blockWriteCommands(snapshot, baseOrderKey)
-                .stream()
-                .map(GATransactionRuntimeDispatcher::castBlockWriteCommand)
-                .toList();
+        List<GACommitCommand<Object>> rawCommands = GATransactionCommitBridge.blockWriteCommands(snapshot, baseOrderKey);
+        List<GACommitCommand<GABlockWriteValue>> commands = new java.util.ArrayList<>(rawCommands.size());
+        for (GACommitCommand<Object> command : rawCommands) {
+            commands.add(castBlockWriteCommand(command));
+        }
         return GACommitEngine.execute(
                 GACommitBatch.of(commands),
                 GACommitCollisionPolicy.FIRST_WRITE_WINS,

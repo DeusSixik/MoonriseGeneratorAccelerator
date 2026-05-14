@@ -54,12 +54,16 @@ public final class DecorationPipelineCompatibility {
         DESCRIPTOR_FAILURES.clear();
     }
 
-    static boolean shouldUseSafeVanilla(@Nullable PlacedFeature feature) {
+    public static boolean isTreeLikeFeature(@Nullable PlacedFeature feature) {
         if (feature == null) {
             return false;
         }
-        if (Boolean.TRUE.equals(TREE_LIKE_FEATURES.get(feature, placedFeature ->
-                isTreeLikePlacedFeature(placedFeature, 0)))) {
+        return Boolean.TRUE.equals(TREE_LIKE_FEATURES.get(feature, placedFeature ->
+                isTreeLikePlacedFeature(placedFeature, 0)));
+    }
+
+    static boolean shouldUseSafeVanilla(@Nullable PlacedFeature feature) {
+        if (isTreeLikeFeature(feature)) {
             return true;
         }
         if (QUARANTINED_FEATURE_COUNT.get() == 0) {

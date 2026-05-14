@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.mixin.compats.biomeswevegone;
 
 import com.bawnorton.mixinsquared.TargetHandler;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
@@ -51,7 +52,7 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
+            name = "ga$buildSurface"
     )
     @Inject(
             method = {"@MixinSquared:Handler"},
@@ -64,7 +65,7 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
     private void injectShatteredGlacierExtension(
             RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> pBiomes,
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
-            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource pRuleSource, CallbackInfo ci,
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource pRuleSource, Operation<Void> original, CallbackInfo ci,
 
             @Local VectorBlockColumn fastColumn,
             @Local(ordinal = 4) int globalX,

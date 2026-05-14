@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.generator_accelerator.api.mixin.InjectHelper;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
@@ -29,7 +31,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.*;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
@@ -67,12 +68,8 @@ public abstract class SurfaceSystem$new_build_surface {
     @Shadow
     protected abstract void frozenOceanExtension(int i, Biome biome, BlockColumn blockColumn, BlockPos.MutableBlockPos mutableBlockPos, int j, int k, int l);
 
-    /**
-     * @author Sixik
-     * @reason
-     */
-    @Overwrite
-    public void buildSurface(
+    @WrapMethod(method = "buildSurface")
+    private void ga$buildSurface(
             RandomState pRandomState,
             BiomeManager pBiomeManager,
             Registry<Biome> unused,
@@ -80,14 +77,22 @@ public abstract class SurfaceSystem$new_build_surface {
             WorldGenerationContext pContext,
             final ChunkAccess pChunk,
             NoiseChunk pNoiseChunk,
-            SurfaceRules.RuleSource ruleSource
+            SurfaceRules.RuleSource ruleSource,
+            Operation<Void> original
     ) {
+        final SurfaceProgram pSurfaceProgram = SurfaceProgramCache.tryGetOrCompile(ruleSource);
+        if (pSurfaceProgram == null) {
+            SurfaceMetrics.vanillaFallback();
+            original.call(pRandomState, pBiomeManager, unused, pUseLegacyRandomSource, pContext, pChunk, pNoiseChunk, ruleSource);
+            return;
+        }
+
         final GASurfaceChunkBiomeLookup bts$chunkBiome = BTS$CHUNK_BIOME_LOOKUP.get();
         Holder<Biome>[] surfaceBiomes = null;
         VectorChunkContext ctx = null;
         VectorBlockColumn fastColumn = null;
+        boolean chunkMutated = false;
         try {
-            final SurfaceProgram pSurfaceProgram = SurfaceProgramCache.getOrCompile(ruleSource);
             final SurfaceScratch scratch = BTS$SURFACE_SCRATCH.get();
             final ChunkPos chunkpos = pChunk.getPos();
             final int minBlockX = chunkpos.getMinBlockX();
@@ -154,6 +159,7 @@ public abstract class SurfaceSystem$new_build_surface {
 
                 if (biome.is(Biomes.ERODED_BADLANDS)) {
                     columnPos.setX(globalX).setZ(globalZ);
+                    chunkMutated = true;
                     this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
                 } else if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
                     hasFrozenOcean = true;
@@ -225,6 +231,7 @@ public abstract class SurfaceSystem$new_build_surface {
                 }
 
                 long programApplyStart = SurfaceMetrics.startTimer();
+                chunkMutated = true;
                 SurfaceExecutor.apply(rawBlockData, stoneMask, ctx, pSurfaceProgram, scratch);
                 SurfaceMetrics.recordProgramApplyTime(programApplyStart);
 
@@ -268,6 +275,7 @@ public abstract class SurfaceSystem$new_build_surface {
                         columnPos.setX(globalX).setZ(globalZ);
                         biomePos.set(globalX, pUseLegacyRandomSource ? 0 : surfaceY, globalZ);
 
+                        chunkMutated = true;
                         this.frozenOceanExtension(ctx.minSurfaceLevels[idx], biome.value(), fastColumn, biomePos, globalX, globalZ, surfaceY);
                     }
                 }
@@ -275,6 +283,13 @@ public abstract class SurfaceSystem$new_build_surface {
             }
 
             InjectHelper.inject();
+        } catch (RuntimeException failure) {
+            if (!chunkMutated) {
+                SurfaceMetrics.vanillaFallback();
+                original.call(pRandomState, pBiomeManager, unused, pUseLegacyRandomSource, pContext, pChunk, pNoiseChunk, ruleSource);
+                return;
+            }
+            throw failure;
         } finally {
             bts$chunkBiome.dispose();
             if (surfaceBiomes != null) {

@@ -26,7 +26,7 @@ public class MixinChunkStatusTasks$generate_features {
      */
     @Overwrite
     public static CompletableFuture<ChunkAccess> generateFeatures(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess chunkAccess) {
-        return GAChunkStatusPipeline.schedule(
+        return GAChunkWorkspaceRuntime.drainCrossChunkMailboxAfter(GAChunkStatusPipeline.schedule(
                 GAChunkStatusPipeline.Stage.FEATURES,
                 GAScheduler.Lane.TRANSACTIONAL,
                 chunkStep,
@@ -39,6 +39,6 @@ public class MixinChunkStatusTasks$generate_features {
                     Blender.generateBorderTicks(worldGenRegion, chunkAccess);
                     return chunkAccess;
                 })
-        );
+        ));
     }
 }

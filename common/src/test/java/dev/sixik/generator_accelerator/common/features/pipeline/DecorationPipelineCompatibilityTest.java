@@ -68,6 +68,7 @@ class DecorationPipelineCompatibilityTest {
     void treeFeaturesUseSafeVanillaBeforeAnyQuarantine() {
         PlacedFeature tree = placed(Feature.TREE, FeatureConfiguration.NONE);
 
+        assertTrue(DecorationPipelineCompatibility.isTreeLikeFeature(tree));
         assertTrue(DecorationPipelineCompatibility.shouldUseSafeVanilla(tree));
     }
 
@@ -79,6 +80,7 @@ class DecorationPipelineCompatibilityTest {
                 new RandomPatchConfiguration(8, 3, 3, Holder.direct(tree))
         );
 
+        assertTrue(DecorationPipelineCompatibility.isTreeLikeFeature(patch));
         assertTrue(DecorationPipelineCompatibility.shouldUseSafeVanilla(patch));
     }
 

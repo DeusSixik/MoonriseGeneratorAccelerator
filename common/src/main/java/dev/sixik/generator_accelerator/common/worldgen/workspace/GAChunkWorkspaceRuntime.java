@@ -63,6 +63,38 @@ public final class GAChunkWorkspaceRuntime {
         return FINAL_REPACK_ENABLED;
     }
 
+    public static CompletableFuture<ChunkAccess> drainCrossChunkMailboxAfter(CompletableFuture<ChunkAccess> future) {
+        CompletableFuture<ChunkAccess> checked = requireFuture(future);
+        if (!shouldAttachCrossChunkMailboxDrain()) {
+            return checked;
+        }
+        return checked.thenApply(chunk -> {
+            drainCrossChunkMailboxIfQueued(chunk);
+            return chunk;
+        });
+    }
+
+    public static void drainCrossChunkMailboxIfQueued(ChunkAccess chunk) {
+        if (!GACrossChunkMailboxRuntime.enabled() || !GACrossChunkMailboxRuntime.hasQueuedBlockWrites(chunk)) {
+            return;
+        }
+        try {
+            GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT, () -> drainCrossChunkMailbox(chunk));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while draining workspace cross-chunk mailbox", interrupted);
+        } catch (ExecutionException failure) {
+            throw new IllegalStateException("workspace cross-chunk mailbox drain failed", unwrap(failure));
+        }
+    }
+
+    private static boolean shouldAttachCrossChunkMailboxDrain() {
+        return GACrossChunkMailboxRuntime.enabled()
+                && (GACrossChunkMailboxRuntime.queuedCommands() > 0
+                || GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
+                || GAWorkspaceWriteBridge.knownDecorationJournalWritesEnabled());
+    }
+
     public static <T> T withImportedWorkspace(ChunkAccess chunk, Supplier<T> task) {
         Objects.requireNonNull(task, "task");
         if (!RUNTIME_ENABLED) {
@@ -326,13 +358,6 @@ public final class GAChunkWorkspaceRuntime {
             throw new IllegalStateException("workspace cross-chunk mailbox commit failed for "
                     + execution.failures().size() + " block writes");
         }
-    }
-
-    private static void drainCrossChunkMailboxIfQueued(ChunkAccess chunk) throws InterruptedException, ExecutionException {
-        if (!GACrossChunkMailboxRuntime.hasQueuedBlockWrites(chunk)) {
-            return;
-        }
-        GAScheduler.invokeBlocking(GAScheduler.Lane.COMMIT, () -> drainCrossChunkMailbox(chunk));
     }
 
     private static void replayFinalRepackPlan(ChunkAccess chunk, GAChunkWorkspace workspace) {

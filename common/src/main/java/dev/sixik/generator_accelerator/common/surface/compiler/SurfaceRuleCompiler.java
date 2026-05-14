@@ -185,7 +185,7 @@ public final class SurfaceRuleCompiler {
                 }
                 return new VectorSurfaceRuleBridgeNode(VectorRuleCompiler.compileRule(ruleSource));
             } catch (RuntimeException e) {
-                throw new UnknownSurfaceRuleSource("Unknown surface rule source: " + ruleSource.getClass().getName());
+                throw new UnknownSurfaceRuleSource("Unknown surface rule source: " + ruleSource.getClass().getName(), e);
             }
         }
 
@@ -345,7 +345,7 @@ public final class SurfaceRuleCompiler {
                 }
                 return new VectorSurfaceConditionBridgeNode(VectorRuleCompiler.compileCondition(conditionSource));
             } catch (RuntimeException e) {
-                throw new UnknownSurfaceConditionSource("Unknown surface condition source: " + conditionSource.getClass().getName());
+                throw new UnknownSurfaceConditionSource("Unknown surface condition source: " + conditionSource.getClass().getName(), e);
             }
         }
 

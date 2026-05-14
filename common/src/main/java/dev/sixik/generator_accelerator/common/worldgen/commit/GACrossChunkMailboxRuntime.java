@@ -42,7 +42,7 @@ public final class GACrossChunkMailboxRuntime {
     private static final AtomicLong MAX_QUEUE_DEPTH = new AtomicLong();
     private static final AtomicLong MAX_TARGET_CHUNKS = new AtomicLong();
     private static final AtomicLong LAST_OVERFLOW_TARGET = new AtomicLong(Long.MIN_VALUE);
-    private static int queuedCommands;
+    private static volatile int queuedCommands;
 
     private GACrossChunkMailboxRuntime() {
     }
@@ -52,13 +52,11 @@ public final class GACrossChunkMailboxRuntime {
     }
 
     public static int queuedCommands() {
-        synchronized (LOCK) {
-            return queuedCommands;
-        }
+        return queuedCommands;
     }
 
     public static boolean hasQueuedBlockWrites(ChunkAccess targetChunk) {
-        if (targetChunk == null) {
+        if (!ENABLED || targetChunk == null) {
             return false;
         }
         synchronized (LOCK) {
@@ -122,6 +120,9 @@ public final class GACrossChunkMailboxRuntime {
     public static GACommitEngine.GACommitExecution<GABlockWriteValue> drainBlockWrites(ChunkAccess targetChunk) {
         if (targetChunk == null) {
             throw new NullPointerException("targetChunk");
+        }
+        if (!ENABLED) {
+            return null;
         }
         List<GACommitCommand<GABlockWriteValue>> commands;
         synchronized (LOCK) {

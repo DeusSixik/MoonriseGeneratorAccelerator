@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
 /**
- * Detached placeholder payload for postprocessing marks committed by chunk owner.
+ * Value-only payload for future owner-applied postprocessing marks.
  */
 public record GAPostprocessMarkValue(long sourceSequence) {
     public GAPostprocessMarkValue {

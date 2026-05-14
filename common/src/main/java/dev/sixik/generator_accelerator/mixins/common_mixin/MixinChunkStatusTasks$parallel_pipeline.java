@@ -25,7 +25,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.NOISE,
                 GAScheduler.Lane.NOISE,
                 step,
@@ -34,7 +34,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
     }
 
     @WrapMethod(method = "generateStructureStarts")
@@ -45,7 +45,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.STRUCTURE_STARTS,
                 GAScheduler.Lane.WORKSPACE,
                 step,
@@ -54,7 +54,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
     }
 
     @WrapMethod(method = "generateStructureReferences")
@@ -65,7 +65,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.STRUCTURE_REFERENCES,
                 GAScheduler.Lane.WORKSPACE,
                 step,
@@ -74,7 +74,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
     }
 
     @WrapMethod(method = "generateSurface")
@@ -85,7 +85,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.SURFACE,
                 GAScheduler.Lane.WORKSPACE,
                 step,
@@ -94,7 +94,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
     }
 
     @WrapMethod(method = "generateCarvers")
@@ -105,7 +105,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.CARVERS,
                 GAScheduler.Lane.WORKSPACE,
                 step,
@@ -114,7 +114,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
     }
 
     @WrapMethod(method = "generateSpawn")
@@ -125,7 +125,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
-        return GAChunkStatusPipeline.scheduleFuture(
+        return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.SPAWN,
                 GAScheduler.Lane.TRANSACTIONAL,
                 step,
@@ -134,6 +134,10 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                         chunk,
                         () -> original.call(context, step, cache, chunk)
                 )
-        );
+        ));
+    }
+
+    private static CompletableFuture<ChunkAccess> ga$drainMailboxAfter(CompletableFuture<ChunkAccess> future) {
+        return GAChunkWorkspaceRuntime.drainCrossChunkMailboxAfter(future);
     }
 }
