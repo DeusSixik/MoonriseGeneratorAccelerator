@@ -16,18 +16,18 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
     public void onLoad(String s) {
         create("net.hibiscus.naturespirit.NatureSpirit", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.surface.mixin.compats.natures_spirit.NaturesSpirit$SurfaceBuilderMixin$fix_compat",
-                "net.hibiscus.naturespirit.mixin.SurfaceBuilderMixin"
+                surfaceCompatDisable("net.hibiscus.naturespirit.mixin.SurfaceBuilderMixin")
         ));
 
         create("net.potionstudios.biomeswevegone.BiomesWeveGone", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.surface.mixin.compats.biomeswevegone.BiomesWeveGone$SurfaceBuilder$fix_compat",
-                "net.potionstudios.biomeswevegone.mixin.SurfaceSystemMixin"
+                surfaceCompatDisable("net.potionstudios.biomeswevegone.mixin.SurfaceSystemMixin")
         ));
 
         create("com.terraformersmc.biolith.impl.Biolith",
                 new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.common.surface.mixin.compats.biolith.Mixin$Biolith$SurfaceSystem",
-                        "com.terraformersmc.biolith.impl.mixin.MixinSurfaceBuilder"
+                        surfaceCompatDisable("com.terraformersmc.biolith.impl.mixin.MixinSurfaceBuilder")
                 )
         );
 
@@ -62,8 +62,13 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
                 ? mixinClassName.replace('/', '.')
                 : mixinClassName;
         return n.contains("SurfaceSystem$new_build_surface")
+                || n.contains("Mixin$Biolith$SurfaceSystem")
                 || n.contains("BiomesWeveGone$SurfaceBuilder$fix_compat")
                 || n.contains("NaturesSpirit$SurfaceBuilderMixin$fix_compat");
+    }
+
+    private static String[] surfaceCompatDisable(String mixinClassName) {
+        return isModernFixOnClasspath() ? new String[0] : new String[]{mixinClassName};
     }
 
     private static boolean isModernFixOnClasspath() {
