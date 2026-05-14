@@ -88,6 +88,11 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.galosphere.Galosphere$CrystalSpikeFeatureMixin",
                 ""));
 
+        create("com.github.alexmodguy.alexscaves.AlexsCaves", new MixinApplier.Param(
+                "dev.sixik.generator_accelerator.common.features.mixin.compats.alexscaves.AlexsCaves$ChunkGeneratorMixin$applyBiomeDecoration",
+                "com.github.alexmodguy.alexscaves.mixin.ChunkGeneratorMixin"
+        ));
+
         create("net.blay09.mods.waystones.Waystones", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.waystones.Waystones$WaystonePlacementMixin",
                 ""));
@@ -95,7 +100,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         create("com.telepathicgrunt.repurposedstructures.RepurposedStructures",
                 new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinDistanceFromWorldOriginPlacementMixin", ""),
                 new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$MinusEightPlacementMixin", ""),
-                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", "")
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$SnapToLowerNonAirPlacementMixin", ""),
+                new MixinApplier.Param("dev.sixik.generator_accelerator.common.features.mixin.compats.repurposedstructures.Repurposedstructures$NoVinesInStructuresMixin", "com.telepathicgrunt.repurposedstructures.mixins.features.NoVinesInStructuresMixin")
         );
 
         create("net.countered.terrainslabs.TerrainSlabs",
@@ -111,6 +117,12 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                         ""
                 )
         );
+        this.create(GeneratorAccelerator.C2ME_MOD, new MixinApplier.Param(
+                "",
+                "com.ishland.c2me.opts.allocs.mixin.object_pooling_caching.MixinOreFeature"
+        ));
+
+
     }
 
     @Override
@@ -144,7 +156,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         if (mixinClassName.startsWith(prefix + "place.")) {
             return true;
         }
-        return mixinClassName.startsWith(prefix + "compats.artifacts.")
+        return mixinClassName.startsWith(prefix + "compats.alexscaves.")
+                || mixinClassName.startsWith(prefix + "compats.artifacts.")
                 || mixinClassName.startsWith(prefix + "compats.biomeswevegone.")
                 || mixinClassName.startsWith(prefix + "compats.biomesoplenty.")
                 || mixinClassName.startsWith(prefix + "compats.confluence.")

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface;
 
 import com.mojang.logging.LogUtils;
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;
 import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -29,6 +30,14 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
                         "com.terraformersmc.biolith.impl.mixin.MixinSurfaceBuilder"
                 )
         );
+
+        this.create(GeneratorAccelerator.C2ME_MOD,
+                new MixinApplier.Param("",
+                        "com.ishland.c2me.opts.allocs.mixin.surfacebuilder.MixinMaterialRulesSequenceMaterialRule",
+                        "com.ishland.c2me.opts.allocs.mixin.surfacebuilder.MixinMaterialRulesSequenceBlockStateRule",
+                        "com.ishland.c2me.opts.allocs.mixin.surfacebuilder.MixinMaterialRuleContext"
+                ));
+
     }
 
     @Override

@@ -6,7 +6,8 @@
   "plugin": "dev.sixik.generator_accelerator.common.blender.GABlenderMixinPlugin",
   "mixins": [
     "MixinBlender$redirect_to_new_blender",
-    "MixinBlendingData"
+    "MixinBlendingData",
+    "compats.c2me.c2me$BlenderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

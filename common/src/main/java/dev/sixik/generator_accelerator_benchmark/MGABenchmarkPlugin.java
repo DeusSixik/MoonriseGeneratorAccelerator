@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator_benchmark;
 
 import com.mojang.logging.LogUtils;
-import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import org.objectweb.asm.tree.ClassNode;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
@@ -24,14 +23,6 @@ public class MGABenchmarkPlugin implements IMixinConfigPlugin {
 
         LOGGER.info("MGABenchmarkPlugin | Is Developer Environment: {}", isDev);
         LOGGER.info("MGABenchmarkPlugin | Is Server Environment: {}", isServer);
-
-        if (this.isServer) {
-            try {
-                GeneratorAccelerator.tryLoadNatives();
-            } catch (RuntimeException failure) {
-                LOGGER.warn("MGABenchmarkPlugin | Optional C3 natives unavailable; benchmark mixins stay enabled.", failure);
-            }
-        }
     }
 
     @Override

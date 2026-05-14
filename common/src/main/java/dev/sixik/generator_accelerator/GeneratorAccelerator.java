@@ -10,6 +10,7 @@ import java.util.concurrent.ForkJoinPool;
 public final class GeneratorAccelerator {
     public static final String MOD_ID = "generator_accelerator";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static final String C2ME_MOD = "com.ishland.c2me.base.C2MEBaseMod";
 
     public static ForkJoinPool CUSTOM_POOL;
     public static Platform platform = null;
@@ -20,12 +21,6 @@ public final class GeneratorAccelerator {
         GAScheduler.init(isDev);
         CUSTOM_POOL = Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")) ? GAScheduler.noisePool() : null;
     }
-
-    public static void tryLoadNatives() {
-        if(GeneratorAcceleratorNatives.isLoaded()) return;
-        GeneratorAcceleratorNatives.initialize();
-    }
-
 
     public enum Platform {
         FABRIC,

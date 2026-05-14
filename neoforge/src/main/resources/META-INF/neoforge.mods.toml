@@ -1,7 +1,7 @@
 modLoader = "javafml"
 loaderVersion = "[2,)"
 #issueTrackerURL = ""
-license = "GPLv3"
+license = "Polyform Shield 1.0.0"
 
 [[mods]]
 modId = "generator_accelerator"
@@ -48,9 +48,6 @@ config = "generator_accelerator_blender.mixins.json"
 
 [[mixins]]
 config = "generator_accelerator_noise.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_noise_native.mixins.json"
 
 [[mixins]]
 config = "generator_accelerator_aquifer.mixins.json"

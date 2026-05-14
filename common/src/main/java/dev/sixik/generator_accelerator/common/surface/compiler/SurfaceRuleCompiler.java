@@ -16,6 +16,7 @@ public final class SurfaceRuleCompiler {
     private static final boolean LITHOSTITCHED_LOADED = isLoaded("dev.worldgen.lithostitched.Lithostitched");
     private static final boolean TERRABLENDER_LOADED = isLoaded("terrablender.core.TerraBlender");
     private static final boolean BIOMES_WEVE_GONE_LOADED = isLoaded("net.potionstudios.biomeswevegone.BiomesWeveGone");
+    private static final boolean ALEXS_CAVES_LOADED = isLoaded("com.github.alexmodguy.alexscaves.AlexsCaves");
 
     private SurfaceRuleCompiler() {
     }
@@ -335,6 +336,11 @@ public final class SurfaceRuleCompiler {
 
             if (BIOMES_WEVE_GONE_LOADED) {
                 SurfaceConditionNode compiled = BiomesWeveGoneSurfaceCompilerData.compileCondition(conditionSource, this);
+                if (compiled != null) return compiled;
+            }
+
+            if (ALEXS_CAVES_LOADED) {
+                SurfaceConditionNode compiled = AlexsCavesSurfaceCompilerData.compileCondition(conditionSource);
                 if (compiled != null) return compiled;
             }
 

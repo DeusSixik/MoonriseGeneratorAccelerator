@@ -265,3 +265,6 @@ accessible method net/minecraft/world/level/biome/FeatureSorter$StepFeatureData 
 accessible method net/minecraft/core/HolderSet$Named contents ()Ljava/util/List;
 
 accessible class net/minecraft/world/level/chunk/PaletteResize
+
+accessible class net/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplate$SimplePalette
+accessible method net/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplate$SimplePalette <init> ()V

@@ -29,9 +29,9 @@ public class MixinNoiseChunk$Cache2D {
         if (this.lastPos2D == key) {
             return this.lastValue;
         } else {
-            this.lastPos2D = key;
             final double val = this.function.compute(ctx);
             this.lastValue = val;
+            this.lastPos2D = key;
             return val;
         }
     }

@@ -2,6 +2,10 @@ architectury {
     common rootProject.enabled_platforms.split(',')
 }
 
+configurations {
+    c2meDownload
+}
+
 test {
     useJUnitPlatform()
 }
@@ -128,6 +132,9 @@ dependencies {
     modCompileOnly "curse.maven:biolith-852512:7074761"
     modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
     modCompileOnly "curse.maven:dynamictrees-252818:7661136"
+
+    c2meDownload "curse.maven:c2me-533097:7967514"
+    compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
 }
 
 def dfcNativeRootDir = file("natives")
@@ -252,7 +259,8 @@ if (dfcNativeRootDir.isDirectory()) {
 dfcSkippedNativeModules.each { skipped ->
     logger.lifecycle("Bundled natives: skipping module '${skipped.name}' at ${skipped.dir} because native.properties is missing.")
 }
-def dfcBuildNatives = dfcNativeModules.any { it.buildEnabled }
+//def dfcBuildNatives = dfcNativeModules.any { it.buildEnabled }
+def dfcBuildNatives = false
 def dfcResetNativeStateFiles = {
     delete(dfcNativeArtifactsDir)
     delete(dfcNativeModulesBuildRootDir)
@@ -550,4 +558,43 @@ tasks.named("assemble") {
     if (dfcBuildNatives) {
         dependsOn "assembleBundledNatives"
     }
+}
+
+def extractDir = file("$buildDir/extracted-c2me")
+
+if (!extractDir.exists() || extractDir.listFiles()?.length == 0) {
+    println "Извлекаем C2ME Jars..."
+
+    // .resolve() заставляет Gradle принудительно скачать файл прямо сейчас
+    def c2meJarFile = configurations.c2meDownload.resolve().iterator().next()
+
+    copy {
+        from zipTree(c2meJarFile)
+        include "META-INF/jars/c2me*.jar"
+        into extractDir
+    }
+}
+
+tasks.register('extractC2meJars', Copy) {
+    dependsOn configurations.c2meDownload
+
+    from({ configurations.c2meDownload.collect { zipTree(it) } }) {
+        include "META-INF/jars/c2me*.jar"
+    }
+
+    into "$buildDir/extracted-c2me"
+}
+
+tasks.named("compileJava") {
+    dependsOn "extractC2meJars"
+}
+
+// Магия для среды разработки: заставляем её распаковывать файлы
+// во время настройки и синхронизации проекта (Reload Gradle)
+tasks.matching { it.name in ["prepareWorkspace", "genSources", "idea", "eclipse"] }.configureEach {
+    dependsOn "extractC2meJars"
+}
+
+tasks.matching { it.name in ["remapSourcesJar", "sourcesJar", "remapJar"] }.configureEach {
+    dependsOn "extractC2meJars"
 }
