@@ -16,6 +16,8 @@
     "compat.biolith.Biolith$MixinSearchTree$fast",
     "compat.biolith.Biolith$SubBiomeRequestAccessor",
     "compat.biolith.Biolith$SubBiomeRequestSet$fast_iter",
+    "compat.terrablender.Terrablender$Area$lock_free_cache",
+    "compat.terrablender.Terrablender$AreaContext$thread_local_random",
     "compat.terrablender.Terrablender$MixinBiomeSource$cache_possible_biomes",
     "compat.terrablender.Terrablender$MixinLevelChunkSection$raw_biome_lookup",
     "compat.terrablender.Terrablender$MixinMultiNoiseBiomeSource$raw_biome_resolver",

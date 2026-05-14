@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.structures.compat;
+package dev.sixik.generator_accelerator.neoforge.structures.compat;
 
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;

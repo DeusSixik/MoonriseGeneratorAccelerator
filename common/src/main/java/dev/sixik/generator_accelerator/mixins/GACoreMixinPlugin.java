@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.mixins.common_mixin;
+package dev.sixik.generator_accelerator.mixins;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;

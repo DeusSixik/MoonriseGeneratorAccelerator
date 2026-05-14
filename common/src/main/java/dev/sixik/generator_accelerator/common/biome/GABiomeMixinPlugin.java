@@ -28,6 +28,14 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
                 new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinBiomeSource$cache_possible_biomes",
                         ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$Area$lock_free_cache",
+                        ""
+                ),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$AreaContext$thread_local_random",
+                        ""
                 )
         );
         create("com.terraformersmc.biolith.impl.Biolith",
@@ -69,6 +77,13 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
         }
         if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$MixinMultiNoiseBiomeSource$raw_biome_resolver")) {
             return Boolean.parseBoolean(System.getProperty("ga.terrablender.rawBiomeLookup", "true"));
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$Area$lock_free_cache")) {
+            return Boolean.parseBoolean(System.getProperty("ga.terrablender.lockFreeAreaCache", "true"))
+                    && Boolean.parseBoolean(System.getProperty("ga.terrablender.threadLocalAreaContext", "true"));
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender.Terrablender$AreaContext$thread_local_random")) {
+            return Boolean.parseBoolean(System.getProperty("ga.terrablender.threadLocalAreaContext", "true"));
         }
         if (mixinClassName.equals("dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestSet$fast_iter")) {
             return Boolean.parseBoolean(System.getProperty("ga.biolith.fastSubBiomeSelect", "true"));

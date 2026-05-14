@@ -3,7 +3,7 @@
   "package": "dev.sixik.generator_accelerator.mixins.common_mixin",
   "compatibilityLevel": "JAVA_21",
   "minVersion": "0.8",
-  "plugin": "dev.sixik.generator_accelerator.mixins.common_mixin.GACoreMixinPlugin",
+  "plugin": "dev.sixik.generator_accelerator.mixins.GACoreMixinPlugin",
   "mixins": [
     "FrontAndTopCrashFix",
     "MixinBlocks",

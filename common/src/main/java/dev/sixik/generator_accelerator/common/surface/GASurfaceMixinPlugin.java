@@ -16,7 +16,7 @@ public class GASurfaceMixinPlugin extends GAMixinPlugin {
     public void onLoad(String s) {
         create("net.hibiscus.naturespirit.NatureSpirit", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.surface.mixin.compats.natures_spirit.NaturesSpirit$SurfaceBuilderMixin$fix_compat",
-                surfaceCompatDisable("net.hibiscus.naturespirit.mixin.SurfaceBuilderMixin")
+                "net.hibiscus.naturespirit.mixin.SurfaceBuilderMixin"
         ));
 
         create("net.potionstudios.biomeswevegone.BiomesWeveGone", new MixinApplier.Param(

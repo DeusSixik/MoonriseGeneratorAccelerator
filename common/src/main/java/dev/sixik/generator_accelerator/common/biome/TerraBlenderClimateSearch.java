@@ -14,7 +14,7 @@ public final class TerraBlenderClimateSearch {
             .weakKeys()
             .build();
     private static final int UNIQUENESS_CACHE_SIZE =
-            Integer.highestOneBit(Math.max(2, Integer.getInteger("ga.terrablender.uniquenessCacheSize", 64) - 1)) << 1;
+            Integer.highestOneBit(Math.max(2, Integer.getInteger("ga.terrablender.uniquenessCacheSize", 256) - 1)) << 1;
 
     private static final ThreadLocal<TreeCache> LAST_TREE = ThreadLocal.withInitial(TreeCache::new);
     private static final ThreadLocal<ParameterListCache> LAST_PARAMETER_LIST =

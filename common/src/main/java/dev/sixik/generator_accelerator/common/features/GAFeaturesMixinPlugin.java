@@ -88,6 +88,50 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.galosphere.Galosphere$CrystalSpikeFeatureMixin",
                 ""));
 
+        create("net.hibiscus.naturespirit.NatureSpirit",
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$AlluaudiaFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$JoshuaTreeFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$TurnipRootFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$LargePumpkinFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$PolyporeFeatureMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$CoconutTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$MapleGroundTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$OliveBranchTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$PolyporeTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$RedwoodBranchTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$SnowTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$WisteriaVinesTreeDecoratorMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$WisteriaFoliagePlacerMixin",
+                        ""),
+                new MixinApplier.Param(
+                        "dev.sixik.generator_accelerator.common.features.mixin.compats.natures_spirit.NaturesSpirit$GroundedBushFoliagePlacerMixin",
+                        ""));
+
         create("com.github.alexmodguy.alexscaves.AlexsCaves", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.features.mixin.compats.alexscaves.AlexsCaves$ChunkGeneratorMixin$applyBiomeDecoration",
                 "com.github.alexmodguy.alexscaves.mixin.ChunkGeneratorMixin"
@@ -162,6 +206,7 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
                 || mixinClassName.startsWith(prefix + "compats.biomesoplenty.")
                 || mixinClassName.startsWith(prefix + "compats.confluence.")
                 || mixinClassName.startsWith(prefix + "compats.galosphere.")
+                || mixinClassName.startsWith(prefix + "compats.natures_spirit.")
                 || mixinClassName.startsWith(prefix + "compats.oreberries.")
                 || mixinClassName.startsWith(prefix + "compats.repurposedstructures.")
                 || mixinClassName.startsWith(prefix + "compats.roots.")
