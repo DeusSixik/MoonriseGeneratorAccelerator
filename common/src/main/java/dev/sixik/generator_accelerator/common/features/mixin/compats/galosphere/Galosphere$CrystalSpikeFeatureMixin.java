@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.galosphere;
 
 import dev.sixik.generator_accelerator.common.features.compat.galosphere.GACrystalSpikeConfigAccessors;
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosTracker;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.BlockTags;
@@ -18,8 +19,6 @@ import net.minecraft.world.level.material.Fluids;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
-
-import java.util.HashSet;
 
 @Mixin(targets = "net.orcinus.galosphere.world.gen.features.CrystalSpikeFeature", remap = false)
 public abstract class Galosphere$CrystalSpikeFeatureMixin {
@@ -85,38 +84,40 @@ public abstract class Galosphere$CrystalSpikeFeatureMixin {
             return false;
         }
 
-        HashSet<BlockPos> trigList = new HashSet<>();
-        HashSet<BlockPos> clusterPos = new HashSet<>();
         int radiusCheck = accessors.xzRadius(config).sample(random) + 1;
         int randomChance = random.nextInt(4);
         int stepHeight = radiusCheck + 14 + Mth.nextInt(random, 10, 14);
+        int expectedPositions = Math.max(16, (radiusCheck * radiusCheck * Math.max(1, stepHeight)) >> 1);
 
-        if (!this.ga$placeSpike(
-                world,
-                blockPos.getX(),
-                blockPos.getY(),
-                blockPos.getZ(),
-                radiusCheck,
-                stepHeight,
-                randomChance,
-                trigList,
-                direction,
-                random
-        )) {
-            return false;
+        try (NativeBlockPosTracker trigList = new NativeBlockPosTracker(expectedPositions);
+             NativeBlockPosTracker clusterPos = new NativeBlockPosTracker(expectedPositions)) {
+            if (!this.ga$placeSpike(
+                    world,
+                    blockPos.getX(),
+                    blockPos.getY(),
+                    blockPos.getZ(),
+                    radiusCheck,
+                    stepHeight,
+                    randomChance,
+                    trigList,
+                    direction,
+                    random
+            )) {
+                return false;
+            }
+
+            return this.ga$placeCrystals(
+                    world,
+                    random,
+                    accessors.crystalState(config),
+                    accessors.clusterState(config),
+                    accessors.glintedCluster(config),
+                    accessors.glintedClusterChance(config),
+                    trigList,
+                    clusterPos,
+                    false
+            );
         }
-
-        return this.ga$placeCrystals(
-                world,
-                random,
-                accessors.crystalState(config),
-                accessors.clusterState(config),
-                accessors.glintedCluster(config),
-                accessors.glintedClusterChance(config),
-                trigList,
-                clusterPos,
-                false
-        );
     }
 
     @Unique
@@ -127,11 +128,17 @@ public abstract class Galosphere$CrystalSpikeFeatureMixin {
             BlockState clusterState,
             BlockState glintedCluster,
             float glintedClusterChance,
-            HashSet<BlockPos> trigList,
-            HashSet<BlockPos> clusterPos,
+            NativeBlockPosTracker trigList,
+            NativeBlockPosTracker clusterPos,
             boolean flag
     ) {
-        for (BlockPos pos : trigList) {
+        BlockPos.MutableBlockPos pos = GA$SPIKE_POS.get();
+        int trigCount = trigList.recordedSize();
+        for (int i = 0; i < trigCount; i++) {
+            trigList.getRecorded(i, pos);
+            if (!trigList.contains(pos)) {
+                continue;
+            }
             if (!world.isStateAtPosition(pos, DripstoneUtils::isEmptyOrWaterOrLava)) {
                 continue;
             }
@@ -141,15 +148,21 @@ public abstract class Galosphere$CrystalSpikeFeatureMixin {
         }
 
         BlockPos.MutableBlockPos relative = GA$SPIKE_SIDE_POS.get();
-        for (BlockPos pos : clusterPos) {
-            if (random.nextInt(6) != 0 || !world.getBlockState(pos).equals(crystalState)) {
+        BlockPos.MutableBlockPos cluster = GA$SPIKE_SCAN_POS.get();
+        int clusterCount = clusterPos.recordedSize();
+        for (int i = 0; i < clusterCount; i++) {
+            clusterPos.getRecorded(i, cluster);
+            if (!clusterPos.contains(cluster)) {
                 continue;
             }
-            int x = pos.getX();
-            int y = pos.getY();
-            int z = pos.getZ();
-            for (int i = 0; i < GA$DIRECTIONS.length; i++) {
-                Direction direction = GA$DIRECTIONS[i];
+            if (random.nextInt(6) != 0 || !world.getBlockState(cluster).equals(crystalState)) {
+                continue;
+            }
+            int x = cluster.getX();
+            int y = cluster.getY();
+            int z = cluster.getZ();
+            for (int dirIndex = 0; dirIndex < GA$DIRECTIONS.length; dirIndex++) {
+                Direction direction = GA$DIRECTIONS[dirIndex];
                 if (!random.nextBoolean()) {
                     continue;
                 }
@@ -175,7 +188,7 @@ public abstract class Galosphere$CrystalSpikeFeatureMixin {
             int startRadius,
             int height,
             int randomChance,
-            HashSet<BlockPos> crystalPos,
+            NativeBlockPosTracker crystalPos,
             Direction direction,
             RandomSource random
     ) {

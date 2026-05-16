@@ -6,9 +6,9 @@ import net.sixik.javastructg.structs.NativeTypeMemory;
 import net.sixik.javastructg.utils.NativeUtils;
 import sun.misc.Unsafe;
 
-public final class BlockPostMemory implements NativeTypeMemory<BlockPos> {
+public final class BlockPosPackedMemory implements NativeTypeMemory<BlockPos> {
 
-    public static final BlockPostMemory MEMORY = new BlockPostMemory();
+    public static final BlockPosPackedMemory MEMORY = new BlockPosPackedMemory();
 
     public static final NativeStructLayout LAYOUT;
     public static final long PACKED_OFFSET;
@@ -21,7 +21,7 @@ public final class BlockPostMemory implements NativeTypeMemory<BlockPos> {
         SIZEOF = LAYOUT.sizeof();
     }
 
-    private BlockPostMemory() { }
+    private BlockPosPackedMemory() { }
 
     @Override
     public void readFromMemory(Unsafe unsafe, long offset, BlockPos outElement) {

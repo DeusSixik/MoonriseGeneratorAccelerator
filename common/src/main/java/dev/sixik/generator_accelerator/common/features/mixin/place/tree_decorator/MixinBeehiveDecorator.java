@@ -1,6 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.tree_decorator;
 
-import dev.sixik.generator_accelerator.api.utils.FastMathUtils;
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosBuffer;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -11,17 +11,29 @@ import net.minecraft.world.level.block.entity.BeehiveBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.levelgen.feature.treedecorators.BeehiveDecorator;
 import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(BeehiveDecorator.class)
 public abstract class MixinBeehiveDecorator extends TreeDecorator {
 
     @Unique
-    private static final ThreadLocal<ObjectArrayList<BlockPos>> CANDIDATES_BUFFER =
-            ThreadLocal.withInitial(ObjectArrayList::new);
+    private static final ThreadLocal<BlockPos.MutableBlockPos> MUTABLE_POS_BUFFER =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Unique
-    private static final ThreadLocal<BlockPos.MutableBlockPos> MUTABLE_POS_BUFFER =
+    private static final ThreadLocal<BlockPos.MutableBlockPos> CANDIDATE_POS_BUFFER =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> SHUFFLE_POS_A =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> SHUFFLE_POS_B =
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Shadow
@@ -38,83 +50,94 @@ public abstract class MixinBeehiveDecorator extends TreeDecorator {
 
     /**
      * @author Sixik
-     * @reason Fast Version
+     * @reason Replace temporary candidate BlockPos allocations with an off-heap buffer while preserving shuffle parity.
      */
     @Overwrite
     public void place(TreeDecorator.Context context) {
         ObjectArrayList<BlockPos> leaves = context.leaves();
         ObjectArrayList<BlockPos> logs = context.logs();
 
-        if (logs.isEmpty()) return;
+        if (logs.isEmpty()) {
+            return;
+        }
 
-        RandomSource randomsource = context.random();
-        if (randomsource.nextFloat() >= this.probability) return;
+        RandomSource random = context.random();
+        if (random.nextFloat() >= this.probability) {
+            return;
+        }
 
-        /*
-            Вычисляем целевой уровень Y без изменений (Seed Parity)
-         */
         int targetY;
         if (!leaves.isEmpty()) {
             targetY = Math.max(leaves.get(0).getY() - 1, logs.get(0).getY() + 1);
         } else {
-            targetY = Math.min(logs.get(0).getY() + 1 + randomsource.nextInt(3), logs.getLast().getY());
+            targetY = Math.min(logs.get(0).getY() + 1 + random.nextInt(3), logs.getLast().getY());
         }
-
-        /*
-            Собираем кандидатов
-         */
-        ObjectArrayList<BlockPos> candidates = CANDIDATES_BUFFER.get();
-        candidates.clear();
 
         Object[] logsArray = logs.elements();
         int logsSize = logs.size();
+        int expectedCandidates = Math.max(1, logsSize * SPAWN_DIRECTIONS.length);
 
-        for (int idx = 0; idx < logsSize; idx++) {
-            BlockPos logPos = (BlockPos) logsArray[idx];
-            if (logPos.getY() == targetY) {
+        try (NativeBlockPosBuffer candidates = new NativeBlockPosBuffer(expectedCandidates)) {
+            BlockPos.MutableBlockPos candidatePos = CANDIDATE_POS_BUFFER.get();
+            for (int idx = 0; idx < logsSize; idx++) {
+                BlockPos logPos = (BlockPos) logsArray[idx];
+                if (logPos.getY() != targetY) {
+                    continue;
+                }
+
+                int x = logPos.getX();
+                int y = logPos.getY();
+                int z = logPos.getZ();
                 for (Direction dir : SPAWN_DIRECTIONS) {
-                    candidates.add(logPos.relative(dir));
+                    candidatePos.set(x + dir.getStepX(), y + dir.getStepY(), z + dir.getStepZ());
+                    candidates.add(candidatePos);
                 }
             }
-        }
 
-        if (candidates.isEmpty()) return;
-        FastMathUtils.shuffle(candidates, randomsource);
+            int candidatesSize = candidates.size();
+            if (candidatesSize == 0) {
+                return;
+            }
+            ga$shuffleCandidates(candidates, random);
 
-        /*
-            Ищем первую подходящую позицию
-         */
-        BlockPos selectedPos = null;
-        BlockPos.MutableBlockPos checkPos = MUTABLE_POS_BUFFER.get();
+            BlockPos.MutableBlockPos selectedPos = CANDIDATE_POS_BUFFER.get();
+            BlockPos.MutableBlockPos checkPos = MUTABLE_POS_BUFFER.get();
+            boolean found = false;
 
-        Object[] candidatesArray = candidates.elements();
-        int candidatesSize = candidates.size();
+            for (int idx = 0; idx < candidatesSize; idx++) {
+                candidates.get(idx, selectedPos);
+                if (!context.isAir(selectedPos)) {
+                    continue;
+                }
 
-        for (int idx = 0; idx < candidatesSize; idx++) {
-            BlockPos pos = (BlockPos) candidatesArray[idx];
-
-            if (context.isAir(pos)) {
-                checkPos.setWithOffset(pos, WORLDGEN_FACING);
-
+                checkPos.setWithOffset(selectedPos, WORLDGEN_FACING);
                 if (context.isAir(checkPos)) {
-                    selectedPos = pos;
+                    found = true;
                     break;
                 }
             }
-        }
 
-        /*
-            Размещаем улей
-         */
-        if (selectedPos != null) {
+            if (!found) {
+                return;
+            }
+
             context.setBlock(selectedPos, Blocks.BEE_NEST.defaultBlockState().setValue(BeehiveBlock.FACING, WORLDGEN_FACING));
-
             context.level().getBlockEntity(selectedPos, BlockEntityType.BEEHIVE).ifPresent(storeBee -> {
-                int beeCount = 2 + randomsource.nextInt(2);
+                int beeCount = 2 + random.nextInt(2);
                 for (int k = 0; k < beeCount; k++) {
-                    storeBee.storeBee(BeehiveBlockEntity.Occupant.create(randomsource.nextInt(599)));
+                    storeBee.storeBee(BeehiveBlockEntity.Occupant.create(random.nextInt(599)));
                 }
             });
+        }
+    }
+
+    @Unique
+    private static void ga$shuffleCandidates(NativeBlockPosBuffer candidates, RandomSource random) {
+        BlockPos.MutableBlockPos left = SHUFFLE_POS_A.get();
+        BlockPos.MutableBlockPos right = SHUFFLE_POS_B.get();
+        for (int i = candidates.size() - 1; i > 0; i--) {
+            int j = random.nextInt(i + 1);
+            candidates.swap(i, j, left, right);
         }
     }
 }
