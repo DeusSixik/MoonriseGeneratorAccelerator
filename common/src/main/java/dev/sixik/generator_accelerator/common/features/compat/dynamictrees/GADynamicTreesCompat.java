@@ -21,6 +21,8 @@ public final class GADynamicTreesCompat {
             ThreadLocal.withInitial(DiscCache::new);
     private static final ThreadLocal<HeightmapCache> HEIGHTMAP_CACHE =
             ThreadLocal.withInitial(HeightmapCache::new);
+    private static final ThreadLocal<EntryCache> ENTRY_CACHE =
+            ThreadLocal.withInitial(EntryCache::new);
 
     private GADynamicTreesCompat() {
     }
@@ -83,11 +85,23 @@ public final class GADynamicTreesCompat {
         if (cache.biomeDatabase == biomeDatabase && cache.biome == biome && cache.type != null) {
             return cache.type;
         }
-        Heightmap.Types type = heightmapTypeByName(biomeDatabase.getHeightmap(biome));
+        Heightmap.Types type = heightmapTypeByName(biomeEntry(biomeDatabase, biome).getHeightmap());
         cache.biomeDatabase = biomeDatabase;
         cache.biome = biome;
         cache.type = type;
         return type;
+    }
+
+    public static BiomeDatabase.Entry biomeEntry(BiomeDatabase biomeDatabase, Holder<Biome> biome) {
+        EntryCache cache = ENTRY_CACHE.get();
+        if (cache.biomeDatabase == biomeDatabase && cache.biome == biome && cache.entry != null) {
+            return cache.entry;
+        }
+        BiomeDatabase.Entry entry = biomeDatabase.getEntry(biome);
+        cache.biomeDatabase = biomeDatabase;
+        cache.biome = biome;
+        cache.entry = entry;
+        return entry;
     }
 
     private static Heightmap.Types heightmapTypeByName(String name) {
@@ -119,5 +133,11 @@ public final class GADynamicTreesCompat {
         BiomeDatabase biomeDatabase;
         Holder<Biome> biome;
         Heightmap.Types type;
+    }
+
+    private static final class EntryCache {
+        BiomeDatabase biomeDatabase;
+        Holder<Biome> biome;
+        BiomeDatabase.Entry entry;
     }
 }

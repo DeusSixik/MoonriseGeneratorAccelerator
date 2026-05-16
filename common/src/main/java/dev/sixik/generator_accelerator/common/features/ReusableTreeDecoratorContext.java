@@ -99,23 +99,43 @@ public final class ReusableTreeDecoratorContext extends TreeDecorator.Context {
 
         void load(LongArrayList packedPositions) {
             this.prepareForReuse();
+            boolean sortedByY = true;
+            int previousY = Integer.MIN_VALUE;
 
             for (int i = 0; i < packedPositions.size(); i++) {
-                this.addPacked(packedPositions.getLong(i));
+                long packed = packedPositions.getLong(i);
+                int y = BlockPos.getY(packed);
+                if (y < previousY) {
+                    sortedByY = false;
+                }
+                previousY = y;
+                this.addPacked(packed);
             }
 
-            this.sortByY();
+            if (!sortedByY) {
+                this.sortByY();
+            }
         }
 
         void load(LongOpenHashSet packedPositions) {
             this.prepareForReuse();
+            boolean sortedByY = true;
+            int previousY = Integer.MIN_VALUE;
 
             LongIterator iterator = packedPositions.iterator();
             while (iterator.hasNext()) {
-                this.addPacked(iterator.nextLong());
+                long packed = iterator.nextLong();
+                int y = BlockPos.getY(packed);
+                if (y < previousY) {
+                    sortedByY = false;
+                }
+                previousY = y;
+                this.addPacked(packed);
             }
 
-            this.sortByY();
+            if (!sortedByY) {
+                this.sortByY();
+            }
         }
 
         void clear() {
