@@ -95,8 +95,19 @@ public final class SectionDescriptor {
     private final int[] columnTreeSoilMask = new int[COLUMN_COUNT];
     private final byte[] columnMinFilledLocalY = new byte[COLUMN_COUNT];
     private final byte[] columnMaxFilledLocalY = new byte[COLUMN_COUNT];
-    private final int[] paletteFlagCounts = new int[PALETTE_FLAG_BITS.length];
-    private final int[] blockClassFlagCounts = new int[BLOCK_CLASS_FLAG_BITS.length];
+
+    private int countPaletteAir;
+    private int countPaletteWater;
+    private int countPaletteLava;
+    private int countPaletteSolid;
+
+    private int countBlockClassStoneLike;
+    private int countBlockClassDirtLike;
+    private int countBlockClassReplaceable;
+    private int countBlockClassOreTarget;
+    private int countBlockClassSurfaceCandidate;
+    private int countBlockClassTreeSoil;
+
     private final int[] minFilledLocalYCounts = new int[SECTION_EDGE];
     private final int[] maxFilledLocalYCounts = new int[SECTION_EDGE];
     private boolean allAirSection;
@@ -129,8 +140,16 @@ public final class SectionDescriptor {
         this.hasSurfaceCandidate = false;
         this.hasTreeSoil = false;
         this.allAirSection = false;
-        Arrays.fill(this.paletteFlagCounts, 0);
-        Arrays.fill(this.blockClassFlagCounts, 0);
+        this.countPaletteAir = 0;
+        this.countPaletteWater = 0;
+        this.countPaletteLava = 0;
+        this.countPaletteSolid = 0;
+        this.countBlockClassStoneLike = 0;
+        this.countBlockClassDirtLike = 0;
+        this.countBlockClassReplaceable = 0;
+        this.countBlockClassOreTarget = 0;
+        this.countBlockClassSurfaceCandidate = 0;
+        this.countBlockClassTreeSoil = 0;
         Arrays.fill(this.minFilledLocalYCounts, 0);
         Arrays.fill(this.maxFilledLocalYCounts, 0);
     }
@@ -790,8 +809,16 @@ public final class SectionDescriptor {
     }
 
     private void refreshAggregates() {
-        Arrays.fill(this.paletteFlagCounts, 0);
-        Arrays.fill(this.blockClassFlagCounts, 0);
+        this.countPaletteAir = 0;
+        this.countPaletteWater = 0;
+        this.countPaletteLava = 0;
+        this.countPaletteSolid = 0;
+        this.countBlockClassStoneLike = 0;
+        this.countBlockClassDirtLike = 0;
+        this.countBlockClassReplaceable = 0;
+        this.countBlockClassOreTarget = 0;
+        this.countBlockClassSurfaceCandidate = 0;
+        this.countBlockClassTreeSoil = 0;
         Arrays.fill(this.minFilledLocalYCounts, 0);
         Arrays.fill(this.maxFilledLocalYCounts, 0);
 
@@ -823,8 +850,8 @@ public final class SectionDescriptor {
                 }
             }
 
-            this.addFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, this.columnPaletteFlags[columnIndex]);
-            this.addFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, this.columnBlockClassFlags[columnIndex]);
+            this.addPaletteFlagCounts(this.columnPaletteFlags[columnIndex]);
+            this.addBlockFlagCounts(this.columnBlockClassFlags[columnIndex]);
         }
 
         this.finishAggregates(paletteFlags, blockClassFlags, minFilledY, maxFilledY);
@@ -845,16 +872,16 @@ public final class SectionDescriptor {
                 this.columnMaxFilledLocalY[columnIndex]
         );
         this.finishAggregates(
-                this.flagsFromCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS),
-                this.flagsFromCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS),
+                this.flagsFromPalette(),
+                this.flagsFromBlock(),
                 this.minFilledBlockYFromCounts(),
                 this.maxFilledBlockYFromCounts()
         );
     }
 
     private void addColumnCounts(int paletteFlags, int blockClassFlags, int minFilledLocalY, int maxFilledLocalY) {
-        this.addFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, paletteFlags);
-        this.addFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, blockClassFlags);
+        this.addPaletteFlagCounts(paletteFlags);
+        this.addBlockFlagCounts(blockClassFlags);
         if (minFilledLocalY != EMPTY_LOCAL_Y) {
             this.minFilledLocalYCounts[minFilledLocalY]++;
         }
@@ -864,8 +891,8 @@ public final class SectionDescriptor {
     }
 
     private void removeColumnCounts(int paletteFlags, int blockClassFlags, int minFilledLocalY, int maxFilledLocalY) {
-        this.removeFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, paletteFlags);
-        this.removeFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, blockClassFlags);
+        this.removePaletteFlagCounts(paletteFlags);
+        this.removeBlockFlagCounts(blockClassFlags);
         if (minFilledLocalY != EMPTY_LOCAL_Y && this.minFilledLocalYCounts[minFilledLocalY] > 0) {
             this.minFilledLocalYCounts[minFilledLocalY]--;
         }
@@ -874,28 +901,114 @@ public final class SectionDescriptor {
         }
     }
 
-    private void addFlagCounts(int[] counts, int[] bits, int flags) {
-        for (int i = 0; i < bits.length; i++) {
-            if ((flags & bits[i]) != 0) {
-                counts[i]++;
-            }
+    private void addBlockFlagCounts(int flags) {
+        if((flags & CLASS_STONE_LIKE) != 0) {
+            this.countBlockClassStoneLike++;
+        }
+        if((flags & CLASS_DIRT_LIKE) != 0) {
+            this.countBlockClassDirtLike++;
+        }
+        if((flags & CLASS_REPLACEABLE) != 0) {
+            this.countBlockClassReplaceable++;
+        }
+        if((flags & CLASS_ORE_TARGET) != 0) {
+            this.countBlockClassOreTarget++;
+        }
+        if((flags & CLASS_SURFACE_CANDIDATE) != 0) {
+            this.countBlockClassSurfaceCandidate++;
+        }
+        if((flags & CLASS_TREE_SOIL) != 0) {
+            this.countBlockClassTreeSoil++;
         }
     }
 
-    private void removeFlagCounts(int[] counts, int[] bits, int flags) {
-        for (int i = 0; i < bits.length; i++) {
-            if ((flags & bits[i]) != 0 && counts[i] > 0) {
-                counts[i]--;
-            }
+    private void addPaletteFlagCounts(int flags) {
+        if((flags & PALETTE_AIR) != 0) {
+            countPaletteAir++;
+        }
+        if((flags & PALETTE_WATER) != 0) {
+            countPaletteWater++;
+        }
+        if((flags & PALETTE_LAVA) != 0) {
+            countPaletteLava++;
+        }
+        if((flags & PALETTE_SOLID) != 0) {
+            countPaletteSolid++;
         }
     }
 
-    private int flagsFromCounts(int[] counts, int[] bits) {
+    private void removePaletteFlagCounts(int flags) {
+        if((flags & PALETTE_AIR) != 0 && this.countPaletteAir > 0) {
+            countPaletteAir--;
+        }
+        if((flags & PALETTE_WATER) != 0 && this.countPaletteWater > 0) {
+            countPaletteWater--;
+        }
+        if((flags & PALETTE_LAVA) != 0 && this.countPaletteLava > 0) {
+            countPaletteLava--;
+        }
+        if((flags & PALETTE_SOLID) != 0 && this.countPaletteSolid > 0) {
+            countPaletteSolid--;
+        }
+    }
+
+    private int flagsFromPalette() {
         int flags = 0;
-        for (int i = 0; i < bits.length; i++) {
-            if (counts[i] > 0) {
-                flags |= bits[i];
-            }
+        if(countPaletteAir > 0) {
+            flags |= PALETTE_AIR;
+        }
+        if(countPaletteWater > 0) {
+            flags |= PALETTE_WATER;
+        }
+        if(countPaletteLava > 0) {
+            flags |= PALETTE_LAVA;
+        }
+        if(countPaletteSolid > 0) {
+            flags |= PALETTE_SOLID;
+        }
+        return flags;
+    }
+
+    private void removeBlockFlagCounts(int flags) {
+        if((flags & CLASS_STONE_LIKE) != 0 && this.countBlockClassStoneLike > 0) {
+            countBlockClassStoneLike--;
+        }
+        if((flags & CLASS_DIRT_LIKE) != 0 && this.countBlockClassDirtLike > 0) {
+            countBlockClassDirtLike--;
+        }
+        if((flags & CLASS_REPLACEABLE) != 0 && this.countBlockClassReplaceable > 0) {
+            countBlockClassReplaceable--;
+        }
+        if((flags & CLASS_ORE_TARGET) != 0 && this.countBlockClassOreTarget > 0) {
+            countBlockClassOreTarget--;
+        }
+        if((flags & CLASS_SURFACE_CANDIDATE) != 0 && this.countBlockClassSurfaceCandidate > 0) {
+            countBlockClassSurfaceCandidate--;
+        }
+        if((flags & CLASS_TREE_SOIL) != 0 && this.countBlockClassTreeSoil > 0) {
+            countBlockClassTreeSoil--;
+        }
+    }
+
+    private int flagsFromBlock() {
+        int flags = 0;
+        if(countBlockClassStoneLike > 0) {
+            flags |= CLASS_STONE_LIKE;
+        }
+        if(countBlockClassDirtLike > 0) {
+            flags |= CLASS_DIRT_LIKE;
+        }
+        if(countBlockClassReplaceable > 0) {
+            flags |= CLASS_REPLACEABLE;
+        }
+        if(countBlockClassOreTarget > 0) {
+            flags |= CLASS_ORE_TARGET;
+        }
+        if(countBlockClassSurfaceCandidate > 0) {
+            flags |= CLASS_SURFACE_CANDIDATE;
+        }
+        if(countBlockClassTreeSoil > 0) {
+            flags |= CLASS_TREE_SOIL;
         }
         return flags;
     }
