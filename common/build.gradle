@@ -96,6 +96,8 @@ dependencies {
     compileOnly "org.ow2.asm:asm:9.8"
     compileOnly "org.ow2.asm:asm-tree:9.8"
 
+    compileOnly "com.github.DeusSixik:JavaNativeCollections:$rootProject.java_native_collections_version"
+
     testImplementation "com.github.ben-manes.caffeine:caffeine:3.1.8"
     testImplementation "com.github.JCTools.JCTools:jctools-core:v4.0.3"
 

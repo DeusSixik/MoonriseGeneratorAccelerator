@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator;
 
 import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import net.sixik.javastructg.structs.arrays.NativeObjectArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,8 @@ public final class GeneratorAccelerator {
         GADiagnostics.onModInit();
         GAScheduler.init(isDev);
         CUSTOM_POOL = Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")) ? GAScheduler.noisePool() : null;
+
+        NativeObjectArray
     }
 
     public enum Platform {
