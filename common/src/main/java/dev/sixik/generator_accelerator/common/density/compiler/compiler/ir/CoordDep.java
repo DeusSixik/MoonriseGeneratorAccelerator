@@ -1,7 +1,11 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import net.sixik.javastructg.structs.maps.Object2NativeMap;
+import net.sixik.javastructg.utils.NativeUtils;
+
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -11,8 +15,73 @@ import java.util.stream.Collectors;
  */
 public final class CoordDep {
 
-    public record Flags(boolean usesX, boolean usesY, boolean usesZ) {
+    public static final class Flags {
         public static final Flags NONE = new Flags(false, false, false);
+
+        private boolean usesX;
+        private boolean usesY;
+        private boolean usesZ;
+
+        public Flags() {
+            this(false, false, false);
+        }
+
+        public Flags(boolean usesX, boolean usesY, boolean usesZ) {
+            this.usesX = usesX;
+            this.usesY = usesY;
+            this.usesZ = usesZ;
+        }
+
+        public void setUsesX(boolean usesX) {
+            this.usesX = usesX;
+        }
+
+        public void setUsesY(boolean usesY) {
+            this.usesY = usesY;
+        }
+
+        public void setUsesZ(boolean usesZ) {
+            this.usesZ = usesZ;
+        }
+
+        public boolean usesX() {
+            return usesX;
+        }
+
+        public boolean usesY() {
+            return usesY;
+        }
+
+        public boolean usesZ() {
+            return usesZ;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == this) return true;
+            if (obj == null || obj.getClass() != this.getClass()) return false;
+            var that = (Flags) obj;
+            return this.usesX == that.usesX &&
+                    this.usesY == that.usesY &&
+                    this.usesZ == that.usesZ;
+        }
+
+        @Override
+        public int hashCode() {
+            return NativeUtils.mix(
+                    (usesX ? 1 : 0) |
+                            ((usesY ? 1 : 0) << 1) |
+                            ((usesZ ? 1 : 0) << 2)
+            );
+        }
+
+        @Override
+        public String toString() {
+            return "Flags[" +
+                    "usesX=" + usesX + ", " +
+                    "usesY=" + usesY + ", " +
+                    "usesZ=" + usesZ + ']';
+        }
     }
 
     private CoordDep() {}

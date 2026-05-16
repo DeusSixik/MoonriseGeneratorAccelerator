@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
@@ -11,7 +12,6 @@ import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspac
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.world.level.ChunkPos;
@@ -34,6 +34,7 @@ import net.minecraft.world.level.levelgen.feature.VegetationPatchFeature;
 import net.minecraft.world.level.levelgen.feature.WaterloggedVegetationPatchFeature;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
+import net.sixik.javastructg.structs.sets.NativeLongSet;
 
 import java.util.Iterator;
 import java.util.List;
@@ -55,6 +56,8 @@ public final class DecorationPipelineExecutor {
             "ga.decorationConflictScheduler.snapshotRadius",
             CONFIG.decorationConflictSchedulerSnapshotRadius
     ));
+    private static final ThreadLocal<NativeLongSet> CONFLICT_POSITIONS =
+            ThreadLocal.withInitial(() -> new NativeLongSet(256));
 
     public static boolean conflictSchedulerRuntimeEnabled() {
         return CONFLICT_SCHEDULER_ENABLED
@@ -353,7 +356,7 @@ public final class DecorationPipelineExecutor {
             int x = journal.x(i);
             int y = journal.y(i);
             int z = journal.z(i);
-            BlockState state = journal.state(i);
+            int state = journal.stateId(i);
             ChunkAccess chunk = context.chunk();
             if (!DecorationWorkspaceBridge.writeWorkspaceOnly(context.workspace(), chunk, x, y, z, state)) {
                 throw new DecorationParallelJournalFallback("parallel decoration commit missed center workspace");
@@ -389,7 +392,8 @@ public final class DecorationPipelineExecutor {
     }
 
     private static boolean hasJournalConflicts(JournalTaskResult[] results) {
-        LongOpenHashSet positions = new LongOpenHashSet();
+        NativeLongSet positions = CONFLICT_POSITIONS.get();
+        positions.clear();
         for (JournalTaskResult result : results) {
             GADecorationWriteJournal journal = result.journal();
             for (int i = 0, size = journal.size(); i < size; i++) {

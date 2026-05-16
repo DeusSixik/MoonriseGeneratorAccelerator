@@ -1,13 +1,13 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.tree_decorator;
 
 import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosBuffer;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
 import net.minecraft.world.level.levelgen.feature.treedecorators.AttachedToLeavesDecorator;
 import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator;
+import net.sixik.javastructg.structs.sets.NativeLongSet;
 import org.spongepowered.asm.mixin.*;
 
 import java.util.HashSet;
@@ -48,12 +48,12 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Unique
-    private static final ThreadLocal<LongOpenHashSet> BTS$EXCLUSION_SET =
-            ThreadLocal.withInitial(LongOpenHashSet::new);
+    private static final ThreadLocal<NativeLongSet> BTS$EXCLUSION_SET =
+            ThreadLocal.withInitial(() -> new NativeLongSet(256));
 
     /**
      * @author Sixik
-     * @reason Replaced {@link HashSet} with {@link LongOpenHashSet}, removed shuffledCopy, replaced betweenClosed with nested int loops.
+     * @reason Replaced {@link HashSet} with {@link NativeLongSet}, removed shuffledCopy, replaced betweenClosed with nested int loops.
      */
     @Overwrite
     public void place(TreeDecorator.Context context) {
@@ -61,7 +61,7 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
         if (leaves.isEmpty()) return;
 
         final RandomSource randomSource = context.random();
-        final LongOpenHashSet exclusionSet = BTS$EXCLUSION_SET.get();
+        final NativeLongSet exclusionSet = BTS$EXCLUSION_SET.get();
         exclusionSet.clear();
         final BlockPos.MutableBlockPos mutPos = BTS$MUTABLE_POS.get();
         try (NativeBlockPosBuffer shuffledLeaves = new NativeBlockPosBuffer(leaves.size())) {

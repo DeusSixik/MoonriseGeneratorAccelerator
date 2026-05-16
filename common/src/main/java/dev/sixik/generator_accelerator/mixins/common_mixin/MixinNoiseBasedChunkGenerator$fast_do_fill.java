@@ -281,7 +281,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                         section.setBlockState(localX, localY, localZ, blockState, false);
                                     }
                                     if (GA$MIRROR_DIRECT_TERRAIN_WRITES) {
-                                        GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, blockState);
+                                        GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, stateId);
                                     }
                                 }
 

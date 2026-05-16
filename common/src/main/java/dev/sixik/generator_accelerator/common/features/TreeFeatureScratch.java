@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.features;
 
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosTracker;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -21,7 +21,7 @@ public final class TreeFeatureScratch {
     public final ReusableTreeDecoratorContext decoratorContext = new ReusableTreeDecoratorContext();
     public LongArrayList roots = new LongArrayList(INITIAL_CAPACITY);
     public LongArrayList trunks = new LongArrayList(INITIAL_CAPACITY);
-    public LongOpenHashSet foliage = new LongOpenHashSet(INITIAL_CAPACITY);
+    public NativeBlockPosTracker foliage = new NativeBlockPosTracker(INITIAL_CAPACITY);
     public LongArrayList decorators = new LongArrayList(INITIAL_CAPACITY);
     public final BiConsumer<BlockPos, BlockState> rootSetter = (pos, state) -> {
         this.roots.add(pos.asLong());
@@ -34,13 +34,13 @@ public final class TreeFeatureScratch {
     public final FoliagePlacer.FoliageSetter foliageSetter = new FoliagePlacer.FoliageSetter() {
         @Override
         public void set(BlockPos pos, BlockState state) {
-            TreeFeatureScratch.this.foliage.add(pos.asLong());
+            TreeFeatureScratch.this.foliage.add(pos);
             TreeFeatureScratch.this.level.setBlock(pos, state, 19);
         }
 
         @Override
         public boolean isSet(BlockPos pos) {
-            return TreeFeatureScratch.this.foliage.contains(pos.asLong());
+            return TreeFeatureScratch.this.foliage.contains(pos);
         }
     };
     public final BiConsumer<BlockPos, BlockState> decoratorSetter = (pos, state) -> {
@@ -75,11 +75,12 @@ public final class TreeFeatureScratch {
         return list;
     }
 
-    private static LongOpenHashSet clearOrReset(LongOpenHashSet set) {
-        if (set.size() > MAX_RETAINED_POSITIONS) {
-            return new LongOpenHashSet(INITIAL_CAPACITY);
+    private static NativeBlockPosTracker clearOrReset(NativeBlockPosTracker tracker) {
+        if (tracker.recordedSize() > MAX_RETAINED_POSITIONS) {
+            tracker.close();
+            return new NativeBlockPosTracker(INITIAL_CAPACITY);
         }
-        set.clear();
-        return set;
+        tracker.clear();
+        return tracker;
     }
 }

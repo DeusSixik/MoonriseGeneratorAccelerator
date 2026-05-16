@@ -227,8 +227,6 @@ public final class FeatureProgram {
                         packedPositions.addressAt(i) + BlockPosPackedMemory.PACKED_OFFSET
                 );
 
-                System.out.println(packedPos);
-
                 this.positions[i] = packedPos;
                 this.chunkXs[i] = BlockPos.getX(packedPos) >> 4;
                 this.chunkZs[i] = BlockPos.getZ(packedPos) >> 4;

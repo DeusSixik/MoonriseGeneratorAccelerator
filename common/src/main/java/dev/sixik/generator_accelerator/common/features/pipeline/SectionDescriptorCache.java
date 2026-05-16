@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.ChunkPos;
@@ -164,17 +165,17 @@ public final class SectionDescriptorCache {
     }
 
     public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
-        this.noteBlockMutation(chunk, blockX, blockY, blockZ, null);
+        this.noteBlockMutation(chunk, blockX, blockY, blockZ, -1);
     }
 
-    public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState newState) {
+    public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, int newState) {
         int sectionY = blockY >> 4;
         ChunkPos pos = chunk.getPos();
         long sectionKey = key(pos, sectionY);
         int index = this.indexByKey.get(sectionKey);
         if (index >= 0 && this.chunks[index] == chunk) {
-            if (newState != null) {
-                this.descriptors[index].updateBlockState(blockX, blockY, blockZ, newState);
+            if (newState != -1) {
+                this.descriptors[index].updateBlockState(blockX, blockY, blockZ, FastBlockStateCache.getBlockState(newState));
             } else {
                 this.descriptors[index].rebuildColumn(blockX & 15, blockZ & 15);
             }

@@ -272,3 +272,10 @@ accessible method net/minecraft/world/level/levelgen/structure/templatesystem/St
 accessible method net/minecraft/core/Vec3i setX (I)Lnet/minecraft/core/Vec3i;
 accessible method net/minecraft/core/Vec3i setY (I)Lnet/minecraft/core/Vec3i;
 accessible method net/minecraft/core/Vec3i setZ (I)Lnet/minecraft/core/Vec3i;
+
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox minX I
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox minY I
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox minZ I
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox maxX I
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox maxY I
+accessible field net/minecraft/world/level/levelgen/structure/BoundingBox maxZ I

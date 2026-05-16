@@ -71,11 +71,11 @@ public final class GACrossChunkMailboxRuntime {
             int x,
             int y,
             int z,
-            BlockState state,
+            int state,
             int flags
     ) {
         ATTEMPTED.incrementAndGet();
-        if (!ENABLED || state == null) {
+        if (!ENABLED || state == -1) {
             REJECTED.incrementAndGet();
             return false;
         }

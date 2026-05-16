@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationWorkspaceBridge;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
@@ -94,7 +95,7 @@ public abstract class MixinWorldGenRegion$fast_set_block implements WorldGenLeve
             boolean moved
     ) {
         BlockState previous = chunk.setBlockState(pos, state, moved);
-        DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, state);
+        DecorationWorkspaceBridge.mirrorCurrentWorkspaceWrite(chunk, pos, GA$BlockStateExtension.get(state).bts$getFastId());
         return previous;
     }
 

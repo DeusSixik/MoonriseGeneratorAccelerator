@@ -2,9 +2,8 @@ package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import dev.sixik.generator_accelerator.common.features.TreeFeatureScratch;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosTracker;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongIterator;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -70,7 +69,7 @@ public abstract class MixinTreeFeature {
         try {
             LongArrayList roots = scratch.roots;
             LongArrayList trunks = scratch.trunks;
-            LongOpenHashSet foliage = scratch.foliage;
+            NativeBlockPosTracker foliage = scratch.foliage;
             LongArrayList decorators = scratch.decorators;
 
             boolean placed = this.doPlace(level, random, origin, scratch.rootSetter, scratch.trunkSetter, scratch.foliageSetter, config);
@@ -85,7 +84,7 @@ public abstract class MixinTreeFeature {
                     scratch.decoratorContext.clear();
                 }
 
-                BoundingBox box = bts$calculateBoundingBox(foliage, roots, trunks, decorators);
+                BoundingBox box = bts$calculateBoundingBox(foliage, scratch.mutablePos, roots, trunks, decorators);
 
                 if (box != null) {
                     DiscreteVoxelShape shape = bts$updateLeavesFast(level, box, roots, trunks, decorators, scratch.mutablePos);
@@ -227,19 +226,7 @@ public abstract class MixinTreeFeature {
     }
 
     @Unique
-    private static void bts$fillShape(DiscreteVoxelShape shape, BoundingBox box, LongOpenHashSet positions) {
-        LongIterator it = positions.iterator();
-        while (it.hasNext()) {
-            long pos = it.nextLong();
-            int x = BlockPos.getX(pos), y = BlockPos.getY(pos), z = BlockPos.getZ(pos);
-            if (box.isInside(x, y, z)) {
-                shape.fill(x - box.minX(), y - box.minY(), z - box.minZ());
-            }
-        }
-    }
-
-    @Unique
-    private static BoundingBox bts$calculateBoundingBox(LongOpenHashSet set, LongArrayList... arrays) {
+    private static BoundingBox bts$calculateBoundingBox(NativeBlockPosTracker set, BlockPos.MutableBlockPos readPos, LongArrayList... arrays) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
         boolean hasPoints = false;
@@ -255,10 +242,12 @@ public abstract class MixinTreeFeature {
         }
 
         if (set != null && !set.isEmpty()) {
-            LongIterator it = set.iterator();
-            while (it.hasNext()) {
-                long pos = it.nextLong();
-                int x = BlockPos.getX(pos), y = BlockPos.getY(pos), z = BlockPos.getZ(pos);
+            for (int i = 0, size = set.recordedSize(); i < size; i++) {
+                set.getRecorded(i, readPos);
+                if (!set.contains(readPos)) {
+                    continue;
+                }
+                int x = readPos.getX(), y = readPos.getY(), z = readPos.getZ();
                 minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
                 maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z);
                 hasPoints = true;

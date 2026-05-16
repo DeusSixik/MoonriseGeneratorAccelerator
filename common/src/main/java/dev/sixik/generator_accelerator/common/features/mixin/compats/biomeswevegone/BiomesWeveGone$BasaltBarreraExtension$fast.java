@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.biomeswevegone;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -104,10 +105,11 @@ public abstract class BiomesWeveGone$BasaltBarreraExtension$fast {
                 double topY = (double) hexHeightOceanFloorHeight + addedHeight;
                 double blendedY = Mth.clampedLerp((double) landHeight, topY, biomeBlend);
 
+                int stateId = GA$BlockStateExtension.get(state).bts$getFastId();
                 for (int worldY = landHeight - 5; (double) worldY <= blendedY; ++worldY) {
                     mutable.set(worldX, worldY, worldZ);
                     chunk.setBlockState(mutable, state, false);
-                    GAWorkspaceWriteBridge.mirrorCurrent(chunk, mutable, state);
+                    GAWorkspaceWriteBridge.mirrorCurrent(chunk, mutable, stateId);
                 }
             }
         }

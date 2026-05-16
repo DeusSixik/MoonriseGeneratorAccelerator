@@ -155,6 +155,9 @@ public final class CellLatticeOption {
         IdentityHashMap<IRNode, Boolean> visited = new IdentityHashMap<>();
         java.util.ArrayDeque<IRNode> stack = new java.util.ArrayDeque<>();
         stack.push(root);
+
+        CoordDep.Flags mutableFlag = new CoordDep.Flags();
+
         while (!stack.isEmpty()) {
             IRNode n = stack.pop();
             if (visited.put(n, Boolean.TRUE) != null) continue;

@@ -1,8 +1,7 @@
 package dev.sixik.generator_accelerator.common.features;
 
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosTracker;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongIterator;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
@@ -36,7 +35,7 @@ public final class ReusableTreeDecoratorContext extends TreeDecorator.Context {
             BiConsumer<BlockPos, BlockState> decorationSetter,
             RandomSource random,
             LongArrayList logs,
-            LongOpenHashSet leaves,
+            NativeBlockPosTracker leaves,
             LongArrayList roots
     ) {
         this.level = level;
@@ -96,6 +95,7 @@ public final class ReusableTreeDecoratorContext extends TreeDecorator.Context {
         private ObjectArrayList<BlockPos.MutableBlockPos> pool = new ObjectArrayList<>(INITIAL_CAPACITY);
         private Object[] sortBuffer = new Object[INITIAL_CAPACITY];
         private int[] yBuckets = new int[64];
+        private final BlockPos.MutableBlockPos nativeReadBuffer = new BlockPos.MutableBlockPos();
 
         void load(LongArrayList packedPositions) {
             this.prepareForReuse();
@@ -117,20 +117,22 @@ public final class ReusableTreeDecoratorContext extends TreeDecorator.Context {
             }
         }
 
-        void load(LongOpenHashSet packedPositions) {
+        void load(NativeBlockPosTracker packedPositions) {
             this.prepareForReuse();
             boolean sortedByY = true;
             int previousY = Integer.MIN_VALUE;
 
-            LongIterator iterator = packedPositions.iterator();
-            while (iterator.hasNext()) {
-                long packed = iterator.nextLong();
-                int y = BlockPos.getY(packed);
+            for (int i = 0, size = packedPositions.recordedSize(); i < size; i++) {
+                packedPositions.getRecorded(i, this.nativeReadBuffer);
+                if (!packedPositions.contains(this.nativeReadBuffer)) {
+                    continue;
+                }
+                int y = this.nativeReadBuffer.getY();
                 if (y < previousY) {
                     sortedByY = false;
                 }
                 previousY = y;
-                this.addPacked(packed);
+                this.addPacked(this.nativeReadBuffer.asLong());
             }
 
             if (!sortedByY) {

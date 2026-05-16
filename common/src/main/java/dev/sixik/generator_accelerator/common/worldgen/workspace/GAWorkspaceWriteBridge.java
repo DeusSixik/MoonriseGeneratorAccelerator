@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -123,54 +124,62 @@ public final class GAWorkspaceWriteBridge {
     }
 
     public static boolean mirrorCurrent(ChunkAccess chunk, BlockPos pos, BlockState state) {
+        return mirrorCurrent(chunk, pos, GA$BlockStateExtension.get(state).bts$getFastId());
+    }
+
+    public static boolean mirrorCurrent(ChunkAccess chunk, BlockPos pos, int state) {
         if (pos == null) {
             return false;
         }
         return mirrorCurrent(chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    public static boolean mirrorCurrent(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean mirrorCurrent(ChunkAccess chunk, int x, int y, int z, int state) {
         return mirror(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    public static boolean mirror(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean mirror(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         return write(workspace, chunk, x, y, z, state, false);
     }
 
-    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, BlockPos pos, BlockState state) {
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, BlockPos pos, int state) {
         if (pos == null) {
             return false;
         }
         return writeCurrentWorkspaceOnly(chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, int state) {
         return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         return write(workspace, chunk, x, y, z, state, true, false);
     }
 
     public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, BlockPos pos, BlockState state) {
+        return writeCurrentKnownDecorationWorkspaceOnly(chunk, pos, GA$BlockStateExtension.get(state).bts$getFastId());
+    }
+
+    public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, BlockPos pos, int state) {
         if (pos == null) {
             return false;
         }
         return writeCurrentKnownDecorationWorkspaceOnly(chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeCurrentKnownDecorationWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, int state) {
         return writeKnownDecorationWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    public static boolean writeKnownDecorationWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeKnownDecorationWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         if (!KNOWN_DECORATION_JOURNAL_WRITES_ENABLED) {
             return false;
         }
         return write(workspace, chunk, x, y, z, state, true, true);
     }
 
-    private static boolean write(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state, boolean workspaceOnly) {
+    private static boolean write(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state, boolean workspaceOnly) {
         return write(workspace, chunk, x, y, z, state, workspaceOnly, false);
     }
 
@@ -180,7 +189,7 @@ public final class GAWorkspaceWriteBridge {
             int x,
             int y,
             int z,
-            BlockState state,
+            int blockId,
             boolean workspaceOnly,
             boolean trustedKnownDecoration
     ) {
@@ -190,7 +199,7 @@ public final class GAWorkspaceWriteBridge {
         if (workspaceOnly && !trustedKnownDecoration && !WORKSPACE_ONLY_WRITES_ENABLED) {
             return false;
         }
-        if (workspace == null || state == null || !workspace.blockBufferEnabled()) {
+        if (workspace == null || blockId == -1 || !workspace.blockBufferEnabled()) {
             return false;
         }
         if (trustedKnownDecoration) {
@@ -199,7 +208,7 @@ public final class GAWorkspaceWriteBridge {
                 if (y < workspace.minBuildHeight() || y >= workspace.minBuildHeight() + workspace.buildHeight()) {
                     return false;
                 }
-                return journal.add(x, y, z, state);
+                return journal.add(x, y, z, blockId);
             }
         }
         if (workspaceOnly && ((x >> 4) != workspace.chunkX() || (z >> 4) != workspace.chunkZ())) {
@@ -209,7 +218,7 @@ public final class GAWorkspaceWriteBridge {
                     x,
                     y,
                     z,
-                    state,
+                    blockId,
                     2
             );
         }
@@ -218,7 +227,6 @@ public final class GAWorkspaceWriteBridge {
             return false;
         }
         try {
-            int blockId = Block.getId(state);
             if (workspaceOnly) {
                 workspace.setBlockIdWorkspaceOnlyIfChanged(local.localX(), y, local.localZ(), blockId);
             } else {
@@ -227,7 +235,7 @@ public final class GAWorkspaceWriteBridge {
             workspace.markDirtyHeightColumn(local.localX(), local.localZ());
             workspace.markDirtySurfaceColumn(local.localX(), local.localZ());
             workspace.markDirtyLightColumn(local.localX(), local.localZ());
-            if (!state.isAir()) {
+            if (!FastBlockStateCache.getBlockState(blockId).isAir()) {
                 int height = workspace.heightCandidate(local.localX(), local.localZ());
                 if (height == GAChunkWorkspace.UNKNOWN_HEIGHT || y >= height) {
                     workspace.setHeightCandidate(local.localX(), local.localZ(), y);
