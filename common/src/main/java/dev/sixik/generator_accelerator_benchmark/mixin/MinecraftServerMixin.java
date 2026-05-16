@@ -9,13 +9,17 @@ import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.network.Connection;
+import net.minecraft.network.PacketSendListener;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerInfo;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.thread.ReentrantBlockableEventLoop;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import net.minecraft.world.entity.player.Player;
@@ -84,6 +88,10 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         boolean useSpark = Boolean.parseBoolean(System.getProperty("ga.benchmark.useSpark", "true"));
 
         if (!isProfilerStart && !benchmarkFinished && tickCounter >= startTick && server.overworld() != null) {
+            this.fakePlayer = this.sdm$makePlayer();
+            fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+            this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
+
             if (useSpark) {
                 var commandSource = server.createCommandSourceStack().withPermission(4);
                 server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.START_COMMAND);
@@ -92,12 +100,15 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
                 DecorationPipelineMetrics.reset();
             }
             GADiagnostics.resetBaseline();
-            GADiagnostics.startJfrIfEnabled("ga-benchmark");
+            if (Boolean.getBoolean("ga.diagnostics.jfr")) {
+                GADiagnostics.restartRecording(
+                        "ga-benchmark",
+                        Boolean.getBoolean("ga.diagnostics.jfr.allocations")
+                );
+            } else {
+                GADiagnostics.startJfrIfEnabled("ga-benchmark");
+            }
             this.benchmarkStartNanos = System.nanoTime();
-
-            this.fakePlayer = this.sdm$makePlayer();
-            fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
-            this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
 
             isProfilerStart = true;
             this.generatedBatches = 0;
@@ -173,7 +184,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
 
             @Override
             public boolean isSpectator() {
-                return false;
+                return true;
             }
 
             @Override
@@ -184,7 +195,26 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         EmbeddedChannel embeddedChannel = new EmbeddedChannel(connection);
         server.getPlayerList().placeNewPlayer(connection, serverPlayer, commonListenerCookie);
+        serverPlayer.connection = new GA$BenchmarkPacketListener(server, connection, serverPlayer, commonListenerCookie);
         return serverPlayer;
+    }
+
+    @Unique
+    private static final class GA$BenchmarkPacketListener extends ServerGamePacketListenerImpl {
+        private GA$BenchmarkPacketListener(MinecraftServer server, Connection connection, ServerPlayer player, CommonListenerCookie cookie) {
+            super(server, connection, player, cookie);
+        }
+
+        @Override
+        public void send(Packet<?> packet, PacketSendListener listener) {
+            if (packet instanceof ClientboundCustomPayloadPacket) {
+                if (listener != null) {
+                    listener.onSuccess();
+                }
+                return;
+            }
+            super.send(packet, listener);
+        }
     }
 
     @Unique

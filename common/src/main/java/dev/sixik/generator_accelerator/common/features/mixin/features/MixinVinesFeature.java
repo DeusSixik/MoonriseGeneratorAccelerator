@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.WorldGenLevel;
@@ -51,7 +52,8 @@ public abstract class MixinVinesFeature extends Feature<NoneFeatureConfiguration
         for (int i = 0; i < GA$DIRECTIONS.length; i++) {
             Direction direction = GA$DIRECTIONS[i];
             neighborPos.setWithOffset(origin, direction);
-            if (VineBlock.isAcceptableNeighbour(level, neighborPos, direction)) {
+            if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, origin)
+                    && VineBlock.isAcceptableNeighbour(level, neighborPos, direction)) {
                 level.setBlock(origin, GA$FACE_STATES[direction.ordinal()], 2);
                 return true;
             }

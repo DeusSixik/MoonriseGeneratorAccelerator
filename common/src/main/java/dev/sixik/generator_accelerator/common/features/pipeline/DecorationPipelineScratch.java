@@ -87,11 +87,13 @@ public final class DecorationPipelineScratch {
     private int[] touchedMutationX = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationY = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationZ = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
+    private BlockState[] touchedMutationState = new BlockState[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int touchedMutationCount;
     private ChunkAccess descriptorCenterChunk;
     private PipelinePlacementContext placementContext;
     private long descriptorCenterPos;
     private boolean descriptorsPrepared;
+    private boolean heightmapCacheUsed;
     private int candidateMode;
     private int modifierBufferDepth;
     private int oversizedCandidateClearCount;
@@ -137,8 +139,11 @@ public final class DecorationPipelineScratch {
         this.descriptorCenterChunk = null;
         this.descriptorCenterPos = 0L;
         this.descriptorsPrepared = false;
-        Arrays.fill(this.heightmapCacheChunks, null);
-        Arrays.fill(this.heightmapCache, null);
+        if (this.heightmapCacheUsed) {
+            Arrays.fill(this.heightmapCacheChunks, null);
+            Arrays.fill(this.heightmapCache, null);
+            this.heightmapCacheUsed = false;
+        }
         this.modifierBufferDepth = 0;
         this.shrinkOversizedBuffers();
     }
@@ -147,6 +152,10 @@ public final class DecorationPipelineScratch {
         return this.descriptorsPrepared
                 && this.descriptorCenterChunk == chunk
                 && this.descriptorCenterPos == chunk.getPos().toLong();
+    }
+
+    boolean hasPreparedDescriptors() {
+        return this.descriptorsPrepared;
     }
 
     void markDescriptorsPrepared(ChunkAccess chunk) {
@@ -184,6 +193,7 @@ public final class DecorationPipelineScratch {
     }
 
     Heightmap cachedHeightmap(ChunkAccess chunk, Heightmap.Types type) {
+        this.heightmapCacheUsed = true;
         long chunkPos = chunk.getPos().toLong();
         int slot = ((int) (chunkPos ^ (chunkPos >>> 32))) & HEIGHTMAP_CACHE_SLOT_MASK;
         int baseIndex = slot * HEIGHTMAP_TYPE_COUNT;
@@ -399,7 +409,21 @@ public final class DecorationPipelineScratch {
 
     void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
         long key = BlockPos.asLong(blockX, blockY >> 4, blockZ);
-        if (this.touchedMutationIndexByKey.get(key) >= 0) {
+        this.noteJournalMutation(chunk, blockX, blockY, blockZ, null, key);
+    }
+
+    void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState state) {
+        long key = BlockPos.asLong(blockX, blockY, blockZ);
+        this.noteJournalMutation(chunk, blockX, blockY, blockZ, state, key);
+    }
+
+    private void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState state, long key) {
+        int existingIndex = this.touchedMutationIndexByKey.get(key);
+        if (existingIndex >= 0) {
+            if (state != null) {
+                this.touchedMutationState[existingIndex] = state;
+                this.touchedMutationY[existingIndex] = blockY;
+            }
             return;
         }
         int index = this.touchedMutationCount;
@@ -408,6 +432,7 @@ public final class DecorationPipelineScratch {
         this.touchedMutationX[index] = blockX;
         this.touchedMutationY[index] = blockY;
         this.touchedMutationZ[index] = blockZ;
+        this.touchedMutationState[index] = state;
         this.touchedMutationCount = index + 1;
         this.touchedMutationIndexByKey.put(key, index);
     }
@@ -418,7 +443,8 @@ public final class DecorationPipelineScratch {
                     this.touchedMutationChunk[i],
                     this.touchedMutationX[i],
                     this.touchedMutationY[i],
-                    this.touchedMutationZ[i]
+                    this.touchedMutationZ[i],
+                    this.touchedMutationState[i]
             );
         }
         DecorationPipelineMetrics.add(DecorationPipelineMetrics.JOURNAL_TOUCHED_SECTION_COLUMNS, this.touchedMutationCount);
@@ -493,6 +519,13 @@ public final class DecorationPipelineScratch {
     }
 
     private void clearWriteJournalIndex() {
+        if (this.sectionBucketCount == 0
+                && this.chunkBucketCount == 0
+                && this.writeIndexByPos.isEmpty()
+                && this.touchedMutationCount == 0
+                && this.touchedMutationIndexByKey.isEmpty()) {
+            return;
+        }
         this.sectionBucketCount = 0;
         this.chunkBucketCount = 0;
         this.sectionBucketIndexByKey.clear();
@@ -550,11 +583,13 @@ public final class DecorationPipelineScratch {
         this.touchedMutationX = grow(this.touchedMutationX, newLength);
         this.touchedMutationY = grow(this.touchedMutationY, newLength);
         this.touchedMutationZ = grow(this.touchedMutationZ, newLength);
+        this.touchedMutationState = Arrays.copyOf(this.touchedMutationState, newLength);
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
     }
 
     private void clearJournalDescriptorMutations() {
         Arrays.fill(this.touchedMutationChunk, 0, this.touchedMutationCount, null);
+        Arrays.fill(this.touchedMutationState, 0, this.touchedMutationCount, null);
         this.touchedMutationCount = 0;
         this.touchedMutationIndexByKey.clear();
     }

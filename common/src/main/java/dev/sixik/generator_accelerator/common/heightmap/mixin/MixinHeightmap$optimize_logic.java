@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.heightmap.mixin;
 
 import net.minecraft.util.BitStorage;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -10,6 +11,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Set;
 import java.util.function.Predicate;
@@ -22,9 +26,18 @@ public abstract class MixinHeightmap$optimize_logic {
     private Predicate<BlockState> isOpaque;
     @Shadow @Final private BitStorage data;
 
-    @Shadow protected abstract void setHeight(int x, int z, int y);
-    @Shadow protected abstract int getFirstAvailable(int index);
     @Shadow private static int getIndex(int x, int z) { return 0; }
+
+    @Unique
+    private int ga$minBuildHeight;
+    @Unique
+    private int ga$typeOrdinal;
+
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void ga$cacheMinBuildHeight(ChunkAccess chunk, Heightmap.Types type, CallbackInfo ci) {
+        this.ga$minBuildHeight = chunk.getMinBuildHeight();
+        this.ga$typeOrdinal = type.ordinal();
+    }
 
     /**
      * @author Sixik
@@ -33,21 +46,20 @@ public abstract class MixinHeightmap$optimize_logic {
     @Overwrite
     public boolean update(int x, int y, int z, BlockState state) {
         int index = getIndex(x, z);
-        int currentTop = this.getFirstAvailable(index);
+        int minY = this.ga$minBuildHeight;
+        int currentTop = this.data.get(index) + minY;
 
         if (y <= currentTop - 2) return false;
 
-        if (this.isOpaque.test(state)) {
+        if (this.ga$isOpaque(state)) {
             if (y >= currentTop) {
-                this.setHeight(x, z, y + 1);
+                this.data.set(index, y + 1 - minY);
                 return true;
             }
             return false;
         }
 
         if (currentTop - 1 != y) return false;
-
-        final int minY = this.chunk.getMinBuildHeight();
 
         for (int searchY = y - 1; searchY >= minY; searchY--) {
             int sectionIndex = this.chunk.getSectionIndex(searchY);
@@ -61,15 +73,27 @@ public abstract class MixinHeightmap$optimize_logic {
             int sectionBottom = this.chunk.getSectionYFromSectionIndex(sectionIndex) << 4;
             for (; searchY >= sectionBottom; searchY--) {
                 BlockState checkState = section.getBlockState(x, searchY & 15, z);
-                if (this.isOpaque.test(checkState)) {
-                    this.setHeight(x, z, searchY + 1);
+                if (this.ga$isOpaque(checkState)) {
+                    this.data.set(index, searchY + 1 - minY);
                     return true;
                 }
             }
         }
 
-        this.setHeight(x, z, minY);
+        this.data.set(index, 0);
         return true;
+    }
+
+    @Unique
+    private boolean ga$isOpaque(BlockState state) {
+        return switch (this.ga$typeOrdinal) {
+            case 0, 1 -> !state.isAir(); // WORLD_SURFACE(_WG)
+            case 2, 3 -> state.blocksMotion(); // OCEAN_FLOOR(_WG)
+            case 4 -> state.blocksMotion() || !state.getFluidState().isEmpty(); // MOTION_BLOCKING
+            case 5 -> (state.blocksMotion() || !state.getFluidState().isEmpty())
+                    && !(state.getBlock() instanceof LeavesBlock); // MOTION_BLOCKING_NO_LEAVES
+            default -> this.isOpaque.test(state);
+        };
     }
 
     /**

@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
 import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -89,7 +90,9 @@ public abstract class MixinBlockColumnFeature extends Feature<BlockColumnConfigu
 
             BlockColumnConfiguration.Layer layer = layers[layerIndex];
             for (int step = 0; step < height; step++) {
-                level.setBlock(placePos, layer.state().getState(random, placePos), 2);
+                if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, placePos)) {
+                    level.setBlock(placePos, layer.state().getState(random, placePos), 2);
+                }
                 placePos.move(direction);
             }
         }

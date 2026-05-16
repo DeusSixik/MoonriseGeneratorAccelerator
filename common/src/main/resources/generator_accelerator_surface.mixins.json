@@ -14,6 +14,8 @@
     "MixinSurfaceRules$Context$TemperatureHelperCondition",
     "MixinSurfaceRules$SequenceRule",
     "MixinSurfaceRules$SequenceRuleSource",
+    "MixinMaterialRuleList",
+    "MixinOreVeinifier$fast_random",
     "SurfaceSystem$new_build_surface",
     "blockpredicates.MixinAllOfPredicate$primitive_array",
     "blockpredicates.MixinAnyOfPredicate$primitive_array",

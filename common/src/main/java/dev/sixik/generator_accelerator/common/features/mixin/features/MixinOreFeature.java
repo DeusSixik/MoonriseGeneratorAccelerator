@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHe
 import dev.sixik.generator_accelerator.common.features.FastTarget;
 import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
@@ -324,7 +325,10 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
 
                             int currentStateId;
                             BlockState currentState = null;
-                            if (cachedRaw != null) {
+                            Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(currX, currY, currZ);
+                            if (workspaceStateId != null) {
+                                currentStateId = workspaceStateId;
+                            } else if (cachedRaw != null) {
                                 currentStateId = cachedRaw[sectionIndex];
                             } else {
                                 currentState = cachedSection.getBlockState(localX, localY, localZ);
@@ -589,12 +593,16 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             boolean[] airStates,
             boolean placementMayBeAir
     ) {
+        BlockState placementState = target.placementState();
+        if (GAWorkspaceWriteBridge.writeCurrentKnownDecorationWorkspaceOnly(null, pos, placementState)) {
+            return;
+        }
         if (raw != null && (!placementMayBeAir || airStates[previousStateId] == airStates[target.placementStateId()])) {
             raw[sectionIndex] = target.placementStateId();
             return;
         }
 
-        section.setBlockState(localX, localY, localZ, target.placementState(), false);
+        section.setBlockState(localX, localY, localZ, placementState, false);
     }
 
     @Unique
@@ -612,6 +620,15 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             int sectionIndex,
             BlockPos.MutableBlockPos pos
     ) {
+        if (GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ) != null) {
+            return bts$isAirAt(access, airStates, globalX + 1, globalY, globalZ, pos)
+                    || bts$isAirAt(access, airStates, globalX - 1, globalY, globalZ, pos)
+                    || bts$isAirAt(access, airStates, globalX, globalY + 1, globalZ, pos)
+                    || bts$isAirAt(access, airStates, globalX, globalY - 1, globalZ, pos)
+                    || bts$isAirAt(access, airStates, globalX, globalY, globalZ + 1, pos)
+                    || bts$isAirAt(access, airStates, globalX, globalY, globalZ - 1, pos);
+        }
+
         if (raw != null) {
             if (localX > 0) {
                 if (airStates[raw[sectionIndex - 1]]) return true;
@@ -679,6 +696,11 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             int globalZ,
             BlockPos.MutableBlockPos pos
     ) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(globalX, globalY, globalZ);
+        if (workspaceStateId != null) {
+            return airStates[workspaceStateId];
+        }
+
         pos.set(globalX, globalY, globalZ);
         LevelChunkSection neighborSection = access.getSection(pos);
         if (neighborSection == null) {

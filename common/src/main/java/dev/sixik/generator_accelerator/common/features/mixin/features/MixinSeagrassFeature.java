@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -76,12 +77,19 @@ public abstract class MixinSeagrassFeature extends Feature<ProbabilityFeatureCon
             if (!level.getBlockState(abovePos).is(Blocks.WATER)) {
                 return false;
             }
+            if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)
+                    || !GAWorldGenRegionAccess.canWriteWithoutLogging(level, abovePos)) {
+                return false;
+            }
 
             level.setBlock(pos, state, 2);
             level.setBlock(abovePos, GA$TALL_SEAGRASS_UPPER, 2);
             return true;
         }
 
+        if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)) {
+            return false;
+        }
         level.setBlock(pos, state, 2);
         return true;
     }

@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface;
 
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -76,6 +77,7 @@ public class FastBlockColumn implements BlockColumn {
         final int pZ = pos.getZ() & 15;
 
         section.setBlockState(pX, pY, pZ, blockState, false);
+        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, this.pos, blockState);
 
         final Heightmap[] heightmaps1 = this.heightmaps;
         for (int i = 0; i < heightmaps1.length; i++) {

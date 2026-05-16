@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.mixin.compats.biolith;
 
 import com.bawnorton.mixinsquared.TargetHandler;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.sugar.Local;
 import com.terraformersmc.biolith.api.surface.BiolithSurfaceBuilder;
 import com.terraformersmc.biolith.impl.surface.SurfaceBuilderCollector;
@@ -60,7 +61,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
      */
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
+            name = "ga$buildSurface"
     )
     @Inject(
             method = {"@MixinSquared:Handler"},
@@ -73,7 +74,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
     private void biolith_compat$injectEarlyGenerate(
             RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> unused,
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
-            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, CallbackInfo ci,
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, Operation<Void> original, CallbackInfo ci,
 
             @Local(ordinal = 4) int globalX,
             @Local(ordinal = 5) int globalZ,
@@ -102,7 +103,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
+            name = "ga$buildSurface"
     )
     @Inject(
             method = {"@MixinSquared:Handler"},
@@ -114,7 +115,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
     private void biolith_compat$captureForLate(
             RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> unused,
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
-            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, CallbackInfo ci,
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, Operation<Void> original, CallbackInfo ci,
 
             @Local(type = VectorChunkContext.class) VectorChunkContext ctx,
             @Local(type = Holder[].class) Holder<Biome>[] surfaceBiomes,
@@ -132,7 +133,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
+            name = "ga$buildSurface"
     )
     @Inject(
             method = "@MixinSquared:Handler",
@@ -145,7 +146,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
     private void biolith_compat$injectLateInsideFrozenOceanLoop(
             RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> unused,
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
-            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, CallbackInfo ci,
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, Operation<Void> original, CallbackInfo ci,
 
             @Local(ordinal = 4) int idx,
             @Local(ordinal = 5) int globalX,
@@ -177,7 +178,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
 
     @TargetHandler(
             mixin = "dev.sixik.generator_accelerator.common.surface.mixin.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
+            name = "ga$buildSurface"
     )
     @Inject(
             method = "@MixinSquared:Handler",
@@ -189,7 +190,7 @@ public abstract class Mixin$Biolith$SurfaceSystem {
     private void biolith_compat$injectLateIfNoFrozenOcean(
             RandomState pRandomState, BiomeManager pBiomeManager, Registry<Biome> unused,
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
-            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, CallbackInfo ci
+            NoiseChunk pNoiseChunk, SurfaceRules.RuleSource ruleSource, Operation<Void> original, CallbackInfo ci
     ) {
         SurfaceGenerationState state = STATE.get();
         if (state.ctx == null) return;

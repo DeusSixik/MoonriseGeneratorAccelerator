@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.paletted_container.mixin.patch;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PaletteDataExtern;
 import dev.sixik.generator_accelerator.api.patches.GA$PaletteExtern;
+import dev.sixik.generator_accelerator.api.patches.GA$SingleValuePaletteMutator;
 import net.minecraft.world.level.chunk.Palette;
 import net.minecraft.world.level.chunk.SingleValuePalette;
 import org.spongepowered.asm.mixin.Mixin;
@@ -18,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * All code provided in this class was taken from <a href="https://github.com/Tuinity/Moonrise">Moonrise</a>
  */
 @Mixin(SingleValuePalette.class)
-public abstract class MixinSingleValuePalette<T> implements Palette<T>, GA$PaletteExtern<T> {
+public abstract class MixinSingleValuePalette<T> implements Palette<T>, GA$PaletteExtern<T>, GA$SingleValuePaletteMutator<T> {
 
     @Shadow
     private T value;
@@ -26,7 +27,15 @@ public abstract class MixinSingleValuePalette<T> implements Palette<T>, GA$Palet
     private T[] generatorAccelerator$rawPalette;
 
     public final T[] bts$getRawPalette(GA$PaletteDataExtern<T> container) {
-        return (T[])(this.generatorAccelerator$rawPalette != null ? this.generatorAccelerator$rawPalette : (this.generatorAccelerator$rawPalette = (T[])(new Object[]{this.value})));
+        return this.generatorAccelerator$rawPalette;
+    }
+
+    @Override
+    public void ga$setSingleValue(T value) {
+        this.value = value;
+        if (this.generatorAccelerator$rawPalette != null) {
+            this.generatorAccelerator$rawPalette[0] = value;
+        }
     }
 
     @Inject(

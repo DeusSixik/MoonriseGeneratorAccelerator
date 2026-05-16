@@ -23,6 +23,10 @@ public abstract class GAMixinPlugin implements IMixinConfigPlugin {
         MixinAppliers.add(new MixinApplier(modClass, params));
     }
 
+    public void createAll(String[] modClasses, MixinApplier.Param... params) {
+        MixinAppliers.add(new MixinApplier(String.join(";", modClasses), params));
+    }
+
     @Override
     public String getRefMapperConfig() {
         return null;

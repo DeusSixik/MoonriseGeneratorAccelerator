@@ -50,12 +50,27 @@ import java.util.List;
 public class FlatClimateIndex<T> {
     private static final int PARAMS = 7;
     private static final int BYTES_PER_NODE = PARAMS * 2;
+    private static final int QUERY_DIMENSION_MASK = 0x3F;
 
     // Read-only shared data
     private final long[] bounds;
     private final int[] structure; // [offset, count]
+    private final int[] nodeOffsets;
+    private final int[] nodeChildCounts;
     private final Object[] values;
     private final int rootIndex;
+    private final int[] leafNodeIndices;
+    private final int[] leafValueIndices;
+    private final int singleLeafValueIndex;
+    private final int activeDimensionMask;
+    private final long[] offsetDistances;
+    private final boolean hasOffsetDistances;
+    private final boolean linearSearch;
+
+    private static final int LINEAR_SEARCH_THRESHOLD =
+            Integer.getInteger("ga.climate.linearSearchThreshold", 0);
+    private static final int QUERY_CACHE_SIZE = queryCacheSize();
+    private static final int QUERY_CACHE_MASK = QUERY_CACHE_SIZE - 1;
 
     /**
      * Thread-local search context to eliminate allocation overhead.
@@ -65,9 +80,25 @@ public class FlatClimateIndex<T> {
      */
     private static final class SearchContext {
         final int[] stack = new int[256]; // Depth is usually < 10, 256 is safe
+        final long[] stackDistances = new long[256];
         final long[] childDistances = new long[6];
         final int[] childIndices = new int[6];
+        final long[] cacheT = new long[QUERY_CACHE_SIZE];
+        final long[] cacheH = new long[QUERY_CACHE_SIZE];
+        final long[] cacheC = new long[QUERY_CACHE_SIZE];
+        final long[] cacheE = new long[QUERY_CACHE_SIZE];
+        final long[] cacheD = new long[QUERY_CACHE_SIZE];
+        final long[] cacheW = new long[QUERY_CACHE_SIZE];
+        final int[] cacheValuePlusOne = new int[QUERY_CACHE_SIZE];
+        final int[] cacheLeafNode = new int[QUERY_CACHE_SIZE];
         int lastLeafNodeIndex = -1; // "Warm start" hint
+        int lastValueIndex = -1;
+        long lastT;
+        long lastH;
+        long lastC;
+        long lastE;
+        long lastD;
+        long lastW;
     }
 
     private final ThreadLocal<SearchContext> ctx = ThreadLocal.withInitial(SearchContext::new);
@@ -84,7 +115,16 @@ public class FlatClimateIndex<T> {
 
         this.bounds = Arrays.copyOf(storage.bounds, storage.cursor * BYTES_PER_NODE);
         this.structure = Arrays.copyOf(storage.structure, storage.cursor * 2);
+        this.nodeOffsets = collectNodeOffsets(storage.cursor);
+        this.nodeChildCounts = collectNodeChildCounts(storage.cursor);
         this.values = storage.values.toArray();
+        this.activeDimensionMask = collectActiveDimensionMask(storage.cursor);
+        this.offsetDistances = collectOffsetDistances(storage.cursor);
+        this.hasOffsetDistances = (this.activeDimensionMask & (1 << 6)) != 0 && hasNonZero(this.offsetDistances);
+        this.leafNodeIndices = collectLeafNodeIndices(storage.cursor);
+        this.leafValueIndices = collectLeafValueIndices(this.leafNodeIndices);
+        this.singleLeafValueIndex = this.leafValueIndices.length == 1 ? this.leafValueIndices[0] : -1;
+        this.linearSearch = this.leafNodeIndices.length <= LINEAR_SEARCH_THRESHOLD;
     }
 
     public FlatClimateIndex(Climate.RTree<T> vanillaTree) {
@@ -93,7 +133,16 @@ public class FlatClimateIndex<T> {
 
         this.bounds = Arrays.copyOf(storage.bounds, storage.cursor * BYTES_PER_NODE);
         this.structure = Arrays.copyOf(storage.structure, storage.cursor * 2);
+        this.nodeOffsets = collectNodeOffsets(storage.cursor);
+        this.nodeChildCounts = collectNodeChildCounts(storage.cursor);
         this.values = storage.values.toArray();
+        this.activeDimensionMask = collectActiveDimensionMask(storage.cursor);
+        this.offsetDistances = collectOffsetDistances(storage.cursor);
+        this.hasOffsetDistances = (this.activeDimensionMask & (1 << 6)) != 0 && hasNonZero(this.offsetDistances);
+        this.leafNodeIndices = collectLeafNodeIndices(storage.cursor);
+        this.leafValueIndices = collectLeafValueIndices(this.leafNodeIndices);
+        this.singleLeafValueIndex = this.leafValueIndices.length == 1 ? this.leafValueIndices[0] : -1;
+        this.linearSearch = this.leafNodeIndices.length <= LINEAR_SEARCH_THRESHOLD;
     }
 
     public T search(final long[] array) {
@@ -108,7 +157,43 @@ public class FlatClimateIndex<T> {
            final long d,
            final long w
     ) {
+        if (this.singleLeafValueIndex >= 0) {
+            return (T) values[this.singleLeafValueIndex];
+        }
         final SearchContext s = ctx.get();
+        if (s.lastValueIndex >= 0
+                && s.lastT == t
+                && s.lastH == h
+                && s.lastC == c
+                && s.lastE == e
+                && s.lastD == d
+                && s.lastW == w) {
+            return (T) values[s.lastValueIndex];
+        }
+
+        int queryCacheSlot = -1;
+        if (QUERY_CACHE_SIZE > 0) {
+            queryCacheSlot = queryCacheSlot(t, h, c, e, d, w);
+            int valuePlusOne = s.cacheValuePlusOne[queryCacheSlot];
+            if (valuePlusOne != 0
+                    && s.cacheT[queryCacheSlot] == t
+                    && s.cacheH[queryCacheSlot] == h
+                    && s.cacheC[queryCacheSlot] == c
+                    && s.cacheE[queryCacheSlot] == e
+                    && s.cacheD[queryCacheSlot] == d
+                    && s.cacheW[queryCacheSlot] == w) {
+                int valueIndex = valuePlusOne - 1;
+                s.lastLeafNodeIndex = s.cacheLeafNode[queryCacheSlot];
+                rememberLastQuery(s, valueIndex, t, h, c, e, d, w);
+                return (T) values[valueIndex];
+            }
+        }
+
+        if (linearSearch) {
+            T result = searchLinear(s, t, h, c, e, d, w);
+            storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+            return result;
+        }
 
         int bestLeafValueIndex = -1;
         long bestDist = Long.MAX_VALUE;
@@ -116,55 +201,76 @@ public class FlatClimateIndex<T> {
         /*
             If we've already searched for something, there's probably a new block nearby.
             We check the distance to the previous winner immediately.
-         */
+        */
         if (s.lastLeafNodeIndex != -1) {
             bestDist = distance(s.lastLeafNodeIndex, t, h, c, e, d, w);
 
             /*
                 the structure[node*2] for the sheet points to the index in the values array
              */
-            bestLeafValueIndex = structure[s.lastLeafNodeIndex * 2];
+            bestLeafValueIndex = nodeOffsets[s.lastLeafNodeIndex];
+            if (bestDist == 0L) {
+                rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+                return (T) values[bestLeafValueIndex];
+            }
         }
 
         final int[] stack = s.stack;
+        final long[] stackDistances = s.stackDistances;
         int sp = 0;
-        stack[sp++] = rootIndex;
+        long rootDistance = distanceCapped(rootIndex, t, h, c, e, d, w, bestDist);
+        if (rootDistance >= bestDist && bestLeafValueIndex >= 0) {
+            rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+            storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+            return (T) values[bestLeafValueIndex];
+        }
+        stack[sp] = rootIndex;
+        stackDistances[sp++] = rootDistance;
 
         final long[] childDists = s.childDistances;
         final int[] childIdxs = s.childIndices;
+        final boolean fullQueryDimensions = (this.activeDimensionMask & QUERY_DIMENSION_MASK) == QUERY_DIMENSION_MASK;
 
         while (sp > 0) {
-            int nodeIdx = stack[--sp];
+            --sp;
+            int nodeIdx = stack[sp];
+            long nodeDistance = stackDistances[sp];
 
             /*
                 Aggressive Pruning: if the node itself is further away than the best one found, skip it.
                 This is especially effective thanks to Warm Start.
                 For a leaf, we will check the distance within the treatment.
              */
-            if (nodeIdx == rootIndex) {
-                if (distance(rootIndex, t, h, c, e, d, w) >= bestDist) continue;
+            if (nodeDistance >= bestDist) {
+                continue;
             }
 
-            final int structIdx = nodeIdx * 2;
-            final int offset = structure[structIdx];
-            final int childCount = structure[structIdx + 1];
+            final int offset = nodeOffsets[nodeIdx];
+            final int childCount = nodeChildCounts[nodeIdx];
 
             if (childCount == 0) {
-                final long dist = distance(nodeIdx, t, h, c, e, d, w);
-                if (dist < bestDist) {
-                    bestDist = dist;
+                if (nodeDistance < bestDist) {
+                    bestDist = nodeDistance;
                     bestLeafValueIndex = offset;
-                    s.lastLeafNodeIndex = nodeIdx; // Запоминаем для следующего раза
+                    s.lastLeafNodeIndex = nodeIdx;
+                    if (bestDist == 0L) {
+                        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                        storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+                        return (T) values[bestLeafValueIndex];
+                    }
                 }
             } else {
                 int validChildren = 0;
 
                 /*
                     Linear memory access
-                 */
+                */
                 for (int i = 0; i < childCount; i++) {
                     final int childNodeIdx = offset + i;
-                    final long dist = distance(childNodeIdx, t, h, c, e, d, w);
+                    final long dist = fullQueryDimensions
+                            ? distanceCappedFull(childNodeIdx, t, h, c, e, d, w, bestDist)
+                            : distanceMaskedCapped(childNodeIdx, t, h, c, e, d, w, bestDist);
 
                     /*
                         If the child is already worse than the current best, don't even add it to the sorting
@@ -177,34 +283,160 @@ public class FlatClimateIndex<T> {
                 }
 
                 if (validChildren == 0) continue;
-
-                /*
-                    "Nearest Last" sorting (Insertion Sort).
-                    The nearest child must be at the end of the array to reach the TOP of the stack.
-                 */
-                for (int i = 1; i < validChildren; i++) {
-                    final long cd = childDists[i];
-                    final int ci = childIdxs[i];
-                    int j = i - 1;
-                    while (j >= 0 && childDists[j] < cd) {
-                        childDists[j + 1] = childDists[j];
-                        childIdxs[j + 1] = childIdxs[j];
-                        j--;
+                if (validChildren == 1) {
+                    stack[sp] = childIdxs[0];
+                    stackDistances[sp++] = childDists[0];
+                    continue;
+                }
+                if (validChildren == 2) {
+                    long firstDist = childDists[0];
+                    long secondDist = childDists[1];
+                    if (firstDist < secondDist) {
+                        stack[sp] = childIdxs[1];
+                        stackDistances[sp++] = secondDist;
+                        stack[sp] = childIdxs[0];
+                        stackDistances[sp++] = firstDist;
+                    } else {
+                        stack[sp] = childIdxs[0];
+                        stackDistances[sp++] = firstDist;
+                        stack[sp] = childIdxs[1];
+                        stackDistances[sp++] = secondDist;
                     }
-                    childDists[j + 1] = cd;
-                    childIdxs[j + 1] = ci;
+                    continue;
                 }
 
-                /*
-                    Push to stack
-                 */
+                int nearest = 0;
+                long nearestDist = childDists[0];
+                for (int i = 1; i < validChildren; i++) {
+                    long dist = childDists[i];
+                    if (dist < nearestDist) {
+                        nearest = i;
+                        nearestDist = dist;
+                    }
+                }
                 for (int i = 0; i < validChildren; i++) {
-                    stack[sp++] = childIdxs[i];
+                    if (i != nearest) {
+                        stack[sp] = childIdxs[i];
+                        stackDistances[sp++] = childDists[i];
+                    }
+                }
+                stack[sp] = childIdxs[nearest];
+                stackDistances[sp++] = nearestDist;
+            }
+        }
+
+        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+        storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+        return (T) values[bestLeafValueIndex];
+    }
+
+    private T searchLinear(
+            SearchContext s,
+            long t,
+            long h,
+            long c,
+            long e,
+            long d,
+            long w
+    ) {
+        int bestLeafNodeIndex = s.lastLeafNodeIndex;
+        int bestLeafValueIndex = -1;
+        long bestDist = Long.MAX_VALUE;
+        if (bestLeafNodeIndex != -1) {
+            bestDist = distance(bestLeafNodeIndex, t, h, c, e, d, w);
+            bestLeafValueIndex = nodeOffsets[bestLeafNodeIndex];
+            if (bestDist == 0L) {
+                rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                return (T) values[bestLeafValueIndex];
+            }
+        }
+
+        int[] leaves = this.leafNodeIndices;
+        int[] leafValues = this.leafValueIndices;
+        for (int i = 0; i < leaves.length; i++) {
+            int leaf = leaves[i];
+            if (leaf == bestLeafNodeIndex) {
+                continue;
+            }
+            long dist = distance(leaf, t, h, c, e, d, w);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestLeafNodeIndex = leaf;
+                bestLeafValueIndex = leafValues[i];
+                if (bestDist == 0L) {
+                    s.lastLeafNodeIndex = bestLeafNodeIndex;
+                    rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                    return (T) values[bestLeafValueIndex];
                 }
             }
         }
 
+        s.lastLeafNodeIndex = bestLeafNodeIndex;
+        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
         return (T) values[bestLeafValueIndex];
+    }
+
+    private static void rememberLastQuery(
+            SearchContext s,
+            int valueIndex,
+            long t,
+            long h,
+            long c,
+            long e,
+            long d,
+            long w
+    ) {
+        s.lastValueIndex = valueIndex;
+        s.lastT = t;
+        s.lastH = h;
+        s.lastC = c;
+        s.lastE = e;
+        s.lastD = d;
+        s.lastW = w;
+    }
+
+    private static int queryCacheSize() {
+        int configured = Integer.getInteger("ga.climate.queryCacheSize", 0);
+        if (configured <= 0) {
+            return 0;
+        }
+        return Integer.highestOneBit(configured);
+    }
+
+    private static int queryCacheSlot(long t, long h, long c, long e, long d, long w) {
+        long mixed = t * 0x9E3779B97F4A7C15L;
+        mixed ^= Long.rotateLeft(h, 11);
+        mixed ^= Long.rotateLeft(c, 23);
+        mixed ^= Long.rotateLeft(e, 37);
+        mixed ^= Long.rotateLeft(d, 43);
+        mixed ^= Long.rotateLeft(w, 53);
+        mixed ^= mixed >>> 33;
+        mixed *= 0xff51afd7ed558ccdL;
+        mixed ^= mixed >>> 33;
+        return (int) mixed & QUERY_CACHE_MASK;
+    }
+
+    private static void storeQueryCache(
+            SearchContext s,
+            int slot,
+            long t,
+            long h,
+            long c,
+            long e,
+            long d,
+            long w
+    ) {
+        if (slot < 0 || s.lastValueIndex < 0 || s.lastLeafNodeIndex < 0) {
+            return;
+        }
+        s.cacheT[slot] = t;
+        s.cacheH[slot] = h;
+        s.cacheC[slot] = c;
+        s.cacheE[slot] = e;
+        s.cacheD[slot] = d;
+        s.cacheW[slot] = w;
+        s.cacheLeafNode[slot] = s.lastLeafNodeIndex;
+        s.cacheValuePlusOne[slot] = s.lastValueIndex + 1;
     }
 
     /**
@@ -215,16 +447,98 @@ public class FlatClimateIndex<T> {
      * @return (max(0, val - max) + max(0, min - val))²
      */
     private long distance(int nodeIdx, long t, long h, long c, long e, long d, long w) {
+        if ((this.activeDimensionMask & QUERY_DIMENSION_MASK) != QUERY_DIMENSION_MASK) {
+            return distanceMasked(nodeIdx, t, h, c, e, d, w);
+        }
         int base = nodeIdx * BYTES_PER_NODE;
-        long dist = 0;
+        long dist = 0L;
         dist += bDist(bounds[base], bounds[base + 1], t);
         dist += bDist(bounds[base + 2], bounds[base + 3], h);
         dist += bDist(bounds[base + 4], bounds[base + 5], c);
         dist += bDist(bounds[base + 6], bounds[base + 7], e);
         dist += bDist(bounds[base + 8], bounds[base + 9], d);
         dist += bDist(bounds[base + 10], bounds[base + 11], w);
-        dist += bDist(bounds[base + 12], bounds[base + 13], 0);
+        if (hasOffsetDistances) {
+            dist += offsetDistances[nodeIdx];
+        }
         return dist;
+    }
+
+    private long distanceCapped(int nodeIdx, long t, long h, long c, long e, long d, long w, long cap) {
+        if ((this.activeDimensionMask & QUERY_DIMENSION_MASK) != QUERY_DIMENSION_MASK) {
+            return distanceMaskedCapped(nodeIdx, t, h, c, e, d, w, cap);
+        }
+        return distanceCappedFull(nodeIdx, t, h, c, e, d, w, cap);
+    }
+
+    private long distanceCappedFull(int nodeIdx, long t, long h, long c, long e, long d, long w, long cap) {
+        int base = nodeIdx * BYTES_PER_NODE;
+        long dist = 0L;
+        dist += bDist(bounds[base], bounds[base + 1], t);
+        if (dist >= cap) return cap;
+        dist += bDist(bounds[base + 2], bounds[base + 3], h);
+        if (dist >= cap) return cap;
+        dist += bDist(bounds[base + 4], bounds[base + 5], c);
+        if (dist >= cap) return cap;
+        dist += bDist(bounds[base + 6], bounds[base + 7], e);
+        if (dist >= cap) return cap;
+        dist += bDist(bounds[base + 8], bounds[base + 9], d);
+        if (dist >= cap) return cap;
+        dist += bDist(bounds[base + 10], bounds[base + 11], w);
+        if (hasOffsetDistances) {
+            dist += offsetDistances[nodeIdx];
+        }
+        return dist >= cap ? cap : dist;
+    }
+
+    private long distanceMasked(int nodeIdx, long t, long h, long c, long e, long d, long w) {
+        int base = nodeIdx * BYTES_PER_NODE;
+        int mask = this.activeDimensionMask;
+        long dist = 0L;
+        if ((mask & 1) != 0) dist += bDist(bounds[base], bounds[base + 1], t);
+        if ((mask & 2) != 0) dist += bDist(bounds[base + 2], bounds[base + 3], h);
+        if ((mask & 4) != 0) dist += bDist(bounds[base + 4], bounds[base + 5], c);
+        if ((mask & 8) != 0) dist += bDist(bounds[base + 6], bounds[base + 7], e);
+        if ((mask & 16) != 0) dist += bDist(bounds[base + 8], bounds[base + 9], d);
+        if ((mask & 32) != 0) dist += bDist(bounds[base + 10], bounds[base + 11], w);
+        if (hasOffsetDistances) {
+            dist += offsetDistances[nodeIdx];
+        }
+        return dist;
+    }
+
+    private long distanceMaskedCapped(int nodeIdx, long t, long h, long c, long e, long d, long w, long cap) {
+        int base = nodeIdx * BYTES_PER_NODE;
+        int mask = this.activeDimensionMask;
+        long dist = 0L;
+        if ((mask & 1) != 0) {
+            dist += bDist(bounds[base], bounds[base + 1], t);
+            if (dist >= cap) return cap;
+        }
+        if ((mask & 2) != 0) {
+            dist += bDist(bounds[base + 2], bounds[base + 3], h);
+            if (dist >= cap) return cap;
+        }
+        if ((mask & 4) != 0) {
+            dist += bDist(bounds[base + 4], bounds[base + 5], c);
+            if (dist >= cap) return cap;
+        }
+        if ((mask & 8) != 0) {
+            dist += bDist(bounds[base + 6], bounds[base + 7], e);
+            if (dist >= cap) return cap;
+        }
+        if ((mask & 16) != 0) {
+            dist += bDist(bounds[base + 8], bounds[base + 9], d);
+            if (dist >= cap) return cap;
+        }
+        if ((mask & 32) != 0) {
+            dist += bDist(bounds[base + 10], bounds[base + 11], w);
+            if (dist >= cap) return cap;
+        }
+        if (hasOffsetDistances) {
+            dist += offsetDistances[nodeIdx];
+        }
+        return dist >= cap ? cap : dist;
     }
 
     /**
@@ -236,6 +550,88 @@ public class FlatClimateIndex<T> {
         long d2 = min - val;
         long d = (d1 & ~(d1 >> 63)) + (d2 & ~(d2 >> 63));
         return d * d;
+    }
+
+    private int[] collectLeafNodeIndices(int nodeCount) {
+        int count = 0;
+        for (int i = 0; i < nodeCount; i++) {
+            if (nodeChildCounts[i] == 0) {
+                count++;
+            }
+        }
+        int[] leaves = new int[count];
+        int cursor = 0;
+        for (int i = 0; i < nodeCount; i++) {
+            if (nodeChildCounts[i] == 0) {
+                leaves[cursor++] = i;
+            }
+        }
+        return leaves;
+    }
+
+    private int[] collectNodeOffsets(int nodeCount) {
+        int[] offsets = new int[nodeCount];
+        for (int i = 0; i < nodeCount; i++) {
+            offsets[i] = structure[i * 2];
+        }
+        return offsets;
+    }
+
+    private int[] collectNodeChildCounts(int nodeCount) {
+        int[] counts = new int[nodeCount];
+        for (int i = 0; i < nodeCount; i++) {
+            counts[i] = structure[i * 2 + 1];
+        }
+        return counts;
+    }
+
+    private long[] collectOffsetDistances(int nodeCount) {
+        long[] distances = new long[nodeCount];
+        for (int i = 0; i < nodeCount; i++) {
+            int base = i * BYTES_PER_NODE;
+            distances[i] = bDist(bounds[base + 12], bounds[base + 13], 0);
+        }
+        return distances;
+    }
+
+    private int collectActiveDimensionMask(int nodeCount) {
+        int mask = 0;
+        for (int dimension = 0; dimension < PARAMS; dimension++) {
+            if (dimensionVaries(nodeCount, dimension)) {
+                mask |= 1 << dimension;
+            }
+        }
+        return mask;
+    }
+
+    private boolean dimensionVaries(int nodeCount, int dimension) {
+        int offset = dimension * 2;
+        long min = bounds[offset];
+        long max = bounds[offset + 1];
+        for (int node = 1; node < nodeCount; node++) {
+            int base = node * BYTES_PER_NODE + offset;
+            if (bounds[base] != min || bounds[base + 1] != max) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int[] collectLeafValueIndices(int[] leaves) {
+        int[] valueIndices = new int[leaves.length];
+        for (int i = 0; i < leaves.length; i++) {
+            valueIndices[i] = nodeOffsets[leaves[i]];
+        }
+        return valueIndices;
+    }
+
+    private static boolean hasNonZero(long[] values) {
+        for (long value : values) {
+            if (value != 0L) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int flatten(Climate.RTree.Node<T> node, TempStorage storage) {

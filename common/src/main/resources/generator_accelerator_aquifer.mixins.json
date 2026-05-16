@@ -5,6 +5,7 @@
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.aquifer.GAAquiferMixinPlugin",
   "mixins": [
+    "MixinFluidStatusAccessor",
     "MixinNoiseBasedAquifer$optimize_noise"
   ],
   "injectors": {

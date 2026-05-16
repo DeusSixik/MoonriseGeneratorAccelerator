@@ -632,25 +632,34 @@ final class VerticalGradientSurfaceConditionNode implements SurfaceConditionNode
         PositionalRandomFactory randomFactory = ctx.randomState.getOrCreateRandomFactory(this.randomFactoryName);
 
         long[] words = activeMask.words();
-        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
-            long word = words[wordIndex];
-            while (word != 0L) {
-                int bit = Long.numberOfTrailingZeros(word);
-                int index = (wordIndex << 6) + bit;
-                int localY = index >> 8;
-                int globalY = ctx.sectionStartY + localY;
+        for (int localY = 0; localY < 16; localY++) {
+            int globalY = ctx.sectionStartY + localY;
+            int yWordBase = localY << 2;
+            if (globalY >= falseY) {
+                words[yWordBase] = 0L;
+                words[yWordBase + 1] = 0L;
+                words[yWordBase + 2] = 0L;
+                words[yWordBase + 3] = 0L;
+                continue;
+            }
+            if (globalY <= trueY) {
+                continue;
+            }
 
-                if (globalY >= falseY) {
-                    activeMask.clear(index);
-                } else if (globalY > trueY) {
-                    double chance = Mth.map(globalY, trueY, falseY, 1.0, 0.0);
-                    int localX = index & 15;
-                    int localZ = (index >> 4) & 15;
+            double chance = Mth.map(globalY, trueY, falseY, 1.0, 0.0);
+            for (int columnWord = 0; columnWord < 4; columnWord++) {
+                int wordIndex = yWordBase + columnWord;
+                long word = words[wordIndex];
+                while (word != 0L) {
+                    int bit = Long.numberOfTrailingZeros(word);
+                    int xz = (columnWord << 6) + bit;
+                    int localX = xz & 15;
+                    int localZ = xz >> 4;
                     if (FastPositionalRandom.nextFloatAt(randomFactory, ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ) >= chance) {
-                        activeMask.clear(index);
+                        words[wordIndex] &= ~(1L << bit);
                     }
+                    word &= word - 1L;
                 }
-                word &= word - 1L;
             }
         }
     }

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -91,7 +92,9 @@ public abstract class MixinBlockPileFeature extends Feature<BlockPileConfigurati
             int z
     ) {
         pos.set(x, y, z);
-        if (level.isEmptyBlock(pos) && ga$mayPlaceOn(level, pos, belowPos, random)) {
+        if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, pos)
+                && level.isEmptyBlock(pos)
+                && ga$mayPlaceOn(level, pos, belowPos, random)) {
             level.setBlock(pos, config.stateProvider.getState(random, pos), 4);
         }
     }

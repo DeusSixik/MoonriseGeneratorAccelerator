@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.WorldGenLevel;
@@ -46,11 +47,18 @@ public abstract class MixinSimpleBlockFeature extends Feature<SimpleBlockConfigu
             if (!level.isEmptyBlock(abovePos)) {
                 return false;
             }
+            if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, origin)
+                    || !GAWorldGenRegionAccess.canWriteWithoutLogging(level, abovePos)) {
+                return false;
+            }
 
             DoublePlantBlock.placeAt(level, state, origin, 2);
             return true;
         }
 
+        if (!GAWorldGenRegionAccess.canWriteWithoutLogging(level, origin)) {
+            return false;
+        }
         level.setBlock(origin, state, 2);
         return true;
     }

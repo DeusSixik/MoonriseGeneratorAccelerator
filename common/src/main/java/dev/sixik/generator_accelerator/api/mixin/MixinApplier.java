@@ -26,8 +26,23 @@ public record MixinApplier(String modClassPath, Param[] mixins) {
     public boolean isModLoaded() {
         if(modClassPath.isEmpty()) return true;
 
+        if (modClassPath.indexOf(';') >= 0) {
+            for (String modClass : modClassPath.split(";")) {
+                if (!isClassLoaded(modClass)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return isClassLoaded(modClassPath);
+    }
+
+    private static boolean isClassLoaded(String modClassPath) {
+        if (modClassPath.isEmpty()) return true;
+
         try {
-            Class.forName(modClassPath, false, getClass().getClassLoader());
+            Class.forName(modClassPath, false, MixinApplier.class.getClassLoader());
             return true;
         } catch (ClassNotFoundException e) {
             return false;

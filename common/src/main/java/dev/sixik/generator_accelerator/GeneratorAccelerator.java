@@ -1,12 +1,11 @@
 package dev.sixik.generator_accelerator;
 
 import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
+import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinWorkerThread;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class GeneratorAccelerator {
     public static final String MOD_ID = "generator_accelerator";
@@ -19,28 +18,8 @@ public final class GeneratorAccelerator {
     public static void init(Platform platform, boolean isDev) {
         GeneratorAccelerator.platform = platform;
         GADiagnostics.onModInit();
-
-        if(isDev) {
-            CUSTOM_POOL = new ForkJoinPool(
-                    Math.min(0x7fff, Runtime.getRuntime().availableProcessors()),
-                    new ForkJoinPool.ForkJoinWorkerThreadFactory() {
-                        private final AtomicInteger counter = new AtomicInteger();
-
-                        @Override
-                        public ForkJoinWorkerThread newThread(ForkJoinPool pool) {
-                            ForkJoinWorkerThread worker =
-                                    ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool);
-
-                            worker.setName("GA-NOISE-TREAD-" + counter.incrementAndGet());
-                            return worker;
-                        }
-                    },
-                    null,
-                    false
-            );
-        } else {
-            CUSTOM_POOL = ForkJoinPool.commonPool();
-        }
+        GAScheduler.init(isDev);
+        CUSTOM_POOL = Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")) ? GAScheduler.noisePool() : null;
     }
 
     public enum Platform {

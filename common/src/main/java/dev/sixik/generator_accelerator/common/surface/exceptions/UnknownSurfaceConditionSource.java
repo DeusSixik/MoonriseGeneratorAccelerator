@@ -5,4 +5,8 @@ public class UnknownSurfaceConditionSource extends RuntimeException {
     public UnknownSurfaceConditionSource(String message) {
         super(message);
     }
+
+    public UnknownSurfaceConditionSource(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

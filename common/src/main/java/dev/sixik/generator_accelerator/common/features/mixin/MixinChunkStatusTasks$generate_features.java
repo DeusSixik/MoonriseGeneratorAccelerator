@@ -1,6 +1,9 @@
 package dev.sixik.generator_accelerator.common.features.mixin;
 
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$primeFeatureHeightmapsUnsynchronized;
+import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPipeline;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
@@ -23,11 +26,19 @@ public class MixinChunkStatusTasks$generate_features {
      */
     @Overwrite
     public static CompletableFuture<ChunkAccess> generateFeatures(WorldGenContext worldGenContext, ChunkStep chunkStep, StaticCache2D<GenerationChunkHolder> staticCache2D, ChunkAccess chunkAccess) {
-        ServerLevel serverLevel = worldGenContext.level();
-        ((ChunkAccess$primeFeatureHeightmapsUnsynchronized) chunkAccess).ga$primeFeatureHeightmapsIfMissing();
-        WorldGenRegion worldGenRegion = new WorldGenRegion(serverLevel, staticCache2D, chunkStep, chunkAccess);
-        worldGenContext.generator().applyBiomeDecoration(worldGenRegion, chunkAccess, serverLevel.structureManager().forWorldGenRegion(worldGenRegion));
-        Blender.generateBorderTicks(worldGenRegion, chunkAccess);
-        return CompletableFuture.completedFuture(chunkAccess);
+        return GAChunkWorkspaceRuntime.drainCrossChunkMailboxAfter(GAChunkStatusPipeline.schedule(
+                GAChunkStatusPipeline.Stage.FEATURES,
+                GAScheduler.Lane.TRANSACTIONAL,
+                chunkStep,
+                chunkAccess,
+                () -> GAChunkWorkspaceRuntime.withImportedWorkspace(chunkAccess, () -> {
+                    ServerLevel serverLevel = worldGenContext.level();
+                    ((ChunkAccess$primeFeatureHeightmapsUnsynchronized) chunkAccess).ga$primeFeatureHeightmapsIfMissing();
+                    WorldGenRegion worldGenRegion = new WorldGenRegion(serverLevel, staticCache2D, chunkStep, chunkAccess);
+                    worldGenContext.generator().applyBiomeDecoration(worldGenRegion, chunkAccess, serverLevel.structureManager().forWorldGenRegion(worldGenRegion));
+                    Blender.generateBorderTicks(worldGenRegion, chunkAccess);
+                    return chunkAccess;
+                })
+        ));
     }
 }

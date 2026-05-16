@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.MultifaceBlock;
@@ -39,6 +40,11 @@ public abstract class MixinSculkSpreader {
     public void updateCursors(LevelAccessor level, BlockPos origin, RandomSource random, boolean shouldSpread) {
         List<SculkSpreader.ChargeCursor> current = this.cursors;
         if (current.isEmpty()) {
+            return;
+        }
+
+        if (this.isWorldGeneration() && level instanceof WorldGenRegion) {
+            updateWorldgenCursorsInPlaceNoEvents(level, origin, random, (SculkSpreader) (Object) this, shouldSpread, current);
             return;
         }
 
@@ -86,6 +92,35 @@ public abstract class MixinSculkSpreader {
 
         emitChargeEvents(level, cursorByPos, chargeByPos);
         this.cursors = next;
+    }
+
+    @Unique
+    private static void updateWorldgenCursorsInPlaceNoEvents(
+            LevelAccessor level,
+            BlockPos origin,
+            RandomSource random,
+            SculkSpreader spreader,
+            boolean shouldSpread,
+            List<SculkSpreader.ChargeCursor> cursors
+    ) {
+        int writeIndex = 0;
+        int size = cursors.size();
+        for (int i = 0; i < size; i++) {
+            SculkSpreader.ChargeCursor cursor = cursors.get(i);
+            cursor.update(level, origin, random, spreader, shouldSpread);
+            if (cursor.getCharge() <= 0) {
+                continue;
+            }
+
+            if (writeIndex != i) {
+                cursors.set(writeIndex, cursor);
+            }
+            writeIndex++;
+        }
+
+        for (int i = size - 1; i >= writeIndex; i--) {
+            cursors.remove(i);
+        }
     }
 
     @Unique

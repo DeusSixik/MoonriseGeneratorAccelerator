@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.safe;
 
+import dev.sixik.generator_accelerator.common.structures.compat.ConfluenceStructureTemplateCompat;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
@@ -12,7 +13,6 @@ import net.minecraft.nbt.NbtUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.Painting;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -49,6 +49,16 @@ public abstract class MixinStructureTemplate {
     @Shadow
     private Vec3i size;
 
+    @Shadow
+    private static void addToLists(
+            StructureTemplate.StructureBlockInfo structureBlockInfo,
+            List<StructureTemplate.StructureBlockInfo> solidBlocks,
+            List<StructureTemplate.StructureBlockInfo> nbtBlocks,
+            List<StructureTemplate.StructureBlockInfo> otherBlocks
+    ) {
+        throw new AssertionError();
+    }
+
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(CallbackInfo ci) {
         this.palettes = Collections.emptyList();
@@ -83,7 +93,7 @@ public abstract class MixinStructureTemplate {
             StructureTemplate.StructureBlockInfo structureBlockInfo = blockEntity != null
                     ? new StructureTemplate.StructureBlockInfo(localPos, blockState, blockEntity.saveWithId(level.registryAccess()))
                     : new StructureTemplate.StructureBlockInfo(localPos, blockState, null);
-            generator_accelerator$addToLists(structureBlockInfo, solidBlocks, nbtBlocks, otherBlocks);
+            addToLists(structureBlockInfo, solidBlocks, nbtBlocks, otherBlocks);
         }
 
         StructureTemplate.Palette palette = StructureTemplatePaletteInvoker.generator_accelerator$createPalette(
@@ -184,6 +194,7 @@ public abstract class MixinStructureTemplate {
                 if (structureBlockInfo.nbt() != null) {
                     compoundTag2.put("nbt", structureBlockInfo.nbt());
                 }
+                ConfluenceStructureTemplateCompat.save(structureBlockInfo, compoundTag2);
                 listTag.add(compoundTag2);
 
                 for (int l = 1; l < palettesSnapshot.size(); ++l) {
@@ -246,29 +257,13 @@ public abstract class MixinStructureTemplate {
             BlockState blockState = simplePalette.stateFor(blockInfoTag.getInt(StructureTemplate.BLOCK_TAG_STATE));
             CompoundTag blockNbt = blockInfoTag.contains("nbt") ? blockInfoTag.getCompound("nbt") : null;
             StructureTemplate.StructureBlockInfo structureBlockInfo = new StructureTemplate.StructureBlockInfo(blockPos, blockState, blockNbt);
-            generator_accelerator$addToLists(structureBlockInfo, solidBlocks, nbtBlocks, otherBlocks);
+            ConfluenceStructureTemplateCompat.load(blockInfoTag, structureBlockInfo);
+            addToLists(structureBlockInfo, solidBlocks, nbtBlocks, otherBlocks);
         }
 
         return StructureTemplatePaletteInvoker.generator_accelerator$createPalette(
                 generator_accelerator$buildInfoList(solidBlocks, nbtBlocks, otherBlocks)
         );
-    }
-
-    @Unique
-    private static void generator_accelerator$addToLists(
-            StructureTemplate.StructureBlockInfo structureBlockInfo,
-            List<StructureTemplate.StructureBlockInfo> solidBlocks,
-            List<StructureTemplate.StructureBlockInfo> nbtBlocks,
-            List<StructureTemplate.StructureBlockInfo> otherBlocks
-    ) {
-        if (structureBlockInfo.nbt() != null) {
-            nbtBlocks.add(structureBlockInfo);
-        } else if (!structureBlockInfo.state().getBlock().hasDynamicShape()
-                && structureBlockInfo.state().isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO)) {
-            solidBlocks.add(structureBlockInfo);
-        } else {
-            otherBlocks.add(structureBlockInfo);
-        }
     }
 
     @Unique

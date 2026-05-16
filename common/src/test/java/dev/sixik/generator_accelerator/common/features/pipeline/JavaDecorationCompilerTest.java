@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
+import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenSafetyTier;
 import net.minecraft.core.Holder;
 import net.minecraft.util.valueproviders.ConstantInt;
 import net.minecraft.world.level.block.Blocks;
@@ -50,6 +52,42 @@ class JavaDecorationCompilerTest {
         assertEquals(DecorationKernelKind.PARTIAL_NATIVE_PLACEMENT, stepPlan.kernelForFeatureIndex(0).kind());
         assertEquals(DecorationKernelKind.NATIVE_LAKE, stepPlan.kernelForFeatureIndex(1).kind());
         assertEquals(DecorationKernelKind.NATIVE_SCULK_PATCH, stepPlan.kernelForFeatureIndex(2).kind());
+    }
+
+    @Test
+    void compileStepRecordsCheapClassifierCounters() {
+        boolean previous = DecorationPipelineMetrics.ENABLED;
+        boolean previousProfileMetrics = WorldgenProfileMetrics.ENABLED;
+        DecorationPipelineMetrics.setEnabled(true);
+        WorldgenProfileMetrics.setEnabled(true);
+        DecorationPipelineMetrics.reset();
+        WorldgenProfileMetrics.reset();
+        try {
+            PlacedFeature tree = placed(Feature.TREE, FeatureConfiguration.NONE);
+            PlacedFeature lake = placed(
+                    Feature.LAKE,
+                    new LakeFeature.Configuration(
+                            BlockStateProvider.simple(Blocks.WATER),
+                            BlockStateProvider.simple(Blocks.STONE)
+                    )
+            );
+
+            this.compiler.compileStep(0, new Object[]{tree, lake});
+
+            assertEquals(1, DecorationPipelineMetrics.get(DecorationPipelineMetrics.CLASSIFIER_TIER1_UNITS));
+            assertEquals(1, DecorationPipelineMetrics.get(DecorationPipelineMetrics.CLASSIFIER_TIER2_UNITS));
+            assertEquals(1, DecorationPipelineMetrics.get(DecorationPipelineMetrics.CLASSIFIER_NATIVE_FEATURES));
+            assertEquals(1, DecorationPipelineMetrics.get(DecorationPipelineMetrics.CLASSIFIER_PARTIAL_FEATURES));
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> tiers = (java.util.Map<String, Object>) WorldgenProfileMetrics.snapshot().get("tiers");
+            assertEquals(1L, tiers.get(WorldgenSafetyTier.GA_NATIVE_DETERMINISTIC_WRITES.name()));
+            assertEquals(1L, tiers.get(WorldgenSafetyTier.PARTIAL_NATIVE_VANILLA_FEATURE.name()));
+        } finally {
+            DecorationPipelineMetrics.reset();
+            WorldgenProfileMetrics.reset();
+            DecorationPipelineMetrics.setEnabled(previous);
+            WorldgenProfileMetrics.setEnabled(previousProfileMetrics);
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

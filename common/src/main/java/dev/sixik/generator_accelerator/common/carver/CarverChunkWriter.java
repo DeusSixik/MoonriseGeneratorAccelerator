@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.carver;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -43,6 +44,9 @@ public final class CarverChunkWriter {
     }
 
     public void end() {
+        if (!this.active && this.chunk == null && this.sections == null) {
+            return;
+        }
         this.active = false;
         this.chunk = null;
         this.protoChunk = null;
@@ -77,6 +81,15 @@ public final class CarverChunkWriter {
     }
 
     public int getStateId(BlockPos blockPos) {
+        Integer workspaceStateId = GAWorkspaceWriteBridge.readBlockIdCurrent(
+                blockPos.getX(),
+                blockPos.getY(),
+                blockPos.getZ()
+        );
+        if (workspaceStateId != null) {
+            return workspaceStateId;
+        }
+
         if (!this.fastPath) {
             return GA$BlockStateExtension.get(this.chunk.getBlockState(blockPos)).bts$getFastId();
         }
@@ -108,6 +121,7 @@ public final class CarverChunkWriter {
     public void setStateId(BlockPos blockPos, int stateId, BlockState state) {
         if (!this.fastPath) {
             this.chunk.setBlockState(blockPos, state, false);
+            GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, state);
             return;
         }
 
@@ -125,6 +139,7 @@ public final class CarverChunkWriter {
         int localY = y & 15;
         int localZ = blockPos.getZ() & 15;
         section.setBlockState(localX, localY, localZ, state, false);
+        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, state);
         for (int i = 0; i < this.heightmapCount; i++) {
             this.heightmaps[i].update(localX, y, localZ, state);
         }

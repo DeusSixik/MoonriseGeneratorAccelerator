@@ -13,6 +13,7 @@ import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import org.spongepowered.asm.mixin.*;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.locks.StampedLock;
 
@@ -46,6 +47,12 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
     @Unique
     private final StampedLock bts$structuresData_structuresRefences_Lock = new StampedLock();
 
+    @Unique
+    private volatile Map<Structure, StructureStart> bts$structureStartsSnapshot;
+
+    @Unique
+    private volatile Map<Structure, LongSet> bts$structureReferencesSnapshot;
+
     @WrapMethod(method = "getStartForStructure")
     public StructureStart bts$getStartForStructure$synchronized(Structure structure, Operation<StructureStart> original) {
         final long stamp = bts$structuresData_structureStarts_Lock.readLock();
@@ -62,6 +69,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         final long stamp = bts$structuresData_structureStarts_Lock.writeLock();
         try {
             original.call(structure, structureStart);
+            bts$structureStartsSnapshot = null;
         } finally {
             bts$structuresData_structureStarts_Lock.unlockWrite(stamp);
         }
@@ -72,6 +80,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         final long stamp = bts$structuresData_structureStarts_Lock.writeLock();
         try {
             original.call(map);
+            bts$structureStartsSnapshot = null;
         } finally {
             bts$structuresData_structureStarts_Lock.unlockWrite(stamp);
         }
@@ -79,9 +88,18 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
 
     @WrapMethod(method = "getAllStarts")
     public Map<Structure, StructureStart> bts$getAllStarts$synchronized(Operation<Map<Structure, StructureStart>> original) {
+        Map<Structure, StructureStart> snapshot = bts$structureStartsSnapshot;
+        if (snapshot != null) {
+            return snapshot;
+        }
         final long stamp = bts$structuresData_structureStarts_Lock.readLock();
         try {
-            return new Reference2ObjectOpenHashMap<>(structureStarts);
+            snapshot = bts$structureStartsSnapshot;
+            if (snapshot == null) {
+                snapshot = Collections.unmodifiableMap(new Reference2ObjectOpenHashMap<>(structureStarts));
+                bts$structureStartsSnapshot = snapshot;
+            }
+            return snapshot;
         } finally {
             bts$structuresData_structureStarts_Lock.unlockRead(stamp);
         }
@@ -102,6 +120,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         final var stamp = bts$structuresData_structuresRefences_Lock.writeLock();
         try {
             original.call(structure, l);
+            bts$structureReferencesSnapshot = null;
         } finally {
             bts$structuresData_structuresRefences_Lock.unlockWrite(stamp);
         }
@@ -112,6 +131,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         final var stamp = bts$structuresData_structuresRefences_Lock.writeLock();
         try {
             original.call(map);
+            bts$structureReferencesSnapshot = null;
         } finally {
             bts$structuresData_structuresRefences_Lock.unlockWrite(stamp);
         }
@@ -119,9 +139,18 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
 
     @WrapMethod(method = "getAllReferences")
     public Map<Structure, LongSet> bts$getAllReferences$synchronized(Operation<Map<Structure, LongSet>> original) {
+        Map<Structure, LongSet> snapshot = bts$structureReferencesSnapshot;
+        if (snapshot != null) {
+            return snapshot;
+        }
         final var stamp = bts$structuresData_structuresRefences_Lock.readLock();
         try {
-            return new Reference2ObjectOpenHashMap<>(structuresRefences);
+            snapshot = bts$structureReferencesSnapshot;
+            if (snapshot == null) {
+                snapshot = Collections.unmodifiableMap(new Reference2ObjectOpenHashMap<>(structuresRefences));
+                bts$structureReferencesSnapshot = snapshot;
+            }
+            return snapshot;
         } finally {
             bts$structuresData_structuresRefences_Lock.unlockRead(stamp);
         }

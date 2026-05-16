@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.biome.mixin;
 
+import com.google.common.hash.Hashing;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
@@ -19,6 +20,31 @@ public class MixinBiomeManager$optimize_biome_getter {
     // Константы LCG (из LinearCongruentialGenerator)
     private static final long LCG_MUL = 6364136223846793005L;
     private static final long LCG_ADD = 1442695040888963407L;
+
+    @Unique
+    private static volatile boolean ga$hasObfuscatedSeed;
+    @Unique
+    private static volatile long ga$lastSeed;
+    @Unique
+    private static volatile long ga$lastObfuscatedSeed;
+
+    /**
+     * @author Sixik
+     * @reason WorldGenRegion rebuilds BiomeManager for many chunk steps with the
+     * same world seed. Cache the pure SHA result and avoid per-region hasher allocation.
+     */
+    @Overwrite
+    public static long obfuscateSeed(long seed) {
+        if (ga$hasObfuscatedSeed && ga$lastSeed == seed) {
+            return ga$lastObfuscatedSeed;
+        }
+
+        long obfuscated = Hashing.sha256().hashLong(seed).asLong();
+        ga$lastSeed = seed;
+        ga$lastObfuscatedSeed = obfuscated;
+        ga$hasObfuscatedSeed = true;
+        return obfuscated;
+    }
 
     /**
      * @author Sixik

@@ -7,6 +7,9 @@ import dev.sixik.generator_accelerator.config.GAConfig;
 import java.util.Arrays;
 
 public class GAPalettedContainerMixinPlugin extends GAMixinPlugin {
+    private static final String LITHIUM = "net.caffeinemc.mods.lithium.common.LithiumMod";
+    private static final String MODERNFIX = "org.embeddedt.modernfix.ModernFix";
+
     @Override
     public boolean isConfigEnable(GAConfig config) {
         return config.enablePalettedContainerPatch;
@@ -29,7 +32,7 @@ public class GAPalettedContainerMixinPlugin extends GAMixinPlugin {
         MixinApplier.Param[] array = Arrays.stream(mixins).map((value) -> new MixinApplier.Param("", value)).toArray(MixinApplier.Param[]::new);
         create("ca.spottedleaf.moonrise.common.PlatformHooks", array);
 
-        create("net.caffeinemc.mods.lithium.common.LithiumMod",
+        create(LITHIUM,
                 new MixinApplier.Param(
                 "",
                         "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.SimpleBitStorageMixin"
@@ -37,7 +40,25 @@ public class GAPalettedContainerMixinPlugin extends GAMixinPlugin {
                 new MixinApplier.Param(
                 "",
                         "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.ZeroBitStorageMixin"
+                ),
+                new MixinApplier.Param(
+                "",
+                        "net.caffeinemc.mods.lithium.mixin.chunk.no_locking.PalettedContainerMixin"
+                ),
+                new MixinApplier.Param(
+                "",
+                        "net.caffeinemc.mods.lithium.mixin.chunk.palette.PalettedContainer$StrategyMixin"
+                ),
+                new MixinApplier.Param(
+                "",
+                        "net.caffeinemc.mods.lithium.mixin.chunk.serialization.PalettedContainerMixin",
+                        "net.caffeinemc.mods.lithium.mixin.chunk.serialization.SimpleBitStorageMixin"
                 )
         );
+
+        create(MODERNFIX, new MixinApplier.Param(
+                "",
+                "org.embeddedt.modernfix.common.mixin.perf.compact_bit_storage.PalettedContainerMixin"
+        ));
     }
 }

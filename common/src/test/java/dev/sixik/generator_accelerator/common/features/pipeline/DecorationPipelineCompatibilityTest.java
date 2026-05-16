@@ -1,15 +1,20 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfiguration;
+import net.minecraft.world.level.levelgen.feature.configurations.RandomPatchConfiguration;
+import net.minecraft.world.level.levelgen.feature.configurations.SimpleBlockConfiguration;
+import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.Registries;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -27,15 +32,20 @@ class DecorationPipelineCompatibilityTest {
         MinecraftBootstrapHelper.ensureBootstrapped();
     }
 
+    @BeforeEach
+    void clearCompatibilityState() {
+        DecorationPipelineCompatibility.clearSessionCaches();
+    }
+
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void quarantineMarksOnlyTheFailingPlacedFeatureInstance() {
-        PlacedFeature failingFeature = placed(Feature.TREE, FeatureConfiguration.NONE);
-        PlacedFeature unaffectedFeature = placed(Feature.TREE, FeatureConfiguration.NONE);
+        PlacedFeature failingFeature = simpleBlock();
+        PlacedFeature unaffectedFeature = simpleBlock();
         DecorationKernelPlan kernel = DecorationKernelPlan.vanillaFallback(failingFeature, 7);
         Registry<PlacedFeature> registry = mock(Registry.class);
         when(registry.getResourceKey(failingFeature)).thenReturn(Optional.of(
-                ResourceKey.create(Registries.PLACED_FEATURE, ResourceLocation.fromNamespaceAndPath("brokenmod", "bad_tree"))
+                ResourceKey.create(Registries.PLACED_FEATURE, ResourceLocation.fromNamespaceAndPath("brokenmod", "bad_rock"))
         ));
 
         assertFalse(DecorationPipelineCompatibility.shouldUseSafeVanilla(failingFeature));
@@ -52,6 +62,33 @@ class DecorationPipelineCompatibilityTest {
 
         assertTrue(DecorationPipelineCompatibility.shouldUseSafeVanilla(failingFeature));
         assertFalse(DecorationPipelineCompatibility.shouldUseSafeVanilla(unaffectedFeature));
+    }
+
+    @Test
+    void treeFeaturesUseSafeVanillaBeforeAnyQuarantine() {
+        PlacedFeature tree = placed(Feature.TREE, FeatureConfiguration.NONE);
+
+        assertTrue(DecorationPipelineCompatibility.isTreeLikeFeature(tree));
+        assertTrue(DecorationPipelineCompatibility.shouldUseSafeVanilla(tree));
+    }
+
+    @Test
+    void randomPatchTreeFeaturesUseSafeVanillaBeforeAnyQuarantine() {
+        PlacedFeature tree = placed(Feature.TREE, FeatureConfiguration.NONE);
+        PlacedFeature patch = placed(
+                Feature.RANDOM_PATCH,
+                new RandomPatchConfiguration(8, 3, 3, Holder.direct(tree))
+        );
+
+        assertTrue(DecorationPipelineCompatibility.isTreeLikeFeature(patch));
+        assertTrue(DecorationPipelineCompatibility.shouldUseSafeVanilla(patch));
+    }
+
+    private static PlacedFeature simpleBlock() {
+        return placed(
+                Feature.SIMPLE_BLOCK,
+                new SimpleBlockConfiguration(BlockStateProvider.simple(Blocks.STONE))
+        );
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

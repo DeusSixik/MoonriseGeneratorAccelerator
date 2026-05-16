@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
@@ -81,9 +82,11 @@ public abstract class MixinDiskFeature extends Feature<DiskConfiguration> {
                 continue;
             }
             BlockState state = config.stateProvider().getState(level, random, mutablePos);
-            level.setBlock(mutablePos, state, 2);
-            this.markAboveForPostProcessing(level, mutablePos);
-            placedAny = true;
+            if (GAWorldGenRegionAccess.canWriteWithoutLogging(level, mutablePos)) {
+                level.setBlock(mutablePos, state, 2);
+                this.markAboveForPostProcessing(level, mutablePos);
+                placedAny = true;
+            }
         }
 
         return placedAny;

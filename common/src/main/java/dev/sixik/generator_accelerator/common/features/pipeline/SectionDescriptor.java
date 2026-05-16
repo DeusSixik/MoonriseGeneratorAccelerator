@@ -46,6 +46,20 @@ public final class SectionDescriptor {
     private static final int MASK_STONE_LIKE = 1 << 6;
     private static final int MASK_DIRT_LIKE = 1 << 7;
     private static final int MASK_TREE_SOIL = 1 << 8;
+    private static final int[] PALETTE_FLAG_BITS = {
+            PALETTE_AIR,
+            PALETTE_WATER,
+            PALETTE_LAVA,
+            PALETTE_SOLID
+    };
+    private static final int[] BLOCK_CLASS_FLAG_BITS = {
+            CLASS_STONE_LIKE,
+            CLASS_DIRT_LIKE,
+            CLASS_REPLACEABLE,
+            CLASS_ORE_TARGET,
+            CLASS_SURFACE_CANDIDATE,
+            CLASS_TREE_SOIL
+    };
 
     private static volatile CachedStateFacts stateFactsById;
 
@@ -81,6 +95,10 @@ public final class SectionDescriptor {
     private final int[] columnTreeSoilMask = new int[COLUMN_COUNT];
     private final byte[] columnMinFilledLocalY = new byte[COLUMN_COUNT];
     private final byte[] columnMaxFilledLocalY = new byte[COLUMN_COUNT];
+    private final int[] paletteFlagCounts = new int[PALETTE_FLAG_BITS.length];
+    private final int[] blockClassFlagCounts = new int[BLOCK_CLASS_FLAG_BITS.length];
+    private final int[] minFilledLocalYCounts = new int[SECTION_EDGE];
+    private final int[] maxFilledLocalYCounts = new int[SECTION_EDGE];
     private boolean allAirSection;
 
     public SectionDescriptor() {
@@ -111,6 +129,10 @@ public final class SectionDescriptor {
         this.hasSurfaceCandidate = false;
         this.hasTreeSoil = false;
         this.allAirSection = false;
+        Arrays.fill(this.paletteFlagCounts, 0);
+        Arrays.fill(this.blockClassFlagCounts, 0);
+        Arrays.fill(this.minFilledLocalYCounts, 0);
+        Arrays.fill(this.maxFilledLocalYCounts, 0);
     }
 
     private void clearColumnData() {
@@ -422,10 +444,14 @@ public final class SectionDescriptor {
         }
 
         int columnIndex = columnIndex(localX, localZ);
+        int oldPaletteFlags = this.columnPaletteFlags[columnIndex];
+        int oldBlockClassFlags = this.columnBlockClassFlags[columnIndex];
+        int oldMinFilledLocalY = this.columnMinFilledLocalY[columnIndex];
+        int oldMaxFilledLocalY = this.columnMaxFilledLocalY[columnIndex];
         int[] raw = LevelChunkSection$FlatBlockArray.rawData(this.section);
         if (raw != null) {
             this.scanRawColumn(raw, columnIndex);
-            this.refreshAggregates();
+            this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
             return;
         }
 
@@ -434,7 +460,78 @@ public final class SectionDescriptor {
             this.acceptColumnState(this.section.getBlockState(localX, localY, localZ), columnIndex, localY, 1 << localY);
         }
         this.finishColumnFlags(columnIndex);
-        this.refreshAggregates();
+        this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
+    }
+
+    void updateBlockState(int blockX, int blockY, int blockZ, BlockState newState) {
+        if (this.section == null || !this.containsBlockY(blockY)) {
+            return;
+        }
+        if (this.allAirSection) {
+            if (newState.isAir()) {
+                return;
+            }
+            this.build(this.chunk, this.section, this.sectionX, this.sectionY, this.sectionZ);
+            return;
+        }
+
+        int columnIndex = columnIndexFromBlock(blockX, blockZ);
+        int oldPaletteFlags = this.columnPaletteFlags[columnIndex];
+        int oldBlockClassFlags = this.columnBlockClassFlags[columnIndex];
+        int oldMinFilledLocalY = this.columnMinFilledLocalY[columnIndex];
+        int oldMaxFilledLocalY = this.columnMaxFilledLocalY[columnIndex];
+        int localY = blockY & 15;
+        int bit = 1 << localY;
+        int clearMask = ~bit;
+
+        int airMask = this.columnAirMask[columnIndex] & clearMask;
+        int waterMask = this.columnWaterMask[columnIndex] & clearMask;
+        int lavaMask = this.columnLavaMask[columnIndex] & clearMask;
+        int solidMask = this.columnSolidMask[columnIndex] & clearMask;
+        int motionBlockingMask = this.columnMotionBlockingMask[columnIndex] & clearMask;
+        int replaceableMask = this.columnReplaceableMask[columnIndex] & clearMask;
+        int stoneLikeMask = this.columnStoneLikeMask[columnIndex] & clearMask;
+        int dirtLikeMask = this.columnDirtLikeMask[columnIndex] & clearMask;
+        int treeSoilMask = this.columnTreeSoilMask[columnIndex] & clearMask;
+
+        int stateId = Block.getId(newState);
+        CachedStateFacts facts = stateFactsById();
+        int maskFlags = stateId >= 0 && stateId < facts.maskFlags.length
+                ? facts.maskFlags[stateId]
+                : maskFlagsForState(newState);
+
+        airMask |= (maskFlags & MASK_AIR) << localY;
+        waterMask |= ((maskFlags & MASK_WATER) << localY) >>> 1;
+        lavaMask |= ((maskFlags & MASK_LAVA) << localY) >>> 2;
+        solidMask |= ((maskFlags & MASK_SOLID) << localY) >>> 3;
+        motionBlockingMask |= ((maskFlags & MASK_MOTION_BLOCKING) << localY) >>> 4;
+        replaceableMask |= ((maskFlags & MASK_REPLACEABLE) << localY) >>> 5;
+        stoneLikeMask |= ((maskFlags & MASK_STONE_LIKE) << localY) >>> 6;
+        dirtLikeMask |= ((maskFlags & MASK_DIRT_LIKE) << localY) >>> 7;
+        treeSoilMask |= ((maskFlags & MASK_TREE_SOIL) << localY) >>> 8;
+
+        this.columnAirMask[columnIndex] = airMask;
+        this.columnWaterMask[columnIndex] = waterMask;
+        this.columnLavaMask[columnIndex] = lavaMask;
+        this.columnSolidMask[columnIndex] = solidMask;
+        this.columnMotionBlockingMask[columnIndex] = motionBlockingMask;
+        this.columnReplaceableMask[columnIndex] = replaceableMask;
+        this.columnStoneLikeMask[columnIndex] = stoneLikeMask;
+        this.columnDirtLikeMask[columnIndex] = dirtLikeMask;
+        this.columnTreeSoilMask[columnIndex] = treeSoilMask;
+
+        int paletteFlags = flagsFromColumnMasks(airMask, waterMask, lavaMask, solidMask);
+        int blockClassFlags = classFlagsFromColumnMasks(replaceableMask, stoneLikeMask, dirtLikeMask, treeSoilMask);
+        if (this.finishSurfaceCandidate(paletteFlags, blockClassFlags)) {
+            blockClassFlags |= CLASS_SURFACE_CANDIDATE;
+        }
+        this.columnPaletteFlags[columnIndex] = paletteFlags;
+        this.columnBlockClassFlags[columnIndex] = blockClassFlags;
+
+        int filledMask = (~airMask) & 0xFFFF;
+        this.columnMinFilledLocalY[columnIndex] = (byte) (filledMask == 0 ? EMPTY_LOCAL_Y : Integer.numberOfTrailingZeros(filledMask));
+        this.columnMaxFilledLocalY[columnIndex] = (byte) (filledMask == 0 ? EMPTY_LOCAL_Y : 31 - Integer.numberOfLeadingZeros(filledMask));
+        this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
     }
 
     private void markAllAirSection() {
@@ -465,7 +562,7 @@ public final class SectionDescriptor {
         int[] paletteFlagsById = factsById.paletteFlags;
         int[] blockClassFlagsById = factsById.blockClassFlags;
         int[] maskFlagsById = factsById.maskFlags;
-        boolean[] filledById = factsById.filled;
+        int[] filledBitsById = factsById.filledBits;
         int aggregatePaletteFlags = 0;
         int aggregateBlockClassFlags = 0;
         int aggregateMinFilledY = Integer.MAX_VALUE;
@@ -487,37 +584,31 @@ public final class SectionDescriptor {
                 int stoneLikeMask = 0;
                 int dirtLikeMask = 0;
                 int treeSoilMask = 0;
-                int minFilledLocalY = EMPTY_LOCAL_Y;
-                int maxFilledLocalY = EMPTY_LOCAL_Y;
+                int filledMask = 0;
 
                 for (int localY = 0; localY < SECTION_EDGE; localY++) {
                     int stateId = raw[(localY << 8) | columnIndex];
                     paletteFlags |= paletteFlagsById[stateId];
                     blockClassFlags |= blockClassFlagsById[stateId];
 
-                    int bit = 1 << localY;
                     int maskFlags = maskFlagsById[stateId];
-                    if ((maskFlags & MASK_AIR) != 0) airMask |= bit;
-                    if ((maskFlags & MASK_WATER) != 0) waterMask |= bit;
-                    if ((maskFlags & MASK_LAVA) != 0) lavaMask |= bit;
-                    if ((maskFlags & MASK_SOLID) != 0) solidMask |= bit;
-                    if ((maskFlags & MASK_MOTION_BLOCKING) != 0) motionBlockingMask |= bit;
-                    if ((maskFlags & MASK_REPLACEABLE) != 0) replaceableMask |= bit;
-                    if ((maskFlags & MASK_STONE_LIKE) != 0) stoneLikeMask |= bit;
-                    if ((maskFlags & MASK_DIRT_LIKE) != 0) dirtLikeMask |= bit;
-                    if ((maskFlags & MASK_TREE_SOIL) != 0) treeSoilMask |= bit;
-
-                    if (filledById[stateId]) {
-                        if (minFilledLocalY == EMPTY_LOCAL_Y) {
-                            minFilledLocalY = localY;
-                        }
-                        maxFilledLocalY = localY;
-                    }
+                    airMask |= (maskFlags & MASK_AIR) << localY;
+                    waterMask |= ((maskFlags & MASK_WATER) << localY) >>> 1;
+                    lavaMask |= ((maskFlags & MASK_LAVA) << localY) >>> 2;
+                    solidMask |= ((maskFlags & MASK_SOLID) << localY) >>> 3;
+                    motionBlockingMask |= ((maskFlags & MASK_MOTION_BLOCKING) << localY) >>> 4;
+                    replaceableMask |= ((maskFlags & MASK_REPLACEABLE) << localY) >>> 5;
+                    stoneLikeMask |= ((maskFlags & MASK_STONE_LIKE) << localY) >>> 6;
+                    dirtLikeMask |= ((maskFlags & MASK_DIRT_LIKE) << localY) >>> 7;
+                    treeSoilMask |= ((maskFlags & MASK_TREE_SOIL) << localY) >>> 8;
+                    filledMask |= filledBitsById[stateId] << localY;
                 }
 
                 if (this.finishSurfaceCandidate(paletteFlags, blockClassFlags)) {
                     blockClassFlags |= CLASS_SURFACE_CANDIDATE;
                 }
+                int minFilledLocalY = filledMask == 0 ? EMPTY_LOCAL_Y : Integer.numberOfTrailingZeros(filledMask);
+                int maxFilledLocalY = filledMask == 0 ? EMPTY_LOCAL_Y : 31 - Integer.numberOfLeadingZeros(filledMask);
 
                 this.columnPaletteFlags[columnIndex] = paletteFlags;
                 this.columnBlockClassFlags[columnIndex] = blockClassFlags;
@@ -532,6 +623,7 @@ public final class SectionDescriptor {
                 this.columnTreeSoilMask[columnIndex] = treeSoilMask;
                 this.columnMinFilledLocalY[columnIndex] = (byte) minFilledLocalY;
                 this.columnMaxFilledLocalY[columnIndex] = (byte) maxFilledLocalY;
+                this.addColumnCounts(paletteFlags, blockClassFlags, minFilledLocalY, maxFilledLocalY);
 
                 aggregatePaletteFlags |= paletteFlags;
                 aggregateBlockClassFlags |= blockClassFlags;
@@ -555,7 +647,7 @@ public final class SectionDescriptor {
         int[] paletteFlagsById = factsById.paletteFlags;
         int[] blockClassFlagsById = factsById.blockClassFlags;
         int[] maskFlagsById = factsById.maskFlags;
-        boolean[] filledById = factsById.filled;
+        int[] filledBitsById = factsById.filledBits;
         int paletteFlags = 0;
         int blockClassFlags = 0;
         int airMask = 0;
@@ -567,37 +659,31 @@ public final class SectionDescriptor {
         int stoneLikeMask = 0;
         int dirtLikeMask = 0;
         int treeSoilMask = 0;
-        int minFilledLocalY = EMPTY_LOCAL_Y;
-        int maxFilledLocalY = EMPTY_LOCAL_Y;
+        int filledMask = 0;
 
         for (int localY = 0; localY < SECTION_EDGE; localY++) {
             int stateId = raw[(localY << 8) | columnIndex];
             paletteFlags |= paletteFlagsById[stateId];
             blockClassFlags |= blockClassFlagsById[stateId];
 
-            int bit = 1 << localY;
             int maskFlags = maskFlagsById[stateId];
-            if ((maskFlags & MASK_AIR) != 0) airMask |= bit;
-            if ((maskFlags & MASK_WATER) != 0) waterMask |= bit;
-            if ((maskFlags & MASK_LAVA) != 0) lavaMask |= bit;
-            if ((maskFlags & MASK_SOLID) != 0) solidMask |= bit;
-            if ((maskFlags & MASK_MOTION_BLOCKING) != 0) motionBlockingMask |= bit;
-            if ((maskFlags & MASK_REPLACEABLE) != 0) replaceableMask |= bit;
-            if ((maskFlags & MASK_STONE_LIKE) != 0) stoneLikeMask |= bit;
-            if ((maskFlags & MASK_DIRT_LIKE) != 0) dirtLikeMask |= bit;
-            if ((maskFlags & MASK_TREE_SOIL) != 0) treeSoilMask |= bit;
-
-            if (filledById[stateId]) {
-                if (minFilledLocalY == EMPTY_LOCAL_Y) {
-                    minFilledLocalY = localY;
-                }
-                maxFilledLocalY = localY;
-            }
+            airMask |= (maskFlags & MASK_AIR) << localY;
+            waterMask |= ((maskFlags & MASK_WATER) << localY) >>> 1;
+            lavaMask |= ((maskFlags & MASK_LAVA) << localY) >>> 2;
+            solidMask |= ((maskFlags & MASK_SOLID) << localY) >>> 3;
+            motionBlockingMask |= ((maskFlags & MASK_MOTION_BLOCKING) << localY) >>> 4;
+            replaceableMask |= ((maskFlags & MASK_REPLACEABLE) << localY) >>> 5;
+            stoneLikeMask |= ((maskFlags & MASK_STONE_LIKE) << localY) >>> 6;
+            dirtLikeMask |= ((maskFlags & MASK_DIRT_LIKE) << localY) >>> 7;
+            treeSoilMask |= ((maskFlags & MASK_TREE_SOIL) << localY) >>> 8;
+            filledMask |= filledBitsById[stateId] << localY;
         }
 
         if (this.finishSurfaceCandidate(paletteFlags, blockClassFlags)) {
             blockClassFlags |= CLASS_SURFACE_CANDIDATE;
         }
+        int minFilledLocalY = filledMask == 0 ? EMPTY_LOCAL_Y : Integer.numberOfTrailingZeros(filledMask);
+        int maxFilledLocalY = filledMask == 0 ? EMPTY_LOCAL_Y : 31 - Integer.numberOfLeadingZeros(filledMask);
 
         this.columnPaletteFlags[columnIndex] = paletteFlags;
         this.columnBlockClassFlags[columnIndex] = blockClassFlags;
@@ -704,6 +790,11 @@ public final class SectionDescriptor {
     }
 
     private void refreshAggregates() {
+        Arrays.fill(this.paletteFlagCounts, 0);
+        Arrays.fill(this.blockClassFlagCounts, 0);
+        Arrays.fill(this.minFilledLocalYCounts, 0);
+        Arrays.fill(this.maxFilledLocalYCounts, 0);
+
         int paletteFlags = 0;
         int blockClassFlags = 0;
         int minFilledY = Integer.MAX_VALUE;
@@ -716,6 +807,7 @@ public final class SectionDescriptor {
 
             int minLocalY = this.columnMinFilledLocalY[columnIndex];
             if (minLocalY != EMPTY_LOCAL_Y) {
+                this.minFilledLocalYCounts[minLocalY]++;
                 int blockY = minSectionBlockY + minLocalY;
                 if (blockY < minFilledY) {
                     minFilledY = blockY;
@@ -724,14 +816,108 @@ public final class SectionDescriptor {
 
             int maxLocalY = this.columnMaxFilledLocalY[columnIndex];
             if (maxLocalY != EMPTY_LOCAL_Y) {
+                this.maxFilledLocalYCounts[maxLocalY]++;
                 int blockY = minSectionBlockY + maxLocalY;
                 if (blockY > maxFilledY) {
                     maxFilledY = blockY;
                 }
             }
+
+            this.addFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, this.columnPaletteFlags[columnIndex]);
+            this.addFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, this.columnBlockClassFlags[columnIndex]);
         }
 
         this.finishAggregates(paletteFlags, blockClassFlags, minFilledY, maxFilledY);
+    }
+
+    private void refreshAggregatesAfterColumnChange(
+            int columnIndex,
+            int oldPaletteFlags,
+            int oldBlockClassFlags,
+            int oldMinFilledLocalY,
+            int oldMaxFilledLocalY
+    ) {
+        this.removeColumnCounts(oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
+        this.addColumnCounts(
+                this.columnPaletteFlags[columnIndex],
+                this.columnBlockClassFlags[columnIndex],
+                this.columnMinFilledLocalY[columnIndex],
+                this.columnMaxFilledLocalY[columnIndex]
+        );
+        this.finishAggregates(
+                this.flagsFromCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS),
+                this.flagsFromCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS),
+                this.minFilledBlockYFromCounts(),
+                this.maxFilledBlockYFromCounts()
+        );
+    }
+
+    private void addColumnCounts(int paletteFlags, int blockClassFlags, int minFilledLocalY, int maxFilledLocalY) {
+        this.addFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, paletteFlags);
+        this.addFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, blockClassFlags);
+        if (minFilledLocalY != EMPTY_LOCAL_Y) {
+            this.minFilledLocalYCounts[minFilledLocalY]++;
+        }
+        if (maxFilledLocalY != EMPTY_LOCAL_Y) {
+            this.maxFilledLocalYCounts[maxFilledLocalY]++;
+        }
+    }
+
+    private void removeColumnCounts(int paletteFlags, int blockClassFlags, int minFilledLocalY, int maxFilledLocalY) {
+        this.removeFlagCounts(this.paletteFlagCounts, PALETTE_FLAG_BITS, paletteFlags);
+        this.removeFlagCounts(this.blockClassFlagCounts, BLOCK_CLASS_FLAG_BITS, blockClassFlags);
+        if (minFilledLocalY != EMPTY_LOCAL_Y && this.minFilledLocalYCounts[minFilledLocalY] > 0) {
+            this.minFilledLocalYCounts[minFilledLocalY]--;
+        }
+        if (maxFilledLocalY != EMPTY_LOCAL_Y && this.maxFilledLocalYCounts[maxFilledLocalY] > 0) {
+            this.maxFilledLocalYCounts[maxFilledLocalY]--;
+        }
+    }
+
+    private void addFlagCounts(int[] counts, int[] bits, int flags) {
+        for (int i = 0; i < bits.length; i++) {
+            if ((flags & bits[i]) != 0) {
+                counts[i]++;
+            }
+        }
+    }
+
+    private void removeFlagCounts(int[] counts, int[] bits, int flags) {
+        for (int i = 0; i < bits.length; i++) {
+            if ((flags & bits[i]) != 0 && counts[i] > 0) {
+                counts[i]--;
+            }
+        }
+    }
+
+    private int flagsFromCounts(int[] counts, int[] bits) {
+        int flags = 0;
+        for (int i = 0; i < bits.length; i++) {
+            if (counts[i] > 0) {
+                flags |= bits[i];
+            }
+        }
+        return flags;
+    }
+
+    private int minFilledBlockYFromCounts() {
+        int minSectionBlockY = this.sectionY << 4;
+        for (int localY = 0; localY < SECTION_EDGE; localY++) {
+            if (this.minFilledLocalYCounts[localY] > 0) {
+                return minSectionBlockY + localY;
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private int maxFilledBlockYFromCounts() {
+        int minSectionBlockY = this.sectionY << 4;
+        for (int localY = SECTION_EDGE - 1; localY >= 0; localY--) {
+            if (this.maxFilledLocalYCounts[localY] > 0) {
+                return minSectionBlockY + localY;
+            }
+        }
+        return Integer.MIN_VALUE;
     }
 
     private void finishAggregates(int paletteFlags, int blockClassFlags, int minFilledY, int maxFilledY) {
@@ -838,11 +1024,11 @@ public final class SectionDescriptor {
             int[] paletteFlags = new int[states.length];
             int[] blockClassFlags = new int[states.length];
             int[] maskFlags = new int[states.length];
-            boolean[] filled = new boolean[states.length];
+            int[] filledBits = new int[states.length];
             for (int i = 0; i < states.length; i++) {
-                computeStateFacts(states[i], i, paletteFlags, blockClassFlags, maskFlags, filled);
+                computeStateFacts(states[i], i, paletteFlags, blockClassFlags, maskFlags, filledBits);
             }
-            facts = new CachedStateFacts(paletteFlags, blockClassFlags, maskFlags, filled);
+            facts = new CachedStateFacts(paletteFlags, blockClassFlags, maskFlags, filledBits);
             stateFactsById = facts;
             return facts;
         }
@@ -854,7 +1040,7 @@ public final class SectionDescriptor {
             int[] paletteFlagsById,
             int[] blockClassFlagsById,
             int[] maskFlagsById,
-            boolean[] filledById
+            int[] filledBitsById
     ) {
         if (state == null) {
             state = Blocks.AIR.defaultBlockState();
@@ -912,7 +1098,59 @@ public final class SectionDescriptor {
         paletteFlagsById[index] = paletteFlags;
         blockClassFlagsById[index] = blockClassFlags;
         maskFlagsById[index] = maskFlags;
-        filledById[index] = true;
+        filledBitsById[index] = 1;
+    }
+
+    private static int maskFlagsForState(BlockState state) {
+        Block block = state.getBlock();
+        FluidState fluidState = state.getFluidState();
+        if (state.isAir()) {
+            return MASK_AIR | MASK_REPLACEABLE;
+        }
+
+        int maskFlags = 0;
+        if (!fluidState.isEmpty()) {
+            if (fluidState.getType() == Fluids.WATER) {
+                maskFlags |= MASK_WATER | MASK_REPLACEABLE;
+            } else if (fluidState.getType() == Fluids.LAVA) {
+                maskFlags |= MASK_LAVA;
+            }
+        }
+        if (OCEAN_FLOOR_OPAQUE.test(state)) {
+            maskFlags |= MASK_SOLID;
+        }
+        if (MOTION_BLOCKING_OPAQUE.test(state)) {
+            maskFlags |= MASK_MOTION_BLOCKING;
+        }
+        if (isStoneLike(state, block)) {
+            maskFlags |= MASK_STONE_LIKE;
+        } else if (isDirtLike(state, block)) {
+            maskFlags |= MASK_DIRT_LIKE | MASK_TREE_SOIL;
+        } else if (isTreeSoilLike(state, block)) {
+            maskFlags |= MASK_TREE_SOIL;
+        }
+        if (isLooseReplaceable(block)) {
+            maskFlags |= MASK_REPLACEABLE;
+        }
+        return maskFlags;
+    }
+
+    private static int flagsFromColumnMasks(int airMask, int waterMask, int lavaMask, int solidMask) {
+        int flags = 0;
+        if (airMask != 0) flags |= PALETTE_AIR;
+        if (waterMask != 0) flags |= PALETTE_WATER;
+        if (lavaMask != 0) flags |= PALETTE_LAVA;
+        if (solidMask != 0) flags |= PALETTE_SOLID;
+        return flags;
+    }
+
+    private static int classFlagsFromColumnMasks(int replaceableMask, int stoneLikeMask, int dirtLikeMask, int treeSoilMask) {
+        int flags = 0;
+        if (replaceableMask != 0) flags |= CLASS_REPLACEABLE;
+        if (stoneLikeMask != 0) flags |= CLASS_STONE_LIKE | CLASS_ORE_TARGET;
+        if (dirtLikeMask != 0) flags |= CLASS_DIRT_LIKE | CLASS_TREE_SOIL;
+        if (treeSoilMask != 0) flags |= CLASS_TREE_SOIL;
+        return flags;
     }
 
     private static boolean isStoneLike(BlockState state, Block block) {
@@ -943,13 +1181,13 @@ public final class SectionDescriptor {
         private final int[] paletteFlags;
         private final int[] blockClassFlags;
         private final int[] maskFlags;
-        private final boolean[] filled;
+        private final int[] filledBits;
 
-        private CachedStateFacts(int[] paletteFlags, int[] blockClassFlags, int[] maskFlags, boolean[] filled) {
+        private CachedStateFacts(int[] paletteFlags, int[] blockClassFlags, int[] maskFlags, int[] filledBits) {
             this.paletteFlags = paletteFlags;
             this.blockClassFlags = blockClassFlags;
             this.maskFlags = maskFlags;
-            this.filled = filled;
+            this.filledBits = filledBits;
         }
     }
 

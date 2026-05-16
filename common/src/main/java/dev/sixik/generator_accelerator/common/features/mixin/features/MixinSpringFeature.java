@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.features;
 
 import com.mojang.serialization.Codec;
+import dev.sixik.generator_accelerator.common.worldgen.GAWorldGenRegionAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.state.BlockState;
@@ -100,6 +101,9 @@ public abstract class MixinSpringFeature extends Feature<SpringConfiguration> {
             }
         }
 
+        if (!GAWorldGenRegionAccess.canWriteWithoutLogging(worldGenLevel, blockPos)) {
+            return false;
+        }
         worldGenLevel.setBlock(blockPos, springConfiguration.state.createLegacyBlock(), 2);
         worldGenLevel.scheduleTick(blockPos, springConfiguration.state.getType(), 0);
         return true;

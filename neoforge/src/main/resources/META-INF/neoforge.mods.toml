@@ -27,9 +27,19 @@ versionRange = "[1.21.1,)"
 ordering = "NONE"
 side = "BOTH"
 
+[[dependencies.generator_accelerator]]
+modId = "confluence"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
 
 [[mixins]]
 config = "generator_accelerator.mixins.json"
+
+[[mixins]]
+config = "generator_accelerator_neoforge.mixins.json"
 
 [[mixins]]
 config = "generator_accelerator_density_compiler.mixins.json"

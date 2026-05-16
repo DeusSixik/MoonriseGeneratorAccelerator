@@ -3,13 +3,14 @@ package dev.sixik.generator_accelerator.common.features.pipeline;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 
 import java.util.Arrays;
 
 public final class SectionDescriptorCache {
-    private static final int INITIAL_DESCRIPTOR_CAPACITY = 32;
+    private static final int INITIAL_DESCRIPTOR_CAPACITY = 128;
     private static final int MAX_RETAINED_DESCRIPTOR_CAPACITY = 256;
     private static final int MAX_EXCESSIVE_DESCRIPTOR_CAPACITY = 1_024;
     private static final int MAX_RETAINED_HEIGHT_CACHE_CAPACITY = 64;
@@ -60,15 +61,24 @@ public final class SectionDescriptorCache {
     public SectionDescriptorCache() {
         this.indexByKey.defaultReturnValue(-1);
         this.heightIndexByChunkKey.defaultReturnValue(-1);
-        for (int i = 0; i < this.descriptors.length; i++) {
-            this.descriptors[i] = new SectionDescriptor();
-        }
     }
 
     public void clear() {
+        if (this.size == 0
+                && this.heightEntryCount == 0
+                && this.lazyChunk == null
+                && this.lastIndex < 0
+                && this.descriptors.length <= MAX_EXCESSIVE_DESCRIPTOR_CAPACITY
+                && this.heightChunks.length <= MAX_EXCESSIVE_HEIGHT_CACHE_CAPACITY
+                && this.heightScanDescriptors.length <= MAX_EXCESSIVE_HEIGHT_SCAN_CAPACITY) {
+            return;
+        }
         for (int i = 0; i < this.size; i++) {
             this.chunks[i] = null;
-            this.descriptors[i].clear();
+            SectionDescriptor descriptor = this.descriptors[i];
+            if (descriptor != null) {
+                descriptor.clear();
+            }
         }
         Arrays.fill(this.heightChunks, 0, this.heightEntryCount, null);
         this.size = 0;
@@ -154,12 +164,20 @@ public final class SectionDescriptorCache {
     }
 
     public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
+        this.noteBlockMutation(chunk, blockX, blockY, blockZ, null);
+    }
+
+    public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState newState) {
         int sectionY = blockY >> 4;
         ChunkPos pos = chunk.getPos();
         long sectionKey = key(pos, sectionY);
         int index = this.indexByKey.get(sectionKey);
         if (index >= 0 && this.chunks[index] == chunk) {
-            this.descriptors[index].rebuildColumn(blockX & 15, blockZ & 15);
+            if (newState != null) {
+                this.descriptors[index].updateBlockState(blockX, blockY, blockZ, newState);
+            } else {
+                this.descriptors[index].rebuildColumn(blockX & 15, blockZ & 15);
+            }
         } else if (index >= 0) {
             this.rebuildAt(index, chunk, sectionY, sectionKey);
         } else {
@@ -236,6 +254,10 @@ public final class SectionDescriptorCache {
         LevelChunkSection section = sectionIndex >= 0 && sectionIndex < sections.length ? sections[sectionIndex] : null;
         ChunkPos pos = chunk.getPos();
         SectionDescriptor descriptor = this.descriptors[index];
+        if (descriptor == null) {
+            descriptor = new SectionDescriptor();
+            this.descriptors[index] = descriptor;
+        }
         descriptor.build(chunk, section, pos.x, sectionY, pos.z);
         this.touchLast(pos.x, sectionY, pos.z, index);
         return descriptor;
@@ -251,6 +273,10 @@ public final class SectionDescriptorCache {
         LevelChunkSection section = sectionIndex >= 0 && sectionIndex < sections.length ? sections[sectionIndex] : null;
         ChunkPos pos = chunk.getPos();
         SectionDescriptor descriptor = this.descriptors[index];
+        if (descriptor == null) {
+            descriptor = new SectionDescriptor();
+            this.descriptors[index] = descriptor;
+        }
         descriptor.build(chunk, section, pos.x, sectionY, pos.z);
         this.touchLast(pos.x, sectionY, pos.z, index);
         return descriptor;
@@ -267,9 +293,6 @@ public final class SectionDescriptorCache {
         System.arraycopy(this.chunks, 0, newChunks, 0, oldLength);
         System.arraycopy(this.keys, 0, newKeys, 0, oldLength);
         System.arraycopy(this.descriptors, 0, newDescriptors, 0, oldLength);
-        for (int i = oldLength; i < newLength; i++) {
-            newDescriptors[i] = new SectionDescriptor();
-        }
 
         this.chunks = newChunks;
         this.keys = newKeys;
@@ -600,9 +623,6 @@ public final class SectionDescriptorCache {
                 this.chunks = new ChunkAccess[MAX_RETAINED_DESCRIPTOR_CAPACITY];
                 this.keys = new long[MAX_RETAINED_DESCRIPTOR_CAPACITY];
                 this.descriptors = new SectionDescriptor[MAX_RETAINED_DESCRIPTOR_CAPACITY];
-                for (int i = 0; i < this.descriptors.length; i++) {
-                    this.descriptors[i] = new SectionDescriptor();
-                }
                 this.oversizedDescriptorClearCount = 0;
             }
         } else {

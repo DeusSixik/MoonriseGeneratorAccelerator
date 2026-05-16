@@ -1,0 +1,298 @@
+package dev.sixik.generator_accelerator.common.worldgen.workspace;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+
+public final class GAChunkWorkspaceMetrics {
+    private static final AtomicLong GLOBAL_IMPORT_NANOS = new AtomicLong();
+    private static final AtomicLong GLOBAL_COMPUTE_NANOS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINALIZE_NANOS = new AtomicLong();
+    private static final AtomicLong GLOBAL_REPACK_NANOS = new AtomicLong();
+    private static final AtomicLong GLOBAL_IMPORT_FAILURES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINALIZE_FAILURES = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_PASSES = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_CARVED_BLOCKS = new AtomicLong();
+    private static final AtomicLong GLOBAL_SURFACE_SCANNED_COLUMNS = new AtomicLong();
+    private static final AtomicLong GLOBAL_HEIGHT_UPDATES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINALIZED_WORKSPACES = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_FAILURES = new AtomicLong();
+    private static final AtomicLong GLOBAL_CONTEXT_BOUND_SESSIONS = new AtomicLong();
+    private static final AtomicLong GLOBAL_MIRRORED_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_AIR_IMPORTS = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_LAZY_AIR_IMPORTS = new AtomicLong();
+    private static final AtomicLong GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_SKIPS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES = new AtomicLong();
+    private static final AtomicLong GLOBAL_FINAL_REPACK_REPAIRS = new AtomicLong();
+    private static final AtomicLong GLOBAL_EMERGENCY_REPACKS = new AtomicLong();
+    private static final AtomicLong GLOBAL_EMERGENCY_REPACK_FAILURES = new AtomicLong();
+
+    private long importNanos;
+    private long computeNanos;
+    private long finalizeNanos;
+    private long repackNanos;
+    private long terrainPasses;
+    private long terrainBlockWrites;
+    private long carvedBlocks;
+    private long surfaceScannedColumns;
+    private long heightUpdates;
+    private long finalizedWorkspaces;
+    private long estimatedRetainedBytes;
+
+    public void clear() {
+        importNanos = 0L;
+        computeNanos = 0L;
+        finalizeNanos = 0L;
+        repackNanos = 0L;
+        terrainPasses = 0L;
+        terrainBlockWrites = 0L;
+        carvedBlocks = 0L;
+        surfaceScannedColumns = 0L;
+        heightUpdates = 0L;
+        finalizedWorkspaces = 0L;
+        estimatedRetainedBytes = 0L;
+    }
+
+    public void addImportNanos(long nanos) {
+        long positive = Math.max(0L, nanos);
+        importNanos += positive;
+        GLOBAL_IMPORT_NANOS.addAndGet(positive);
+    }
+
+    public void addComputeNanos(long nanos) {
+        long positive = Math.max(0L, nanos);
+        computeNanos += positive;
+        GLOBAL_COMPUTE_NANOS.addAndGet(positive);
+    }
+
+    public void addFinalizeNanos(long nanos) {
+        long positive = Math.max(0L, nanos);
+        finalizeNanos += positive;
+        GLOBAL_FINALIZE_NANOS.addAndGet(positive);
+    }
+
+    public void addRepackNanos(long nanos) {
+        long positive = Math.max(0L, nanos);
+        repackNanos += positive;
+        GLOBAL_REPACK_NANOS.addAndGet(positive);
+    }
+
+    public static void incrementImportFailures() {
+        GLOBAL_IMPORT_FAILURES.incrementAndGet();
+    }
+
+    public static void incrementFinalizeFailures() {
+        GLOBAL_FINALIZE_FAILURES.incrementAndGet();
+    }
+
+    public void incrementTerrainPasses() {
+        terrainPasses++;
+        GLOBAL_TERRAIN_PASSES.incrementAndGet();
+    }
+
+    public void addTerrainBlockWrites(long blocks) {
+        long positive = Math.max(0L, blocks);
+        terrainBlockWrites += positive;
+        GLOBAL_TERRAIN_BLOCK_WRITES.addAndGet(positive);
+    }
+
+    public void addCarvedBlocks(long blocks) {
+        long positive = Math.max(0L, blocks);
+        carvedBlocks += positive;
+        GLOBAL_CARVED_BLOCKS.addAndGet(positive);
+    }
+
+    public void addSurfaceScannedColumns(long columns) {
+        long positive = Math.max(0L, columns);
+        surfaceScannedColumns += positive;
+        GLOBAL_SURFACE_SCANNED_COLUMNS.addAndGet(positive);
+    }
+
+    public void addHeightUpdates(long columns) {
+        long positive = Math.max(0L, columns);
+        heightUpdates += positive;
+        GLOBAL_HEIGHT_UPDATES.addAndGet(positive);
+    }
+
+    public void incrementFinalizedWorkspaces() {
+        finalizedWorkspaces++;
+        GLOBAL_FINALIZED_WORKSPACES.incrementAndGet();
+    }
+
+    public static void incrementTerrainFailures() {
+        GLOBAL_TERRAIN_FAILURES.incrementAndGet();
+    }
+
+    public static void incrementContextBoundSessions() {
+        GLOBAL_CONTEXT_BOUND_SESSIONS.incrementAndGet();
+    }
+
+    public static void addMirroredBlockWrites(long writes) {
+        GLOBAL_MIRRORED_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
+    }
+
+    public static void addWorkspaceOnlyBlockWrites(long writes) {
+        GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
+    }
+
+    public static void incrementTerrainAirImports() {
+        GLOBAL_TERRAIN_AIR_IMPORTS.incrementAndGet();
+    }
+
+    public static void incrementTerrainLazyAirImports() {
+        GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.incrementAndGet();
+    }
+
+    public static void incrementTerrainLazyAirSectionClears() {
+        GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.incrementAndGet();
+    }
+
+    public static void incrementFinalRepackSkips() {
+        GLOBAL_FINAL_REPACK_SKIPS.incrementAndGet();
+    }
+
+    public static void addFinalRepackLocalTerrainSections(long sections) {
+        GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.addAndGet(Math.max(0L, sections));
+    }
+
+    public static void incrementFinalRepackDenseSectionCopies() {
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.incrementAndGet();
+    }
+
+    public static void addFinalRepackDenseSectionCopies(long sections) {
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.addAndGet(Math.max(0L, sections));
+    }
+
+    public static void incrementFinalRepackTerrainSectionCopies() {
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.incrementAndGet();
+    }
+
+    public static void addFinalRepackTerrainSectionCopies(long sections) {
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.addAndGet(Math.max(0L, sections));
+    }
+
+    public static void incrementFinalRepackRepairs() {
+        GLOBAL_FINAL_REPACK_REPAIRS.incrementAndGet();
+    }
+
+    public static void incrementEmergencyRepacks() {
+        GLOBAL_EMERGENCY_REPACKS.incrementAndGet();
+    }
+
+    public static void incrementEmergencyRepackFailures() {
+        GLOBAL_EMERGENCY_REPACK_FAILURES.incrementAndGet();
+    }
+
+    void setEstimatedRetainedBytes(long estimatedRetainedBytes) {
+        this.estimatedRetainedBytes = estimatedRetainedBytes;
+    }
+
+    public long importNanos() {
+        return importNanos;
+    }
+
+    public long computeNanos() {
+        return computeNanos;
+    }
+
+    public long finalizeNanos() {
+        return finalizeNanos;
+    }
+
+    public long repackNanos() {
+        return repackNanos;
+    }
+
+    public long terrainPasses() {
+        return terrainPasses;
+    }
+
+    public long terrainBlockWrites() {
+        return terrainBlockWrites;
+    }
+
+    public long carvedBlocks() {
+        return carvedBlocks;
+    }
+
+    public long surfaceScannedColumns() {
+        return surfaceScannedColumns;
+    }
+
+    public long heightUpdates() {
+        return heightUpdates;
+    }
+
+    public long finalizedWorkspaces() {
+        return finalizedWorkspaces;
+    }
+
+    public long estimatedRetainedBytes() {
+        return estimatedRetainedBytes;
+    }
+
+    public static Map<String, Object> snapshotGlobal() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("importNanos", GLOBAL_IMPORT_NANOS.get());
+        out.put("computeNanos", GLOBAL_COMPUTE_NANOS.get());
+        out.put("finalizeNanos", GLOBAL_FINALIZE_NANOS.get());
+        out.put("repackNanos", GLOBAL_REPACK_NANOS.get());
+        out.put("importFailures", GLOBAL_IMPORT_FAILURES.get());
+        out.put("finalizeFailures", GLOBAL_FINALIZE_FAILURES.get());
+        out.put("terrainPasses", GLOBAL_TERRAIN_PASSES.get());
+        out.put("terrainBlockWrites", GLOBAL_TERRAIN_BLOCK_WRITES.get());
+        out.put("carvedBlocks", GLOBAL_CARVED_BLOCKS.get());
+        out.put("surfaceScannedColumns", GLOBAL_SURFACE_SCANNED_COLUMNS.get());
+        out.put("heightUpdates", GLOBAL_HEIGHT_UPDATES.get());
+        out.put("finalizedWorkspaces", GLOBAL_FINALIZED_WORKSPACES.get());
+        out.put("terrainFailures", GLOBAL_TERRAIN_FAILURES.get());
+        out.put("contextBoundSessions", GLOBAL_CONTEXT_BOUND_SESSIONS.get());
+        out.put("mirroredBlockWrites", GLOBAL_MIRRORED_BLOCK_WRITES.get());
+        out.put("workspaceOnlyBlockWrites", GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.get());
+        out.put("terrainAirImports", GLOBAL_TERRAIN_AIR_IMPORTS.get());
+        out.put("terrainLazyAirImports", GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.get());
+        out.put("terrainLazyAirSectionClears", GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.get());
+        out.put("finalRepackSkips", GLOBAL_FINAL_REPACK_SKIPS.get());
+        out.put("finalRepackLocalTerrainSections", GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.get());
+        out.put("finalRepackDenseSectionCopies", GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.get());
+        out.put("finalRepackTerrainSectionCopies", GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.get());
+        out.put("finalRepackRepairs", GLOBAL_FINAL_REPACK_REPAIRS.get());
+        out.put("emergencyRepacks", GLOBAL_EMERGENCY_REPACKS.get());
+        out.put("emergencyRepackFailures", GLOBAL_EMERGENCY_REPACK_FAILURES.get());
+        return out;
+    }
+
+    public static void resetGlobal() {
+        GLOBAL_IMPORT_NANOS.set(0L);
+        GLOBAL_COMPUTE_NANOS.set(0L);
+        GLOBAL_FINALIZE_NANOS.set(0L);
+        GLOBAL_REPACK_NANOS.set(0L);
+        GLOBAL_IMPORT_FAILURES.set(0L);
+        GLOBAL_FINALIZE_FAILURES.set(0L);
+        GLOBAL_TERRAIN_PASSES.set(0L);
+        GLOBAL_TERRAIN_BLOCK_WRITES.set(0L);
+        GLOBAL_CARVED_BLOCKS.set(0L);
+        GLOBAL_SURFACE_SCANNED_COLUMNS.set(0L);
+        GLOBAL_HEIGHT_UPDATES.set(0L);
+        GLOBAL_FINALIZED_WORKSPACES.set(0L);
+        GLOBAL_TERRAIN_FAILURES.set(0L);
+        GLOBAL_CONTEXT_BOUND_SESSIONS.set(0L);
+        GLOBAL_MIRRORED_BLOCK_WRITES.set(0L);
+        GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.set(0L);
+        GLOBAL_TERRAIN_AIR_IMPORTS.set(0L);
+        GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.set(0L);
+        GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.set(0L);
+        GLOBAL_FINAL_REPACK_SKIPS.set(0L);
+        GLOBAL_FINAL_REPACK_LOCAL_TERRAIN_SECTIONS.set(0L);
+        GLOBAL_FINAL_REPACK_DENSE_SECTION_COPIES.set(0L);
+        GLOBAL_FINAL_REPACK_TERRAIN_SECTION_COPIES.set(0L);
+        GLOBAL_FINAL_REPACK_REPAIRS.set(0L);
+        GLOBAL_EMERGENCY_REPACKS.set(0L);
+        GLOBAL_EMERGENCY_REPACK_FAILURES.set(0L);
+    }
+}
