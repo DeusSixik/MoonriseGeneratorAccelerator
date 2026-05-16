@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator_native_raw.structures;
 
+import dev.sixik.generator_accelerator_native_raw.memory.BlockPosPackedMemory;
 import net.minecraft.core.BlockPos;
 import net.sixik.javastructg.structs.arrays.NativeObjectArray;
 import net.sixik.javastructg.structs.sets.NativeObjectSet;

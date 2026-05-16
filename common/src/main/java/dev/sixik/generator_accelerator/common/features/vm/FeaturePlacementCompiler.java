@@ -193,7 +193,7 @@ public final class FeaturePlacementCompiler {
             }
             case FeatureOpcode.REPEATING -> repeatingPlacements[index] = (GA$RepeatingPlacementAccess) modifier;
             case FeatureOpcode.PLACEMENT_FILTER -> placementFilters[index] = (GA$PlacementFilterAccess) modifier;
-            case FeatureOpcode.FIXED -> fixedPlacements[index] = new FeatureProgram.FixedPlacementData(((GA$FixedPlacementAccess) modifier).ga$fixedPositions());
+            case FeatureOpcode.FIXED -> fixedPlacements[index] = new FeatureProgram.FixedPlacementData(((GA$FixedPlacementAccess) modifier).ga$nativePositions());
             case FeatureOpcode.CARVING_MASK -> carvingSteps[index] = ((GA$CarvingMaskPlacementAccess) modifier).ga$carvingStep();
             case FeatureOpcode.ENVIRONMENT_SCAN -> {
                 GA$EnvironmentScanPlacementAccess access = (GA$EnvironmentScanPlacementAccess) modifier;

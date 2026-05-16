@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator_native_raw.structures;
+package dev.sixik.generator_accelerator_native_raw.memory;
 
 import net.minecraft.core.BlockPos;
 import net.sixik.javastructg.structs.NativeStructLayout;

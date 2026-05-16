@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees;
 
 import com.dtteam.dynamictrees.worldgen.SubterraneanGroundFinder;
+import dev.sixik.generator_accelerator.common.features.PooledBlockPosList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -16,7 +17,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Unique;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -36,10 +36,6 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
     @Unique
     private static final ThreadLocal<int[]> GA$LAYERS =
             ThreadLocal.withInitial(() -> new int[16]);
-
-    @Unique
-    private static final ThreadLocal<ArrayList<BlockPos>> GA$POSITIONS =
-            ThreadLocal.withInitial(() -> new ArrayList<>(8));
 
     /**
      * @author Sixik
@@ -64,18 +60,17 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
             return GA$NO_LAYERS;
         }
 
-        ArrayList<BlockPos> positions = GA$POSITIONS.get();
-        positions.clear();
         int[] layers = GA$LAYERS.get();
         int x = start.getX();
         int z = start.getZ();
         boolean hasCeiling = level.dimensionType().hasCeiling();
         BlockPos.MutableBlockPos pos = GA$SCAN_POS.get();
+        PooledBlockPosList positions = new PooledBlockPosList(layerCount);
         for (int i = 0; i < layerCount; i++) {
             int y = layers[i];
             pos.set(x, y, z);
             if (hasCeiling || level.getBiome(pos).is(GA$UNDERGROUND_BIOMES)) {
-                positions.add(new BlockPos(x, y, z));
+                positions.addCoords(x, y, z);
             }
         }
         return positions.isEmpty() ? GA$NO_LAYERS : positions;

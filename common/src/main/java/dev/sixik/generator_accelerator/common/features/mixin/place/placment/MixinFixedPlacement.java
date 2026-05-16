@@ -4,7 +4,7 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$FixedPlacementAccess;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
-import dev.sixik.generator_accelerator_native_raw.structures.BlockPosPackedMemory;
+import dev.sixik.generator_accelerator_native_raw.memory.BlockPosPackedMemory;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;

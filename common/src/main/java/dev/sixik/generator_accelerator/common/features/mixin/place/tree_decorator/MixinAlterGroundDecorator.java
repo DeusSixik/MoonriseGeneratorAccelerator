@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.place.tree_decorator;
 
+import dev.sixik.generator_accelerator_native_raw.structures.NativeBlockPosBuffer;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
@@ -7,12 +8,20 @@ import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
 import net.minecraft.world.level.levelgen.feature.treedecorators.AlterGroundDecorator;
 import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(AlterGroundDecorator.class)
 public class MixinAlterGroundDecorator {
     @Unique
     private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$MUTABLE_POS =
+            ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
+
+    @Unique
+    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$READ_POS =
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Shadow
@@ -21,7 +30,7 @@ public class MixinAlterGroundDecorator {
 
     /**
      * @author Sixik
-     * @reason Stream API has been removed, removed intermediate lists and {@link BlockPos} allocations (~1000 objects per tree).
+     * @reason Remove heap-side intermediate candidate iteration and process the selected base-Y roots/logs from an off-heap buffer.
      */
     @Overwrite
     public void place(TreeDecorator.Context context) {
@@ -32,9 +41,6 @@ public class MixinAlterGroundDecorator {
             return;
         }
 
-        /*
-            Вычисляем целевой Y-уровень БЕЗ создания нового склеенного списка
-         */
         boolean processLogs = false;
         boolean processRoots = false;
         int baseY;
@@ -52,46 +58,53 @@ public class MixinAlterGroundDecorator {
         }
 
         final BlockPos.MutableBlockPos mutPos = BTS$MUTABLE_POS.get();
-        
-        if (processLogs) {
-            bts$processList(context, logs, baseY, mutPos);
-        }
-        if (processRoots) {
-            bts$processList(context, roots, baseY, mutPos);
+        int expectedCapacity = (processLogs ? logs.size() : 0) + (processRoots ? roots.size() : 0);
+
+        try (NativeBlockPosBuffer positions = new NativeBlockPosBuffer(Math.max(1, expectedCapacity))) {
+            if (processLogs) {
+                bts$collectBaseYPositions(logs, baseY, positions);
+            }
+            if (processRoots) {
+                bts$collectBaseYPositions(roots, baseY, positions);
+            }
+            bts$processBuffer(context, positions, baseY, mutPos);
         }
     }
 
     @Unique
-    private void bts$processList(TreeDecorator.Context context, ObjectArrayList<BlockPos> list, int baseY, BlockPos.MutableBlockPos mutPos) {
+    private void bts$collectBaseYPositions(ObjectArrayList<BlockPos> list, int baseY, NativeBlockPosBuffer positions) {
         final Object[] elements = list.elements();
         final int size = list.size();
-        final RandomSource random = context.random();
-
         for (int i = 0; i < size; i++) {
             final BlockPos pos = (BlockPos) elements[i];
-
             if (pos.getY() == baseY) {
-                final int px = pos.getX();
-                final int pz = pos.getZ();
+                positions.add(pos);
+            }
+        }
+    }
 
-                /*
-                    4 фиксированных круга
-                 */
-                bts$placeCircle(context, px - 1, baseY, pz - 1, mutPos); // west().north()
-                bts$placeCircle(context, px + 2, baseY, pz - 1, mutPos); // east(2).north()
-                bts$placeCircle(context, px - 1, baseY, pz + 2, mutPos); // west().south(2)
-                bts$placeCircle(context, px + 2, baseY, pz + 2, mutPos); // east(2).south(2)
+    @Unique
+    private void bts$processBuffer(TreeDecorator.Context context, NativeBlockPosBuffer positions, int baseY, BlockPos.MutableBlockPos mutPos) {
+        final RandomSource random = context.random();
+        final BlockPos.MutableBlockPos readPos = BTS$READ_POS.get();
+        final int size = positions.size();
 
-                /*
-                     случайных кругов
-                 */
-                for (int j = 0; j < 5; ++j) {
-                    final int rand = random.nextInt(64);
-                    final int k = rand % 8;
-                    final int l = rand / 8;
-                    if (k == 0 || k == 7 || l == 0 || l == 7) {
-                        bts$placeCircle(context, px - 3 + k, baseY, pz - 3 + l, mutPos);
-                    }
+        for (int i = 0; i < size; i++) {
+            positions.get(i, readPos);
+            final int px = readPos.getX();
+            final int pz = readPos.getZ();
+
+            bts$placeCircle(context, px - 1, baseY, pz - 1, mutPos);
+            bts$placeCircle(context, px + 2, baseY, pz - 1, mutPos);
+            bts$placeCircle(context, px - 1, baseY, pz + 2, mutPos);
+            bts$placeCircle(context, px + 2, baseY, pz + 2, mutPos);
+
+            for (int j = 0; j < 5; ++j) {
+                final int rand = random.nextInt(64);
+                final int k = rand % 8;
+                final int l = rand / 8;
+                if (k == 0 || k == 7 || l == 0 || l == 7) {
+                    bts$placeCircle(context, px - 3 + k, baseY, pz - 3 + l, mutPos);
                 }
             }
         }
@@ -110,9 +123,6 @@ public class MixinAlterGroundDecorator {
 
     @Unique
     private void bts$placeBlockAt(TreeDecorator.Context context, int x, int y, int z, BlockPos.MutableBlockPos mutPos) {
-        /*
-            Проверяем вертикальную колонку сверху вниз
-         */
         for (int i = 2; i >= -3; --i) {
             mutPos.set(x, y + i, z);
 
