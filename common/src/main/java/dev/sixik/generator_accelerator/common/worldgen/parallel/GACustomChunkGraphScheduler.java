@@ -85,6 +85,11 @@ public final class GACustomChunkGraphScheduler {
     private static final AtomicLong IN_FLIGHT_COLLISIONS = new AtomicLong();
     private static final AtomicLong GENERATION_GRAPHS = new AtomicLong();
     private static final AtomicLong LOADING_GRAPHS = new AtomicLong();
+    private static final AtomicLong ACTIVE_TASKS = new AtomicLong();
+    private static final AtomicLong ACTIVE_NODES = new AtomicLong();
+    private static final AtomicLong STALLED_PHASES = new AtomicLong();
+    private static final ConcurrentLinkedQueue<TaskRun> ACTIVE_RUNS = new ConcurrentLinkedQueue<>();
+    private static volatile boolean shutdownRequested;
 
     private GACustomChunkGraphScheduler() {
     }
@@ -94,12 +99,35 @@ public final class GACustomChunkGraphScheduler {
     }
 
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
-        if (!ENABLED) {
+        if (!ENABLED || shutdownRequested) {
             return false;
         }
         TASKS_SUBMITTED.incrementAndGet();
         new TaskRun(chunkMap, task).start();
         return true;
+    }
+
+    public static boolean shutdownRequested() {
+        return shutdownRequested;
+    }
+
+    public static void beginShutdown() {
+        shutdownRequested = true;
+        long activeTasks = ACTIVE_TASKS.get();
+        if (activeTasks > 0L) {
+            GeneratorAccelerator.LOGGER.info(
+                    "GA custom chunk graph shutdown requested; cancelling {} active task(s), {} active node(s)",
+                    activeTasks,
+                    ACTIVE_NODES.get()
+            );
+        }
+        for (TaskRun run : ACTIVE_RUNS) {
+            run.requestCancellation();
+        }
+    }
+
+    public static void resetShutdownRequest() {
+        shutdownRequested = false;
     }
 
     public static Map<String, Object> snapshot() {
@@ -128,6 +156,10 @@ public final class GACustomChunkGraphScheduler {
         out.put("inFlightCollisions", IN_FLIGHT_COLLISIONS.get());
         out.put("generationGraphs", GENERATION_GRAPHS.get());
         out.put("loadingGraphs", LOADING_GRAPHS.get());
+        out.put("activeTasks", ACTIVE_TASKS.get());
+        out.put("activeNodes", ACTIVE_NODES.get());
+        out.put("stalledPhases", STALLED_PHASES.get());
+        out.put("shutdownRequested", shutdownRequested);
         return out;
     }
 
@@ -150,6 +182,9 @@ public final class GACustomChunkGraphScheduler {
         IN_FLIGHT_COLLISIONS.set(0L);
         GENERATION_GRAPHS.set(0L);
         LOADING_GRAPHS.set(0L);
+        ACTIVE_TASKS.set(0L);
+        ACTIVE_NODES.set(0L);
+        STALLED_PHASES.set(0L);
     }
 
     private static GAScheduler.Lane laneFor(ChunkStatus status) {
@@ -215,7 +250,10 @@ public final class GACustomChunkGraphScheduler {
         private final ConcurrentLinkedQueue<Node> ready = new ConcurrentLinkedQueue<>();
         private final AtomicInteger drainWork = new AtomicInteger();
         private final AtomicInteger remaining = new AtomicInteger();
+        private final AtomicInteger activeNodes = new AtomicInteger();
         private final AtomicBoolean terminal = new AtomicBoolean();
+        private final AtomicBoolean registered = new AtomicBoolean();
+        private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
         private volatile int nextPhaseId = PHASE_NONE;
         private int storedGenerationEmptyRadius;
@@ -235,9 +273,10 @@ public final class GACustomChunkGraphScheduler {
         }
 
         private void start() {
+            this.registerActiveRun();
             try {
-                if (this.taskAccess.ga$isMarkedForCancellation()) {
-                    this.finishCancelled();
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
                     return;
                 }
                 int loadingEmptyRadius = ChunkPyramid.LOADING_PYRAMID
@@ -259,8 +298,8 @@ public final class GACustomChunkGraphScheduler {
             if (this.isTerminal()) {
                 return;
             }
-            if (this.taskAccess.ga$isMarkedForCancellation()) {
-                this.finishCancelled();
+            if (this.shouldCancel()) {
+                this.requestCancellation();
                 return;
             }
             if (this.targetStatus == ChunkStatus.EMPTY) {
@@ -348,8 +387,8 @@ public final class GACustomChunkGraphScheduler {
             if (this.isTerminal()) {
                 return;
             }
-            if (this.taskAccess.ga$isMarkedForCancellation()) {
-                this.finishCancelled();
+            if (this.shouldCancel()) {
+                this.requestCancellation();
                 return;
             }
 
@@ -475,6 +514,11 @@ public final class GACustomChunkGraphScheduler {
                 }
             }
 
+            if (this.ready.isEmpty()) {
+                this.failNoProgress("phase has no ready roots");
+                return;
+            }
+
             this.drainReady();
         }
 
@@ -502,14 +546,16 @@ public final class GACustomChunkGraphScheduler {
 
                 missed = this.drainWork.addAndGet(-missed);
             } while (missed != 0);
+
+            this.checkForNoProgress("ready queue drained");
         }
 
         private void submit(Node node) {
             if (this.isTerminal()) {
                 return;
             }
-            if (this.taskAccess.ga$isMarkedForCancellation()) {
-                this.finishCancelled();
+            if (this.shouldCancel()) {
+                this.requestCancellation();
                 return;
             }
             if (node.isComplete()) {
@@ -524,21 +570,37 @@ public final class GACustomChunkGraphScheduler {
                 GRAPH_NODES_SUBMITTED.incrementAndGet();
             }
 
-            CompletableFuture<ChunkResult<ChunkAccess>> future = this.scheduleOrJoinStep(node);
+            this.nodeStarted();
+            CompletableFuture<ChunkResult<ChunkAccess>> future;
+            try {
+                future = this.scheduleOrJoinStep(node);
+            } catch (Throwable throwable) {
+                this.fail(throwable);
+                this.nodeFinished();
+                return;
+            }
             future.whenComplete((result, throwable) -> {
-                if (throwable != null) {
-                    this.fail(throwable);
-                    return;
+                try {
+                    if (throwable != null) {
+                        this.fail(throwable);
+                        return;
+                    }
+                    if (result == null || !result.isSuccess()) {
+                        this.fail(new IllegalStateException(result == null ? "Null chunk result" : result.getError()));
+                        return;
+                    }
+                    if (result.orElse(null) == null) {
+                        this.fail(new IllegalStateException("Chunk step completed with null chunk for " + node.status + " at " + node.holder.getPos()));
+                        return;
+                    }
+                    if (this.shouldCancel()) {
+                        this.requestCancellation();
+                        return;
+                    }
+                    this.completeNode(node);
+                } finally {
+                    this.nodeFinished();
                 }
-                if (result == null || !result.isSuccess()) {
-                    this.fail(new IllegalStateException(result == null ? "Null chunk result" : result.getError()));
-                    return;
-                }
-                if (result.orElse(null) == null) {
-                    this.fail(new IllegalStateException("Chunk step completed with null chunk for " + node.status + " at " + node.holder.getPos()));
-                    return;
-                }
-                this.completeNode(node);
             });
         }
 
@@ -633,7 +695,10 @@ public final class GACustomChunkGraphScheduler {
         }
 
         private void completeNode(Node node) {
-            if (this.isTerminal()) {
+            if (this.isTerminal() || this.shouldCancel()) {
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
+                }
                 return;
             }
 
@@ -683,20 +748,28 @@ public final class GACustomChunkGraphScheduler {
         }
 
         private void finishSuccess() {
-            if (this.taskAccess.ga$isMarkedForCancellation()) {
-                this.finishCancelled();
+            if (this.shouldCancel()) {
+                this.requestCancellation();
                 return;
             }
             if (this.terminal.compareAndSet(false, true)) {
                 TASKS_COMPLETED.incrementAndGet();
-                this.taskAccess.ga$releaseClaim();
+                try {
+                    this.taskAccess.ga$releaseClaim();
+                } finally {
+                    this.unregisterActiveRun();
+                }
             }
         }
 
         private void finishCancelled() {
             if (this.terminal.compareAndSet(false, true)) {
                 TASKS_CANCELLED.incrementAndGet();
-                this.taskAccess.ga$releaseClaim();
+                try {
+                    this.taskAccess.ga$releaseClaim();
+                } finally {
+                    this.unregisterActiveRun();
+                }
             }
         }
 
@@ -711,12 +784,77 @@ public final class GACustomChunkGraphScheduler {
                         throwable
                 );
                 this.task.markForCancellation();
-                this.taskAccess.ga$releaseClaim();
+                try {
+                    this.taskAccess.ga$releaseClaim();
+                } finally {
+                    this.unregisterActiveRun();
+                }
             }
         }
 
         private boolean isTerminal() {
             return this.terminal.get();
+        }
+
+        private boolean shouldCancel() {
+            return shutdownRequested || this.cancellationRequested.get() || this.taskAccess.ga$isMarkedForCancellation();
+        }
+
+        private void requestCancellation() {
+            this.cancellationRequested.set(true);
+            this.task.markForCancellation();
+            if (this.activeNodes.get() == 0) {
+                this.finishCancelled();
+            }
+        }
+
+        private void nodeStarted() {
+            this.activeNodes.incrementAndGet();
+            ACTIVE_NODES.incrementAndGet();
+        }
+
+        private void nodeFinished() {
+            ACTIVE_NODES.decrementAndGet();
+            int active = this.activeNodes.decrementAndGet();
+            if (active == 0) {
+                if (this.shouldCancel()) {
+                    this.finishCancelled();
+                    return;
+                }
+                this.checkForNoProgress("last active node finished");
+            }
+        }
+
+        private void checkForNoProgress(String reason) {
+            if (this.isTerminal() || this.remaining.get() <= 0 || this.activeNodes.get() != 0 || !this.ready.isEmpty()) {
+                return;
+            }
+            this.failNoProgress(reason);
+        }
+
+        private void failNoProgress(String reason) {
+            STALLED_PHASES.incrementAndGet();
+            this.fail(new IllegalStateException(
+                    "GA custom chunk graph stalled: " + reason
+                            + ", center=" + this.center
+                            + ", target=" + this.targetStatus
+                            + ", remaining=" + this.remaining.get()
+                            + ", phase=" + this.nextPhaseId
+            ));
+        }
+
+        private void registerActiveRun() {
+            if (this.registered.compareAndSet(false, true)) {
+                ACTIVE_RUNS.add(this);
+                ACTIVE_TASKS.incrementAndGet();
+            }
+        }
+
+        private void unregisterActiveRun() {
+            if (this.registered.compareAndSet(true, false)) {
+                ACTIVE_TASKS.decrementAndGet();
+                ACTIVE_RUNS.remove(this);
+            }
         }
 
         private static void updateMax(AtomicLong value, long next) {

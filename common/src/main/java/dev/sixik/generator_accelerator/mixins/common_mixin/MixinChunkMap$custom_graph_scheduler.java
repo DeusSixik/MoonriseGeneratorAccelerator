@@ -16,7 +16,7 @@ import java.util.List;
 public abstract class MixinChunkMap$custom_graph_scheduler {
     @Inject(method = "runGenerationTasks", at = @At("HEAD"), cancellable = true)
     private void ga$runGenerationTasksWithCustomGraph(CallbackInfo ci) {
-        if (!GACustomChunkGraphScheduler.enabled()) {
+        if (!GACustomChunkGraphScheduler.enabled() || GACustomChunkGraphScheduler.shutdownRequested()) {
             return;
         }
 
