@@ -8,6 +8,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.function.Consumer;
+
 @Mixin(StaticCache2D.class)
 public class MixinStaticCache2D<T> implements GA$StaticCache2DExtern<T> {
 
@@ -18,6 +20,10 @@ public class MixinStaticCache2D<T> implements GA$StaticCache2DExtern<T> {
     @Shadow
     @Final
     private int minZ;
+
+    @Shadow
+    @Final
+    private int sizeX;
 
     @Shadow
     @Final
@@ -54,6 +60,19 @@ public class MixinStaticCache2D<T> implements GA$StaticCache2DExtern<T> {
     @Overwrite
     private int getIndex(int x, int z) {
         return (x << this.ga$shift) + z - this.ga$offset;
+    }
+
+    /**
+     * @author Sixik
+     * @reason The backing array is padded for shift-based indexing, so raw array iteration would visit padding nulls.
+     */
+    @Overwrite
+    public void forEach(Consumer<T> consumer) {
+        for (int x = this.minX; x < this.minX + this.sizeX; x++) {
+            for (int z = this.minZ; z < this.minZ + this.sizeZ; z++) {
+                consumer.accept((T) this.cache[this.getIndex(x, z)]);
+            }
+        }
     }
 
     @Override
