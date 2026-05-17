@@ -1,0 +1,56 @@
+name: Build on Tag
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build tagged revision
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build project
+        run: ./gradlew build --no-daemon
+
+      - name: Upload Fabric artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-${{ github.ref_name }}
+          path: |
+            fabric/build/libs/*.jar
+            fabric/build/devlibs/*.jar
+          if-no-files-found: error
+
+      - name: Upload NeoForge artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: neoforge-${{ github.ref_name }}
+          path: |
+            neoforge/build/libs/*.jar
+            neoforge/build/devlibs/*.jar
+          if-no-files-found: error
+
+      - name: Upload Common artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: common-${{ github.ref_name }}
+          path: common/build/libs/*.jar
+          if-no-files-found: error
