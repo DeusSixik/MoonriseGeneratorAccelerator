@@ -18,7 +18,7 @@ import java.util.function.Supplier;
 public abstract class MixinBiomeSource$optimize_biome_getter implements GA$BiomeSourceExtern {
 
 
-    @Mutable
+   /* @Mutable
     @Shadow
     @Final
     private Supplier<Set<Holder<Biome>>> possibleBiomes;
@@ -30,15 +30,15 @@ public abstract class MixinBiomeSource$optimize_biome_getter implements GA$Biome
         this.possibleBiomes = this::ga$getCache;
     }
 
-    /**
+    *//**
      * @author Sixik
      * @reason Redirect to fast caced version
-     */
+     *//*
     @Overwrite
     public Set<Holder<Biome>> possibleBiomes() {
         return ga$getCache();
     }
-
+*/
     @Shadow
     public abstract Holder<Biome> getNoiseBiome(int i, int j, int k, Climate.Sampler sampler);
 
