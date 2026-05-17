@@ -571,42 +571,43 @@ public final class GACustomChunkGraphScheduler {
             }
 
             this.nodeStarted();
-            CompletableFuture<ChunkResult<ChunkAccess>> future;
             try {
-                future = this.scheduleOrJoinStep(node);
+                this.scheduleOrJoinStep(node, (result, throwable) -> this.completeNodeStep(node, result, throwable));
             } catch (Throwable throwable) {
                 this.fail(throwable);
                 this.nodeFinished();
                 return;
             }
-            future.whenComplete((result, throwable) -> {
-                try {
-                    if (throwable != null) {
-                        this.fail(throwable);
-                        return;
-                    }
-                    if (result == null || !result.isSuccess()) {
-                        this.fail(new IllegalStateException(result == null ? "Null chunk result" : result.getError()));
-                        return;
-                    }
-                    if (result.orElse(null) == null) {
-                        this.fail(new IllegalStateException("Chunk step completed with null chunk for " + node.status + " at " + node.holder.getPos()));
-                        return;
-                    }
-                    if (this.shouldCancel()) {
-                        this.requestCancellation();
-                        return;
-                    }
-                    this.completeNode(node);
-                } finally {
-                    this.nodeFinished();
-                }
-            });
         }
 
-        private CompletableFuture<ChunkResult<ChunkAccess>> scheduleOrJoinStep(Node node) {
+        private void completeNodeStep(Node node, ChunkResult<ChunkAccess> result, Throwable throwable) {
+            try {
+                if (throwable != null) {
+                    this.fail(throwable);
+                    return;
+                }
+                if (result == null || !result.isSuccess()) {
+                    this.fail(new IllegalStateException(result == null ? "Null chunk result" : result.getError()));
+                    return;
+                }
+                if (result.orElse(null) == null) {
+                    this.fail(new IllegalStateException("Chunk step completed with null chunk for " + node.status + " at " + node.holder.getPos()));
+                    return;
+                }
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
+                    return;
+                }
+                this.completeNode(node);
+            } finally {
+                this.nodeFinished();
+            }
+        }
+
+        private void scheduleOrJoinStep(Node node, StepCompletionCallback callback) {
             if (!COALESCE_IN_FLIGHT) {
-                return this.scheduleStep(node);
+                this.scheduleStep(node, callback);
+                return;
             }
 
             int statusIndex = node.status.getIndex();
@@ -625,52 +626,49 @@ public final class GACustomChunkGraphScheduler {
                     }
                     if (current.matches(node.holder, statusIndex)) {
                         NODES_JOINED_IN_FLIGHT.incrementAndGet();
-                        return current.future;
+                        current.addListener(callback);
+                        return;
                     }
                 }
 
                 if (emptyIndex < 0) {
                     IN_FLIGHT_COLLISIONS.incrementAndGet();
-                    return this.scheduleStep(node);
+                    this.scheduleStep(node, callback);
+                    return;
                 }
 
-                CompletableFuture<ChunkResult<ChunkAccess>> shared = new CompletableFuture<>();
-                InFlightStep created = new InFlightStep(node.holder, statusIndex, emptyIndex, shared);
+                InFlightStep created = new InFlightStep(node.holder, statusIndex, emptyIndex, callback);
                 if (IN_FLIGHT_STEPS.compareAndSet(emptyIndex, null, created)) {
                     long count = IN_FLIGHT_STEP_COUNT.incrementAndGet();
                     updateMax(MAX_IN_FLIGHT_STEPS, count);
-                    shared.whenComplete((result, throwable) -> {
-                        if (IN_FLIGHT_STEPS.compareAndSet(created.slotIndex, created, null)) {
-                            IN_FLIGHT_STEP_COUNT.decrementAndGet();
-                        }
-                        if (throwable == null && result != null && result.isSuccess()) {
-                            STEP_EXECUTIONS_COMPLETED.incrementAndGet();
-                        } else {
-                            STEP_EXECUTIONS_FAILED.incrementAndGet();
-                        }
-                    });
-                    this.startSharedStep(node, shared);
-                    return shared;
+                    this.startStepExecution(node, (result, throwable) -> this.completeInFlightStep(created, result, throwable));
+                    return;
                 }
             }
         }
 
-        private CompletableFuture<ChunkResult<ChunkAccess>> scheduleStep(Node node) {
-            CompletableFuture<ChunkResult<ChunkAccess>> shared = new CompletableFuture<>();
-            shared.whenComplete((result, throwable) -> {
-                if (throwable == null && result != null && result.isSuccess()) {
-                    STEP_EXECUTIONS_COMPLETED.incrementAndGet();
-                } else {
-                    STEP_EXECUTIONS_FAILED.incrementAndGet();
-                }
+        private void scheduleStep(Node node, StepCompletionCallback callback) {
+            this.startStepExecution(node, (result, throwable) -> {
+                recordStepExecutionCompletion(result, throwable);
+                notifyStepCallback(callback, result, throwable);
             });
-            this.startSharedStep(node, shared);
-            return shared;
         }
 
-        private void startSharedStep(Node node, CompletableFuture<ChunkResult<ChunkAccess>> shared) {
+        private void completeInFlightStep(InFlightStep step, ChunkResult<ChunkAccess> result, Throwable throwable) {
+            ListenerBatch listeners = step.completeAndDrain(result, throwable);
+            if (listeners == null) {
+                return;
+            }
+            recordStepExecutionCompletion(result, throwable);
+            listeners.notifyListeners(result, throwable);
+            if (IN_FLIGHT_STEPS.compareAndSet(step.slotIndex, step, null)) {
+                IN_FLIGHT_STEP_COUNT.decrementAndGet();
+            }
+        }
+
+        private void startStepExecution(Node node, StepCompletionCallback callback) {
             STEP_EXECUTIONS_SUBMITTED.incrementAndGet();
-            CompletableFuture<Void> submitted = GAScheduler.supplyAsync(laneFor(node.status), () -> {
+            GAScheduler.executeAsync(laneFor(node.status), () -> {
                 CompletableFuture<ChunkResult<ChunkAccess>> future = GAChunkStatusPipeline.withInlineOnCurrentLane(
                         () -> ((MixinGenerationChunkHolderAccessor) node.holder)
                                 .ga$applyStep(node.step, this.chunkMap, this.cache)
@@ -680,18 +678,20 @@ public final class GACustomChunkGraphScheduler {
                 }
                 future.whenComplete((result, throwable) -> {
                     if (throwable != null) {
-                        shared.completeExceptionally(throwable);
+                        notifyStepCallback(callback, null, throwable);
                     } else {
-                        shared.complete(result);
+                        notifyStepCallback(callback, result, null);
                     }
                 });
-                return null;
-            });
-            submitted.whenComplete((ignored, throwable) -> {
-                if (throwable != null) {
-                    shared.completeExceptionally(throwable);
-                }
-            });
+            }, throwable -> notifyStepCallback(callback, null, throwable));
+        }
+
+        private static void recordStepExecutionCompletion(ChunkResult<ChunkAccess> result, Throwable throwable) {
+            if (throwable == null && result != null && result.isSuccess()) {
+                STEP_EXECUTIONS_COMPLETED.incrementAndGet();
+            } else {
+                STEP_EXECUTIONS_FAILED.incrementAndGet();
+            }
         }
 
         private void completeNode(Node node) {
@@ -921,6 +921,42 @@ public final class GACustomChunkGraphScheduler {
         }
     }
 
+    @FunctionalInterface
+    private interface StepCompletionCallback {
+        void accept(ChunkResult<ChunkAccess> result, Throwable throwable);
+    }
+
+    private static void notifyStepCallback(StepCompletionCallback callback, ChunkResult<ChunkAccess> result, Throwable throwable) {
+        try {
+            callback.accept(result, throwable);
+        } catch (Throwable callbackFailure) {
+            GeneratorAccelerator.LOGGER.warn("GA custom chunk graph step callback failed", callbackFailure);
+        }
+    }
+
+    private static final class ListenerBatch {
+        private final StepCompletionCallback first;
+        private final ObjectArrayList<StepCompletionCallback> rest;
+
+        private ListenerBatch(StepCompletionCallback first, ObjectArrayList<StepCompletionCallback> rest) {
+            this.first = first;
+            this.rest = rest;
+        }
+
+        private void notifyListeners(ChunkResult<ChunkAccess> result, Throwable throwable) {
+            notifyStepCallback(this.first, result, throwable);
+            if (this.rest == null) {
+                return;
+            }
+
+            Object[] listeners = this.rest.elements();
+            int size = this.rest.size();
+            for (int i = 0; i < size; i++) {
+                notifyStepCallback((StepCompletionCallback) listeners[i], result, throwable);
+            }
+        }
+    }
+
     private static final class NodeIndex {
         private final int minX;
         private final int minZ;
@@ -962,22 +998,64 @@ public final class GACustomChunkGraphScheduler {
         private final GenerationChunkHolder holder;
         private final int statusIndex;
         private final int slotIndex;
-        private final CompletableFuture<ChunkResult<ChunkAccess>> future;
+        private StepCompletionCallback firstListener;
+        private ObjectArrayList<StepCompletionCallback> extraListeners;
+        private boolean completed;
+        private ChunkResult<ChunkAccess> completedResult;
+        private Throwable completedThrowable;
 
         private InFlightStep(
                 GenerationChunkHolder holder,
                 int statusIndex,
                 int slotIndex,
-                CompletableFuture<ChunkResult<ChunkAccess>> future
+                StepCompletionCallback firstListener
         ) {
             this.holder = holder;
             this.statusIndex = statusIndex;
             this.slotIndex = slotIndex;
-            this.future = future;
+            this.firstListener = firstListener;
         }
 
         private boolean matches(GenerationChunkHolder holder, int statusIndex) {
             return this.holder == holder && this.statusIndex == statusIndex;
+        }
+
+        private void addListener(StepCompletionCallback listener) {
+            ChunkResult<ChunkAccess> result;
+            Throwable throwable;
+            synchronized (this) {
+                if (!this.completed) {
+                    if (this.firstListener == null) {
+                        this.firstListener = listener;
+                    } else {
+                        if (this.extraListeners == null) {
+                            this.extraListeners = new ObjectArrayList<>(2);
+                        }
+                        this.extraListeners.add(listener);
+                    }
+                    return;
+                }
+                result = this.completedResult;
+                throwable = this.completedThrowable;
+            }
+            notifyStepCallback(listener, result, throwable);
+        }
+
+        private ListenerBatch completeAndDrain(ChunkResult<ChunkAccess> result, Throwable throwable) {
+            synchronized (this) {
+                if (this.completed) {
+                    return null;
+                }
+
+                this.completed = true;
+                this.completedResult = result;
+                this.completedThrowable = throwable;
+
+                ListenerBatch listeners = new ListenerBatch(this.firstListener, this.extraListeners);
+                this.firstListener = null;
+                this.extraListeners = null;
+                return listeners;
+            }
         }
     }
 }
