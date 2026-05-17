@@ -457,7 +457,7 @@ public final class SectionDescriptor {
 
         this.clearColumn(columnIndex);
         for (int localY = 0; localY < SECTION_EDGE; localY++) {
-            this.acceptColumnState(((GA$LevelChunkSectionExtern)this.section).ga$getBlockRaw(localX, localY, localZ), columnIndex, localY, 1 << localY);
+            this.acceptColumnState(blockStateId(this.section, localX, localY, localZ), columnIndex, localY, 1 << localY);
         }
         this.finishColumnFlags(columnIndex);
         this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
@@ -554,7 +554,7 @@ public final class SectionDescriptor {
             int bit = 1 << localY;
             for (int localZ = 0; localZ < SECTION_EDGE; localZ++) {
                 for (int localX = 0; localX < SECTION_EDGE; localX++) {
-                    this.acceptColumnState(((GA$LevelChunkSectionExtern)section).ga$getBlockRaw(localX, localY, localZ), columnIndex(localX, localZ), localY, bit);
+                    this.acceptColumnState(blockStateId(section, localX, localY, localZ), columnIndex(localX, localZ), localY, bit);
                 }
             }
         }
@@ -1097,6 +1097,13 @@ public final class SectionDescriptor {
 
     private static int columnIndexFromBlock(int blockX, int blockZ) {
         return columnIndex(blockX & 15, blockZ & 15);
+    }
+
+    private static int blockStateId(LevelChunkSection section, int localX, int localY, int localZ) {
+        if (section instanceof GA$LevelChunkSectionExtern fastSection) {
+            return fastSection.ga$getBlockRaw(localX, localY, localZ);
+        }
+        return GA$BlockStateExtension.get(section.getBlockState(localX, localY, localZ)).bts$getFastId();
     }
 
     private static int verticalMask(int fromLocalYInclusive, int toLocalYInclusive) {
