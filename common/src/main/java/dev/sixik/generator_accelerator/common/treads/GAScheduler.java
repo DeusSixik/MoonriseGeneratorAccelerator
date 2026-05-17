@@ -310,6 +310,56 @@ public final class GAScheduler {
         }
     }
 
+    /**
+     * Fire-and-callback variant of {@link #supplyNestedAsync(Lane, Supplier)} for nested work that is joined by
+     * caller-owned state instead of one CompletableFuture per child task.
+     */
+    public static void executeNestedAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
+        ensureInitialized();
+        Supplier<Void> task = wrapWorkspaceContext(() -> {
+            runnable.run();
+            return null;
+        });
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        if (isCurrentLaneWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        if (shouldInlineNestedFromGaWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
+        try {
+            pool.execute(() -> {
+                try {
+                    runMeasured(lane, task);
+                } catch (Throwable throwable) {
+                    notifyFailure(failureHandler, throwable);
+                }
+            });
+        } catch (RejectedExecutionException rejected) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, rejected);
+        }
+    }
+
     public static void invokeBlocking(Lane lane, Runnable runnable) throws InterruptedException, ExecutionException {
         ensureInitialized();
         if (isCurrentLaneWorker(lane)) {
