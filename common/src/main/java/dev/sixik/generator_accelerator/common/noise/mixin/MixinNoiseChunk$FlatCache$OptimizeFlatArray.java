@@ -4,11 +4,9 @@ import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArr
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
-import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(NoiseChunk.FlatCache.class)
@@ -40,19 +38,25 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
         this.bts$array = value;
     }
 
-    @Redirect(
-            method = "<init>",
-            at = @At(
-                    value = "FIELD",
-                    target = "Lnet/minecraft/world/level/levelgen/NoiseChunk;noiseSizeXZ:I",
-                    opcode = Opcodes.GETFIELD)
-    )
-    public int bts$init$recirect_for_0(
-            NoiseChunk instance,
-            NoiseChunk noiseChunk,
-            DensityFunction densityFunction,
-            boolean bl) {
-        return bl ? instance.noiseSizeXZ : -1;
+    @Override
+    public void bts$copyFlatArrayToVanillaValues() {
+        final double[] flat = this.bts$array;
+        final double[][] vanillaValues = this.values;
+        if (flat == null || vanillaValues == null) {
+            return;
+        }
+
+        final int side = field_36611.noiseSizeXZ + 1;
+        if (side <= 0 || flat.length < side * side || vanillaValues.length < side) {
+            return;
+        }
+
+        for (int x = 0; x < side; x++) {
+            final double[] row = vanillaValues[x];
+            if (row != null && row.length >= side) {
+                System.arraycopy(flat, x * side, row, 0, side);
+            }
+        }
     }
 
     @Inject(method = "<init>", at = @At("RETURN"))

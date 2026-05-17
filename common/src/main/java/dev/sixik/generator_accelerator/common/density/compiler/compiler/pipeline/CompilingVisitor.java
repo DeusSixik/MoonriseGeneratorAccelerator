@@ -40,6 +40,8 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 public final class CompilingVisitor implements DensityFunction.Visitor {
 
     private static final CompilingVisitor INSTANCE = new CompilingVisitor();
+    private static final boolean COMPILE_MARKER_INNERS =
+            Boolean.getBoolean("dfc.compileMarkerInners");
 
     /**
      * Identity-keyed compile cache. Use weak keys so the source
@@ -85,11 +87,13 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
         }
         // Markers are a contract with NoiseChunk: the chunk swaps them with cell caches
         // (Cache2D / FlatCache / NoiseInterpolator / CacheOnce / CacheAllInCell). We have
-        // to preserve the marker boundary verbatim, but the inner subtree is fair game
-        // for compilation. Immutable Marker records may stay identity-stable when their
-        // inner child is unchanged; already-created NoiseChunk cache wrappers are mutable
-        // MarkerOrMarked implementations, so repackage them into fresh Marker records.
+        // to preserve the marker boundary verbatim. Compiling marker inners can make
+        // NoiseChunk prefill paths evaluate generated code before all chunk-local cache
+        // state is initialized, so keep marker payloads vanilla unless explicitly opted in.
         if (df instanceof DensityFunctions.Marker marker) {
+            if (!COMPILE_MARKER_INNERS) {
+                return df;
+            }
             DensityFunction cached = cache.getIfPresent(df);
             if (cached != null) return cached;
             DensityFunction inner = marker.wrapped();
@@ -101,6 +105,9 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
             return prior != null ? prior : result;
         }
         if (df instanceof DensityFunctions.MarkerOrMarked marker) {
+            if (!COMPILE_MARKER_INNERS) {
+                return df;
+            }
             DensityFunction cached = cache.getIfPresent(df);
             if (cached != null) return cached;
             DensityFunction compiledInner = apply(marker.wrapped());

@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,9 +30,23 @@ public class MixinNoiseChunk$Cache2D {
         if (this.lastPos2D == key) {
             return this.lastValue;
         } else {
-            final double val = this.function.compute(ctx);
-            this.lastValue = val;
             this.lastPos2D = key;
+            final double val;
+            try {
+                val = this.function.compute(ctx);
+            } catch (ArrayIndexOutOfBoundsException e) {
+                String compiledState = this.function instanceof CompiledDensityFunction compiled
+                        ? ", " + compiled.dfc$debugState()
+                        : "";
+                ArrayIndexOutOfBoundsException enriched = new ArrayIndexOutOfBoundsException(
+                        e.getMessage() + " while computing NoiseChunk.Cache2D function="
+                                + this.function.getClass().getName()
+                                + " at x=" + x + ", z=" + z
+                                + compiledState);
+                enriched.initCause(e);
+                throw enriched;
+            }
+            this.lastValue = val;
             return val;
         }
     }

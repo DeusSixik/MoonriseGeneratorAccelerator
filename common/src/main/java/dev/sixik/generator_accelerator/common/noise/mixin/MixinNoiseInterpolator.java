@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
-import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -16,36 +15,64 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class MixinNoiseInterpolator implements
         DensityFunctions.MarkerOrMarked, NoiseChunk.NoiseChunkDensityFunction, NoiseChunk$NoiseInterpolatorPatch {
 
-    @Unique
-    private static final double[][] BTS$EMPTY = new double[0][0];
-
     @Shadow @Final
     NoiseChunk field_34622;
+    @Shadow
+    double[][] slice0;
+    @Shadow
+    double[][] slice1;
+    @Shadow
+    private double noise000;
+    @Shadow
+    private double noise001;
+    @Shadow
+    private double noise100;
+    @Shadow
+    private double noise101;
+    @Shadow
+    private double noise010;
+    @Shadow
+    private double noise011;
+    @Shadow
+    private double noise110;
+    @Shadow
+    private double noise111;
+    @Shadow
+    private double value;
 
     @Unique
     private int bts$soaIndex = -1;
 
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator;allocateSlice(II)[[D"))
-    private double[][] bts$allocate(NoiseChunk.NoiseInterpolator instance, int i, int j) {
-        return BTS$EMPTY;
+    private double[][] bts$allocate(NoiseChunk.NoiseInterpolator instance, int cellCountY, int cellCountXZ) {
+        return new double[cellCountXZ + 1][cellCountY + 1];
     }
 
     /**
      * @author Sixik
-     * @reason L1-Cache Friendly Flat Array Read (Zero pointer chasing)
+     * @reason Keep vanilla fallback valid when a path touches slices before SoA init
      */
     @Overwrite
     public void selectCellYZ(int pY, int pZ) {
-        throw new UnsupportedOperationException();
+        this.noise000 = this.slice0[pZ][pY];
+        this.noise001 = this.slice0[pZ + 1][pY];
+        this.noise100 = this.slice1[pZ][pY];
+        this.noise101 = this.slice1[pZ + 1][pY];
+        this.noise010 = this.slice0[pZ][pY + 1];
+        this.noise011 = this.slice0[pZ + 1][pY + 1];
+        this.noise110 = this.slice1[pZ][pY + 1];
+        this.noise111 = this.slice1[pZ + 1][pY + 1];
     }
 
     /**
      * @author Sixik
-     * @reason Swap flat arrays instead of 2D arrays
+     * @reason Keep vanilla fallback valid when a path touches slices before SoA init
      */
     @Overwrite
     public final void swapSlices() {
-        throw new UnsupportedOperationException();
+        double[][] tmp = this.slice0;
+        this.slice0 = this.slice1;
+        this.slice1 = tmp;
     }
 
     /**
@@ -75,35 +102,23 @@ public abstract class MixinNoiseInterpolator implements
             return soa.bts$getInterpolatorValue(soaIndex);
         }
 
-        throw new UnsupportedOperationException();
-//
-//        /*
-//            Fallback for unexpected early calls before NoiseChunk assigned SoA
-//            indices. Normal terrain goes through the chunk-owned arrays above.
-//         */
-//        if (!chunk.fillingCell) {
-//            return this.value;
-//        }
-//
-//        final double invW = ((NoiseChunkPatch) chunk).bts$getInverseCellWidth();
-//        final double invH = ((NoiseChunkPatch) chunk).bts$getInverseCellHeight();
-//
-//        final double deltaX = chunk.inCellX * invW;
-//        final double deltaY = chunk.inCellY * invH;
-//        final double deltaZ = chunk.inCellZ * invW;
-//
-//        // Lerp Y (4 times)
-//        final double lerpY00 = noise000 + deltaY * (noise010 - noise000);
-//        final double lerpY10 = noise100 + deltaY * (noise110 - noise100);
-//        final double lerpY01 = noise001 + deltaY * (noise011 - noise001);
-//        final double lerpY11 = noise101 + deltaY * (noise111 - noise101);
-//
-//        // Lerp X (2 times)
-//        final double lerpX0 = lerpY00 + deltaX * (lerpY10 - lerpY00);
-//        final double lerpX1 = lerpY01 + deltaX * (lerpY11 - lerpY01);
-//
-//        // Lerp Z (Final)
-//        return lerpX0 + deltaZ * (lerpX1 - lerpX0);
+        if (!chunk.fillingCell) {
+            return this.value;
+        }
+
+        final double deltaX = (double) chunk.inCellX / (double) chunk.cellWidth;
+        final double deltaY = (double) chunk.inCellY / (double) chunk.cellHeight;
+        final double deltaZ = (double) chunk.inCellZ / (double) chunk.cellWidth;
+
+        final double lerpY00 = noise000 + deltaY * (noise010 - noise000);
+        final double lerpY10 = noise100 + deltaY * (noise110 - noise100);
+        final double lerpY01 = noise001 + deltaY * (noise011 - noise001);
+        final double lerpY11 = noise101 + deltaY * (noise111 - noise101);
+
+        final double lerpX0 = lerpY00 + deltaX * (lerpY10 - lerpY00);
+        final double lerpX1 = lerpY01 + deltaX * (lerpY11 - lerpY01);
+
+        return lerpX0 + deltaZ * (lerpX1 - lerpX0);
     }
 
     @Override
