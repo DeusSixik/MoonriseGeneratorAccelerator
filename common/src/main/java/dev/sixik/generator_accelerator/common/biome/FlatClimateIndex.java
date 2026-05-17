@@ -69,6 +69,10 @@ public class FlatClimateIndex<T> {
 
     private static final int LINEAR_SEARCH_THRESHOLD =
             Integer.getInteger("ga.climate.linearSearchThreshold", 0);
+    private static final boolean SECOND_WARM_START =
+            Boolean.parseBoolean(System.getProperty("ga.climate.secondWarmStart", "true"));
+    private static final boolean SORT_CHILDREN_BY_DISTANCE =
+            Boolean.parseBoolean(System.getProperty("ga.climate.sortChildrenByDistance", "true"));
     private static final int QUERY_CACHE_SIZE = queryCacheSize();
     private static final int QUERY_CACHE_MASK = QUERY_CACHE_SIZE - 1;
 
@@ -78,7 +82,7 @@ public class FlatClimateIndex<T> {
      * temporary arrays for child sorting, and warm-start tracking.
      * <p>Typical biome R-trees have depth < 10, so 256 provides ample headroom.
      */
-    private static final class SearchContext {
+    static final class SearchContext {
         final int[] stack = new int[256]; // Depth is usually < 10, 256 is safe
         final long[] stackDistances = new long[256];
         final long[] childDistances = new long[6];
@@ -93,6 +97,8 @@ public class FlatClimateIndex<T> {
         final int[] cacheLeafNode = new int[QUERY_CACHE_SIZE];
         int lastLeafNodeIndex = -1; // "Warm start" hint
         int lastValueIndex = -1;
+        int previousLeafNodeIndex = -1;
+        int previousValueIndex = -1;
         long lastT;
         long lastH;
         long lastC;
@@ -157,10 +163,25 @@ public class FlatClimateIndex<T> {
            final long d,
            final long w
     ) {
+        return search(this.ctx.get(), t, h, c, e, d, w);
+    }
+
+    SearchContext createSearchContext() {
+        return new SearchContext();
+    }
+
+    T search(
+           final SearchContext s,
+           final long t,
+           final long h,
+           final long c,
+           final long e,
+           final long d,
+           final long w
+    ) {
         if (this.singleLeafValueIndex >= 0) {
             return (T) values[this.singleLeafValueIndex];
         }
-        final SearchContext s = ctx.get();
         if (s.lastValueIndex >= 0
                 && s.lastT == t
                 && s.lastH == h
@@ -183,8 +204,7 @@ public class FlatClimateIndex<T> {
                     && s.cacheD[queryCacheSlot] == d
                     && s.cacheW[queryCacheSlot] == w) {
                 int valueIndex = valuePlusOne - 1;
-                s.lastLeafNodeIndex = s.cacheLeafNode[queryCacheSlot];
-                rememberLastQuery(s, valueIndex, t, h, c, e, d, w);
+                rememberLastResult(s, s.cacheLeafNode[queryCacheSlot], valueIndex, t, h, c, e, d, w);
                 return (T) values[valueIndex];
             }
         }
@@ -195,6 +215,7 @@ public class FlatClimateIndex<T> {
             return result;
         }
 
+        int bestLeafNodeIndex = -1;
         int bestLeafValueIndex = -1;
         long bestDist = Long.MAX_VALUE;
 
@@ -203,16 +224,35 @@ public class FlatClimateIndex<T> {
             We check the distance to the previous winner immediately.
         */
         if (s.lastLeafNodeIndex != -1) {
-            bestDist = distance(s.lastLeafNodeIndex, t, h, c, e, d, w);
+            bestLeafNodeIndex = s.lastLeafNodeIndex;
+            bestDist = distance(bestLeafNodeIndex, t, h, c, e, d, w);
 
             /*
                 the structure[node*2] for the sheet points to the index in the values array
              */
-            bestLeafValueIndex = nodeOffsets[s.lastLeafNodeIndex];
+            bestLeafValueIndex = nodeOffsets[bestLeafNodeIndex];
             if (bestDist == 0L) {
-                rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
                 storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
                 return (T) values[bestLeafValueIndex];
+            }
+        }
+        if (SECOND_WARM_START
+                && s.previousLeafNodeIndex != -1
+                && s.previousLeafNodeIndex != bestLeafNodeIndex) {
+            int previousLeafNodeIndex = s.previousLeafNodeIndex;
+            long previousDist = distance(previousLeafNodeIndex, t, h, c, e, d, w);
+            if (previousDist < bestDist) {
+                bestLeafNodeIndex = previousLeafNodeIndex;
+                bestDist = previousDist;
+                bestLeafValueIndex = s.previousValueIndex >= 0
+                        ? s.previousValueIndex
+                        : nodeOffsets[previousLeafNodeIndex];
+                if (bestDist == 0L) {
+                    rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
+                    storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+                    return (T) values[bestLeafValueIndex];
+                }
             }
         }
 
@@ -221,7 +261,7 @@ public class FlatClimateIndex<T> {
         int sp = 0;
         long rootDistance = distanceCapped(rootIndex, t, h, c, e, d, w, bestDist);
         if (rootDistance >= bestDist && bestLeafValueIndex >= 0) {
-            rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+            rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
             storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
             return (T) values[bestLeafValueIndex];
         }
@@ -252,10 +292,10 @@ public class FlatClimateIndex<T> {
             if (childCount == 0) {
                 if (nodeDistance < bestDist) {
                     bestDist = nodeDistance;
+                    bestLeafNodeIndex = nodeIdx;
                     bestLeafValueIndex = offset;
-                    s.lastLeafNodeIndex = nodeIdx;
                     if (bestDist == 0L) {
-                        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                        rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
                         storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
                         return (T) values[bestLeafValueIndex];
                     }
@@ -305,27 +345,46 @@ public class FlatClimateIndex<T> {
                     continue;
                 }
 
-                int nearest = 0;
-                long nearestDist = childDists[0];
-                for (int i = 1; i < validChildren; i++) {
-                    long dist = childDists[i];
-                    if (dist < nearestDist) {
-                        nearest = i;
-                        nearestDist = dist;
+                if (SORT_CHILDREN_BY_DISTANCE) {
+                    for (int i = 1; i < validChildren; i++) {
+                        long dist = childDists[i];
+                        int idx = childIdxs[i];
+                        int j = i - 1;
+                        while (j >= 0 && childDists[j] > dist) {
+                            childDists[j + 1] = childDists[j];
+                            childIdxs[j + 1] = childIdxs[j];
+                            j--;
+                        }
+                        childDists[j + 1] = dist;
+                        childIdxs[j + 1] = idx;
                     }
-                }
-                for (int i = 0; i < validChildren; i++) {
-                    if (i != nearest) {
+                    for (int i = validChildren - 1; i >= 0; i--) {
                         stack[sp] = childIdxs[i];
                         stackDistances[sp++] = childDists[i];
                     }
+                } else {
+                    int nearest = 0;
+                    long nearestDist = childDists[0];
+                    for (int i = 1; i < validChildren; i++) {
+                        long dist = childDists[i];
+                        if (dist < nearestDist) {
+                            nearest = i;
+                            nearestDist = dist;
+                        }
+                    }
+                    for (int i = 0; i < validChildren; i++) {
+                        if (i != nearest) {
+                            stack[sp] = childIdxs[i];
+                            stackDistances[sp++] = childDists[i];
+                        }
+                    }
+                    stack[sp] = childIdxs[nearest];
+                    stackDistances[sp++] = nearestDist;
                 }
-                stack[sp] = childIdxs[nearest];
-                stackDistances[sp++] = nearestDist;
             }
         }
 
-        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+        rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
         storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
         return (T) values[bestLeafValueIndex];
     }
@@ -346,8 +405,23 @@ public class FlatClimateIndex<T> {
             bestDist = distance(bestLeafNodeIndex, t, h, c, e, d, w);
             bestLeafValueIndex = nodeOffsets[bestLeafNodeIndex];
             if (bestDist == 0L) {
-                rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
                 return (T) values[bestLeafValueIndex];
+            }
+        }
+        int previousLeafNodeIndex = SECOND_WARM_START ? s.previousLeafNodeIndex : -1;
+        if (previousLeafNodeIndex != -1 && previousLeafNodeIndex != bestLeafNodeIndex) {
+            long previousDist = distance(previousLeafNodeIndex, t, h, c, e, d, w);
+            if (previousDist < bestDist) {
+                bestDist = previousDist;
+                bestLeafNodeIndex = previousLeafNodeIndex;
+                bestLeafValueIndex = s.previousValueIndex >= 0
+                        ? s.previousValueIndex
+                        : nodeOffsets[previousLeafNodeIndex];
+                if (bestDist == 0L) {
+                    rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
+                    return (T) values[bestLeafValueIndex];
+                }
             }
         }
 
@@ -355,7 +429,7 @@ public class FlatClimateIndex<T> {
         int[] leafValues = this.leafValueIndices;
         for (int i = 0; i < leaves.length; i++) {
             int leaf = leaves[i];
-            if (leaf == bestLeafNodeIndex) {
+            if (leaf == s.lastLeafNodeIndex || leaf == previousLeafNodeIndex) {
                 continue;
             }
             long dist = distance(leaf, t, h, c, e, d, w);
@@ -364,20 +438,19 @@ public class FlatClimateIndex<T> {
                 bestLeafNodeIndex = leaf;
                 bestLeafValueIndex = leafValues[i];
                 if (bestDist == 0L) {
-                    s.lastLeafNodeIndex = bestLeafNodeIndex;
-                    rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+                    rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
                     return (T) values[bestLeafValueIndex];
                 }
             }
         }
 
-        s.lastLeafNodeIndex = bestLeafNodeIndex;
-        rememberLastQuery(s, bestLeafValueIndex, t, h, c, e, d, w);
+        rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
         return (T) values[bestLeafValueIndex];
     }
 
-    private static void rememberLastQuery(
+    private static void rememberLastResult(
             SearchContext s,
+            int leafNodeIndex,
             int valueIndex,
             long t,
             long h,
@@ -386,6 +459,13 @@ public class FlatClimateIndex<T> {
             long d,
             long w
     ) {
+        if (leafNodeIndex >= 0 && s.lastLeafNodeIndex != leafNodeIndex) {
+            if (s.lastLeafNodeIndex >= 0 && s.lastValueIndex >= 0) {
+                s.previousLeafNodeIndex = s.lastLeafNodeIndex;
+                s.previousValueIndex = s.lastValueIndex;
+            }
+            s.lastLeafNodeIndex = leafNodeIndex;
+        }
         s.lastValueIndex = valueIndex;
         s.lastT = t;
         s.lastH = h;

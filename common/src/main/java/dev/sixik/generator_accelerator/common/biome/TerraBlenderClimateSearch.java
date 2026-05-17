@@ -76,33 +76,58 @@ public final class TerraBlenderClimateSearch {
         private IExtendedParameterList<?> parameterList;
         private Climate.RTree<?>[] trees = new Climate.RTree[0];
         private FlatClimateIndex<?>[] indexes = new FlatClimateIndex[0];
+        private FlatClimateIndex.SearchContext[] contexts = new FlatClimateIndex.SearchContext[0];
         private final long[] uniquenessKeys = new long[UNIQUENESS_CACHE_SIZE];
         private final int[] uniquenessValues = new int[UNIQUENESS_CACHE_SIZE];
         private final boolean[] uniquenessPresent = new boolean[UNIQUENESS_CACHE_SIZE];
+        private boolean lastUniquenessPresent;
+        private int lastUniquenessX;
+        private int lastUniquenessZ;
+        private int lastUniquenessValue;
+        private int lastSearchUniqueness = -1;
+        private FlatClimateIndex<?> lastSearchIndex;
+        private FlatClimateIndex.SearchContext lastSearchContext;
+        private int previousSearchUniqueness = -1;
+        private FlatClimateIndex<?> previousSearchIndex;
+        private FlatClimateIndex.SearchContext previousSearchContext;
 
         ParameterListCache bind(IExtendedParameterList<?> list) {
-            int treeCount = list.getTreeCount();
-            if (this.parameterList != list || this.trees.length != treeCount) {
+            if (this.parameterList != list) {
+                int treeCount = list.getTreeCount();
                 this.parameterList = list;
                 this.trees = new Climate.RTree[treeCount];
                 this.indexes = new FlatClimateIndex[treeCount];
+                this.contexts = new FlatClimateIndex.SearchContext[treeCount];
                 for (int i = 0; i < this.uniquenessPresent.length; i++) {
                     this.uniquenessPresent[i] = false;
                 }
+                this.lastUniquenessPresent = false;
+                this.lastSearchUniqueness = -1;
+                this.lastSearchIndex = null;
+                this.lastSearchContext = null;
+                this.previousSearchUniqueness = -1;
+                this.previousSearchIndex = null;
+                this.previousSearchContext = null;
             }
             return this;
         }
 
         int getUniqueness(int x, int z) {
+            if (this.lastUniquenessPresent && this.lastUniquenessX == x && this.lastUniquenessZ == z) {
+                return this.lastUniquenessValue;
+            }
             long key = (((long) x) << 32) ^ (z & 0xFFFF_FFFFL);
             int slot = mix(key) & (this.uniquenessKeys.length - 1);
             if (this.uniquenessPresent[slot] && this.uniquenessKeys[slot] == key) {
-                return this.uniquenessValues[slot];
+                int uniqueness = this.uniquenessValues[slot];
+                rememberUniqueness(x, z, uniqueness);
+                return uniqueness;
             }
             int uniqueness = this.parameterList.getUniqueness(x, 0, z);
             this.uniquenessPresent[slot] = true;
             this.uniquenessKeys[slot] = key;
             this.uniquenessValues[slot] = uniqueness;
+            rememberUniqueness(x, z, uniqueness);
             return uniqueness;
         }
 
@@ -110,6 +135,21 @@ public final class TerraBlenderClimateSearch {
             if (uniqueness < 0 || uniqueness >= this.indexes.length) {
                 uniqueness = 0;
             }
+            if (this.lastSearchUniqueness == uniqueness) {
+                return this.lastSearchIndex.search(this.lastSearchContext, t, h, c, e, d, w);
+            }
+            if (this.previousSearchUniqueness == uniqueness) {
+                FlatClimateIndex<?> flatIndex = this.previousSearchIndex;
+                FlatClimateIndex.SearchContext context = this.previousSearchContext;
+                this.previousSearchUniqueness = this.lastSearchUniqueness;
+                this.previousSearchIndex = this.lastSearchIndex;
+                this.previousSearchContext = this.lastSearchContext;
+                this.lastSearchUniqueness = uniqueness;
+                this.lastSearchIndex = flatIndex;
+                this.lastSearchContext = context;
+                return flatIndex.search(context, t, h, c, e, d, w);
+            }
+
             FlatClimateIndex<?> flatIndex = this.indexes[uniqueness];
             if (flatIndex == null) {
                 Climate.RTree<?> tree = this.trees[uniqueness];
@@ -120,7 +160,33 @@ public final class TerraBlenderClimateSearch {
                 flatIndex = TREE_CACHE.get(tree, FlatClimateIndex::new);
                 this.indexes[uniqueness] = flatIndex;
             }
-            return flatIndex.search(t, h, c, e, d, w);
+            FlatClimateIndex.SearchContext context = this.contexts[uniqueness];
+            if (context == null) {
+                context = flatIndex.createSearchContext();
+                this.contexts[uniqueness] = context;
+            }
+            rememberIndex(uniqueness, flatIndex, context);
+            return flatIndex.search(context, t, h, c, e, d, w);
+        }
+
+        private void rememberUniqueness(int x, int z, int uniqueness) {
+            this.lastUniquenessPresent = true;
+            this.lastUniquenessX = x;
+            this.lastUniquenessZ = z;
+            this.lastUniquenessValue = uniqueness;
+        }
+
+        private void rememberIndex(
+                int uniqueness,
+                FlatClimateIndex<?> flatIndex,
+                FlatClimateIndex.SearchContext context
+        ) {
+            this.previousSearchUniqueness = this.lastSearchUniqueness;
+            this.previousSearchIndex = this.lastSearchIndex;
+            this.previousSearchContext = this.lastSearchContext;
+            this.lastSearchUniqueness = uniqueness;
+            this.lastSearchIndex = flatIndex;
+            this.lastSearchContext = context;
         }
 
         private static int mix(long key) {
