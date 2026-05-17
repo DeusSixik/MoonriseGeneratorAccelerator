@@ -1,11 +1,13 @@
 package dev.sixik.generator_accelerator.common.worldgen.parallel;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$StaticCache2DExtern;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkGenerationTaskAccessor;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinGenerationChunkHolderAccessor;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.server.level.ChunkGenerationTask;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ChunkResult;
@@ -18,7 +20,6 @@ import net.minecraft.world.level.chunk.status.ChunkPyramid;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkStep;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * with per-node dependency dispatch over GA-owned lanes.
  */
 public final class GACustomChunkGraphScheduler {
-    private static final List<ChunkStatus> STATUS_LIST = ChunkStatus.getStatusList();
+    private static final ObjectArrayList<ChunkStatus> STATUS_LIST = new ObjectArrayList<>(ChunkStatus.getStatusList());
+    private static final Object[] STATUS_RAW_LIST = STATUS_LIST.elements();
+    private static final int STATUS_RAW_LIST_SIZE = STATUS_LIST.size();
+
     private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
     private static final boolean ENABLED = booleanProperty(
             "ga.chunkGraph.enabled",
@@ -191,17 +195,31 @@ public final class GACustomChunkGraphScheduler {
     }
 
     private static final class TaskRun {
+
+        private static final int PHASE_NONE = 0;
+        private static final int PHASE_AFTER_INITIAL_EMPTY = 1;
+        private static final int PHASE_BUILD_GRAPH_GENERATION = 2;
+        private static final int PHASE_FINISH_SUCCESS = 3;
+
         private final ChunkMap chunkMap;
         private final ChunkGenerationTask task;
         private final MixinChunkGenerationTaskAccessor taskAccess;
         private final ChunkPos center;
         private final StaticCache2D<GenerationChunkHolder> cache;
+        private final GA$StaticCache2DExtern<GenerationChunkHolder> cacheExtern;
+
+        private final Object[] cacheRawData;
+        private final int cacheIndex;
+
         private final ChunkStatus targetStatus;
         private final ConcurrentLinkedQueue<Node> ready = new ConcurrentLinkedQueue<>();
         private final AtomicInteger drainWork = new AtomicInteger();
         private final AtomicInteger remaining = new AtomicInteger();
         private final AtomicBoolean terminal = new AtomicBoolean();
-        private volatile Runnable phaseComplete;
+
+        private volatile int nextPhaseId = PHASE_NONE;
+        private int storedGenerationEmptyRadius;
+        private int initialRadius;
 
         private TaskRun(ChunkMap chunkMap, ChunkGenerationTask task) {
             this.chunkMap = chunkMap;
@@ -210,6 +228,10 @@ public final class GACustomChunkGraphScheduler {
             this.center = this.taskAccess.ga$getPos();
             this.cache = this.taskAccess.ga$getCache();
             this.targetStatus = task.targetStatus;
+
+            cacheExtern = GA$StaticCache2DExtern.get(cache);
+            cacheIndex = cacheExtern.ga$getIndex(center.x, center.z);
+            cacheRawData = cacheExtern.ga$getRawData();
         }
 
         private void start() {
@@ -225,7 +247,9 @@ public final class GACustomChunkGraphScheduler {
                         .getStepTo(this.targetStatus)
                         .getAccumulatedRadiusOf(ChunkStatus.EMPTY);
                 int initialRadius = EAGER_EMPTY_RADIUS ? generationEmptyRadius : loadingEmptyRadius;
-                this.loadEmptyRadius(initialRadius, () -> this.afterInitialEmptyLoaded(initialRadius, generationEmptyRadius));
+                this.storedGenerationEmptyRadius = generationEmptyRadius;
+                this.initialRadius = initialRadius;
+                this.loadEmptyRadius(initialRadius, PHASE_AFTER_INITIAL_EMPTY);
             } catch (Throwable throwable) {
                 this.fail(throwable);
             }
@@ -251,14 +275,14 @@ public final class GACustomChunkGraphScheduler {
             }
 
             if (loadedRadius < generationEmptyRadius) {
-                this.loadEmptyRadius(generationEmptyRadius, () -> this.buildAndSubmitGraph(true));
+                this.loadEmptyRadius(generationEmptyRadius, PHASE_BUILD_GRAPH_GENERATION);
                 return;
             }
             this.buildAndSubmitGraph(true);
         }
 
         private boolean needsGenerationAfterEmptyLoad() {
-            ChunkStatus centerPersisted = this.cache.get(this.center.x, this.center.z).getPersistedStatus();
+            ChunkStatus centerPersisted = ((GenerationChunkHolder)this.cacheRawData[cacheIndex]).getPersistedStatus();
             if (centerPersisted == null || centerPersisted.isBefore(this.targetStatus)) {
                 return true;
             }
@@ -267,11 +291,25 @@ public final class GACustomChunkGraphScheduler {
                     .getStepTo(this.targetStatus)
                     .accumulatedDependencies();
             int radius = dependencies.getRadius();
-            for (int x = this.center.x - radius; x <= this.center.x + radius; x++) {
-                for (int z = this.center.z - radius; z <= this.center.z + radius; z++) {
-                    int distance = this.center.getChessboardDistance(x, z);
+
+            int minX = this.center.x - radius;
+            int maxX = this.center.x + radius;
+            int minZ = this.center.z - radius;
+            int maxZ = this.center.z + radius;
+
+            for (int x = minX; x <= maxX; x++) {
+                int xIndex = cacheExtern.ga$getX(x);
+                int baseIndex = xIndex + cacheExtern.ga$getZ(minZ);
+
+                int distX = Math.abs(this.center.x - x);
+
+                for (int z = minZ; z <= maxZ; z++) {
+                    int finalIndex = baseIndex + (z - minZ);
+                    int distance = Math.max(distX, Math.abs(this.center.z - z));
+
                     ChunkStatus required = dependencies.get(distance);
-                    ChunkStatus persisted = this.cache.get(x, z).getPersistedStatus();
+                    ChunkStatus persisted = ((GenerationChunkHolder)this.cacheRawData[finalIndex]).getPersistedStatus();
+
                     if (persisted == null || persisted.isBefore(required)) {
                         return true;
                     }
@@ -280,19 +318,30 @@ public final class GACustomChunkGraphScheduler {
             return false;
         }
 
-        private void loadEmptyRadius(int radius, Runnable onComplete) {
-            ArrayList<Node> nodes = new ArrayList<>();
+        private void loadEmptyRadius(int radius, int nextPhaseId) {
+            ObjectArrayList<Node> nodes = new ObjectArrayList<>();
             ChunkStep emptyStep = ChunkPyramid.LOADING_PYRAMID.getStepTo(ChunkStatus.EMPTY);
-            for (int x = this.center.x - radius; x <= this.center.x + radius; x++) {
-                for (int z = this.center.z - radius; z <= this.center.z + radius; z++) {
-                    GenerationChunkHolder holder = this.cache.get(x, z);
+
+            int minX = this.center.x - radius;
+            int maxX = this.center.x + radius;
+            int minZ = this.center.z - radius;
+            int maxZ = this.center.z + radius;
+
+            for (int x = minX; x <= maxX; x++) {
+                int xIndex = cacheExtern.ga$getX(x);
+                int baseIndex = xIndex + cacheExtern.ga$getZ(minZ);
+
+                for (int z = minZ; z <= maxZ; z++) {
+                    int finalIndex = baseIndex + (z - minZ);
+
+                    GenerationChunkHolder holder = (GenerationChunkHolder) this.cacheRawData[finalIndex];
                     if (holder.getChunkIfPresentUnchecked(ChunkStatus.EMPTY) != null) {
                         continue;
                     }
                     nodes.add(new Node(holder, ChunkStatus.EMPTY, emptyStep, true));
                 }
             }
-            this.startPhase(nodes, onComplete);
+            this.startPhase(nodes.elements(), nodes.size(), nextPhaseId);
         }
 
         private void buildAndSubmitGraph(boolean needsGeneration) {
@@ -306,17 +355,29 @@ public final class GACustomChunkGraphScheduler {
 
             ChunkPyramid targetPyramid = needsGeneration ? ChunkPyramid.GENERATION_PYRAMID : ChunkPyramid.LOADING_PYRAMID;
             ChunkStep targetStep = targetPyramid.getStepTo(this.targetStatus);
-            ArrayList<Node> nodes = new ArrayList<>();
+            ObjectArrayList<Node> nodes = new ObjectArrayList<>();
             NodeIndex index = new NodeIndex(this.center, targetStep.getAccumulatedRadiusOf(ChunkStatus.EMPTY));
 
-            for (ChunkStatus status : STATUS_LIST) {
+            for (int i = 0; i < STATUS_RAW_LIST_SIZE; i++) {
+                ChunkStatus status = (ChunkStatus) STATUS_RAW_LIST[i];
                 if (status == ChunkStatus.EMPTY || status.isAfter(this.targetStatus)) {
                     continue;
                 }
                 int radius = targetStep.getAccumulatedRadiusOf(status);
-                for (int x = this.center.x - radius; x <= this.center.x + radius; x++) {
-                    for (int z = this.center.z - radius; z <= this.center.z + radius; z++) {
-                        GenerationChunkHolder holder = this.cache.get(x, z);
+
+                int minX = this.center.x - radius;
+                int maxX = this.center.x + radius;
+                int minZ = this.center.z - radius;
+                int maxZ = this.center.z + radius;
+
+                for (int x = minX; x <= maxX; x++) {
+                    int xIndex = cacheExtern.ga$getX(x);
+                    int baseIndex = xIndex + cacheExtern.ga$getZ(minZ);
+
+                    for (int z = minZ; z <= maxZ; z++) {
+                        int finalIndex = baseIndex + (z - minZ);
+
+                        GenerationChunkHolder holder = (GenerationChunkHolder) this.cacheRawData[finalIndex];
                         if (holder.getChunkIfPresentUnchecked(status) != null) {
                             continue;
                         }
@@ -334,7 +395,10 @@ public final class GACustomChunkGraphScheduler {
                 return;
             }
 
-            for (Node node : nodes) {
+            final Object[] elements = nodes.elements();
+            final int size = nodes.size();
+            for (int i = 0; i < size; i++) {
+                Node node = (Node) elements[i];
                 this.linkDependencies(node, index);
                 if (this.isTerminal()) {
                     return;
@@ -346,7 +410,7 @@ public final class GACustomChunkGraphScheduler {
             } else {
                 LOADING_GRAPHS.incrementAndGet();
             }
-            this.startPhase(nodes, this::finishSuccess);
+            this.startPhase(elements, size, PHASE_FINISH_SUCCESS);
         }
 
         private ChunkStep selectStep(ChunkStatus status, GenerationChunkHolder holder, boolean graphCanGenerate) {
@@ -368,6 +432,7 @@ public final class GACustomChunkGraphScheduler {
             int radius = dependencies.getRadius();
             ChunkPos pos = node.holder.getPos();
             for (int x = pos.x - radius; x <= pos.x + radius; x++) {
+                int xIndex = cacheExtern.ga$getX(x);
                 for (int z = pos.z - radius; z <= pos.z + radius; z++) {
                     int distance = pos.getChessboardDistance(x, z);
                     ChunkStatus required = dependencies.get(distance);
@@ -377,8 +442,8 @@ public final class GACustomChunkGraphScheduler {
                         node.incrementPendingDependencies();
                         continue;
                     }
-
-                    ChunkAccess existing = this.cache.get(x, z).getChunkIfPresentUnchecked(required);
+                    int zIndex = cacheExtern.ga$getZ(z);
+                    ChunkAccess existing = ((GenerationChunkHolder)this.cacheRawData[xIndex + zIndex]).getChunkIfPresentUnchecked(required);
                     if (existing == null) {
                         CACHE_MISSES.incrementAndGet();
                         this.fail(new IllegalStateException(
@@ -391,22 +456,25 @@ public final class GACustomChunkGraphScheduler {
             }
         }
 
-        private void startPhase(List<Node> nodes, Runnable onComplete) {
+        private void startPhase(Object[] nodes, int size, int nextPhaseId) {
             if (this.isTerminal()) {
                 return;
             }
-            if (nodes.isEmpty()) {
-                this.runPhaseComplete(onComplete);
+            if (size == 0) {
+                this.runNextPhase(nextPhaseId);
                 return;
             }
 
-            this.phaseComplete = onComplete;
-            this.remaining.set(nodes.size());
-            for (Node node : nodes) {
+            this.nextPhaseId = nextPhaseId;
+
+            this.remaining.set(size);
+            for (int i = 0; i < size; i++) {
+                Node node = (Node) nodes[i];
                 if (node.pendingDependencies() == 0) {
                     this.ready.add(node);
                 }
             }
+
             this.drainReady();
         }
 
@@ -570,30 +638,45 @@ public final class GACustomChunkGraphScheduler {
             }
 
             NODES_COMPLETED.incrementAndGet();
-            List<Node> dependents = node.dependents;
+            ObjectArrayList<Node> dependents = node.dependents;
             if (dependents != null) {
-                for (Node dependent : dependents) {
-                    if (dependent.decrementPendingDependencies() == 0) {
+                final Object[] elements = dependents.elements();
+                final int size = dependents.size();
+
+                for (int i = 0; i < size; i++) {
+                    Node dependent = (Node) elements[i];
+                    dependent.decrementPendingDependencies();
+                    if (dependent.pendingDependencies() == 0) {
                         this.ready.add(dependent);
                     }
                 }
             }
 
             if (this.remaining.decrementAndGet() == 0) {
-                Runnable completion = this.phaseComplete;
-                this.phaseComplete = null;
-                this.runPhaseComplete(completion);
+                int nextPhase = this.nextPhaseId;
+                this.nextPhaseId = PHASE_NONE;
+                this.runNextPhase(nextPhase);
                 return;
             }
             this.drainReady();
         }
 
-        private void runPhaseComplete(Runnable completion) {
-            if (completion == null || this.isTerminal()) {
+        private void runNextPhase(int phaseId) {
+            if (phaseId == PHASE_NONE || this.isTerminal()) {
                 return;
             }
             try {
-                completion.run();
+                switch (phaseId) {
+                    case PHASE_AFTER_INITIAL_EMPTY:
+                        this.afterInitialEmptyLoaded(initialRadius, this.storedGenerationEmptyRadius);
+                        break;
+                    case PHASE_BUILD_GRAPH_GENERATION:
+                        this.buildAndSubmitGraph(true);
+                        break;
+                    case PHASE_FINISH_SUCCESS:
+                        this.finishSuccess();
+                        break;
+                }
             } catch (Throwable throwable) {
                 this.fail(throwable);
             }
@@ -665,7 +748,7 @@ public final class GACustomChunkGraphScheduler {
         private final ChunkStep step;
         private final boolean emptyLoad;
         private volatile int pendingDependencies;
-        private List<Node> dependents;
+        private ObjectArrayList<Node> dependents;
 
         private Node(GenerationChunkHolder holder, ChunkStatus status, ChunkStep step, boolean emptyLoad) {
             this.holder = holder;
@@ -691,9 +774,9 @@ public final class GACustomChunkGraphScheduler {
         }
 
         private void addDependent(Node dependent) {
-            List<Node> current = this.dependents;
+            ObjectArrayList<Node> current = this.dependents;
             if (current == null) {
-                current = new ArrayList<>(4);
+                current = new ObjectArrayList<>(4);
                 this.dependents = current;
             }
             current.add(dependent);
@@ -711,7 +794,7 @@ public final class GACustomChunkGraphScheduler {
             this.minX = center.x - radius;
             this.minZ = center.z - radius;
             this.width = radius * 2 + 1;
-            this.statusCount = STATUS_LIST.size();
+            this.statusCount = STATUS_RAW_LIST_SIZE;
             this.nodes = new Node[this.width * this.width * this.statusCount];
         }
 

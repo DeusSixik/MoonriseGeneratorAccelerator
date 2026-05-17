@@ -26,6 +26,7 @@
     "MixinProtoChunk$carver_plan_cache",
     "MixinProtoChunk$fast_get_block",
     "MixinRandomSpreadStructurePlacement$fast_rng",
+    "MixinStaticCache2D",
     "MixinStructureCheck$lazy_structure_map",
     "MixinStructureManager",
     "MixinWorldCarver",
