@@ -18,7 +18,7 @@ public final class SectionDescriptorCache {
     private static final int MAX_RETAINED_HEIGHT_SCAN_CAPACITY = 128;
     private static final int MAX_EXCESSIVE_HEIGHT_SCAN_CAPACITY = 512;
     private static final int OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD = 4;
-    private static final short[] EMPTY_HEIGHTS = new short[SectionDescriptor.COLUMN_COUNT];
+    private static final int HEIGHT_ENTRY_STRIDE = SectionDescriptor.COLUMN_COUNT;
     private static final short NO_TOP_WATER = Short.MIN_VALUE;
     private static final int UNKNOWN_PALETTE_FLAGS = SectionDescriptor.PALETTE_AIR
             | SectionDescriptor.PALETTE_WATER
@@ -37,12 +37,12 @@ public final class SectionDescriptorCache {
     private final Long2IntOpenHashMap indexByKey = new Long2IntOpenHashMap(INITIAL_DESCRIPTOR_CAPACITY);
     private ChunkAccess[] heightChunks = new ChunkAccess[16];
     private long[] heightChunkKeys = new long[16];
-    private short[][] worldSurfaceHeights = new short[16][];
-    private short[][] oceanFloorHeights = new short[16][];
-    private short[][] motionBlockingHeights = new short[16][];
-    private short[][] topWaterHeights = new short[16][];
-    private int[][] chunkColumnPaletteFlags = new int[16][];
-    private int[][] chunkColumnBlockClassFlags = new int[16][];
+    private short[] worldSurfaceHeights = new short[16 * HEIGHT_ENTRY_STRIDE];
+    private short[] oceanFloorHeights = new short[16 * HEIGHT_ENTRY_STRIDE];
+    private short[] motionBlockingHeights = new short[16 * HEIGHT_ENTRY_STRIDE];
+    private short[] topWaterHeights = new short[16 * HEIGHT_ENTRY_STRIDE];
+    private int[] chunkColumnPaletteFlags = new int[16 * HEIGHT_ENTRY_STRIDE];
+    private int[] chunkColumnBlockClassFlags = new int[16 * HEIGHT_ENTRY_STRIDE];
     private final Long2IntOpenHashMap heightIndexByChunkKey = new Long2IntOpenHashMap(16);
     private SectionDescriptor[] heightScanDescriptors = new SectionDescriptor[32];
     private int size;
@@ -164,16 +164,16 @@ public final class SectionDescriptorCache {
     }
 
     public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
-        this.noteBlockMutation(chunk, blockX, blockY, blockZ, null);
+        this.noteBlockMutation(chunk, blockX, blockY, blockZ, -1);
     }
 
-    public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState newState) {
+    public void noteBlockMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, int newState) {
         int sectionY = blockY >> 4;
         ChunkPos pos = chunk.getPos();
         long sectionKey = key(pos, sectionY);
         int index = this.indexByKey.get(sectionKey);
         if (index >= 0 && this.chunks[index] == chunk) {
-            if (newState != null) {
+            if (newState != -1) {
                 this.descriptors[index].updateBlockState(blockX, blockY, blockZ, newState);
             } else {
                 this.descriptors[index].rebuildColumn(blockX & 15, blockZ & 15);
@@ -190,53 +190,59 @@ public final class SectionDescriptorCache {
     }
 
     public int firstAvailableHeight(ChunkAccess chunk, Heightmap.Types type, int localX, int localZ) {
-        short[] heights = this.heightArray(chunk, type);
-        if (heights == EMPTY_HEIGHTS) {
-            return Integer.MIN_VALUE;
-        }
-        return heights[(localZ << 4) | localX];
+        int index = this.ensureHeightEntry(chunk);
+        int columnOffset = heightColumnOffset(index, localX, localZ);
+        return switch (type) {
+            case WORLD_SURFACE, WORLD_SURFACE_WG -> this.worldSurfaceHeights[columnOffset];
+            case OCEAN_FLOOR, OCEAN_FLOOR_WG -> this.oceanFloorHeights[columnOffset];
+            case MOTION_BLOCKING -> this.motionBlockingHeights[columnOffset];
+            default -> Integer.MIN_VALUE;
+        };
     }
 
     public int firstAvailableHeight(int chunkX, int chunkZ, Heightmap.Types type, int localX, int localZ) {
-        short[] heights = this.heightArray(chunkX, chunkZ, type);
-        if (heights == EMPTY_HEIGHTS) {
+        int index = this.findHeightEntryIndex(chunkX, chunkZ);
+        if (index < 0) {
             return Integer.MIN_VALUE;
         }
-        return heights[(localZ << 4) | localX];
+        int columnOffset = heightColumnOffset(index, localX, localZ);
+        return switch (type) {
+            case WORLD_SURFACE, WORLD_SURFACE_WG -> this.worldSurfaceHeights[columnOffset];
+            case OCEAN_FLOOR, OCEAN_FLOOR_WG -> this.oceanFloorHeights[columnOffset];
+            case MOTION_BLOCKING -> this.motionBlockingHeights[columnOffset];
+            default -> Integer.MIN_VALUE;
+        };
     }
 
     public int topWaterHeight(ChunkAccess chunk, int localX, int localZ) {
-        short[] heights = this.topWaterArray(chunk);
-        if (heights == EMPTY_HEIGHTS) {
-            return Integer.MIN_VALUE;
-        }
-        short height = heights[(localZ << 4) | localX];
+        int index = this.ensureHeightEntry(chunk);
+        short height = this.topWaterHeights[heightColumnOffset(index, localX, localZ)];
         return height == NO_TOP_WATER ? Integer.MIN_VALUE : height;
     }
 
     public int topWaterHeight(int chunkX, int chunkZ, int localX, int localZ) {
-        short[] heights = this.topWaterArray(chunkX, chunkZ);
-        if (heights == EMPTY_HEIGHTS) {
+        int index = this.findHeightEntryIndex(chunkX, chunkZ);
+        if (index < 0) {
             return Integer.MIN_VALUE;
         }
-        short height = heights[(localZ << 4) | localX];
+        short height = this.topWaterHeights[heightColumnOffset(index, localX, localZ)];
         return height == NO_TOP_WATER ? Integer.MIN_VALUE : height;
     }
 
     public int chunkColumnPaletteFlags(int chunkX, int chunkZ, int localX, int localZ) {
-        int[] flags = this.paletteFlagArray(chunkX, chunkZ);
-        if (flags == null) {
+        int index = this.findHeightEntryIndex(chunkX, chunkZ);
+        if (index < 0) {
             return this.isLazyChunk(chunkX, chunkZ) ? UNKNOWN_PALETTE_FLAGS : 0;
         }
-        return flags[(localZ << 4) | localX];
+        return this.chunkColumnPaletteFlags[heightColumnOffset(index, localX, localZ)];
     }
 
     public int chunkColumnBlockClassFlags(int chunkX, int chunkZ, int localX, int localZ) {
-        int[] flags = this.blockClassFlagArray(chunkX, chunkZ);
-        if (flags == null) {
+        int index = this.findHeightEntryIndex(chunkX, chunkZ);
+        if (index < 0) {
             return this.isLazyChunk(chunkX, chunkZ) ? UNKNOWN_BLOCK_CLASS_FLAGS : 0;
         }
-        return flags[(localZ << 4) | localX];
+        return this.chunkColumnBlockClassFlags[heightColumnOffset(index, localX, localZ)];
     }
 
     private SectionDescriptor buildNew(ChunkAccess chunk, int sectionY, long key) {
@@ -300,30 +306,11 @@ public final class SectionDescriptorCache {
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
     }
 
-    private short[] heightArray(ChunkAccess chunk, Heightmap.Types type) {
-        int index = this.ensureHeightEntry(chunk);
-        return switch (type) {
-            case WORLD_SURFACE, WORLD_SURFACE_WG -> this.worldSurfaceHeights[index];
-            case OCEAN_FLOOR, OCEAN_FLOOR_WG -> this.oceanFloorHeights[index];
-            case MOTION_BLOCKING -> this.motionBlockingHeights[index];
-            default -> EMPTY_HEIGHTS;
-        };
-    }
-
-    private short[] heightArray(int chunkX, int chunkZ, Heightmap.Types type) {
+    private int findHeightEntryIndex(int chunkX, int chunkZ) {
         if (this.heightEntryCount == 0) {
-            return EMPTY_HEIGHTS;
+            return -1;
         }
-        int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
-        if (index < 0) {
-            return EMPTY_HEIGHTS;
-        }
-        return switch (type) {
-            case WORLD_SURFACE, WORLD_SURFACE_WG -> this.worldSurfaceHeights[index];
-            case OCEAN_FLOOR, OCEAN_FLOOR_WG -> this.oceanFloorHeights[index];
-            case MOTION_BLOCKING -> this.motionBlockingHeights[index];
-            default -> EMPTY_HEIGHTS;
-        };
+        return this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
     }
 
     private int ensureHeightEntry(ChunkAccess chunk) {
@@ -347,7 +334,6 @@ public final class SectionDescriptorCache {
         this.heightChunkKeys[index] = chunkKey;
         this.heightChunks[index] = chunk;
         this.heightIndexByChunkKey.put(chunkKey, index);
-        this.ensureHeightArrays(index);
         this.fillHeights(index, chunk);
         return index;
     }
@@ -356,37 +342,20 @@ public final class SectionDescriptorCache {
         this.heightChunkKeys[index] = chunkKey;
         this.heightChunks[index] = chunk;
         this.heightIndexByChunkKey.put(chunkKey, index);
-        this.ensureHeightArrays(index);
         this.fillHeights(index, chunk);
         return index;
     }
 
-    private void ensureHeightArrays(int index) {
-        if (this.worldSurfaceHeights[index] == null) {
-            this.worldSurfaceHeights[index] = new short[SectionDescriptor.COLUMN_COUNT];
-            this.oceanFloorHeights[index] = new short[SectionDescriptor.COLUMN_COUNT];
-            this.motionBlockingHeights[index] = new short[SectionDescriptor.COLUMN_COUNT];
-            this.topWaterHeights[index] = new short[SectionDescriptor.COLUMN_COUNT];
-            this.chunkColumnPaletteFlags[index] = new int[SectionDescriptor.COLUMN_COUNT];
-            this.chunkColumnBlockClassFlags[index] = new int[SectionDescriptor.COLUMN_COUNT];
-        }
-    }
-
     private void fillHeights(int index, ChunkAccess chunk) {
-        short[] worldSurface = this.worldSurfaceHeights[index];
-        short[] oceanFloor = this.oceanFloorHeights[index];
-        short[] motionBlocking = this.motionBlockingHeights[index];
-        short[] topWater = this.topWaterHeights[index];
-        int[] paletteFlags = this.chunkColumnPaletteFlags[index];
-        int[] blockClassFlags = this.chunkColumnBlockClassFlags[index];
+        int entryOffset = heightEntryOffset(index);
         int minBuildHeight = chunk.getMinBuildHeight();
         short minHeight = (short) minBuildHeight;
-        Arrays.fill(worldSurface, minHeight);
-        Arrays.fill(oceanFloor, minHeight);
-        Arrays.fill(motionBlocking, minHeight);
-        Arrays.fill(topWater, NO_TOP_WATER);
-        Arrays.fill(paletteFlags, 0);
-        Arrays.fill(blockClassFlags, 0);
+        Arrays.fill(this.worldSurfaceHeights, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, minHeight);
+        Arrays.fill(this.oceanFloorHeights, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, minHeight);
+        Arrays.fill(this.motionBlockingHeights, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, minHeight);
+        Arrays.fill(this.topWaterHeights, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, NO_TOP_WATER);
+        Arrays.fill(this.chunkColumnPaletteFlags, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, 0);
+        Arrays.fill(this.chunkColumnBlockClassFlags, entryOffset, entryOffset + HEIGHT_ENTRY_STRIDE, 0);
 
         int minSection = chunk.getMinSection();
         int sectionCount = chunk.getSections().length;
@@ -394,39 +363,40 @@ public final class SectionDescriptorCache {
         for (int localZ = 0; localZ < SectionDescriptor.SECTION_EDGE; localZ++) {
             for (int localX = 0; localX < SectionDescriptor.SECTION_EDGE; localX++) {
                 int columnIndex = (localZ << 4) | localX;
+                int columnOffset = entryOffset + columnIndex;
                 boolean foundWorldSurface = false;
                 boolean foundOceanFloor = false;
                 boolean foundMotionBlocking = false;
                 boolean foundTopWater = false;
                 for (int sectionIndex = sectionCount - 1; sectionIndex >= 0; sectionIndex--) {
                     SectionDescriptor descriptor = sectionDescriptors[sectionIndex];
-                    paletteFlags[columnIndex] |= descriptor.columnPaletteFlags(localX, localZ);
-                    blockClassFlags[columnIndex] |= descriptor.columnBlockClassFlags(localX, localZ);
+                    this.chunkColumnPaletteFlags[columnOffset] |= descriptor.columnPaletteFlags(localX, localZ);
+                    this.chunkColumnBlockClassFlags[columnOffset] |= descriptor.columnBlockClassFlags(localX, localZ);
                     if (!foundWorldSurface) {
                         int worldSurfaceY = descriptor.columnHighestFilledBlockY(localX, localZ);
                         if (worldSurfaceY != Integer.MIN_VALUE) {
-                            worldSurface[columnIndex] = (short) (worldSurfaceY + 1);
+                            this.worldSurfaceHeights[columnOffset] = (short) (worldSurfaceY + 1);
                             foundWorldSurface = true;
                         }
                     }
                     if (!foundOceanFloor) {
                         int oceanFloorY = descriptor.columnHighestSolidBlockY(localX, localZ);
                         if (oceanFloorY != Integer.MIN_VALUE) {
-                            oceanFloor[columnIndex] = (short) (oceanFloorY + 1);
+                            this.oceanFloorHeights[columnOffset] = (short) (oceanFloorY + 1);
                             foundOceanFloor = true;
                         }
                     }
                     if (!foundMotionBlocking) {
                         int motionBlockingY = descriptor.columnHighestMotionBlockingBlockY(localX, localZ);
                         if (motionBlockingY != Integer.MIN_VALUE) {
-                            motionBlocking[columnIndex] = (short) (motionBlockingY + 1);
+                            this.motionBlockingHeights[columnOffset] = (short) (motionBlockingY + 1);
                             foundMotionBlocking = true;
                         }
                     }
                     if (!foundTopWater) {
                         int topWaterY = descriptor.columnHighestWaterBlockY(localX, localZ);
                         if (topWaterY != Integer.MIN_VALUE) {
-                            topWater[columnIndex] = (short) topWaterY;
+                            this.topWaterHeights[columnOffset] = (short) topWaterY;
                             foundTopWater = true;
                         }
                     }
@@ -451,20 +421,14 @@ public final class SectionDescriptorCache {
     }
 
     private void recomputeHeightColumn(int index, ChunkAccess chunk, int localX, int localZ) {
-        short[] worldSurface = this.worldSurfaceHeights[index];
-        short[] oceanFloor = this.oceanFloorHeights[index];
-        short[] motionBlocking = this.motionBlockingHeights[index];
-        short[] topWater = this.topWaterHeights[index];
-        int[] paletteFlags = this.chunkColumnPaletteFlags[index];
-        int[] blockClassFlags = this.chunkColumnBlockClassFlags[index];
-        int columnIndex = (localZ << 4) | localX;
+        int columnOffset = heightColumnOffset(index, localX, localZ);
         short minHeight = (short) chunk.getMinBuildHeight();
-        worldSurface[columnIndex] = minHeight;
-        oceanFloor[columnIndex] = minHeight;
-        motionBlocking[columnIndex] = minHeight;
-        topWater[columnIndex] = NO_TOP_WATER;
-        paletteFlags[columnIndex] = 0;
-        blockClassFlags[columnIndex] = 0;
+        this.worldSurfaceHeights[columnOffset] = minHeight;
+        this.oceanFloorHeights[columnOffset] = minHeight;
+        this.motionBlockingHeights[columnOffset] = minHeight;
+        this.topWaterHeights[columnOffset] = NO_TOP_WATER;
+        this.chunkColumnPaletteFlags[columnOffset] = 0;
+        this.chunkColumnBlockClassFlags[columnOffset] = 0;
 
         int minSection = chunk.getMinSection();
         int sectionCount = chunk.getSections().length;
@@ -475,33 +439,33 @@ public final class SectionDescriptorCache {
         boolean foundTopWater = false;
         for (int sectionIndex = sectionCount - 1; sectionIndex >= 0; sectionIndex--) {
             SectionDescriptor descriptor = sectionDescriptors[sectionIndex];
-            paletteFlags[columnIndex] |= descriptor.columnPaletteFlags(localX, localZ);
-            blockClassFlags[columnIndex] |= descriptor.columnBlockClassFlags(localX, localZ);
+            this.chunkColumnPaletteFlags[columnOffset] |= descriptor.columnPaletteFlags(localX, localZ);
+            this.chunkColumnBlockClassFlags[columnOffset] |= descriptor.columnBlockClassFlags(localX, localZ);
             if (!foundWorldSurface) {
                 int worldSurfaceY = descriptor.columnHighestFilledBlockY(localX, localZ);
                 if (worldSurfaceY != Integer.MIN_VALUE) {
-                    worldSurface[columnIndex] = (short) (worldSurfaceY + 1);
+                    this.worldSurfaceHeights[columnOffset] = (short) (worldSurfaceY + 1);
                     foundWorldSurface = true;
                 }
             }
             if (!foundOceanFloor) {
                 int oceanFloorY = descriptor.columnHighestSolidBlockY(localX, localZ);
                 if (oceanFloorY != Integer.MIN_VALUE) {
-                    oceanFloor[columnIndex] = (short) (oceanFloorY + 1);
+                    this.oceanFloorHeights[columnOffset] = (short) (oceanFloorY + 1);
                     foundOceanFloor = true;
                 }
             }
             if (!foundMotionBlocking) {
                 int motionBlockingY = descriptor.columnHighestMotionBlockingBlockY(localX, localZ);
                 if (motionBlockingY != Integer.MIN_VALUE) {
-                    motionBlocking[columnIndex] = (short) (motionBlockingY + 1);
+                    this.motionBlockingHeights[columnOffset] = (short) (motionBlockingY + 1);
                     foundMotionBlocking = true;
                 }
             }
             if (!foundTopWater) {
                 int topWaterY = descriptor.columnHighestWaterBlockY(localX, localZ);
                 if (topWaterY != Integer.MIN_VALUE) {
-                    topWater[columnIndex] = (short) topWaterY;
+                    this.topWaterHeights[columnOffset] = (short) topWaterY;
                     foundTopWater = true;
                 }
             }
@@ -536,44 +500,6 @@ public final class SectionDescriptorCache {
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.ALLOC_BUFFER_GROWTHS);
     }
 
-    private short[] topWaterArray(ChunkAccess chunk) {
-        int index = this.ensureHeightEntry(chunk);
-        return this.topWaterHeights[index];
-    }
-
-    private short[] topWaterArray(int chunkX, int chunkZ) {
-        if (this.heightEntryCount == 0) {
-            return EMPTY_HEIGHTS;
-        }
-        int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
-        if (index < 0) {
-            return EMPTY_HEIGHTS;
-        }
-        return this.topWaterHeights[index];
-    }
-
-    private int[] paletteFlagArray(int chunkX, int chunkZ) {
-        if (this.heightEntryCount == 0) {
-            return null;
-        }
-        int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
-        if (index < 0) {
-            return null;
-        }
-        return this.chunkColumnPaletteFlags[index];
-    }
-
-    private int[] blockClassFlagArray(int chunkX, int chunkZ) {
-        if (this.heightEntryCount == 0) {
-            return null;
-        }
-        int index = this.heightIndexByChunkKey.get(ChunkPos.asLong(chunkX, chunkZ));
-        if (index < 0) {
-            return null;
-        }
-        return this.chunkColumnBlockClassFlags[index];
-    }
-
     private boolean isLazyChunk(int chunkX, int chunkZ) {
         return this.lazyChunk != null && this.lazyChunkX == chunkX && this.lazyChunkZ == chunkZ;
     }
@@ -605,16 +531,24 @@ public final class SectionDescriptorCache {
         return copy;
     }
 
-    private static short[][] grow(short[][] source, int newLength) {
-        short[][] copy = new short[newLength][];
+    private static short[] grow(short[] source, int newEntryLength) {
+        short[] copy = new short[newEntryLength * HEIGHT_ENTRY_STRIDE];
         System.arraycopy(source, 0, copy, 0, source.length);
         return copy;
     }
 
-    private static int[][] grow(int[][] source, int newLength) {
-        int[][] copy = new int[newLength][];
+    private static int[] grow(int[] source, int newEntryLength) {
+        int[] copy = new int[newEntryLength * HEIGHT_ENTRY_STRIDE];
         System.arraycopy(source, 0, copy, 0, source.length);
         return copy;
+    }
+
+    private static int heightEntryOffset(int entryIndex) {
+        return entryIndex * HEIGHT_ENTRY_STRIDE;
+    }
+
+    private static int heightColumnOffset(int entryIndex, int localX, int localZ) {
+        return heightEntryOffset(entryIndex) + ((localZ << 4) | localX);
     }
 
     private void shrinkOversizedBuffers() {
@@ -633,12 +567,12 @@ public final class SectionDescriptorCache {
             if (++this.oversizedHeightCacheClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
                 this.heightChunks = new ChunkAccess[MAX_RETAINED_HEIGHT_CACHE_CAPACITY];
                 this.heightChunkKeys = new long[MAX_RETAINED_HEIGHT_CACHE_CAPACITY];
-                this.worldSurfaceHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
-                this.oceanFloorHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
-                this.motionBlockingHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
-                this.topWaterHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
-                this.chunkColumnPaletteFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
-                this.chunkColumnBlockClassFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY][];
+                this.worldSurfaceHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
+                this.oceanFloorHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
+                this.motionBlockingHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
+                this.topWaterHeights = new short[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
+                this.chunkColumnPaletteFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
+                this.chunkColumnBlockClassFlags = new int[MAX_RETAINED_HEIGHT_CACHE_CAPACITY * HEIGHT_ENTRY_STRIDE];
                 this.oversizedHeightCacheClearCount = 0;
             }
         } else {

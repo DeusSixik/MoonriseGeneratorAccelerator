@@ -47,8 +47,8 @@ public abstract class DynamicTrees$CaveRootedTreeFeatureMixin extends DynamicTre
             return false;
         }
 
-        BiomeDatabase.Entry biomeEntry = BiomeDatabases.getDefault()
-                .getEntry(getNoiseBiome(levelContext, origin));
+        BiomeDatabase.Entry biomeEntry =
+                GADynamicTreesCompat.biomeEntry(BiomeDatabases.getDefault(), getNoiseBiome(levelContext, origin));
         BiomeDatabase.CaveRootedData caveRootedData = biomeEntry.getCaveRootedData();
         if (caveRootedData == null) {
             return false;

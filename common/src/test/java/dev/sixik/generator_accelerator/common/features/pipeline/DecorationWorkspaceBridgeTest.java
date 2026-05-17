@@ -36,7 +36,7 @@ class DecorationWorkspaceBridgeTest {
                 x,
                 12,
                 z,
-                Blocks.DIRT.defaultBlockState()
+                Block.getId(Blocks.DIRT.defaultBlockState())
         );
 
         assertTrue(mirrored);
@@ -74,7 +74,7 @@ class DecorationWorkspaceBridgeTest {
                 foreign.getPos().getMinBlockX(),
                 4,
                 0,
-                Blocks.STONE.defaultBlockState()
+                Block.getId(Blocks.STONE.defaultBlockState())
         ));
     }
 

@@ -26,6 +26,10 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
     private static final List<BlockPos> GA$NO_LAYERS = Collections.singletonList(BlockPos.ZERO);
 
     @Unique
+    private static final ThreadLocal<ArrayList<BlockPos>> GA$POSITIONS =
+            ThreadLocal.withInitial(() -> new ArrayList<>(8));
+
+    @Unique
     private static final TagKey<Biome> GA$UNDERGROUND_BIOMES =
             TagKey.create(Registries.BIOME, ResourceLocation.parse("c:is_underground"));
 
@@ -36,10 +40,6 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
     @Unique
     private static final ThreadLocal<int[]> GA$LAYERS =
             ThreadLocal.withInitial(() -> new int[16]);
-
-    @Unique
-    private static final ThreadLocal<ArrayList<BlockPos>> GA$POSITIONS =
-            ThreadLocal.withInitial(() -> new ArrayList<>(8));
 
     /**
      * @author Sixik
@@ -64,18 +64,27 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
             return GA$NO_LAYERS;
         }
 
-        ArrayList<BlockPos> positions = GA$POSITIONS.get();
-        positions.clear();
         int[] layers = GA$LAYERS.get();
         int x = start.getX();
         int z = start.getZ();
         boolean hasCeiling = level.dimensionType().hasCeiling();
         BlockPos.MutableBlockPos pos = GA$SCAN_POS.get();
-        for (int i = 0; i < layerCount; i++) {
-            int y = layers[i];
-            pos.set(x, y, z);
-            if (hasCeiling || level.getBiome(pos).is(GA$UNDERGROUND_BIOMES)) {
-                positions.add(new BlockPos(x, y, z));
+
+        ArrayList<BlockPos> positions = GA$POSITIONS.get();
+        positions.clear();
+        positions.ensureCapacity(layerCount);
+
+        if (hasCeiling) {
+            for (int i = 0; i < layerCount; i++) {
+                positions.add(new BlockPos(x, layers[i], z));
+            }
+        } else {
+            for (int i = 0; i < layerCount; i++) {
+                int y = layers[i];
+                pos.set(x, y, z);
+                if (level.getBiome(pos).is(GA$UNDERGROUND_BIOMES)) {
+                    positions.add(new BlockPos(x, y, z));
+                }
             }
         }
         return positions.isEmpty() ? GA$NO_LAYERS : positions;

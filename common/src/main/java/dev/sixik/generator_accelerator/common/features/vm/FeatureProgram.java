@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.features.vm;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementFilterAccess;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$RepeatingPlacementAccess;
+import dev.sixik.generator_accelerator_native_raw.memory.BlockPosPackedMemory;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.util.valueproviders.IntProvider;
@@ -13,6 +14,8 @@ import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfiguration;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
+import net.sixik.javastructg.structs.arrays.NativeObjectArray;
+import net.sixik.javastructg.utils.NativeUtils;
 
 import java.util.List;
 
@@ -209,6 +212,24 @@ public final class FeatureProgram {
                 this.positions[i] = pos.asLong();
                 this.chunkXs[i] = pos.getX() >> 4;
                 this.chunkZs[i] = pos.getZ() >> 4;
+            }
+        }
+
+        FixedPlacementData(NativeObjectArray<BlockPos> packedPositions) {
+            int size = packedPositions.size();
+            this.positions = new long[size];
+            this.chunkXs = new int[size];
+            this.chunkZs = new int[size];
+
+            var unsafe = NativeUtils.getUnsafe();
+            for (int i = 0; i < size; i++) {
+                long packedPos = unsafe.getLong(
+                        packedPositions.addressAt(i) + BlockPosPackedMemory.PACKED_OFFSET
+                );
+
+                this.positions[i] = packedPos;
+                this.chunkXs[i] = BlockPos.getX(packedPos) >> 4;
+                this.chunkZs[i] = BlockPos.getZ(packedPos) >> 4;
             }
         }
 

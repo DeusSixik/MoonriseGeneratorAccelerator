@@ -8,8 +8,10 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ForkJoinPool;
 
 public final class GeneratorAccelerator {
+    private static final String LOGGER_NAME = "Generator Accelerator";
     public static final String MOD_ID = "generator_accelerator";
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static final Logger LOGGER = LoggerFactory.getLogger(LOGGER_NAME);
+    public static final Logger LOGGER_DEBUG = LoggerFactory.getLogger( LOGGER_NAME + " Debug");
     public static final String C2ME_MOD = "com.ishland.c2me.base.C2MEBaseMod";
 
     public static ForkJoinPool CUSTOM_POOL;

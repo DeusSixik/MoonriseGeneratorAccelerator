@@ -77,11 +77,9 @@ public final class IRBuilder {
     /* --------------------------------------------------------------------- */
 
     private IRNode walk(DensityFunction df) {
-        // Marker boundary — capture the WHOLE marker as an extern, but ask the visitor
-        // to compile its inner child first so the chunk-cache wrapper sees a Marker(type,
-        // COMPILED). The visitor caches the repackaged Marker by source identity, so
-        // multiple references to the same source marker collapse to a single extern slot
-        // here (which keeps NoiseChunk's identity-based interpolator dedup tight).
+        // Marker boundary: capture the whole marker as an extern. The visitor may
+        // repackage it, but marker inners stay vanilla by default because NoiseChunk can
+        // prefill cache wrappers before all chunk-local optimized state is initialized.
         if (df instanceof DensityFunctions.MarkerOrMarked marker) {
             DensityFunction repackaged = outerVisitor.apply(marker);
             int idx = pool.internExtern(repackaged);

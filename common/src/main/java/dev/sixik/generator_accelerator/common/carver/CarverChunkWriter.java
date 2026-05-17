@@ -114,14 +114,15 @@ public final class CarverChunkWriter {
         return GA$BlockStateExtension.get(section.getBlockState(blockPos.getX() & 15, y & 15, blockPos.getZ() & 15)).bts$getFastId();
     }
 
-    public void setBlockState(BlockPos blockPos, BlockState blockState) {
-        this.setStateId(blockPos, GA$BlockStateExtension.get(blockState).bts$getFastId(), blockState);
+    public void setBlockState(BlockPos blockPos, int blockState) {
+        this.setStateId(blockPos, blockState);
     }
 
-    public void setStateId(BlockPos blockPos, int stateId, BlockState state) {
+    public void setStateId(BlockPos blockPos, int stateId) {
         if (!this.fastPath) {
+            BlockState state = FastBlockStateCache.getBlockState(stateId);
             this.chunk.setBlockState(blockPos, state, false);
-            GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, state);
+            GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, stateId);
             return;
         }
 
@@ -134,12 +135,12 @@ public final class CarverChunkWriter {
         if (section.hasOnlyAir() && stateId == airStateId()) {
             return;
         }
-
+        BlockState state = FastBlockStateCache.getBlockState(stateId);
         int localX = blockPos.getX() & 15;
         int localY = y & 15;
         int localZ = blockPos.getZ() & 15;
         section.setBlockState(localX, localY, localZ, state, false);
-        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, state);
+        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, stateId);
         for (int i = 0; i < this.heightmapCount; i++) {
             this.heightmaps[i].update(localX, y, localZ, state);
         }

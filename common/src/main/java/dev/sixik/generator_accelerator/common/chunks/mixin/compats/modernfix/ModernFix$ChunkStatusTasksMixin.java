@@ -34,26 +34,43 @@ public abstract class ModernFix$ChunkStatusTasksMixin {
         CompletableFuture<ChunkAccess> surrogate = new CompletableFuture<>();
         Executor mainThreadExecutor = ga$getMainThreadProcessor(worldGenContext.level().getChunkSource());
 
-        CompletableFuture.runAsync(() -> {}, executor).thenApplyAsync(unused -> {
-            GA$SURROGATE_FUTURE.set(surrogate);
-            try {
-                return supplier.get();
-            } finally {
-                GA$SURROGATE_FUTURE.remove();
-            }
-        }, mainThreadExecutor).whenComplete((chunk, throwable) -> {
-            if (throwable != null) {
-                if (!surrogate.isDone()) {
-                    surrogate.completeExceptionally(throwable);
-                } else {
-                    MinecraftServer.setFatalException(new ReportedException(CrashReport.forThrowable(throwable, "Exception during promotion of chunk to FULL status")));
+        try {
+            executor.execute(() -> {
+                try {
+                    mainThreadExecutor.execute(() -> ga$runFullPromotionOnMainThread(supplier, surrogate));
+                } catch (Throwable throwable) {
+                    ga$completeSurrogateExceptionally(surrogate, throwable);
                 }
-            } else {
-                surrogate.complete(chunk);
-            }
-        });
+            });
+        } catch (Throwable throwable) {
+            ga$completeSurrogateExceptionally(surrogate, throwable);
+        }
 
         return surrogate;
+    }
+
+    @Unique
+    private static void ga$runFullPromotionOnMainThread(Supplier<ChunkAccess> supplier, CompletableFuture<ChunkAccess> surrogate) {
+        ChunkAccess chunk;
+        GA$SURROGATE_FUTURE.set(surrogate);
+        try {
+            chunk = supplier.get();
+        } catch (Throwable throwable) {
+            ga$completeSurrogateExceptionally(surrogate, throwable);
+            return;
+        } finally {
+            GA$SURROGATE_FUTURE.remove();
+        }
+        surrogate.complete(chunk);
+    }
+
+    @Unique
+    private static void ga$completeSurrogateExceptionally(CompletableFuture<ChunkAccess> surrogate, Throwable throwable) {
+        if (!surrogate.isDone()) {
+            surrogate.completeExceptionally(throwable);
+        } else {
+            MinecraftServer.setFatalException(new ReportedException(CrashReport.forThrowable(throwable, "Exception during promotion of chunk to FULL status")));
+        }
     }
 
     @Unique

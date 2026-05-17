@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.carver.CarverChunkWriter;
 import dev.sixik.generator_accelerator.common.features.ChunkAccess$getOrCreateHeightmapUnsynchronized;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
@@ -13,6 +14,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.Heightmap;
 
+import java.lang.reflect.Array;
 import java.util.Arrays;
 
 public final class DecorationPipelineScratch {
@@ -49,16 +51,15 @@ public final class DecorationPipelineScratch {
     final BlockPos.MutableBlockPos secondMutablePos = new BlockPos.MutableBlockPos();
     final ReusablePipelineFeaturePlaceContext featurePlaceContext = new ReusablePipelineFeaturePlaceContext();
     final PipelineBiomeFeatureCache biomeFeatureCache = new PipelineBiomeFeatureCache();
-    public int[] candidateX = new int[DEFAULT_CANDIDATE_CAPACITY];
-    public int[] candidateY = new int[DEFAULT_CANDIDATE_CAPACITY];
-    public int[] candidateZ = new int[DEFAULT_CANDIDATE_CAPACITY];
+
+    public long[] candidates = new long[DEFAULT_CANDIDATE_CAPACITY];
     public int[] candidateKernelId = new int[DEFAULT_CANDIDATE_CAPACITY];
     public int[] selectedFeatureBuffer = new int[DEFAULT_CANDIDATE_CAPACITY];
     public int[] candidateNext = new int[DEFAULT_CANDIDATE_CAPACITY];
     public int[] candidateSectionIndex = new int[DEFAULT_CANDIDATE_CAPACITY];
     public long[] candidateSeed = new long[DEFAULT_CANDIDATE_CAPACITY];
     public long[] candidateSectionKey = new long[DEFAULT_CANDIDATE_CAPACITY];
-    public BlockState[] candidateSimpleBlockState = new BlockState[DEFAULT_CANDIDATE_CAPACITY];
+    public /* BLOCK_STATE */ int[] candidateSimpleBlockState = new int[DEFAULT_CANDIDATE_CAPACITY];
     public int[] candidateWriteFlags = new int[DEFAULT_CANDIDATE_CAPACITY];
     public int candidateCount;
     public int[] sectionBucketHead = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
@@ -87,7 +88,8 @@ public final class DecorationPipelineScratch {
     private int[] touchedMutationX = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationY = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int[] touchedMutationZ = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
-    private BlockState[] touchedMutationState = new BlockState[DEFAULT_SECTION_BUCKET_CAPACITY];
+
+    private /* BLOCK_STATE */ int[] touchedMutationState = new int[DEFAULT_SECTION_BUCKET_CAPACITY];
     private int touchedMutationCount;
     private ChunkAccess descriptorCenterChunk;
     private PipelinePlacementContext placementContext;
@@ -109,6 +111,8 @@ public final class DecorationPipelineScratch {
         this.writeIndexByPos.defaultReturnValue(-1);
         this.touchedMutationIndexByKey.defaultReturnValue(-1);
         this.modifierPositionBuffers[0] = new LongScratchBuffer(DEFAULT_MODIFIER_BUFFER_CAPACITY);
+
+        Arrays.fill(this.touchedMutationState, -1);
     }
 
     public static DecorationPipelineScratch local() {
@@ -267,7 +271,7 @@ public final class DecorationPipelineScratch {
     }
 
     public void ensureCandidateCapacity(int wanted) {
-        int oldLength = this.candidateX.length;
+        int oldLength = this.candidates.length;
         if (wanted <= oldLength) {
             return;
         }
@@ -277,9 +281,7 @@ public final class DecorationPipelineScratch {
             newLength <<= 1;
         }
 
-        this.candidateX = grow(this.candidateX, newLength);
-        this.candidateY = grow(this.candidateY, newLength);
-        this.candidateZ = grow(this.candidateZ, newLength);
+        this.candidates = grow(this.candidates, newLength);
         this.candidateKernelId = grow(this.candidateKernelId, newLength);
         this.candidateNext = grow(this.candidateNext, newLength);
         this.candidateSectionIndex = grow(this.candidateSectionIndex, newLength);
@@ -308,15 +310,14 @@ public final class DecorationPipelineScratch {
     public int addCandidate(int x, int y, int z, int kernelId, int sectionIndex, long seed) {
         int index = this.candidateCount;
         this.ensureCandidateCapacity(index + 1);
-        this.candidateX[index] = x;
-        this.candidateY[index] = y;
-        this.candidateZ[index] = z;
+
+        this.candidates[index] = BlockPos.asLong(x, y, z);
         this.candidateKernelId[index] = kernelId;
         this.candidateNext[index] = -1;
         this.candidateSectionIndex[index] = sectionIndex;
         this.candidateSeed[index] = seed;
         this.candidateSectionKey[index] = 0L;
-        this.candidateSimpleBlockState[index] = null;
+        this.candidateSimpleBlockState[index] = -1;
         this.candidateWriteFlags[index] = 0;
         this.candidateCount = index + 1;
         DecorationPipelineMetrics.increment(DecorationPipelineMetrics.NATIVE_CANDIDATES_GENERATED);
@@ -376,13 +377,11 @@ public final class DecorationPipelineScratch {
 
         int index = this.candidateCount;
         this.ensureCandidateCapacity(index + 1);
-        this.candidateX[index] = x;
-        this.candidateY[index] = y;
-        this.candidateZ[index] = z;
+        this.candidates[index] = BlockPos.asLong(x, y, z);
         long sectionKey = SectionPos.asLong(x >> 4, y >> 4, z >> 4);
         this.candidateSectionKey[index] = sectionKey;
         this.candidateNext[index] = -1;
-        this.candidateSimpleBlockState[index] = state;
+        this.candidateSimpleBlockState[index] = GA$BlockStateExtension.get(state).bts$getFastId();
         this.candidateWriteFlags[index] = flags;
         this.candidateCount = index + 1;
         if (dedupe) {
@@ -409,18 +408,18 @@ public final class DecorationPipelineScratch {
 
     void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ) {
         long key = BlockPos.asLong(blockX, blockY >> 4, blockZ);
-        this.noteJournalMutation(chunk, blockX, blockY, blockZ, null, key);
+        this.noteJournalMutation(chunk, blockX, blockY, blockZ, -1, key);
     }
 
-    void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState state) {
+    void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, int state) {
         long key = BlockPos.asLong(blockX, blockY, blockZ);
         this.noteJournalMutation(chunk, blockX, blockY, blockZ, state, key);
     }
 
-    private void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, BlockState state, long key) {
+    private void noteJournalMutation(ChunkAccess chunk, int blockX, int blockY, int blockZ, int state, long key) {
         int existingIndex = this.touchedMutationIndexByKey.get(key);
         if (existingIndex >= 0) {
-            if (state != null) {
+            if (state != -1) {
                 this.touchedMutationState[existingIndex] = state;
                 this.touchedMutationY[existingIndex] = blockY;
             }
@@ -475,7 +474,7 @@ public final class DecorationPipelineScratch {
 
     private void clearCandidateReferences() {
         for (int i = 0; i < this.candidateCount; i++) {
-            this.candidateSimpleBlockState[i] = null;
+            this.candidateSimpleBlockState[i] = -1;
             this.candidateWriteFlags[i] = 0;
         }
     }
@@ -589,24 +588,22 @@ public final class DecorationPipelineScratch {
 
     private void clearJournalDescriptorMutations() {
         Arrays.fill(this.touchedMutationChunk, 0, this.touchedMutationCount, null);
-        Arrays.fill(this.touchedMutationState, 0, this.touchedMutationCount, null);
+        Arrays.fill(this.touchedMutationState, 0, this.touchedMutationCount, -1);
         this.touchedMutationCount = 0;
         this.touchedMutationIndexByKey.clear();
     }
 
     private void shrinkOversizedBuffers() {
-        if (this.candidateX.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
+        if (this.candidates.length > MAX_EXCESSIVE_CANDIDATE_CAPACITY) {
             if (++this.oversizedCandidateClearCount >= OVERSIZED_BUFFER_TRIM_CLEAR_THRESHOLD) {
-                this.candidateX = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-                this.candidateY = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
-                this.candidateZ = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidates = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateKernelId = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.selectedFeatureBuffer = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateNext = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateSectionIndex = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateSeed = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateSectionKey = new long[MAX_RETAINED_CANDIDATE_CAPACITY];
-                this.candidateSimpleBlockState = new BlockState[MAX_RETAINED_CANDIDATE_CAPACITY];
+                this.candidateSimpleBlockState = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.candidateWriteFlags = new int[MAX_RETAINED_CANDIDATE_CAPACITY];
                 this.oversizedCandidateClearCount = 0;
             }
@@ -683,7 +680,7 @@ public final class DecorationPipelineScratch {
 
     public String debugSummary() {
         return "candidates=" + this.candidateCount
-                + '/' + this.candidateX.length
+                + '/' + this.candidates.length
                 + ",selectedCap=" + this.selectedFeatureBuffer.length
                 + ",sectionBuckets=" + this.sectionBucketCount
                 + '/' + this.sectionBucketKey.length

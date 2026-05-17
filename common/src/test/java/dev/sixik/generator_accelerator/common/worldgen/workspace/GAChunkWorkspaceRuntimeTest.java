@@ -251,7 +251,7 @@ class GAChunkWorkspaceRuntimeTest {
                 16,
                 2,
                 3,
-                Blocks.DIRT.defaultBlockState(),
+                Block.getId(Blocks.DIRT.defaultBlockState()),
                 2
         ));
 
@@ -289,7 +289,7 @@ class GAChunkWorkspaceRuntimeTest {
                 16,
                 2,
                 3,
-                Blocks.DIRT.defaultBlockState(),
+                Block.getId(Blocks.DIRT.defaultBlockState()),
                 2
         ));
 

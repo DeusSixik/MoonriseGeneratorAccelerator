@@ -279,7 +279,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
         }
 
         if (chunkWriter.isActive()) {
-            chunkWriter.setStateId(mutableBlockPos, carvedStateId, carvedState);
+            chunkWriter.setStateId(mutableBlockPos, carvedStateId);
         } else {
             chunkAccess.setBlockState(mutableBlockPos, carvedState, false);
             GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, mutableBlockPos, carvedState);
@@ -303,7 +303,7 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
                 if (topMaterial.isPresent()) {
                     BlockState state = topMaterial.get();
                     if (chunkWriter.isActive()) {
-                        chunkWriter.setBlockState(mutableBlockPos2, state);
+                        chunkWriter.setBlockState(mutableBlockPos2, GA$BlockStateExtension.get(state).bts$getFastId());
                     } else {
                         chunkAccess.setBlockState(mutableBlockPos2, state, false);
                         GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, mutableBlockPos2, state);

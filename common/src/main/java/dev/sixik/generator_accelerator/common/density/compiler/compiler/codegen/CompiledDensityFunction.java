@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 
 import net.minecraft.util.KeyDispatchDataCodec;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -235,6 +236,69 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     public final boolean dfc$hasNativeSlabInnerProgram() {
         return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
+    }
+
+    public final String dfc$debugState() {
+        DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(this.getClass().getName());
+        return "compiledClass=" + this.getClass().getName()
+                + ", arrays={constants=" + length(this.constants)
+                + ", noises=" + length(this.noises)
+                + ", splines=" + length(this.splines)
+                + ", noiseOctaves=" + length(this.noiseOctaves)
+                + ", externs=" + length(this.externs)
+                + ", helperHandles=" + length(this.helperHandles)
+                + ", slabInnerProgram=" + length(this.slabInnerProgram)
+                + ", slabInnerConsts=" + length(this.slabInnerConsts)
+                + "}"
+                + (entry != null
+                ? ", registry={source=" + entry.sourceRootClass()
+                + ", lattice=" + entry.latticeEmitted()
+                + ", slab=" + entry.slabInnerProgramPresent()
+                + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
+                + ", cellAddExtern=" + entry.cellAddExternSpecialized()
+                + ", root=" + entry.rootDebug()
+                + "}"
+                : ", registry=<missing>");
+    }
+
+    public final ArrayIndexOutOfBoundsException dfc$wrapArrayIndexOutOfBounds(
+            ArrayIndexOutOfBoundsException cause,
+            DensityFunction.FunctionContext context,
+            String phase) {
+        ArrayIndexOutOfBoundsException enriched = new ArrayIndexOutOfBoundsException(
+                cause.getMessage()
+                        + " in " + phase
+                        + " with context=" + describeContext(context)
+                        + ", " + dfc$debugState());
+        enriched.initCause(cause);
+        return enriched;
+    }
+
+    private static String describeContext(DensityFunction.FunctionContext context) {
+        if (context == null) {
+            return "<null>";
+        }
+        try {
+            return context.getClass().getName()
+                    + "{x=" + context.blockX()
+                    + ", y=" + context.blockY()
+                    + ", z=" + context.blockZ()
+                    + "}";
+        } catch (Throwable t) {
+            return context.getClass().getName() + "{coordinate-read-failed=" + t + "}";
+        }
+    }
+
+    private static int length(double[] array) {
+        return array == null ? -1 : array.length;
+    }
+
+    private static int length(byte[] array) {
+        return array == null ? -1 : array.length;
+    }
+
+    private static int length(Object[] array) {
+        return array == null ? -1 : array.length;
     }
 
     /**

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$PlacementModifierExtension;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.features.vm.LongScratchBuffer;
@@ -11,7 +12,6 @@ import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspac
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.world.level.ChunkPos;
@@ -34,11 +34,12 @@ import net.minecraft.world.level.levelgen.feature.VegetationPatchFeature;
 import net.minecraft.world.level.levelgen.feature.WaterloggedVegetationPatchFeature;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
+import net.sixik.javastructg.structs.sets.NativeLongSet;
 
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 public final class DecorationPipelineExecutor {
@@ -55,6 +56,8 @@ public final class DecorationPipelineExecutor {
             "ga.decorationConflictScheduler.snapshotRadius",
             CONFIG.decorationConflictSchedulerSnapshotRadius
     ));
+    private static final ThreadLocal<NativeLongSet> CONFLICT_POSITIONS =
+            ThreadLocal.withInitial(() -> new NativeLongSet(256));
 
     public static boolean conflictSchedulerRuntimeEnabled() {
         return CONFLICT_SCHEDULER_ENABLED
@@ -242,30 +245,30 @@ public final class DecorationPipelineExecutor {
 
         DecorationReadSnapshot snapshot = DecorationReadSnapshot.capture(context, CONFLICT_SCHEDULER_SNAPSHOT_RADIUS);
         DecorationConflictSchedulerMetrics.recordSubmitted(featureCount);
-        @SuppressWarnings("unchecked")
-        CompletableFuture<JournalTaskResult>[] futures = new CompletableFuture[featureCount];
+        CountDownLatch completion = new CountDownLatch(featureCount);
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        JournalTaskResult[] results = new JournalTaskResult[featureCount];
         for (int i = 0; i < featureCount; i++) {
             int featureIndex = featureIndices[i];
             DecorationKernelPlan kernel = stepPlan.kernelForFeatureIndex(featureIndex);
-            futures[i] = GAScheduler.supplyNestedAsync(GAScheduler.Lane.WORKSPACE,
-                    () -> this.executeJournalTask(stepPlan.step(), featureIndex, kernel, context, snapshot));
+            int resultIndex = i;
+            GAScheduler.executeNestedAsync(GAScheduler.Lane.WORKSPACE, () -> {
+                results[resultIndex] = this.executeJournalTask(stepPlan.step(), featureIndex, kernel, context, snapshot);
+                completion.countDown();
+            }, throwable -> {
+                failure.compareAndSet(null, wrapFailure(throwable));
+                completion.countDown();
+            });
         }
 
-        JournalTaskResult[] results = new JournalTaskResult[featureCount];
-        RuntimeException failure = null;
-        for (int i = 0; i < featureCount; i++) {
-            try {
-                results[i] = futures[i].join();
-            } catch (CompletionException completionException) {
-                failure = completionException.getCause() instanceof RuntimeException runtimeException
-                        ? runtimeException
-                        : new RuntimeException(completionException.getCause());
-            } catch (RuntimeException runtimeException) {
-                failure = runtimeException;
-            }
+        try {
+            completion.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            failure.compareAndSet(null, new RuntimeException(interrupted));
         }
 
-        if (failure != null) {
+        if (failure.get() != null) {
             DecorationConflictSchedulerMetrics.recordFailureFallback();
             this.executeSequentialJournalFallback(stepPlan, context, scratch, placementContext, featureIndices, featureCount);
             return;
@@ -288,6 +291,12 @@ public final class DecorationPipelineExecutor {
             committedWrites += this.commitJournalResult(context, scratch, result);
         }
         DecorationConflictSchedulerMetrics.recordCommitted(featureCount, committedWrites);
+    }
+
+    private static RuntimeException wrapFailure(Throwable throwable) {
+        return throwable instanceof RuntimeException runtimeException
+                ? runtimeException
+                : new RuntimeException(throwable);
     }
 
     private JournalTaskResult executeJournalTask(
@@ -353,7 +362,7 @@ public final class DecorationPipelineExecutor {
             int x = journal.x(i);
             int y = journal.y(i);
             int z = journal.z(i);
-            BlockState state = journal.state(i);
+            int state = journal.stateId(i);
             ChunkAccess chunk = context.chunk();
             if (!DecorationWorkspaceBridge.writeWorkspaceOnly(context.workspace(), chunk, x, y, z, state)) {
                 throw new DecorationParallelJournalFallback("parallel decoration commit missed center workspace");
@@ -389,7 +398,8 @@ public final class DecorationPipelineExecutor {
     }
 
     private static boolean hasJournalConflicts(JournalTaskResult[] results) {
-        LongOpenHashSet positions = new LongOpenHashSet();
+        NativeLongSet positions = CONFLICT_POSITIONS.get();
+        positions.clear();
         for (JournalTaskResult result : results) {
             GADecorationWriteJournal journal = result.journal();
             for (int i = 0, size = journal.size(); i < size; i++) {

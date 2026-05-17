@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
@@ -20,7 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -164,13 +167,19 @@ public final class GAScheduler {
 
         AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
         try {
-            CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
+            CompletableFuture<T> future = new CompletableFuture<>();
+            future.whenComplete((ignored, throwable) -> {
+                if (future.isCancelled()) {
+                    releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                }
+            });
+            pool.execute(() -> {
                 releaseQueueSlotIfHeld(lane, queueSlotHeld);
-                return runGoverned(lane, task);
-            }, pool);
-            if (queueSlotHeld != null) {
-                future.whenComplete((ignored, failure) -> releaseQueueSlotIfHeld(lane, queueSlotHeld));
-            }
+                if (future.isCancelled()) {
+                    return;
+                }
+                completeFromSupplier(future, () -> runGoverned(lane, task));
+            });
             return future;
         } catch (RejectedExecutionException rejected) {
             releaseQueueSlotIfHeld(lane, queueSlotHeld);
@@ -221,7 +230,9 @@ public final class GAScheduler {
         ForkJoinPool pool = forkJoinPool(lane);
         updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
         try {
-            return CompletableFuture.supplyAsync(() -> runMeasured(lane, task), pool);
+            CompletableFuture<T> future = new CompletableFuture<>();
+            pool.execute(() -> completeFromSupplier(future, () -> runMeasured(lane, task)));
+            return future;
         } catch (RejectedExecutionException rejected) {
             ADMISSION_REJECTED.incrementAndGet(index);
             FAILED.incrementAndGet(index);
@@ -230,10 +241,131 @@ public final class GAScheduler {
     }
 
     public static void execute(Lane lane, Runnable runnable) {
-        supplyAsync(lane, () -> {
+        executeAsync(lane, runnable, null);
+    }
+
+    public static void executeAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
+        ensureInitialized();
+        Supplier<Void> task = wrapWorkspaceContext(() -> {
             runnable.run();
             return null;
         });
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        if (isCurrentLaneWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        ForkJoinPool pool = forkJoinPool(lane);
+        long queued = queuedTaskEstimate(lane, pool);
+        updateMax(MAX_QUEUED, index, queued);
+
+        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
+        boolean reservedQueueSlot = false;
+        if (maxQueuedTasks > 0) {
+            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
+            if (!reservedQueueSlot) {
+                ADMISSION_REJECTED.incrementAndGet(index);
+                if (lane.canInlineWhenBacklogged()) {
+                    INLINE_RUNS.incrementAndGet(index);
+                    try {
+                        runGoverned(lane, task);
+                    } catch (Throwable throwable) {
+                        notifyFailure(failureHandler, throwable);
+                    }
+                    return;
+                }
+                FAILED.incrementAndGet(index);
+                notifyFailure(failureHandler, new RejectedExecutionException(
+                        "GA scheduler lane " + lane.jsonName() + " queue is full: "
+                                + ADMITTED_QUEUED[index].get() + " >= " + maxQueuedTasks
+                ));
+                return;
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+
+        AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
+        try {
+            pool.execute(() -> {
+                releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                try {
+                    runGoverned(lane, task);
+                } catch (Throwable throwable) {
+                    notifyFailure(failureHandler, throwable);
+                }
+            });
+        } catch (RejectedExecutionException rejected) {
+            releaseQueueSlotIfHeld(lane, queueSlotHeld);
+            ADMISSION_REJECTED.incrementAndGet(index);
+            if (lane.canInlineWhenBacklogged()) {
+                INLINE_RUNS.incrementAndGet(index);
+                try {
+                    runGoverned(lane, task);
+                } catch (Throwable throwable) {
+                    rejected.addSuppressed(throwable);
+                    notifyFailure(failureHandler, rejected);
+                }
+                return;
+            }
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, rejected);
+        }
+    }
+
+    /**
+     * Fire-and-callback variant of {@link #supplyNestedAsync(Lane, Supplier)} for nested work that is joined by
+     * caller-owned state instead of one CompletableFuture per child task.
+     */
+    public static void executeNestedAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
+        ensureInitialized();
+        Supplier<Void> task = wrapWorkspaceContext(() -> {
+            runnable.run();
+            return null;
+        });
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        if (isCurrentLaneWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        if (shouldInlineNestedFromGaWorker(lane)) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
+        try {
+            pool.execute(() -> {
+                try {
+                    runMeasured(lane, task);
+                } catch (Throwable throwable) {
+                    notifyFailure(failureHandler, throwable);
+                }
+            });
+        } catch (RejectedExecutionException rejected) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, rejected);
+        }
     }
 
     public static void invokeBlocking(Lane lane, Runnable runnable) throws InterruptedException, ExecutionException {
@@ -258,10 +390,20 @@ public final class GAScheduler {
             });
             return;
         }
-        supplyAsync(lane, () -> {
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        executeAsync(lane, () -> {
             runnable.run();
-            return null;
-        }).get();
+            done.countDown();
+        }, throwable -> {
+            failure.compareAndSet(null, throwable);
+            done.countDown();
+        });
+        done.await();
+        Throwable throwable = failure.get();
+        if (throwable != null) {
+            throw new ExecutionException(throwable);
+        }
     }
 
     public static Map<String, Object> snapshot() {
@@ -702,6 +844,27 @@ public final class GAScheduler {
         CompletableFuture<T> failed = new CompletableFuture<>();
         failed.completeExceptionally(throwable);
         return failed;
+    }
+
+    private static <T> void completeFromSupplier(CompletableFuture<T> future, Supplier<T> supplier) {
+        try {
+            future.complete(supplier.get());
+        } catch (Throwable throwable) {
+            future.completeExceptionally(throwable);
+        }
+    }
+
+    private static void notifyFailure(Consumer<Throwable> failureHandler, Throwable throwable) {
+        if (failureHandler == null) {
+            GeneratorAccelerator.LOGGER.warn("GA scheduler async task failed", throwable);
+            return;
+        }
+        try {
+            failureHandler.accept(throwable);
+        } catch (Throwable handlerFailure) {
+            throwable.addSuppressed(handlerFailure);
+            GeneratorAccelerator.LOGGER.warn("GA scheduler async failure handler failed", throwable);
+        }
     }
 
     private static void shutdownPool(ForkJoinPool pool) {

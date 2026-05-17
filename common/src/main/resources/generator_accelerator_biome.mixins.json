@@ -11,6 +11,7 @@
     "MixinClimate$Sampler$raw_sample",
     "MixinClimate$TargetPoint$optimize_allocation",
     "MixinLevelChunkSection$optimize_biome_iteration",
+    "cache.MixinMultiNoiseBiomeSource$better_caching",
     "compat.biolith.Biolith$AllOfCriterion$fast_iter",
     "compat.biolith.Biolith$AnyOfCriterion$fast_iter",
     "compat.biolith.Biolith$MixinSearchTree$fast",

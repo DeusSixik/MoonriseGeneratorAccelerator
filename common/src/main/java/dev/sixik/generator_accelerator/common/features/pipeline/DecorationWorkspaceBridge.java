@@ -48,21 +48,21 @@ public final class DecorationWorkspaceBridge {
         return state;
     }
 
-    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, BlockPos pos, BlockState state) {
+    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, BlockPos pos, int state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return mirrorWrite(GAChunkWorkspaceContext.current(), chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean mirrorCurrentWorkspaceWrite(ChunkAccess chunk, int x, int y, int z, int state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return mirrorWrite(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    public static boolean mirrorWrite(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean mirrorWrite(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         if (GAWorkspaceWriteBridge.mirror(workspace, chunk, x, y, z, state)) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRRORS);
             return true;
@@ -71,21 +71,21 @@ public final class DecorationWorkspaceBridge {
         return false;
     }
 
-    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, BlockPos pos, BlockState state) {
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, BlockPos pos, int state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, pos.getX(), pos.getY(), pos.getZ(), state);
     }
 
-    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z, int state) {
         if (!CURRENT_WORKSPACE_BRIDGE_ENABLED) {
             return false;
         }
         return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
-    public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, BlockState state) {
+    public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         if (GAWorkspaceWriteBridge.writeKnownDecorationWorkspaceOnly(workspace, chunk, x, y, z, state)) {
             DecorationPipelineMetrics.increment(DecorationPipelineMetrics.WORKSPACE_BLOCK_MIRRORS);
             return true;

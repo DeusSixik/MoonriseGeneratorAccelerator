@@ -136,14 +136,13 @@ public final class GAChunkStatusPipeline {
         }
 
         SUBMITTED.incrementAndGet(stageIndex);
-        return GAScheduler.supplyAsync(lane, () -> runGuarded(stage, step, chunk, task))
-                .whenComplete((ignored, failure) -> {
-                    if (failure == null) {
-                        COMPLETED.incrementAndGet(stageIndex);
-                    } else {
-                        FAILED.incrementAndGet(stageIndex);
-                    }
-                });
+        CompletableFuture<ChunkAccess> scheduled = new CompletableFuture<>();
+        GAScheduler.executeAsync(
+                lane,
+                () -> completeScheduledResult(stageIndex, scheduled, runGuarded(stage, step, chunk, task), null),
+                failure -> completeScheduledResult(stageIndex, scheduled, null, failure)
+        );
+        return scheduled;
     }
 
     public static CompletableFuture<ChunkAccess> scheduleFuture(
@@ -165,22 +164,21 @@ public final class GAChunkStatusPipeline {
         if (inlineOnCurrentLane()) {
             INLINE.incrementAndGet(stageIndex);
             try {
-                return beginGuardedFuture(stage, step, chunk, task).future;
+                return beginGuardedFuture(stage, step, chunk, task);
             } catch (Throwable throwable) {
                 return failedFuture(throwable);
             }
         }
 
         SUBMITTED.incrementAndGet(stageIndex);
-        return GAScheduler.supplyAsync(lane, () -> beginGuardedFuture(stage, step, chunk, task))
-                .thenCompose(guarded -> guarded.future)
-                .whenComplete((ignored, failure) -> {
-                    if (failure == null) {
-                        COMPLETED.incrementAndGet(stageIndex);
-                    } else {
-                        FAILED.incrementAndGet(stageIndex);
-                    }
-                });
+        CompletableFuture<ChunkAccess> scheduled = new CompletableFuture<>();
+        GAScheduler.executeAsync(
+                lane,
+                () -> beginGuardedFuture(stage, step, chunk, task,
+                        (result, failure) -> completeScheduledResult(stageIndex, scheduled, result, failure)),
+                failure -> completeScheduledResult(stageIndex, scheduled, null, failure)
+        );
+        return scheduled;
     }
 
     public static Map<String, Object> snapshot() {
@@ -256,7 +254,7 @@ public final class GAChunkStatusPipeline {
         }
     }
 
-    private static GuardedFuture beginGuardedFuture(
+    private static CompletableFuture<ChunkAccess> beginGuardedFuture(
             Stage stage,
             ChunkStep step,
             ChunkAccess chunk,
@@ -265,7 +263,27 @@ public final class GAChunkStatusPipeline {
         GuardLease lease = acquireLease(stage, step, chunk);
         try {
             CompletableFuture<ChunkAccess> future = requireFuture(task.get());
-            return new GuardedFuture(future.whenComplete((ignored, failure) -> lease.release()));
+            return future.whenComplete((ignored, failure) -> lease.release());
+        } catch (Throwable throwable) {
+            lease.release();
+            throw throwable;
+        }
+    }
+
+    private static void beginGuardedFuture(
+            Stage stage,
+            ChunkStep step,
+            ChunkAccess chunk,
+            Supplier<CompletableFuture<ChunkAccess>> task,
+            ChunkCompletionCallback callback
+    ) {
+        GuardLease lease = acquireLease(stage, step, chunk);
+        try {
+            CompletableFuture<ChunkAccess> future = requireFuture(task.get());
+            future.whenComplete((result, failure) -> {
+                lease.release();
+                callback.accept(result, failure);
+            });
         } catch (Throwable throwable) {
             lease.release();
             throw throwable;
@@ -432,6 +450,26 @@ public final class GAChunkStatusPipeline {
         return future;
     }
 
+    private static void completeScheduledResult(
+            int stageIndex,
+            CompletableFuture<ChunkAccess> future,
+            ChunkAccess result,
+            Throwable failure
+    ) {
+        if (failure == null) {
+            COMPLETED.incrementAndGet(stageIndex);
+            future.complete(result);
+        } else {
+            FAILED.incrementAndGet(stageIndex);
+            future.completeExceptionally(failure);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ChunkCompletionCallback {
+        void accept(ChunkAccess result, Throwable failure);
+    }
+
     public enum Stage {
         NOISE("noise"),
         STRUCTURE_STARTS("structure_starts"),
@@ -489,9 +527,6 @@ public final class GAChunkStatusPipeline {
             stripes = java.util.Arrays.copyOf(stripes, newLength);
             acquired = java.util.Arrays.copyOf(acquired, newLength);
         }
-    }
-
-    private record GuardedFuture(CompletableFuture<ChunkAccess> future) {
     }
 
     private record GuardLease(long token, int[] acquired, int acquiredCount) {

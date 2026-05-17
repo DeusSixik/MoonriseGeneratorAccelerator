@@ -83,7 +83,12 @@ public class MixinNoiseChunk$OptimizeFlatArray {
             }
         }
 
-        ((NoiseChunk$FlatCache$FlatArray) blendAlpha).bts$setArray(flatAlpha);
-        ((NoiseChunk$FlatCache$FlatArray) blendOffset).bts$setArray(flatOffset);
+        NoiseChunk$FlatCache$FlatArray alphaAccess = (NoiseChunk$FlatCache$FlatArray) blendAlpha;
+        NoiseChunk$FlatCache$FlatArray offsetAccess = (NoiseChunk$FlatCache$FlatArray) blendOffset;
+        alphaAccess.bts$setArray(flatAlpha);
+        offsetAccess.bts$setArray(flatOffset);
+        // Keep vanilla backing arrays valid for paths that bypass the flat-array overwrite.
+        alphaAccess.bts$copyFlatArrayToVanillaValues();
+        offsetAccess.bts$copyFlatArrayToVanillaValues();
     }
 }

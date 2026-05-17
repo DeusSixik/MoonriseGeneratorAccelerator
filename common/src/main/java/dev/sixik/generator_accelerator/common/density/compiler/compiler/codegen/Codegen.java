@@ -197,6 +197,9 @@ public final class Codegen {
      */
     public static final String HELPER_DESC =
             "(L" + COMPILED_BASE_INTERNAL + ";L" + FUNCTION_CONTEXT_INTERNAL + ";)D";
+    private static final String WRAP_AIOOBE_DESC =
+            "(Ljava/lang/ArrayIndexOutOfBoundsException;L" + FUNCTION_CONTEXT_INTERNAL
+                    + ";Ljava/lang/String;)Ljava/lang/ArrayIndexOutOfBoundsException;";
 
     /**
      * When {@code true} (default), helper call sites are emitted as
@@ -731,12 +734,27 @@ public final class Codegen {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "compute",
                 "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", null, null);
         mv.visitCode();
+        Label start = new Label();
+        Label end = new Label();
+        Label handler = new Label();
+        mv.visitTryCatchBlock(start, end, handler, "java/lang/ArrayIndexOutOfBoundsException");
+        mv.visitLabel(start);
         emitCoordPrologue(mv, CoordinateSlotUse.analyze(root, helpers.extracted, false));
 
         EmitState st = new EmitState(mv, classInternalName, helpers, false, coordinateReuse);
         st.emit(root);
 
         mv.visitInsn(Opcodes.DRETURN);
+        mv.visitLabel(end);
+        mv.visitLabel(handler);
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitLdcInsn("compute");
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COMPILED_BASE_INTERNAL,
+                "dfc$wrapArrayIndexOutOfBounds", WRAP_AIOOBE_DESC, false);
+        mv.visitInsn(Opcodes.ATHROW);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
     }

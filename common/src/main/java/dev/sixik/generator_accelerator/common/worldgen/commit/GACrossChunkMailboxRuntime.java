@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.core.BlockPos;
@@ -71,11 +72,11 @@ public final class GACrossChunkMailboxRuntime {
             int x,
             int y,
             int z,
-            BlockState state,
+            int state,
             int flags
     ) {
         ATTEMPTED.incrementAndGet();
-        if (!ENABLED || state == null) {
+        if (!ENABLED || state == -1) {
             REJECTED.incrementAndGet();
             return false;
         }
@@ -138,8 +139,13 @@ public final class GACrossChunkMailboxRuntime {
                 GACommitCollisionPolicy.LATER_WRITE_WINS,
                 command -> {
                     Object state = command.value().state();
-                    if (!(state instanceof BlockState blockState)) {
-                        throw new IllegalArgumentException("mailbox block write state is not a BlockState: " + state);
+                    BlockState blockState;
+                    if (state instanceof BlockState direct) {
+                        blockState = direct;
+                    } else if (state instanceof Integer stateId) {
+                        blockState = FastBlockStateCache.getBlockState(stateId);
+                    } else {
+                        throw new IllegalArgumentException("mailbox block write state is not a BlockState or state id: " + state);
                     }
                     GABlockPosition position = command.position();
                     targetChunk.setBlockState(new BlockPos(position.x(), position.y(), position.z()), blockState, false);
