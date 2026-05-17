@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.worldgen.workspace;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Arrays;
@@ -15,7 +14,6 @@ public final class GADecorationWriteJournal {
     private long[] packedPositions = new long[DEFAULT_CAPACITY];
     private long[] positions = new long[DEFAULT_CAPACITY];
     private int[] blockIds = new int[DEFAULT_CAPACITY];
-    private BlockState[] states = new BlockState[DEFAULT_CAPACITY];
     private int size;
 
     public GADecorationWriteJournal() {
@@ -30,7 +28,6 @@ public final class GADecorationWriteJournal {
         int existing = this.indexByPos.get(packed);
         if (existing >= 0) {
             this.blockIds[existing] = state;
-            this.states[existing] = FastBlockStateCache.getBlockState(state);
             return true;
         }
         int index = this.size;
@@ -39,7 +36,6 @@ public final class GADecorationWriteJournal {
 
         this.positions[index] = BlockPos.asLong(x, y, z);
         this.blockIds[index] = state;
-        this.states[index] = FastBlockStateCache.getBlockState(state);
         this.size = index + 1;
         this.indexByPos.put(packed, index);
         return true;
@@ -52,7 +48,7 @@ public final class GADecorationWriteJournal {
 
     public BlockState stateAt(long pos) {
         int index = this.indexByPos.get(pos);
-        return index < 0 ? null : this.states[index];
+        return index < 0 ? null : FastBlockStateCache.getBlockState(this.blockIds[index]);
     }
 
     public BlockState stateAt(int x, int y, int z) {
@@ -91,7 +87,7 @@ public final class GADecorationWriteJournal {
     }
 
     public BlockState state(int index) {
-        return this.states[index];
+        return FastBlockStateCache.getBlockState(this.blockIds[index]);
     }
 
     public int stateId(int index) {
@@ -99,7 +95,6 @@ public final class GADecorationWriteJournal {
     }
 
     public void clear() {
-        Arrays.fill(this.states, 0, this.size, null);
         this.size = 0;
         this.indexByPos.clear();
     }
@@ -117,6 +112,5 @@ public final class GADecorationWriteJournal {
         this.packedPositions = Arrays.copyOf(this.packedPositions, next);
         this.positions = Arrays.copyOf(this.positions, next);
         this.blockIds = Arrays.copyOf(this.blockIds, next);
-        this.states = Arrays.copyOf(this.states, next);
     }
 }

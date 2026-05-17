@@ -17,12 +17,12 @@ class SectionDescriptorCacheRetentionTest {
         setField(cache, "descriptors", new SectionDescriptor[2_048]);
         setField(cache, "heightChunks", new ChunkAccess[512]);
         setField(cache, "heightChunkKeys", new long[512]);
-        setField(cache, "worldSurfaceHeights", new short[512][]);
-        setField(cache, "oceanFloorHeights", new short[512][]);
-        setField(cache, "motionBlockingHeights", new short[512][]);
-        setField(cache, "topWaterHeights", new short[512][]);
-        setField(cache, "chunkColumnPaletteFlags", new int[512][]);
-        setField(cache, "chunkColumnBlockClassFlags", new int[512][]);
+        setField(cache, "worldSurfaceHeights", new short[512 * SectionDescriptor.COLUMN_COUNT]);
+        setField(cache, "oceanFloorHeights", new short[512 * SectionDescriptor.COLUMN_COUNT]);
+        setField(cache, "motionBlockingHeights", new short[512 * SectionDescriptor.COLUMN_COUNT]);
+        setField(cache, "topWaterHeights", new short[512 * SectionDescriptor.COLUMN_COUNT]);
+        setField(cache, "chunkColumnPaletteFlags", new int[512 * SectionDescriptor.COLUMN_COUNT]);
+        setField(cache, "chunkColumnBlockClassFlags", new int[512 * SectionDescriptor.COLUMN_COUNT]);
         setField(cache, "heightScanDescriptors", new SectionDescriptor[1_024]);
 
         for (int i = 0; i < 4; i++) {

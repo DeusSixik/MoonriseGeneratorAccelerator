@@ -21,16 +21,16 @@ class DecorationPipelineScratchRetentionTest {
         scratch.clear();
 
         scratch.ensureCandidateCapacity(70_000);
-        int[] retainedCandidates = scratch.candidateX;
+        long[] retainedCandidates = scratch.candidates;
         int retainedLength = retainedCandidates.length;
 
         scratch.clear();
 
-        assertSame(retainedCandidates, scratch.candidateX);
-        assertEquals(retainedLength, scratch.candidateX.length);
+        assertSame(retainedCandidates, scratch.candidates);
+        assertEquals(retainedLength, scratch.candidates.length);
 
         scratch.ensureCandidateCapacity(70_000);
-        assertSame(retainedCandidates, scratch.candidateX);
+        assertSame(retainedCandidates, scratch.candidates);
     }
 
     @Test
@@ -39,13 +39,13 @@ class DecorationPipelineScratchRetentionTest {
         scratch.clear();
 
         scratch.ensureCandidateCapacity(300_000);
-        assertTrue(scratch.candidateX.length >= 300_000);
+        assertTrue(scratch.candidates.length >= 300_000);
 
         for (int i = 0; i < 4; i++) {
             scratch.clear();
         }
 
-        assertEquals(65_536, scratch.candidateX.length);
+        assertEquals(65_536, scratch.candidates.length);
         assertEquals(65_536, scratch.selectedFeatureBuffer.length);
     }
 

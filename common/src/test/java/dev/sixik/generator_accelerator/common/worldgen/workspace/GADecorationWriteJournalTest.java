@@ -26,12 +26,12 @@ class GADecorationWriteJournalTest {
         BlockState stone = Blocks.STONE.defaultBlockState();
         BlockState diamondOre = Blocks.DIAMOND_ORE.defaultBlockState();
 
-        journal.add(4, 12, 7, stone);
-        journal.add(4, 12, 7, diamondOre);
+        journal.add(4, 12, 7, Block.getId(stone));
+        journal.add(4, 12, 7, Block.getId(diamondOre));
 
         assertEquals(1, journal.size());
         assertEquals(BlockPos.asLong(4, 12, 7), journal.packedPosition(0));
-        assertSame(diamondOre, journal.state(0));
+        assertEquals(diamondOre, journal.state(0));
         assertEquals(Block.getId(diamondOre), journal.blockIdAt(4, 12, 7));
     }
 

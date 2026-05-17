@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -33,7 +34,7 @@ class PhaseCWriteJournalBatchingTest {
         scratch.addDirectWrite(replacement, 3, 5, 7);
 
         assertEquals(2, scratch.candidateCount);
-        assertSame(first, scratch.candidateSimpleBlockState[0]);
+        assertEquals(Block.getId(first), scratch.candidateSimpleBlockState[0]);
         assertEquals(2, scratch.sectionBucketCount);
 
         scratch.finishWriteJournal();
@@ -54,8 +55,8 @@ class PhaseCWriteJournalBatchingTest {
         scratch.addSimpleBlockCandidate(replacement, 3, 5, 7);
 
         assertEquals(2, scratch.candidateCount);
-        assertSame(first, scratch.candidateSimpleBlockState[0]);
-        assertSame(replacement, scratch.candidateSimpleBlockState[1]);
+        assertEquals(Block.getId(first), scratch.candidateSimpleBlockState[0]);
+        assertEquals(Block.getId(replacement), scratch.candidateSimpleBlockState[1]);
         assertEquals(1, scratch.sectionBucketCount);
         assertEquals(0, scratch.sectionBucketHead[0]);
         assertEquals(1, scratch.candidateNext[0]);
@@ -108,7 +109,7 @@ class PhaseCWriteJournalBatchingTest {
         for (int i = 0; i < 300; i++) {
             scratch.addDirectWrite(Blocks.STONE.defaultBlockState(), i, 4, 0);
         }
-        int grownCandidateCapacity = scratch.candidateX.length;
+        int grownCandidateCapacity = scratch.candidates.length;
         int grownSectionCapacity = scratch.sectionBucketKey.length;
         assertTrue(grownCandidateCapacity >= 300);
         assertTrue(grownSectionCapacity >= 19);
@@ -117,7 +118,7 @@ class PhaseCWriteJournalBatchingTest {
         scratch.beginWriteJournal();
         scratch.addDirectWrite(Blocks.DIRT.defaultBlockState(), 0, 4, 0);
 
-        assertEquals(grownCandidateCapacity, scratch.candidateX.length);
+        assertEquals(grownCandidateCapacity, scratch.candidates.length);
         assertEquals(grownSectionCapacity, scratch.sectionBucketKey.length);
 
         scratch.finishWriteJournal();

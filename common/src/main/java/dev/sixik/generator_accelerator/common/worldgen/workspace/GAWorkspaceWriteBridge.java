@@ -235,7 +235,7 @@ public final class GAWorkspaceWriteBridge {
             workspace.markDirtyHeightColumn(local.localX(), local.localZ());
             workspace.markDirtySurfaceColumn(local.localX(), local.localZ());
             workspace.markDirtyLightColumn(local.localX(), local.localZ());
-            if (!FastBlockStateCache.getBlockState(blockId).isAir()) {
+            if (!FastBlockStateCache.isAir(blockId)) {
                 int height = workspace.heightCandidate(local.localX(), local.localZ());
                 if (height == GAChunkWorkspace.UNKNOWN_HEIGHT || y >= height) {
                     workspace.setHeightCandidate(local.localX(), local.localZ(), y);

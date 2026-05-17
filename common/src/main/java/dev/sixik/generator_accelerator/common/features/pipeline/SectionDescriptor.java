@@ -1,20 +1,17 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.patches.GA$LevelChunkSectionExtern;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 
 import java.util.Arrays;
-import java.util.function.Predicate;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.level.material.FluidState;
-import net.minecraft.world.level.material.Fluids;
+
+import static dev.sixik.generator_accelerator.api.structures.FastBlockStateCache.*;
 
 public final class SectionDescriptor {
 
@@ -35,8 +32,6 @@ public final class SectionDescriptor {
     public static final int CLASS_SURFACE_CANDIDATE = 1 << 4;
     public static final int CLASS_TREE_SOIL = 1 << 5;
 
-    private static final Predicate<BlockState> OCEAN_FLOOR_OPAQUE = Heightmap.Types.OCEAN_FLOOR.isOpaque();
-    private static final Predicate<BlockState> MOTION_BLOCKING_OPAQUE = Heightmap.Types.MOTION_BLOCKING.isOpaque();
     private static final int MASK_AIR = 1;
     private static final int MASK_WATER = 1 << 1;
     private static final int MASK_LAVA = 1 << 2;
@@ -46,20 +41,6 @@ public final class SectionDescriptor {
     private static final int MASK_STONE_LIKE = 1 << 6;
     private static final int MASK_DIRT_LIKE = 1 << 7;
     private static final int MASK_TREE_SOIL = 1 << 8;
-    private static final int[] PALETTE_FLAG_BITS = {
-            PALETTE_AIR,
-            PALETTE_WATER,
-            PALETTE_LAVA,
-            PALETTE_SOLID
-    };
-    private static final int[] BLOCK_CLASS_FLAG_BITS = {
-            CLASS_STONE_LIKE,
-            CLASS_DIRT_LIKE,
-            CLASS_REPLACEABLE,
-            CLASS_ORE_TARGET,
-            CLASS_SURFACE_CANDIDATE,
-            CLASS_TREE_SOIL
-    };
 
     private static volatile CachedStateFacts stateFactsById;
 
@@ -476,18 +457,31 @@ public final class SectionDescriptor {
 
         this.clearColumn(columnIndex);
         for (int localY = 0; localY < SECTION_EDGE; localY++) {
-            this.acceptColumnState(this.section.getBlockState(localX, localY, localZ), columnIndex, localY, 1 << localY);
+            this.acceptColumnState(((GA$LevelChunkSectionExtern)this.section).ga$getBlockRaw(localX, localY, localZ), columnIndex, localY, 1 << localY);
         }
         this.finishColumnFlags(columnIndex);
         this.refreshAggregatesAfterColumnChange(columnIndex, oldPaletteFlags, oldBlockClassFlags, oldMinFilledLocalY, oldMaxFilledLocalY);
     }
 
     void updateBlockState(int blockX, int blockY, int blockZ, BlockState newState) {
+        this.updateBlockState(blockX, blockY, blockZ, GA$BlockStateExtension.get(newState).bts$getFastId());
+    }
+
+    void updateBlockState(int blockX, int blockY, int blockZ, int newStateId) {
+        this.updateBlockState(blockX, blockY, blockZ, newStateId, -1);
+    }
+
+    private void updateBlockState(int blockX, int blockY, int blockZ, int newStateId, int fallbackState) {
         if (this.section == null || !this.containsBlockY(blockY)) {
             return;
         }
+        CachedStateFacts facts = stateFactsById();
+        int maskFlags = newStateId >= 0 && newStateId < facts.maskFlags.length
+                ? facts.maskFlags[newStateId]
+                : maskFlagsForState(newStateId, fallbackState);
+
         if (this.allAirSection) {
-            if (newState.isAir()) {
+            if ((maskFlags & MASK_AIR) != 0) {
                 return;
             }
             this.build(this.chunk, this.section, this.sectionX, this.sectionY, this.sectionZ);
@@ -512,12 +506,6 @@ public final class SectionDescriptor {
         int stoneLikeMask = this.columnStoneLikeMask[columnIndex] & clearMask;
         int dirtLikeMask = this.columnDirtLikeMask[columnIndex] & clearMask;
         int treeSoilMask = this.columnTreeSoilMask[columnIndex] & clearMask;
-
-        int stateId = Block.getId(newState);
-        CachedStateFacts facts = stateFactsById();
-        int maskFlags = stateId >= 0 && stateId < facts.maskFlags.length
-                ? facts.maskFlags[stateId]
-                : maskFlagsForState(newState);
 
         airMask |= (maskFlags & MASK_AIR) << localY;
         waterMask |= ((maskFlags & MASK_WATER) << localY) >>> 1;
@@ -566,7 +554,7 @@ public final class SectionDescriptor {
             int bit = 1 << localY;
             for (int localZ = 0; localZ < SECTION_EDGE; localZ++) {
                 for (int localX = 0; localX < SECTION_EDGE; localX++) {
-                    this.acceptColumnState(section.getBlockState(localX, localY, localZ), columnIndex(localX, localZ), localY, bit);
+                    this.acceptColumnState(((GA$LevelChunkSectionExtern)section).ga$getBlockRaw(localX, localY, localZ), columnIndex(localX, localZ), localY, bit);
                 }
             }
         }
@@ -720,10 +708,11 @@ public final class SectionDescriptor {
     }
 
     private void acceptColumnState(BlockState state, int columnIndex, int localY, int bit) {
-        Block block = state.getBlock();
-        FluidState fluidState = state.getFluidState();
+        this.acceptColumnState(GA$BlockStateExtension.get(state).bts$getFastId(), columnIndex, localY, bit);
+    }
 
-        if (state.isAir()) {
+    private void acceptColumnState(int stateId, int columnIndex, int localY, int bit) {
+        if (FastBlockStateCache.isAir(stateId)) {
             this.columnPaletteFlags[columnIndex] |= PALETTE_AIR;
             this.columnAirMask[columnIndex] |= bit;
             this.markColumnReplaceable(columnIndex, bit);
@@ -732,33 +721,33 @@ public final class SectionDescriptor {
 
         this.markColumnFilled(columnIndex, localY);
 
-        if (!fluidState.isEmpty()) {
-            if (fluidState.getType() == Fluids.WATER) {
-                this.columnPaletteFlags[columnIndex] |= PALETTE_WATER;
-                this.columnWaterMask[columnIndex] |= bit;
-                this.markColumnReplaceable(columnIndex, bit);
-            } else if (fluidState.getType() == Fluids.LAVA) {
-                this.columnPaletteFlags[columnIndex] |= PALETTE_LAVA;
-                this.columnLavaMask[columnIndex] |= bit;
-            }
+        byte fluidKind = FastBlockStateCache.fluidKind(stateId);
+        if (fluidKind == FLUID_KIND_WATER) {
+            this.columnPaletteFlags[columnIndex] |= PALETTE_WATER;
+            this.columnWaterMask[columnIndex] |= bit;
+            this.markColumnReplaceable(columnIndex, bit);
+        } else if (fluidKind == FLUID_KIND_LAVA) {
+            this.columnPaletteFlags[columnIndex] |= PALETTE_LAVA;
+            this.columnLavaMask[columnIndex] |= bit;
         }
 
-        if (OCEAN_FLOOR_OPAQUE.test(state)) {
+        if (FastBlockStateCache.isBlockMotion(stateId)) {
             this.columnPaletteFlags[columnIndex] |= PALETTE_SOLID;
             this.columnSolidMask[columnIndex] |= bit;
         }
-        if (MOTION_BLOCKING_OPAQUE.test(state)) {
+        if (FastBlockStateCache.isBlockMotionBlocking(stateId)) {
             this.columnMotionBlockingMask[columnIndex] |= bit;
         }
 
-        if (isStoneLike(state, block)) {
+        int block = blockIdByStateId(stateId);
+        if (isStoneLike(stateId, block)) {
             this.columnBlockClassFlags[columnIndex] |= CLASS_STONE_LIKE | CLASS_ORE_TARGET;
             this.columnStoneLikeMask[columnIndex] |= bit;
-        } else if (isDirtLike(state, block)) {
+        } else if (isDirtLike(stateId, block)) {
             this.columnBlockClassFlags[columnIndex] |= CLASS_DIRT_LIKE | CLASS_TREE_SOIL;
             this.columnDirtLikeMask[columnIndex] |= bit;
             this.columnTreeSoilMask[columnIndex] |= bit;
-        } else if (isTreeSoilLike(state, block)) {
+        } else if (isTreeSoilLike(stateId, block)) {
             this.columnBlockClassFlags[columnIndex] |= CLASS_TREE_SOIL;
             this.columnTreeSoilMask[columnIndex] |= bit;
         }
@@ -1129,17 +1118,18 @@ public final class SectionDescriptor {
             if (facts != null) {
                 return facts;
             }
-            BlockState[] states = FastBlockStateCache.STATES;
-            if (states == null) {
+            int[] blocksByState = FastBlockStateCache.BLOCK_BY_STATE;
+            if (blocksByState == null) {
                 FastBlockStateCache.init(GeneratorAccelerator.platform);
-                states = FastBlockStateCache.STATES;
+                blocksByState = FastBlockStateCache.BLOCK_BY_STATE;
             }
-            int[] paletteFlags = new int[states.length];
-            int[] blockClassFlags = new int[states.length];
-            int[] maskFlags = new int[states.length];
-            int[] filledBits = new int[states.length];
-            for (int i = 0; i < states.length; i++) {
-                computeStateFacts(states[i], i, paletteFlags, blockClassFlags, maskFlags, filledBits);
+            int stateCount = blocksByState != null ? blocksByState.length : 0;
+            int[] paletteFlags = new int[stateCount];
+            int[] blockClassFlags = new int[stateCount];
+            int[] maskFlags = new int[stateCount];
+            int[] filledBits = new int[stateCount];
+            for (int i = 0; i < stateCount; i++) {
+                computeStateFacts(i, paletteFlags, blockClassFlags, maskFlags, filledBits);
             }
             facts = new CachedStateFacts(paletteFlags, blockClassFlags, maskFlags, filledBits);
             stateFactsById = facts;
@@ -1148,98 +1138,96 @@ public final class SectionDescriptor {
     }
 
     private static void computeStateFacts(
-            BlockState state,
-            int index,
+            int stateId,
             int[] paletteFlagsById,
             int[] blockClassFlagsById,
             int[] maskFlagsById,
             int[] filledBitsById
     ) {
-        if (state == null) {
-            state = Blocks.AIR.defaultBlockState();
-        }
-
-        Block block = state.getBlock();
+        int blockId = blockIdByStateId(stateId);
         int paletteFlags = 0;
         int blockClassFlags = 0;
         int maskFlags = 0;
-        boolean filled = !state.isAir();
+        boolean filled = !FastBlockStateCache.isAir(stateId);
 
         if (!filled) {
-            paletteFlagsById[index] = PALETTE_AIR;
-            blockClassFlagsById[index] = CLASS_REPLACEABLE;
-            maskFlagsById[index] = MASK_AIR | MASK_REPLACEABLE;
+            paletteFlagsById[stateId] = PALETTE_AIR;
+            blockClassFlagsById[stateId] = CLASS_REPLACEABLE;
+            maskFlagsById[stateId] = MASK_AIR | MASK_REPLACEABLE;
             return;
         }
 
-        FluidState fluidState = state.getFluidState();
-        if (!fluidState.isEmpty()) {
-            if (fluidState.getType() == Fluids.WATER) {
-                paletteFlags |= PALETTE_WATER;
-                blockClassFlags |= CLASS_REPLACEABLE;
-                maskFlags |= MASK_WATER | MASK_REPLACEABLE;
-            } else if (fluidState.getType() == Fluids.LAVA) {
-                paletteFlags |= PALETTE_LAVA;
-                maskFlags |= MASK_LAVA;
-            }
+        byte fluidKind = FastBlockStateCache.fluidKind(stateId);
+        if (fluidKind == FLUID_KIND_WATER) {
+            paletteFlags |= PALETTE_WATER;
+            blockClassFlags |= CLASS_REPLACEABLE;
+            maskFlags |= MASK_WATER | MASK_REPLACEABLE;
+        } else if (fluidKind == FLUID_KIND_LAVA) {
+            paletteFlags |= PALETTE_LAVA;
+            maskFlags |= MASK_LAVA;
         }
 
-        if (OCEAN_FLOOR_OPAQUE.test(state)) {
+        if (FastBlockStateCache.isBlockMotion(stateId)) {
             paletteFlags |= PALETTE_SOLID;
             maskFlags |= MASK_SOLID;
         }
-        if (MOTION_BLOCKING_OPAQUE.test(state)) {
+        if (FastBlockStateCache.isBlockMotionBlocking(stateId)) {
             maskFlags |= MASK_MOTION_BLOCKING;
         }
 
-        if (isStoneLike(state, block)) {
+        if (isStoneLike(stateId, blockId)) {
             blockClassFlags |= CLASS_STONE_LIKE | CLASS_ORE_TARGET;
             maskFlags |= MASK_STONE_LIKE;
-        } else if (isDirtLike(state, block)) {
+        } else if (isDirtLike(stateId, blockId)) {
             blockClassFlags |= CLASS_DIRT_LIKE | CLASS_TREE_SOIL;
             maskFlags |= MASK_DIRT_LIKE | MASK_TREE_SOIL;
-        } else if (isTreeSoilLike(state, block)) {
+        } else if (isTreeSoilLike(stateId, blockId)) {
             blockClassFlags |= CLASS_TREE_SOIL;
             maskFlags |= MASK_TREE_SOIL;
         }
 
-        if (isLooseReplaceable(block)) {
+        if (isLooseReplaceable(blockId)) {
             blockClassFlags |= CLASS_REPLACEABLE;
             maskFlags |= MASK_REPLACEABLE;
         }
 
-        paletteFlagsById[index] = paletteFlags;
-        blockClassFlagsById[index] = blockClassFlags;
-        maskFlagsById[index] = maskFlags;
-        filledBitsById[index] = 1;
+        paletteFlagsById[stateId] = paletteFlags;
+        blockClassFlagsById[stateId] = blockClassFlags;
+        maskFlagsById[stateId] = maskFlags;
+        filledBitsById[stateId] = 1;
     }
 
-    private static int maskFlagsForState(BlockState state) {
-        Block block = state.getBlock();
-        FluidState fluidState = state.getFluidState();
-        if (state.isAir()) {
+    private static int maskFlagsForState(int stateId, int fallbackState) {
+        if (stateId < 0 && fallbackState != -1) {
+            stateId = fallbackState;
+        }
+        if (stateId < 0) {
+            return MASK_AIR | MASK_REPLACEABLE;
+        }
+
+        int block = blockIdByStateId(stateId);
+        if (FastBlockStateCache.isAir(stateId)) {
             return MASK_AIR | MASK_REPLACEABLE;
         }
 
         int maskFlags = 0;
-        if (!fluidState.isEmpty()) {
-            if (fluidState.getType() == Fluids.WATER) {
-                maskFlags |= MASK_WATER | MASK_REPLACEABLE;
-            } else if (fluidState.getType() == Fluids.LAVA) {
-                maskFlags |= MASK_LAVA;
-            }
+        byte fluidKind = FastBlockStateCache.fluidKind(stateId);
+        if (fluidKind == FLUID_KIND_WATER) {
+            maskFlags |= MASK_WATER | MASK_REPLACEABLE;
+        } else if (fluidKind == FLUID_KIND_LAVA) {
+            maskFlags |= MASK_LAVA;
         }
-        if (OCEAN_FLOOR_OPAQUE.test(state)) {
+        if (isBlockMotion(stateId)) {
             maskFlags |= MASK_SOLID;
         }
-        if (MOTION_BLOCKING_OPAQUE.test(state)) {
+        if (FastBlockStateCache.isBlockMotionBlocking(stateId)) {
             maskFlags |= MASK_MOTION_BLOCKING;
         }
-        if (isStoneLike(state, block)) {
+        if (isStoneLike(stateId, block)) {
             maskFlags |= MASK_STONE_LIKE;
-        } else if (isDirtLike(state, block)) {
+        } else if (isDirtLike(stateId, block)) {
             maskFlags |= MASK_DIRT_LIKE | MASK_TREE_SOIL;
-        } else if (isTreeSoilLike(state, block)) {
+        } else if (isTreeSoilLike(stateId, block)) {
             maskFlags |= MASK_TREE_SOIL;
         }
         if (isLooseReplaceable(block)) {
@@ -1266,28 +1254,50 @@ public final class SectionDescriptor {
         return flags;
     }
 
-    private static boolean isStoneLike(BlockState state, Block block) {
-        return state.is(BlockTags.STONE_ORE_REPLACEABLES)
-                || state.is(BlockTags.DEEPSLATE_ORE_REPLACEABLES)
-                || block == Blocks.STONE || block == Blocks.DEEPSLATE || block == Blocks.GRANITE || block == Blocks.DIORITE
-                || block == Blocks.ANDESITE || block == Blocks.TUFF || block == Blocks.CALCITE || block == Blocks.NETHERRACK
-                || block == Blocks.BASALT || block == Blocks.BLACKSTONE || block == Blocks.END_STONE;
+    private static int blockIdByStateId(int stateId) {
+        int[] blocksByState = BLOCK_BY_STATE;
+        if (stateId >= 0 && blocksByState != null && stateId < blocksByState.length) {
+            return blocksByState[stateId];
+        }
+        return blockIdFromState(stateId);
     }
 
-    private static boolean isDirtLike(BlockState state, Block block) {
-        return state.is(BlockTags.DIRT)
-                || block == Blocks.DIRT || block == Blocks.GRASS_BLOCK || block == Blocks.COARSE_DIRT || block == Blocks.PODZOL
-                || block == Blocks.MYCELIUM || block == Blocks.ROOTED_DIRT || block == Blocks.MUD || block == Blocks.CLAY
-                || block == Blocks.FARMLAND;
+    private static int blockIdFromState(int state) {
+        return state != -1 ? BLOCK_BY_STATE[state] : 0;
     }
 
-    private static boolean isLooseReplaceable(Block block) {
-        return block == Blocks.CAVE_AIR || block == Blocks.VOID_AIR || block == Blocks.SHORT_GRASS || block == Blocks.TALL_GRASS
-                || block == Blocks.FERN || block == Blocks.LARGE_FERN || block == Blocks.SEAGRASS || block == Blocks.TALL_SEAGRASS;
+    private static boolean isStoneLike(int fastStateId, int blockId) {
+        if (FastBlockStateCache.hasTag(fastStateId, FastBlockStateCache.TAG_STONE_ORE_REPLACEABLES | FastBlockStateCache.TAG_DEEPSLATE_ORE_REPLACEABLES)) {
+            return true;
+        }
+
+        return blockId == STONE_ID || blockId == DEEPSLATE_ID || blockId == GRANITE_ID
+                || blockId == DIORITE_ID || blockId == ANDESITE_ID || blockId == TUFF_ID
+                || blockId == CALCITE_ID || blockId == NETHERRACK_ID || blockId == BASALT_ID
+                || blockId == BLACKSTONE_ID || blockId == END_STONE_ID;
     }
 
-    private static boolean isTreeSoilLike(BlockState state, Block block) {
-        return state.is(BlockTags.NYLIUM) || block == Blocks.MOSS_BLOCK;
+    private static boolean isDirtLike(int fastStateId, int blockId) {
+        if (FastBlockStateCache.hasTag(fastStateId, FastBlockStateCache.TAG_DIRT)) {
+            return true;
+        }
+
+        return blockId == DIRT_ID || blockId == GRASS_BLOCK_ID || blockId == COARSE_DIRT_ID
+                || blockId == PODZOL_ID || blockId == MYCELIUM_ID || blockId == ROOTED_DIRT_ID
+                || blockId == MUD_ID || blockId == CLAY_ID || blockId == FARMLAND_ID;
+    }
+
+    private static boolean isLooseReplaceable(int blockId) {
+        return blockId == CAVE_AIR_ID || blockId == VOID_AIR_ID || blockId == SHORT_GRASS_ID
+                || blockId == TALL_GRASS_ID || blockId == FERN_ID || blockId == LARGE_FERN_ID
+                || blockId == SEAGRASS_ID || blockId == TALL_SEAGRASS_ID;
+    }
+
+    private static boolean isTreeSoilLike(int fastStateId, int blockId) {
+        if (FastBlockStateCache.hasTag(fastStateId, FastBlockStateCache.TAG_NYLIUM)) {
+            return true;
+        }
+        return blockId == MOSS_BLOCK_ID;
     }
 
     private static final class CachedStateFacts {

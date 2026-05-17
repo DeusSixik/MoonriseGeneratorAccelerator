@@ -4,6 +4,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -39,8 +40,8 @@ class GACrossChunkMailboxRuntimeTest {
         BlockState dirt = Blocks.DIRT.defaultBlockState();
         ChunkAccess target = targetChunk(1, 0);
 
-        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 16, 64, 0, stone, 2);
-        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 16, 64, 0, dirt, 2);
+        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 16, 64, 0, Block.getId(stone), 2);
+        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 16, 64, 0, Block.getId(dirt), 2);
 
         Map<String, Object> queued = GACrossChunkMailboxRuntime.snapshot();
         assertEquals(2L, queued.get("attempted"));
@@ -65,7 +66,7 @@ class GACrossChunkMailboxRuntimeTest {
     void fallbackRatioTracksRejectedNeighborCommands() {
         GACrossChunkMailboxRuntime.resetForTests();
 
-        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 1, 64, 1, Blocks.STONE.defaultBlockState(), 2);
+        GACrossChunkMailboxRuntime.enqueueBlockWrite(0, 0, 1, 64, 1, Block.getId(Blocks.STONE.defaultBlockState()), 2);
 
         Map<String, Object> snapshot = GACrossChunkMailboxRuntime.snapshot();
         assertEquals(1L, snapshot.get("attempted"));
