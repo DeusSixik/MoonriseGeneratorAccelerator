@@ -168,8 +168,16 @@ public final class GAScheduler {
         AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
         try {
             CompletableFuture<T> future = new CompletableFuture<>();
+            future.whenComplete((ignored, throwable) -> {
+                if (future.isCancelled()) {
+                    releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                }
+            });
             pool.execute(() -> {
                 releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                if (future.isCancelled()) {
+                    return;
+                }
                 completeFromSupplier(future, () -> runGoverned(lane, task));
             });
             return future;
