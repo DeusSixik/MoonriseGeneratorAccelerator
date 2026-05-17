@@ -6,6 +6,7 @@
   "plugin": "dev.sixik.generator_accelerator.mixins.GACoreMixinPlugin",
   "mixins": [
     "FrontAndTopCrashFix",
+    "MixinBiomeSource",
     "MixinBlocks",
     "MixinBlockStateBase$Extension",
     "MixinCanyonWorldCarver",

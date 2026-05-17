@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.biome.mixin.compat.terrablender;
 
 import com.bawnorton.mixinsquared.TargetHandler;
+import dev.sixik.generator_accelerator.api.patches.GA$BiomeSourceExtern;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
@@ -17,9 +18,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 @Mixin(value = BiomeSource.class, priority = 1600)
-public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes {
-    @Shadow(remap = false)
-    public Supplier<Set<Holder<Biome>>> possibleBiomes;
+public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes implements GA$BiomeSourceExtern {
 
     @Shadow(remap = false)
     private boolean hasAppended;
@@ -41,13 +40,13 @@ public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes {
             return;
         }
 
-        Set<Holder<Biome>> current = this.possibleBiomes.get();
+        Set<Holder<Biome>> current = ga$getCache();
         ObjectLinkedOpenHashSet<Holder<Biome>> merged = new ObjectLinkedOpenHashSet<>(current.size() + biomes.size());
         merged.addAll(current);
         merged.addAll(biomes);
 
         Set<Holder<Biome>> cached = Collections.unmodifiableSet(merged);
-        this.possibleBiomes = () -> cached;
+        ga$setCache(cached);
         this.hasAppended = true;
         ci.cancel();
     }
