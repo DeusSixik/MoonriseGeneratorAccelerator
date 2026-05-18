@@ -6,6 +6,8 @@ import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
 
 public class GACoreMixinPlugin extends GAMixinPlugin {
+    private static final String LITHIUM = "net.caffeinemc.mods.lithium.common.LithiumMod";
+    private static final String LITHIUM_FLOWING_FLUID = "net.caffeinemc.mods.lithium.mixin.block.fluid.flow.FlowingFluidMixin";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -16,6 +18,10 @@ public class GACoreMixinPlugin extends GAMixinPlugin {
                 "com.ishland.c2me.opts.worldgen.general.mixin.random_instances.MixinRedirectAtomicSimpleRandom",
                 "com.ishland.c2me.opts.worldgen.general.mixin.random_instances.MixinRedirectAtomicSimpleRandomStatic"
         ));
+
+        // GA overwrites FlowingFluid's spread/occlusion hot path. Lithium injects into
+        // the same methods, so keep Lithium's unrelated patches and drop only this one.
+        create(LITHIUM, new MixinApplier.Param("", LITHIUM_FLOWING_FLUID));
     }
 
     @Override

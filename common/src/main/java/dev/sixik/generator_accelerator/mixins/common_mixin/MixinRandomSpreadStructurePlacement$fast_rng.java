@@ -10,6 +10,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(RandomSpreadStructurePlacement.class)
 public abstract class MixinRandomSpreadStructurePlacement$fast_rng {
@@ -21,11 +24,11 @@ public abstract class MixinRandomSpreadStructurePlacement$fast_rng {
     private static final long GA$LEGACY_MASK = (1L << 48) - 1L;
 
     @Shadow
-    @Final
-    private int spacing;
+    public abstract int spacing();
+
     @Shadow
-    @Final
-    private int separation;
+    public abstract int separation();
+
     @Shadow
     @Final
     private RandomSpreadType spreadType;
@@ -33,14 +36,17 @@ public abstract class MixinRandomSpreadStructurePlacement$fast_rng {
     /**
      * @author Sixik
      * @reason Avoid allocating WorldgenRandom + LegacyRandomSource while preserving the
-     * exact legacy LCG sequence used by RandomSpreadType.
+     * exact legacy LCG sequence used by RandomSpreadType. Inject instead of overwriting so
+     * compatibility mixins can still match vanilla spacing/separation field reads.
      */
-    @Overwrite
-    public ChunkPos getPotentialStructureChunk(long seed, int chunkX, int chunkZ) {
-        int regionX = Math.floorDiv(chunkX, this.spacing);
-        int regionZ = Math.floorDiv(chunkZ, this.spacing);
+    @Inject(method = "getPotentialStructureChunk", at = @At("HEAD"), cancellable = true)
+    private void ga$getPotentialStructureChunk(long seed, int chunkX, int chunkZ, CallbackInfoReturnable<ChunkPos> cir) {
+        int spacing = this.spacing();
+        int separation = this.separation();
+        int regionX = Math.floorDiv(chunkX, spacing);
+        int regionZ = Math.floorDiv(chunkZ, spacing);
         long randomSeed = ga$largeFeatureSeed(seed, regionX, regionZ, ga$salt());
-        int bound = this.spacing - this.separation;
+        int bound = spacing - separation;
 
         long packed = ga$evaluate(this.spreadType, randomSeed, bound);
         randomSeed = packed >>> 16;
@@ -49,7 +55,7 @@ public abstract class MixinRandomSpreadStructurePlacement$fast_rng {
         packed = ga$evaluate(this.spreadType, randomSeed, bound);
         int offsetZ = (int) packed & 0xFFFF;
 
-        return new ChunkPos(regionX * this.spacing + offsetX, regionZ * this.spacing + offsetZ);
+        cir.setReturnValue(new ChunkPos(regionX * spacing + offsetX, regionZ * spacing + offsetZ));
     }
 
     /**
@@ -58,26 +64,28 @@ public abstract class MixinRandomSpreadStructurePlacement$fast_rng {
      */
     @Overwrite
     protected boolean isPlacementChunk(ChunkGeneratorStructureState state, int chunkX, int chunkZ) {
-        int regionX = Math.floorDiv(chunkX, this.spacing);
-        int regionZ = Math.floorDiv(chunkZ, this.spacing);
+        int spacing = this.spacing();
+        int separation = this.separation();
+        int regionX = Math.floorDiv(chunkX, spacing);
+        int regionZ = Math.floorDiv(chunkZ, spacing);
         long randomSeed = ga$largeFeatureSeed(state.getLevelSeed(), regionX, regionZ, ga$salt());
-        int bound = this.spacing - this.separation;
+        int bound = spacing - separation;
 
         long packed = ga$evaluate(this.spreadType, randomSeed, bound);
         randomSeed = packed >>> 16;
         int offsetX = (int) packed & 0xFFFF;
-        if (regionX * this.spacing + offsetX != chunkX) {
+        if (regionX * spacing + offsetX != chunkX) {
             return false;
         }
 
         packed = ga$evaluate(this.spreadType, randomSeed, bound);
         int offsetZ = (int) packed & 0xFFFF;
-        return regionZ * this.spacing + offsetZ == chunkZ;
+        return regionZ * spacing + offsetZ == chunkZ;
     }
 
     @Unique
     private int ga$salt() {
-        return ((MixinStructurePlacementAccessor) this).ga$getSalt();
+        return ((MixinStructurePlacementAccessor) this).ga$invokeSalt();
     }
 
     @Unique
