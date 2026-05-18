@@ -10,6 +10,8 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -45,6 +47,7 @@ public final class DensityFunctionCompiler {
                         + "or set env DFC_NATIVE_LIBRARY to the absolute path of dfc_native.dll / .so / .dylib.");
             }
         }
+        DfcOpenClRuntime.init();
     }
 
     public static void onServerStarting(MinecraftServer server) {
@@ -152,6 +155,30 @@ public final class DensityFunctionCompiler {
                             }
                             return (int) stats.failures();
                         }))
+                .then(Commands.literal("opencl")
+                        .executes(context -> {
+                            DfcOpenClRuntime.Status status = DfcOpenClRuntime.status();
+                            sendOpenClStatus(context.getSource(), status);
+                            return status.devices().size();
+                        })
+                        .then(Commands.literal("probe")
+                                .executes(context -> {
+                                    DfcOpenClRuntime.Status status = DfcOpenClRuntime.probe(true);
+                                    sendOpenClStatus(context.getSource(), status);
+                                    return status.available() ? status.devices().size() : 0;
+                                }))
+                        .then(Commands.literal("slabtest")
+                                .executes(context -> {
+                                    DfcOpenClRuntime.SlabVmSelfTest result = DfcOpenClRuntime.slabVmSelfTest();
+                                    context.getSource().sendSuccess(() -> Component.literal(
+                                            "DFC OpenCL slab VM selftest: passed=" + result.passed()
+                                                    + ", elapsedMs=" + formatNanosMillis(result.elapsedNanos())
+                                                    + ", device="
+                                                    + (result.device() == null ? "none" : result.device().shortDescription())
+                                                    + ", message=" + result.message()),
+                                            false);
+                                    return result.passed() ? 1 : 0;
+                                })))
                 .then(Commands.literal("cellfillstats")
                         .executes(context -> {
                             DfcCellFillStats.Stats stats = DfcCellFillStats.snapshot();
@@ -230,6 +257,48 @@ public final class DensityFunctionCompiler {
                             }
                             return 1;
                         })));
+    }
+
+    private static void sendOpenClStatus(CommandSourceStack source, DfcOpenClRuntime.Status status) {
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL: enabled=" + status.enabled()
+                        + ", probed=" + status.probed()
+                        + ", available=" + status.available()
+                        + ", devices=" + status.devices().size()
+                        + ", runtimeTested=" + status.runtimeTested()
+                        + (status.runtimeTested() ? ", runtimePassed=" + status.runtimePassed() : "")
+                        + (status.error() == null ? "" : ", error=" + status.error())),
+                false);
+        if (!status.enabled()) {
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL: enable config enableDensityCompilerOpenCL or -Ddfc.opencl.enabled=true to probe."),
+                    false);
+            return;
+        }
+        if (!status.probed()) {
+            source.sendSuccess(() -> Component.literal("DFC OpenCL: run /dfc opencl probe to enumerate devices."),
+                    false);
+            return;
+        }
+        int limit = Math.min(status.devices().size(), DfcOpenClConfig.maxLoggedDevices());
+        for (int i = 0; i < limit; i++) {
+            int deviceIndex = i;
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL device[" + deviceIndex + "]: "
+                            + status.devices().get(deviceIndex).shortDescription()),
+                    false);
+        }
+        if (status.selectedDevice() != null) {
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL selected runtime device: " + status.selectedDevice().shortDescription()),
+                    false);
+        }
+        if (status.devices().size() > limit) {
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL: " + (status.devices().size() - limit)
+                            + " more device(s) hidden by dfc.opencl.maxLoggedDevices."),
+                    false);
+        }
     }
 
     private static String formatBucket(DfcSplineStats.BucketStats bucket) {

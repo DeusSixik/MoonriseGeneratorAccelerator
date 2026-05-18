@@ -72,6 +72,7 @@ public class GAConfigManager {
         config.enableBiomePatch = boolOverride("ga.config.enableBiomePatch", config.enableBiomePatch);
         config.enableBlenderPatch = boolOverride("ga.config.enableBlenderPatch", config.enableBlenderPatch);
         config.enableDensityCompilerPatch = boolOverride("ga.config.enableDensityCompilerPatch", config.enableDensityCompilerPatch);
+        config.enableDensityCompilerOpenCL = boolOverride("ga.config.enableDensityCompilerOpenCL", config.enableDensityCompilerOpenCL);
         config.enableFeaturesPatch = boolOverride("ga.config.enableFeaturesPatch", config.enableFeaturesPatch);
         config.enableFlatBlockStructurePatch = boolOverride("ga.config.enableFlatBlockStructurePatch", config.enableFlatBlockStructurePatch);
         config.enableHeightmapPatch = boolOverride("ga.config.enableHeightmapPatch", config.enableHeightmapPatch);
@@ -182,6 +183,7 @@ public class GAConfigManager {
         config.enableBiomePatch = enabled;
         config.enableBlenderPatch = enabled;
         config.enableDensityCompilerPatch = enabled;
+        config.enableDensityCompilerOpenCL = enabled;
         config.enableFeaturesPatch = enabled;
         config.enableFlatBlockStructurePatch = enabled;
         config.enableHeightmapPatch = enabled;

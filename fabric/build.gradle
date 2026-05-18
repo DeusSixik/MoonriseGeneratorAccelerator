@@ -50,6 +50,8 @@ dependencies {
     if (project.hasProperty('withC2ME')) {
         modImplementation "curse.maven:c2me-533097:7176425"
     }
+
+    minecraftRuntimeLibraries("org.lwjgl:lwjgl-opencl:3.3.4")
 }
 
 processResources {

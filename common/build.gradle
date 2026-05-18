@@ -138,6 +138,10 @@ dependencies {
 
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
+
+    compileOnly ("org.lwjgl:lwjgl-opencl:3.3.4")
+    compileOnly ("org.lwjgl:lwjgl:3.3.4")
+    compileOnly ("org.lwjgl:lwjgl:3.3.4:natives-windows")
 }
 
 def dfcNativeRootDir = file("natives")

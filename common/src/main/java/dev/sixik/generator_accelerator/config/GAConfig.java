@@ -19,6 +19,9 @@ public class GAConfig {
 
     public boolean enableDensityCompilerPatch = true;
 
+    @ConfigComment("Enable experimental Density Function Compiler OpenCL runtime. Disabled by default; current CPU/JNI DFC path is the stable fast path.")
+    public boolean enableDensityCompilerOpenCL = false;
+
     public boolean enableFeaturesPatch = true;
 
     public boolean enableFlatBlockStructurePatch = true;
