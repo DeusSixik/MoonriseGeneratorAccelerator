@@ -218,4 +218,62 @@ __kernel void dfc_slab_vm_eval(__global const uchar *bc, int bc_len,
     out[gid] = ok ? value : 0.0;
 }
 
+__kernel void dfc_slab_vm_eval_coords(__global const uchar *bc, int bc_len,
+                                      __global const double *consts, int nconst,
+                                      __global const double *slot_rows_flat,
+                                      int n_slots, int slot_row_stride,
+                                      __global const double *block_x,
+                                      __global const double *block_y,
+                                      __global const double *block_z,
+                                      __global const double *hoist,
+                                      __global double *out, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n) {
+        return;
+    }
+
+    double value;
+    int ok = dfc_slab_vm_eval_one(bc, bc_len, consts, nconst, slot_rows_flat,
+            n_slots, slot_row_stride, block_x[gid], block_y[gid], block_z[gid], hoist[gid], gid, &value);
+    out[gid] = ok ? value : 0.0;
+}
+
+__kernel void dfc_slab_vm_eval_cell_grid(__global const uchar *bc, int bc_len,
+                                         __global const double *consts, int nconst,
+                                         __global const double *slot_rows_flat,
+                                         int n_slots, int slot_row_stride,
+                                         int first_block_x, int first_block_y, int first_block_z,
+                                         int cell_w, int cell_h, int cells, double hoist_base,
+                                         __global double *out, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return;
+    }
+
+    int plane_size = cell_w * cell_w;
+    int cell_volume = plane_size * cell_h;
+    if (cell_volume <= 0) {
+        return;
+    }
+
+    int cell = gid / cell_volume;
+    int in_cell = gid - cell * cell_volume;
+    int y_index = in_cell / plane_size;
+    int plane = in_cell - y_index * plane_size;
+    int ix = plane / cell_w;
+    int iz = plane - ix * cell_w;
+    int cell_x = cell & 31;
+    int cell_z = cell >> 5;
+
+    double bx = (double) (first_block_x + cell_x * cell_w + ix);
+    double by = (double) (first_block_y + (cell_h - 1 - y_index));
+    double bz = (double) (first_block_z + cell_z * cell_w + iz);
+    double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
+
+    double value;
+    int ok = dfc_slab_vm_eval_one(bc, bc_len, consts, nconst, slot_rows_flat,
+            n_slots, slot_row_stride, bx, by, bz, y_hoist, gid, &value);
+    out[gid] = ok ? value : 0.0;
+}
+
 #endif // DFC_OPENCL_SLAB_VM_CL

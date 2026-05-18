@@ -42,10 +42,8 @@ public final class GACustomChunkGraphScheduler {
     private static final int STATUS_RAW_LIST_SIZE = STATUS_LIST.size();
 
     private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
-    private static final boolean ENABLED = booleanProperty(
-            "ga.chunkGraph.enabled",
-            CONFIG.enableCustomChunkGraphScheduler
-    );
+    private static final boolean ENABLED = CONFIG.enableCustomChunkGraphScheduler
+            && booleanProperty("ga.chunkGraph.enabled", false);
     private static final boolean EAGER_EMPTY_RADIUS = booleanProperty(
             "ga.chunkGraph.eagerEmptyRadius",
             CONFIG.chunkGraphEagerEmptyRadius

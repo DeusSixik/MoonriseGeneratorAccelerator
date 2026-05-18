@@ -19,7 +19,7 @@ public final class DfcOpenClConfig {
     }
 
     public static boolean probeOnInit() {
-        return boolProperty("dfc.opencl.probeOnInit", enabled());
+        return boolProperty("dfc.opencl.probeOnInit", false);
     }
 
     public static boolean allowCpuDevices() {
@@ -40,6 +40,26 @@ public final class DfcOpenClConfig {
 
     public static boolean compileSmokeTestOnProbe() {
         return boolProperty("dfc.opencl.compileSmokeTestOnProbe", true);
+    }
+
+    public static boolean slabVmDispatchEnabled() {
+        return enabled() && boolProperty("dfc.opencl.enableSlabVmDispatch", false);
+    }
+
+    public static boolean worldgenBridgeEnabled() {
+        return slabVmDispatchEnabled() && boolProperty("dfc.opencl.enableWorldgenBridge", false);
+    }
+
+    public static int slabVmMinElements() {
+        return intProperty("dfc.opencl.slabVmMinElements", 1 << 14, 0, 1 << 20);
+    }
+
+    public static int currentBridgeMaxElements() {
+        return intProperty("dfc.opencl.currentBridgeMaxElements", 1024, 1, 1 << 20);
+    }
+
+    public static int coordBenchMaxElements() {
+        return intProperty("dfc.opencl.coordBenchMaxElements", 1 << 20, 1, 1 << 24);
     }
 
     public static String deviceFilter() {

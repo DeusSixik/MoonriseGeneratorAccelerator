@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
@@ -12,6 +13,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.D
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClStats;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -178,7 +180,103 @@ public final class DensityFunctionCompiler {
                                                     + ", message=" + result.message()),
                                             false);
                                     return result.passed() ? 1 : 0;
-                                })))
+                                }))
+                        .then(Commands.literal("slabcoordtest")
+                                .executes(context -> runOpenClSlabCoordTest(context.getSource(), 1024))
+                                .then(Commands.argument("repeats", IntegerArgumentType.integer(1, 1 << 20))
+                                        .executes(context -> runOpenClSlabCoordTest(
+                                                context.getSource(),
+                                                IntegerArgumentType.getInteger(context, "repeats")))))
+                        .then(Commands.literal("slabcoordbench")
+                                .executes(context -> runOpenClSlabCoordBench(context.getSource(), 8192, 8, 2))
+                                .then(Commands.argument("repeats", IntegerArgumentType.integer(1, 1 << 20))
+                                        .executes(context -> runOpenClSlabCoordBench(
+                                                context.getSource(),
+                                                IntegerArgumentType.getInteger(context, "repeats"),
+                                                8,
+                                                2))
+                                        .then(Commands.argument("iterations", IntegerArgumentType.integer(1, 256))
+                                                .executes(context -> runOpenClSlabCoordBench(
+                                                        context.getSource(),
+                                                        IntegerArgumentType.getInteger(context, "repeats"),
+                                                        IntegerArgumentType.getInteger(context, "iterations"),
+                                                        2))
+                                                .then(Commands.argument("warmups", IntegerArgumentType.integer(0, 64))
+                                                        .executes(context -> runOpenClSlabCoordBench(
+                                                                context.getSource(),
+                                                                IntegerArgumentType.getInteger(context, "repeats"),
+                                                                IntegerArgumentType.getInteger(context, "iterations"),
+                                                                IntegerArgumentType.getInteger(context, "warmups")))))))
+                        .then(Commands.literal("slabcellbench")
+                                .executes(context -> runOpenClSlabCellBench(context.getSource(), 4, 8, 1024, 8, 2))
+                                .then(Commands.argument("cellWidth", IntegerArgumentType.integer(1, 64))
+                                        .then(Commands.argument("cellHeight", IntegerArgumentType.integer(1, 512))
+                                                .then(Commands.argument("cells", IntegerArgumentType.integer(1, 1 << 20))
+                                                        .executes(context -> runOpenClSlabCellBench(
+                                                                context.getSource(),
+                                                                IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                                8,
+                                                                2))
+                                                        .then(Commands.argument("iterations", IntegerArgumentType.integer(1, 256))
+                                                                .executes(context -> runOpenClSlabCellBench(
+                                                                        context.getSource(),
+                                                                        IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                        IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                        IntegerArgumentType.getInteger(context, "cells"),
+                                                                        IntegerArgumentType.getInteger(context, "iterations"),
+                                                                        2))
+                                                                .then(Commands.argument("warmups", IntegerArgumentType.integer(0, 64))
+                                                                        .executes(context -> runOpenClSlabCellBench(
+                                                                                context.getSource(),
+                                                                                IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                                IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                                                IntegerArgumentType.getInteger(context, "iterations"),
+                                                                                IntegerArgumentType.getInteger(context, "warmups")))))))))
+                        .then(Commands.literal("slabgridbench")
+                                .executes(context -> runOpenClSlabGridBench(context.getSource(), 4, 8, 1024, 8, 2))
+                                .then(Commands.argument("cellWidth", IntegerArgumentType.integer(1, 64))
+                                        .then(Commands.argument("cellHeight", IntegerArgumentType.integer(1, 512))
+                                                .then(Commands.argument("cells", IntegerArgumentType.integer(1, 1 << 20))
+                                                        .executes(context -> runOpenClSlabGridBench(
+                                                                context.getSource(),
+                                                                IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                                8,
+                                                                2))
+                                                        .then(Commands.argument("iterations", IntegerArgumentType.integer(1, 256))
+                                                                .executes(context -> runOpenClSlabGridBench(
+                                                                        context.getSource(),
+                                                                        IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                        IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                        IntegerArgumentType.getInteger(context, "cells"),
+                                                                        IntegerArgumentType.getInteger(context, "iterations"),
+                                                                        2))
+                                                                .then(Commands.argument("warmups", IntegerArgumentType.integer(0, 64))
+                                                                        .executes(context -> runOpenClSlabGridBench(
+                                                                                context.getSource(),
+                                                                                IntegerArgumentType.getInteger(context, "cellWidth"),
+                                                                                IntegerArgumentType.getInteger(context, "cellHeight"),
+                                                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                                                IntegerArgumentType.getInteger(context, "iterations"),
+                                                                                IntegerArgumentType.getInteger(context, "warmups")))))))))
+                        .then(Commands.literal("stats")
+                                .executes(context -> {
+                                    sendOpenClStats(context.getSource());
+                                    return (int) Math.min(Integer.MAX_VALUE,
+                                            DfcOpenClStats.snapshot().slabSucceeded());
+                                })
+                                .then(Commands.literal("reset")
+                                        .executes(context -> {
+                                            DfcOpenClStats.reset();
+                                            context.getSource().sendSuccess(
+                                                    () -> Component.literal("DFC OpenCL stats reset."),
+                                                    false);
+                                            return 1;
+                                        }))))
                 .then(Commands.literal("cellfillstats")
                         .executes(context -> {
                             DfcCellFillStats.Stats stats = DfcCellFillStats.snapshot();
@@ -259,6 +357,86 @@ public final class DensityFunctionCompiler {
                         })));
     }
 
+    private static int runOpenClSlabCoordTest(CommandSourceStack source, int repeats) {
+        DfcOpenClRuntime.SlabVmSelfTest result = DfcOpenClRuntime.slabVmCoordsSelfTest(repeats);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM coord selftest: passed=" + result.passed()
+                        + ", elapsedMs=" + formatNanosMillis(result.elapsedNanos())
+                        + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                        + ", message=" + result.message()),
+                false);
+        return result.passed() ? 1 : 0;
+    }
+
+    private static int runOpenClSlabCoordBench(CommandSourceStack source, int repeats, int iterations, int warmups) {
+        DfcOpenClRuntime.SlabVmCoordBenchmark result =
+                DfcOpenClRuntime.slabVmCoordsBenchmark(repeats, iterations, warmups);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM coord bench: passed=" + result.passed()
+                        + ", repeats=" + result.repeats()
+                        + ", iterations=" + result.iterations()
+                        + ", warmups=" + result.warmups()
+                        + ", elementsPerIter=" + result.elementsPerIteration()
+                        + ", totalElements=" + result.totalElements()
+                        + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                        + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                        + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                        + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                        + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                        + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                        + ", message=" + result.message()),
+                false);
+        return result.passed() ? 1 : 0;
+    }
+
+    private static int runOpenClSlabCellBench(CommandSourceStack source, int cellWidth, int cellHeight, int cells,
+                                             int iterations, int warmups) {
+        DfcOpenClRuntime.SlabVmCellBenchmark result =
+                DfcOpenClRuntime.slabVmCellBenchmark(cellWidth, cellHeight, cells, iterations, warmups);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM cell bench: passed=" + result.passed()
+                        + ", cellWidth=" + result.cellWidth()
+                        + ", cellHeight=" + result.cellHeight()
+                        + ", cells=" + result.cells()
+                        + ", iterations=" + result.iterations()
+                        + ", warmups=" + result.warmups()
+                        + ", elementsPerIter=" + result.elementsPerIteration()
+                        + ", totalElements=" + result.totalElements()
+                        + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                        + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                        + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                        + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                        + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                        + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                        + ", message=" + result.message()),
+                false);
+        return result.passed() ? 1 : 0;
+    }
+
+    private static int runOpenClSlabGridBench(CommandSourceStack source, int cellWidth, int cellHeight, int cells,
+                                             int iterations, int warmups) {
+        DfcOpenClRuntime.SlabVmCellBenchmark result =
+                DfcOpenClRuntime.slabVmCellGridBenchmark(cellWidth, cellHeight, cells, iterations, warmups);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM grid bench: passed=" + result.passed()
+                        + ", cellWidth=" + result.cellWidth()
+                        + ", cellHeight=" + result.cellHeight()
+                        + ", cells=" + result.cells()
+                        + ", iterations=" + result.iterations()
+                        + ", warmups=" + result.warmups()
+                        + ", elementsPerIter=" + result.elementsPerIteration()
+                        + ", totalElements=" + result.totalElements()
+                        + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                        + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                        + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                        + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                        + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                        + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                        + ", message=" + result.message()),
+                false);
+        return result.passed() ? 1 : 0;
+    }
+
     private static void sendOpenClStatus(CommandSourceStack source, DfcOpenClRuntime.Status status) {
         source.sendSuccess(() -> Component.literal(
                 "DFC OpenCL: enabled=" + status.enabled()
@@ -267,6 +445,14 @@ public final class DensityFunctionCompiler {
                         + ", devices=" + status.devices().size()
                         + ", runtimeTested=" + status.runtimeTested()
                         + (status.runtimeTested() ? ", runtimePassed=" + status.runtimePassed() : "")
+                        + ", slabDispatchConfigured=" + DfcOpenClRuntime.slabVmDispatchConfigured()
+                        + ", slabDispatchAvailable=" + DfcOpenClRuntime.slabVmDispatchAvailable()
+                        + ", slabDispatchBroken=" + DfcOpenClRuntime.slabVmDispatchBroken()
+                        + ", slabDispatchRequested=" + DfcOpenClConfig.slabVmDispatchEnabled()
+                        + ", worldgenBridge=" + DfcOpenClConfig.worldgenBridgeEnabled()
+                        + ", slabMinElements=" + DfcOpenClConfig.slabVmMinElements()
+                        + ", bridgeMaxElements=" + DfcOpenClConfig.currentBridgeMaxElements()
+                        + ", coordBenchMaxElements=" + DfcOpenClConfig.coordBenchMaxElements()
                         + (status.error() == null ? "" : ", error=" + status.error())),
                 false);
         if (!status.enabled()) {
@@ -299,6 +485,30 @@ public final class DensityFunctionCompiler {
                             + " more device(s) hidden by dfc.opencl.maxLoggedDevices."),
                     false);
         }
+    }
+
+    private static void sendOpenClStats(CommandSourceStack source) {
+        DfcOpenClStats.Snapshot stats = DfcOpenClStats.snapshot();
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM stats: attempts=" + stats.slabAttempts()
+                        + ", submitted=" + stats.slabSubmitted()
+                        + ", succeeded=" + stats.slabSucceeded()
+                        + ", failed=" + stats.slabFailed()
+                        + ", elements=" + stats.slabElements()
+                        + ", totalMs=" + formatNanosMillis(stats.slabNanos())
+                        + ", avgNs=" + formatAverageNanos(stats.slabNanos(), stats.slabSucceeded())
+                        + ", avgElemNs=" + formatAverageNanos(stats.slabNanos(), stats.slabElements())
+                        + ", maxMs=" + formatNanosMillis(stats.slabMaxNanos())
+                        + ", minElements=" + stats.slabMinElements()),
+                false);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL slab VM fallback: disabled=" + stats.slabSkippedDisabled()
+                        + ", unavailable=" + stats.slabSkippedUnavailable()
+                        + ", broken=" + stats.slabSkippedBroken()
+                        + ", belowMin=" + stats.slabSkippedBelowMin()
+                        + ", jni=" + stats.slabFallbackJni()
+                        + ", java=" + stats.slabFallbackJava()),
+                false);
     }
 
     private static String formatBucket(DfcSplineStats.BucketStats bucket) {

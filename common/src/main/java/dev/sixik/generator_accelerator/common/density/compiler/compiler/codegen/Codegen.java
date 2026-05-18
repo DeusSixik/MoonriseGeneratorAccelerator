@@ -2606,7 +2606,7 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ALOAD, 52);
         mv.visitInsn(Opcodes.ARRAYLENGTH);
         mv.visitJumpInsn(Opcodes.IFLE, done);
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, NATIVE_BRIDGE_INTERNAL, "isAvailable", "()Z", false);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, NATIVE_BRIDGE_INTERNAL, "canEvaluateSlabInner", "()Z", false);
         mv.visitJumpInsn(Opcodes.IFEQ, done);
         mv.visitVarInsn(Opcodes.ILOAD, 30);
         mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_DOUBLE);

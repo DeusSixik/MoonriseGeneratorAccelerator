@@ -12,7 +12,11 @@ loom {
         client {
             vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
                     "-Ddfc.codegen.splineSegmentLut=true",
-                    "-Ddfc.opencl.enabled=true"
+                    "-Dga.chunkGraph.enabled=false",
+                    "-Ddfc.opencl.enabled=true",
+                    "-Ddfc.opencl.probeOnInit=false",
+                    "-Ddfc.opencl.enableSlabVmDispatch=false",
+                    "-Ddfc.opencl.enableWorldgenBridge=false"
         }
     }
 }
