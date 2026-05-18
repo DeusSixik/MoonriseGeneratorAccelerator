@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,6 +15,7 @@ import java.util.List;
  */
 public final class DfcOpenClRuntime {
     private static final Logger LOGGER = LoggerFactory.getLogger(DfcOpenClRuntime.class);
+    private static final double WRAP_AXIS_FAST_LIMIT = 16777216.0D;
 
     private static volatile Status cachedStatus = Status.disabled();
     private static volatile DfcOpenClDeviceEnumerator.Candidate selectedCandidate;
@@ -408,6 +410,745 @@ public final class DfcOpenClRuntime {
 
     public static synchronized SlabVmCellBenchmark slabVmCellGridBenchmark(int cellWidth, int cellHeight, int cells,
                                                                            int iterations, int warmups) {
+        return slabVmCellGridBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridNoReadBenchmark(int cellWidth, int cellHeight,
+                                                                                 int cells, int iterations,
+                                                                                 int warmups) {
+        return slabVmCellGridBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridCachedBenchmark(int cellWidth, int cellHeight,
+                                                                                 int cells, int iterations,
+                                                                                 int warmups) {
+        return slabVmCellGridBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridCachedNoReadBenchmark(int cellWidth, int cellHeight,
+                                                                                       int cells, int iterations,
+                                                                                       int warmups) {
+        return slabVmCellGridBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridGeneratedBenchmark(int cellWidth, int cellHeight,
+                                                                                    int cells, int iterations,
+                                                                                    int warmups) {
+        return slabVmCellGridGeneratedBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridGeneratedNoReadBenchmark(int cellWidth,
+                                                                                          int cellHeight, int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridGeneratedBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridDirectBenchmark(int cellWidth, int cellHeight,
+                                                                                 int cells, int iterations,
+                                                                                 int warmups) {
+        return slabVmCellGridDirectBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridDirectNoReadBenchmark(int cellWidth, int cellHeight,
+                                                                                       int cells, int iterations,
+                                                                                       int warmups) {
+        return slabVmCellGridDirectBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridNoiseBenchmark(int cellWidth, int cellHeight,
+                                                                                int cells, int iterations,
+                                                                                int warmups) {
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true,
+                DfcOpenClSlabVmSmoke.NOISE_SLOT_COUNT, DfcOpenClSlabVmSmoke.NOISE_OCTAVES_PER_BRANCH);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridNoiseNoReadBenchmark(int cellWidth, int cellHeight,
+                                                                                      int cells, int iterations,
+                                                                                      int warmups) {
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false,
+                DfcOpenClSlabVmSmoke.NOISE_SLOT_COUNT, DfcOpenClSlabVmSmoke.NOISE_OCTAVES_PER_BRANCH);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridNoiseHeavyBenchmark(int cellWidth, int cellHeight,
+                                                                                     int cells, int iterations,
+                                                                                     int warmups) {
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, true,
+                DfcOpenClSlabVmSmoke.NOISE_HEAVY_SLOT_COUNT,
+                DfcOpenClSlabVmSmoke.NOISE_HEAVY_OCTAVES_PER_BRANCH);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridNoiseHeavyNoReadBenchmark(int cellWidth,
+                                                                                           int cellHeight,
+                                                                                           int cells,
+                                                                                           int iterations,
+                                                                                           int warmups) {
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, false,
+                DfcOpenClSlabVmSmoke.NOISE_HEAVY_SLOT_COUNT,
+                DfcOpenClSlabVmSmoke.NOISE_HEAVY_OCTAVES_PER_BRANCH);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
+                                                                                    int cellWidth, int cellHeight,
+                                                                                    int cells, int iterations,
+                                                                                    int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseNoReadBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseCachedBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups, true, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseCachedNoReadBenchmark(NoiseSpec[] specs,
+                                                                                                int cellWidth,
+                                                                                                int cellHeight,
+                                                                                                int cells,
+                                                                                                int iterations,
+                                                                                                int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups, false, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseBySlotBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                true, true, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseBySlotNoReadBenchmark(NoiseSpec[] specs,
+                                                                                                int cellWidth,
+                                                                                                int cellHeight,
+                                                                                                int cells,
+                                                                                                int iterations,
+                                                                                                int warmups) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                false, true, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseDirectBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridRealNoiseDirectBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups, 2);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseDirectBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups,
+                                                                                          int usedSlots) {
+        return slabVmCellGridRealNoiseDirectBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                usedSlots, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseDirectNoReadBenchmark(NoiseSpec[] specs,
+                                                                                                int cellWidth,
+                                                                                                int cellHeight,
+                                                                                                int cells,
+                                                                                                int iterations,
+                                                                                                int warmups) {
+        return slabVmCellGridRealNoiseDirectNoReadBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                2);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseDirectNoReadBenchmark(NoiseSpec[] specs,
+                                                                                                int cellWidth,
+                                                                                                int cellHeight,
+                                                                                                int cells,
+                                                                                                int iterations,
+                                                                                                int warmups,
+                                                                                                int usedSlots) {
+        return slabVmCellGridRealNoiseDirectBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                usedSlots, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseSourceBenchmark(NoiseSpec[] specs,
+                                                                                          int cellWidth,
+                                                                                          int cellHeight,
+                                                                                          int cells,
+                                                                                          int iterations,
+                                                                                          int warmups) {
+        return slabVmCellGridRealNoiseSourceBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                true, DfcOpenClGeneratedNoiseSource.WrapMode.WRAP);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseSourceNoReadBenchmark(NoiseSpec[] specs,
+                                                                                                int cellWidth,
+                                                                                                int cellHeight,
+                                                                                                int cells,
+                                                                                                int iterations,
+                                                                                                int warmups) {
+        return slabVmCellGridRealNoiseSourceBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                false, DfcOpenClGeneratedNoiseSource.WrapMode.WRAP);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseSourceNoWrapNoReadBenchmark(
+            NoiseSpec[] specs, int cellWidth, int cellHeight, int cells, int iterations, int warmups) {
+        return slabVmCellGridRealNoiseSourceBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                false, DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+    }
+
+    public static synchronized SlabVmCellBenchmark slabVmCellGridRealNoiseSourceAutoNoReadBenchmark(
+            NoiseSpec[] specs, int cellWidth, int cellHeight, int cells, int iterations, int warmups) {
+        return slabVmCellGridRealNoiseSourceBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                false, null);
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
+                                                                        int cellWidth, int cellHeight, int cells,
+                                                                        int iterations, int warmups,
+                                                                        boolean readOutput) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                readOutput, false);
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
+                                                                        int cellWidth, int cellHeight, int cells,
+                                                                        int iterations, int warmups,
+                                                                        boolean readOutput, boolean reuseInputs) {
+        return slabVmCellGridRealNoiseBenchmark(specs, cellWidth, cellHeight, cells, iterations, warmups,
+                readOutput, reuseInputs, false);
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
+                                                                        int cellWidth, int cellHeight, int cells,
+                                                                        int iterations, int warmups,
+                                                                        boolean readOutput, boolean reuseInputs,
+                                                                        boolean bySlotFill) {
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromNoiseSpecs(specs);
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid real noise specs: " + errorMessage(throwable));
+        }
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, readOutput,
+                descriptor, "realNoiseSlots=true", reuseInputs, bySlotFill);
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridNoiseBenchmark(int cellWidth, int cellHeight, int cells,
+                                                                    int iterations, int warmups,
+                                                                    boolean readOutput,
+                                                                    int noiseSlotCount,
+                                                                    int noiseOctavesPerBranch) {
+        DfcOpenClNoiseDescriptor descriptor =
+                DfcOpenClNoiseDescriptor.synthetic(noiseSlotCount, noiseOctavesPerBranch);
+        return slabVmCellGridNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, readOutput,
+                descriptor, "noiseSlots=true", false, false);
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridNoiseBenchmark(int cellWidth, int cellHeight, int cells,
+                                                                    int iterations, int warmups,
+                                                                    boolean readOutput,
+                                                                    DfcOpenClNoiseDescriptor descriptor,
+                                                                    String descriptorLabel,
+                                                                    boolean reuseInputs,
+                                                                    boolean bySlotFill) {
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+            if (reuseInputs) {
+                if (bySlotFill) {
+                    context.evalSlabVmCellGridNoiseSlotsBySlot(request, true);
+                } else {
+                    context.evalSlabVmCellGridNoiseSlots(request, true);
+                }
+                DfcOpenClSlabVmSmoke.validateNoiseCellGrid(out, safeCellWidth, safeCellHeight, safeCells,
+                        descriptor);
+            }
+
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(out.length);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        bySlotFill
+                                ? (reuseInputs
+                                        ? context.evalSlabVmCellGridNoiseSlotsBySlotReuseInputs(request, readOutput)
+                                        : context.evalSlabVmCellGridNoiseSlotsBySlot(request, readOutput))
+                                : (reuseInputs
+                                        ? context.evalSlabVmCellGridNoiseSlotsReuseInputs(request, readOutput)
+                                        : context.evalSlabVmCellGridNoiseSlots(request, readOutput));
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (readOutput) {
+                    DfcOpenClSlabVmSmoke.validateNoiseCellGrid(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+                }
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+            long totalElements = (long) out.length * safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    out.length,
+                    totalElements,
+                    totalNanos,
+                    totalNanos / safeIterations,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, " + descriptorLabel + ", slots=" + request.slotCount()
+                            + ", branches=" + request.branchesPerSlot()
+                            + ", octaves=" + request.octavesPerBranch()
+                            + ", totalNoiseOctaves="
+                            + kernelNoiseOctaves(request, request.slotCount())
+                            + (reuseInputs ? ", cachedInputs=true" : "")
+                            + (bySlotFill ? ", bySlotFill=true" : "")
+                            + (readOutput ? "" : ", noRead=true"));
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridRealNoiseDirectBenchmark(NoiseSpec[] specs,
+                                                                              int cellWidth, int cellHeight,
+                                                                              int cells, int iterations,
+                                                                              int warmups, int usedSlots,
+                                                                              boolean readOutput) {
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromNoiseSpecs(specs);
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid real noise specs: " + errorMessage(throwable));
+        }
+        return slabVmCellGridDirectNoiseBenchmark(cellWidth, cellHeight, cells, iterations, warmups, readOutput,
+                descriptor, Math.max(1, usedSlots), "realNoiseDirect=true");
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridDirectNoiseBenchmark(int cellWidth, int cellHeight, int cells,
+                                                                          int iterations, int warmups,
+                                                                          boolean readOutput,
+                                                                          DfcOpenClNoiseDescriptor descriptor,
+                                                                          int requestedUsedSlots,
+                                                                          String descriptorLabel) {
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+            int usedSlots = Math.min(Math.max(1, requestedUsedSlots), request.slotCount());
+            context.evalSlabVmCellGridDirectNoise(request, usedSlots, true);
+            DfcOpenClSlabVmSmoke.validateDirectNoiseCellGrid(out, safeCellWidth, safeCellHeight, safeCells,
+                    descriptor, usedSlots);
+
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(out.length);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        context.evalSlabVmCellGridDirectNoiseReuseInputs(request, usedSlots, readOutput);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (readOutput) {
+                    DfcOpenClSlabVmSmoke.validateDirectNoiseCellGrid(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor, usedSlots);
+                }
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+            long totalElements = (long) out.length * safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    out.length,
+                    totalElements,
+                    totalNanos,
+                    totalNanos / safeIterations,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, " + descriptorLabel + ", slots=" + request.slotCount()
+                            + ", usedSlots=" + usedSlots
+                            + ", branches=" + request.branchesPerSlot()
+                            + ", octaves=" + request.octavesPerBranch()
+                            + ", totalNoiseOctaves="
+                            + kernelNoiseOctaves(request, usedSlots)
+                            + ", cachedInputs=true"
+                            + (readOutput ? "" : ", noRead=true"));
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridRealNoiseSourceBenchmark(NoiseSpec[] specs,
+                                                                              int cellWidth, int cellHeight,
+                                                                              int cells, int iterations,
+                                                                              int warmups, boolean readOutput,
+                                                                              DfcOpenClGeneratedNoiseSource.WrapMode wrapMode) {
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromNoiseSpecs(specs);
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid real noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+            int usedSlots = request.slotCount();
+            DfcOpenClGeneratedNoiseSource.WrapMode sourceWrapMode = wrapMode != null
+                    ? wrapMode
+                    : (noWrapAxisSafe(request, usedSlots)
+                    ? DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP
+                    : DfcOpenClGeneratedNoiseSource.WrapMode.WRAP);
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.build(descriptor, usedSlots, sourceWrapMode);
+            try (DfcOpenClDeviceContext.GeneratedNoiseKernel generated =
+                         context.compileGeneratedNoiseKernel(source.source())) {
+                context.evalGeneratedNoiseKernel(generated, request, true);
+                DfcOpenClSlabVmSmoke.validateDirectNoiseCellGrid(out, safeCellWidth, safeCellHeight, safeCells,
+                        descriptor, usedSlots);
+
+                long totalNanos = 0L;
+                long bestNanos = Long.MAX_VALUE;
+                long worstNanos = 0L;
+                int totalRuns = safeWarmups + safeIterations;
+                for (int i = 0; i < totalRuns; i++) {
+                    DfcOpenClStats.recordSlabAttempt(out.length);
+                    DfcOpenClStats.recordSlabSubmitted();
+                    DfcOpenClDeviceContext.SlabVmResult result =
+                            context.evalGeneratedNoiseKernelReuseInputs(generated, request, readOutput);
+                    DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                    if (readOutput) {
+                        DfcOpenClSlabVmSmoke.validateDirectNoiseCellGrid(out, safeCellWidth, safeCellHeight,
+                                safeCells, descriptor, usedSlots);
+                    }
+                    if (i >= safeWarmups) {
+                        long nanos = result.elapsedNanos();
+                        totalNanos += nanos;
+                        bestNanos = Math.min(bestNanos, nanos);
+                        worstNanos = Math.max(worstNanos, nanos);
+                    }
+                }
+                long totalElements = (long) out.length * safeIterations;
+                return new SlabVmCellBenchmark(
+                        true,
+                        context.deviceInfo(),
+                        safeCellWidth,
+                        safeCellHeight,
+                        safeCells,
+                        safeIterations,
+                        safeWarmups,
+                        out.length,
+                        totalElements,
+                        totalNanos,
+                        totalNanos / safeIterations,
+                        bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                        worstNanos,
+                        "ok, realNoiseSource=true, slots=" + request.slotCount()
+                                + ", usedSlots=" + usedSlots
+                                + ", branches=" + request.branchesPerSlot()
+                                + ", octaves=" + request.octavesPerBranch()
+                                + ", totalNoiseOctaves=" + kernelNoiseOctaves(request, usedSlots)
+                                + ", sourceChars=" + source.source().length()
+                                + ", coordTemps=" + source.coordScaleTemps()
+                                + ", coordTempRefs=" + source.coordScaleRefs()
+                                + ", wrapAxis=" + (wrapMode == null
+                                ? "auto-" + wrapModeLabel(sourceWrapMode)
+                                : wrapModeLabel(sourceWrapMode))
+                                + ", cachedInputs=true"
+                                + (readOutput ? "" : ", noRead=true"));
+            }
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridDirectBenchmark(int cellWidth, int cellHeight, int cells,
+                                                                     int iterations, int warmups,
+                                                                     boolean readOutput) {
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmGeneratedCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.generatedCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells);
+
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(out.length);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        context.evalSlabVmCellGridDirectDemo(request, readOutput);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (readOutput) {
+                    DfcOpenClSlabVmSmoke.validateCellCoords(out, safeCellWidth, safeCellHeight, safeCells);
+                }
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+            long totalElements = (long) out.length * safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    out.length,
+                    totalElements,
+                    totalNanos,
+                    totalNanos / safeIterations,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, directDemo=true" + (readOutput ? "" : ", noRead=true"));
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridGeneratedBenchmark(int cellWidth, int cellHeight, int cells,
+                                                                        int iterations, int warmups,
+                                                                        boolean readOutput) {
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmGeneratedCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.generatedCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells);
+
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(out.length);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        context.evalSlabVmCellGridGeneratedSlots(request, readOutput);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (readOutput) {
+                    DfcOpenClSlabVmSmoke.validateCellCoords(out, safeCellWidth, safeCellHeight, safeCells);
+                }
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+            long totalElements = (long) out.length * safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    out.length,
+                    totalElements,
+                    totalNanos,
+                    totalNanos / safeIterations,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, generatedSlots=true" + (readOutput ? "" : ", noRead=true"));
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridBenchmark(int cellWidth, int cellHeight, int cells,
+                                                               int iterations, int warmups, boolean readOutput,
+                                                               boolean reuseInputs) {
         if (!DfcOpenClConfig.enabled()) {
             return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
         }
@@ -439,6 +1180,10 @@ public final class DfcOpenClRuntime {
             double[] out = new double[Math.toIntExact(elements)];
             DfcOpenClDeviceContext.SlabVmCellGridRequest request =
                     DfcOpenClSlabVmSmoke.cellGridRequest(out, safeCellWidth, safeCellHeight, safeCells);
+            if (reuseInputs) {
+                context.evalSlabVmCellGrid(request);
+                DfcOpenClSlabVmSmoke.validateCellCoords(out, safeCellWidth, safeCellHeight, safeCells);
+            }
 
             long totalNanos = 0L;
             long bestNanos = Long.MAX_VALUE;
@@ -447,9 +1192,20 @@ public final class DfcOpenClRuntime {
             for (int i = 0; i < totalRuns; i++) {
                 DfcOpenClStats.recordSlabAttempt(out.length);
                 DfcOpenClStats.recordSlabSubmitted();
-                DfcOpenClDeviceContext.SlabVmResult result = context.evalSlabVmCellGrid(request);
+                DfcOpenClDeviceContext.SlabVmResult result;
+                if (reuseInputs) {
+                    result = readOutput
+                            ? context.evalSlabVmCellGridReuseInputs(request)
+                            : context.evalSlabVmCellGridNoReadReuseInputs(request);
+                } else {
+                    result = readOutput
+                            ? context.evalSlabVmCellGrid(request)
+                            : context.evalSlabVmCellGridNoRead(request);
+                }
                 DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
-                DfcOpenClSlabVmSmoke.validateCellCoords(out, safeCellWidth, safeCellHeight, safeCells);
+                if (readOutput) {
+                    DfcOpenClSlabVmSmoke.validateCellCoords(out, safeCellWidth, safeCellHeight, safeCells);
+                }
                 if (i >= safeWarmups) {
                     long nanos = result.elapsedNanos();
                     totalNanos += nanos;
@@ -472,7 +1228,7 @@ public final class DfcOpenClRuntime {
                     totalNanos / safeIterations,
                     bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
                     worstNanos,
-                    "ok");
+                    "ok" + (readOutput ? "" : ", noRead=true") + (reuseInputs ? ", cachedInputs=true" : ""));
         } catch (Throwable throwable) {
             DfcOpenClStats.recordSlabFailure();
             closeActiveContext();
@@ -552,6 +1308,71 @@ public final class DfcOpenClRuntime {
             return throwable.getClass().getName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
+    }
+
+    private static String wrapModeLabel(DfcOpenClGeneratedNoiseSource.WrapMode wrapMode) {
+        return switch (wrapMode) {
+            case WRAP -> "true";
+            case NOWRAP -> "false";
+        };
+    }
+
+    private static boolean noWrapAxisSafe(DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request, int usedSlots) {
+        int safeSlots = Math.min(Math.max(0, usedSlots), request.slotCount());
+        int branchesPerSlot = Math.max(0, request.branchesPerSlot());
+        int branchLimit = Math.min(safeSlots * branchesPerSlot, Math.min(request.branchCoordScales().length,
+                Math.min(request.branchOctaveOffsets().length, request.branchOctaveCounts().length)));
+        if (safeSlots <= 0 || branchesPerSlot <= 0 || branchLimit <= 0) {
+            return false;
+        }
+
+        int maxCellX = Math.min(Math.max(0, request.cells() - 1), 31);
+        int maxCellZ = Math.max(0, request.cells() - 1) >> 5;
+        double maxBx = request.firstBlockX() + (double) maxCellX * request.cellWidth()
+                + (request.cellWidth() - 1.0D);
+        double maxBy = request.firstBlockY() + (request.cellHeight() - 1.0D);
+        double maxBz = request.firstBlockZ() + (double) maxCellZ * request.cellWidth()
+                + (request.cellWidth() - 1.0D);
+        double maxAbsBx = Math.max(Math.abs(request.firstBlockX()), Math.abs(maxBx));
+        double maxAbsBy = Math.max(Math.abs(request.firstBlockY()), Math.abs(maxBy));
+        double maxAbsBz = Math.max(Math.abs(request.firstBlockZ()), Math.abs(maxBz));
+        if (!Double.isFinite(maxAbsBx) || !Double.isFinite(maxAbsBy) || !Double.isFinite(maxAbsBz)) {
+            return false;
+        }
+
+        for (int branch = 0; branch < branchLimit; branch++) {
+            int octaveOffset = request.branchOctaveOffsets()[branch];
+            int octaveCount = request.branchOctaveCounts()[branch];
+            double coordScale = request.branchCoordScales()[branch];
+            if (!Double.isFinite(coordScale) || octaveOffset < 0 || octaveCount < 0) {
+                return false;
+            }
+            int octaveEnd = octaveOffset + octaveCount;
+            if (octaveEnd < octaveOffset || octaveEnd > request.inputFactors().length) {
+                return false;
+            }
+            for (int octave = octaveOffset; octave < octaveEnd; octave++) {
+                double inputScale = Math.abs(coordScale * request.inputFactors()[octave]);
+                if (!Double.isFinite(inputScale)
+                        || maxAbsBx * inputScale >= WRAP_AXIS_FAST_LIMIT
+                        || maxAbsBy * inputScale >= WRAP_AXIS_FAST_LIMIT
+                        || maxAbsBz * inputScale >= WRAP_AXIS_FAST_LIMIT) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static int kernelNoiseOctaves(DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request, int usedSlots) {
+        int safeSlots = Math.min(Math.max(0, usedSlots), request.slotCount());
+        int branches = Math.max(0, request.branchesPerSlot());
+        int limit = Math.min(request.branchOctaveCounts().length, safeSlots * branches);
+        int total = 0;
+        for (int branch = 0; branch < limit; branch++) {
+            total += Math.max(0, request.branchOctaveCounts()[branch]);
+        }
+        return total;
     }
 
     public record SlabVmSelfTest(

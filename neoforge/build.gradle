@@ -10,13 +10,12 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
-                    "-Ddfc.codegen.splineSegmentLut=true",
-                    "-Dga.chunkGraph.enabled=false",
+            vmArgs  "-Dga.chunkGraph.enabled=false",
                     "-Ddfc.opencl.enabled=true",
                     "-Ddfc.opencl.probeOnInit=false",
                     "-Ddfc.opencl.enableSlabVmDispatch=false",
-                    "-Ddfc.opencl.enableWorldgenBridge=false"
+                    "-Ddfc.opencl.enableWorldgenBridge=false",
+                    "-Ddfc.opencl.directStaging=false"
         }
     }
 }

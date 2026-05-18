@@ -23,6 +23,7 @@
 
 #define DFC_SLAB_STACK 192
 #define DFC_SLAB_LAYOUT_Y_HOIST 0
+#define DFC_PERM_STRIDE 512
 
 inline ushort dfc_read_u16(__global const uchar *bc, int pc) {
     return (ushort) bc[pc] | (ushort) ((ushort) bc[pc + 1] << 8);
@@ -46,6 +47,209 @@ inline double dfc_java_max(double l, double r) {
         return (!signbit(l) || !signbit(r)) ? 0.0 : -0.0;
     }
     return l >= r ? l : r;
+}
+
+#define DFC_NOISE_MEM __constant
+
+inline int dfc_perm(DFC_NOISE_MEM const uchar *permutations, int index) {
+    return (int) permutations[index & 255];
+}
+
+inline int dfc_perm_512(DFC_NOISE_MEM const uchar *permutations, int index) {
+    return (int) permutations[index];
+}
+
+inline double dfc_perlin_fade(double value) {
+    return value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
+}
+
+inline double dfc_perlin_grad_from_hash(int hash, double x, double y, double z) {
+    int h = hash & 15;
+    double u = h < 8 ? x : y;
+    double v = h < 4 ? y : ((h == 12 || h == 14) ? x : z);
+    return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+}
+
+inline double dfc_lerp3(double dx, double dy, double dz,
+                        double x0y0z0, double x1y0z0,
+                        double x0y1z0, double x1y1z0,
+                        double x0y0z1, double x1y0z1,
+                        double x0y1z1, double x1y1z1) {
+    double x00 = dfc_lerp(dx, x0y0z0, x1y0z0);
+    double x10 = dfc_lerp(dx, x0y1z0, x1y1z0);
+    double x01 = dfc_lerp(dx, x0y0z1, x1y0z1);
+    double x11 = dfc_lerp(dx, x0y1z1, x1y1z1);
+    return dfc_lerp(dz, dfc_lerp(dy, x00, x10), dfc_lerp(dy, x01, x11));
+}
+
+inline double dfc_perlin_sample(DFC_NOISE_MEM const uchar *permutations,
+                                double origin_x, double origin_y, double origin_z,
+                                double x, double y, double z) {
+    double input_x = x + origin_x;
+    double input_y = y + origin_y;
+    double input_z = z + origin_z;
+
+    int grid_x = dfc_java_floor(input_x);
+    int grid_y = dfc_java_floor(input_y);
+    int grid_z = dfc_java_floor(input_z);
+
+    double delta_x = input_x - (double) grid_x;
+    double delta_y = input_y - (double) grid_y;
+    double delta_z = input_z - (double) grid_z;
+
+    double x1 = delta_x - 1.0;
+    double y1 = delta_y - 1.0;
+    double z1 = delta_z - 1.0;
+
+    int ix = grid_x & 255;
+    int iy = grid_y & 255;
+    int iz = grid_z & 255;
+    int px0 = dfc_perm_512(permutations, ix);
+    int px1 = dfc_perm_512(permutations, ix + 1);
+    int pxy00 = dfc_perm_512(permutations, px0 + iy);
+    int pxy10 = dfc_perm_512(permutations, px1 + iy);
+    int pxy01 = dfc_perm_512(permutations, px0 + iy + 1);
+    int pxy11 = dfc_perm_512(permutations, px1 + iy + 1);
+
+    double n000 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy00 + iz),
+            delta_x, delta_y, delta_z);
+    double n100 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy10 + iz),
+            x1, delta_y, delta_z);
+    double n010 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy01 + iz),
+            delta_x, y1, delta_z);
+    double n110 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy11 + iz),
+            x1, y1, delta_z);
+    double n001 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy00 + iz + 1),
+            delta_x, delta_y, z1);
+    double n101 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy10 + iz + 1),
+            x1, delta_y, z1);
+    double n011 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy01 + iz + 1),
+            delta_x, y1, z1);
+    double n111 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy11 + iz + 1),
+            x1, y1, z1);
+
+    return dfc_lerp3(dfc_perlin_fade(delta_x), dfc_perlin_fade(delta_y), dfc_perlin_fade(delta_z),
+            n000, n100, n010, n110, n001, n101, n011, n111);
+}
+
+inline double dfc_noise_octave_sample(DFC_NOISE_MEM const uchar *permutations,
+                                      DFC_NOISE_MEM const double *origins,
+                                      DFC_NOISE_MEM const double *input_factors,
+                                      DFC_NOISE_MEM const double *amp_factors,
+                                      int idx, double scaled_x, double scaled_y, double scaled_z) {
+    double input_factor = input_factors[idx];
+    double x = dfc_wrap_axis(scaled_x * input_factor);
+    double y = dfc_wrap_axis(scaled_y * input_factor);
+    double z = dfc_wrap_axis(scaled_z * input_factor);
+    DFC_NOISE_MEM const uchar *octave_perms = permutations + idx * DFC_PERM_STRIDE;
+    int origin_idx = idx * 3;
+    return amp_factors[idx] * dfc_perlin_sample(octave_perms,
+            origins[origin_idx], origins[origin_idx + 1], origins[origin_idx + 2],
+            x, y, z);
+}
+
+inline double dfc_noise_branch_sample(DFC_NOISE_MEM const uchar *permutations,
+                                      DFC_NOISE_MEM const double *origins,
+                                      DFC_NOISE_MEM const double *input_factors,
+                                      DFC_NOISE_MEM const double *amp_factors,
+                                      DFC_NOISE_MEM const int *branch_octave_offsets,
+                                      DFC_NOISE_MEM const int *branch_octave_counts,
+                                      int branch_idx,
+                                      double coord_scale, double bx, double by, double bz) {
+    double sum = 0.0;
+    double scaled_x = bx * coord_scale;
+    double scaled_y = by * coord_scale;
+    double scaled_z = bz * coord_scale;
+    int octave_base = branch_octave_offsets[branch_idx];
+    int octave_count = branch_octave_counts[branch_idx];
+    if (octave_count == 1) {
+        return dfc_noise_octave_sample(permutations, origins, input_factors, amp_factors,
+                octave_base, scaled_x, scaled_y, scaled_z);
+    }
+    if (octave_count == 2) {
+        return dfc_noise_octave_sample(permutations, origins, input_factors, amp_factors,
+                octave_base, scaled_x, scaled_y, scaled_z)
+                + dfc_noise_octave_sample(permutations, origins, input_factors, amp_factors,
+                octave_base + 1, scaled_x, scaled_y, scaled_z);
+    }
+    for (int octave = 0; octave < octave_count; octave++) {
+        int idx = octave_base + octave;
+        sum += dfc_noise_octave_sample(permutations, origins, input_factors, amp_factors,
+                idx, scaled_x, scaled_y, scaled_z);
+    }
+    return sum;
+}
+
+inline double dfc_noise_slot_sample(DFC_NOISE_MEM const uchar *permutations,
+                                    DFC_NOISE_MEM const double *origins,
+                                    DFC_NOISE_MEM const double *input_factors,
+                                    DFC_NOISE_MEM const double *amp_factors,
+                                    DFC_NOISE_MEM const int *branch_octave_offsets,
+                                    DFC_NOISE_MEM const int *branch_octave_counts,
+                                    DFC_NOISE_MEM const double *branch_coord_scales,
+                                    DFC_NOISE_MEM const double *slot_value_factors,
+                                    int slot, int branches_per_slot,
+                                    double bx, double by, double bz) {
+    double value = 0.0;
+    int branch_base = slot * branches_per_slot;
+    if (branches_per_slot == 2) {
+        value = dfc_noise_branch_sample(permutations, origins, input_factors, amp_factors,
+                branch_octave_offsets, branch_octave_counts, branch_base,
+                branch_coord_scales[branch_base], bx, by, bz)
+                + dfc_noise_branch_sample(permutations, origins, input_factors, amp_factors,
+                branch_octave_offsets, branch_octave_counts, branch_base + 1,
+                branch_coord_scales[branch_base + 1], bx, by, bz);
+        return value * slot_value_factors[slot];
+    }
+    for (int branch = 0; branch < branches_per_slot; branch++) {
+        int branch_idx = branch_base + branch;
+        value += dfc_noise_branch_sample(permutations, origins, input_factors, amp_factors,
+                branch_octave_offsets, branch_octave_counts, branch_idx,
+                branch_coord_scales[branch_idx], bx, by, bz);
+    }
+    return value * slot_value_factors[slot];
+}
+
+inline int dfc_cell_grid_coords(int gid, int first_block_x, int first_block_y, int first_block_z,
+                                int cell_w, int cell_h, int cells,
+                                __private double *bx, __private double *by, __private double *bz,
+                                __private int *cell_out) {
+    if (gid < 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return 0;
+    }
+
+    int cell;
+    int y_index;
+    int ix;
+    int iz;
+    if (cell_w == 4 && cell_h == 8) {
+        cell = gid >> 7;
+        int in_cell = gid & 127;
+        y_index = in_cell >> 4;
+        int plane = in_cell & 15;
+        ix = plane >> 2;
+        iz = plane & 3;
+    } else {
+        int plane_size = cell_w * cell_w;
+        int cell_volume = plane_size * cell_h;
+        if (cell_volume <= 0) {
+            return 0;
+        }
+        cell = gid / cell_volume;
+        int in_cell = gid - cell * cell_volume;
+        y_index = in_cell / plane_size;
+        int plane = in_cell - y_index * plane_size;
+        ix = plane / cell_w;
+        iz = plane - ix * cell_w;
+    }
+
+    int cell_x = cell & 31;
+    int cell_z = cell >> 5;
+    *bx = (double) (first_block_x + cell_x * cell_w + ix);
+    *by = (double) (first_block_y + (cell_h - 1 - y_index));
+    *bz = (double) (first_block_z + cell_z * cell_w + iz);
+    *cell_out = cell;
+    return 1;
 }
 
 inline int dfc_push(__private double *stk, __private int *sp, double value) {
@@ -250,30 +454,162 @@ __kernel void dfc_slab_vm_eval_cell_grid(__global const uchar *bc, int bc_len,
         return;
     }
 
-    int plane_size = cell_w * cell_w;
-    int cell_volume = plane_size * cell_h;
-    if (cell_volume <= 0) {
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
         return;
     }
-
-    int cell = gid / cell_volume;
-    int in_cell = gid - cell * cell_volume;
-    int y_index = in_cell / plane_size;
-    int plane = in_cell - y_index * plane_size;
-    int ix = plane / cell_w;
-    int iz = plane - ix * cell_w;
-    int cell_x = cell & 31;
-    int cell_z = cell >> 5;
-
-    double bx = (double) (first_block_x + cell_x * cell_w + ix);
-    double by = (double) (first_block_y + (cell_h - 1 - y_index));
-    double bz = (double) (first_block_z + cell_z * cell_w + iz);
     double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
 
     double value;
     int ok = dfc_slab_vm_eval_one(bc, bc_len, consts, nconst, slot_rows_flat,
             n_slots, slot_row_stride, bx, by, bz, y_hoist, gid, &value);
     out[gid] = ok ? value : 0.0;
+}
+
+__kernel void dfc_slab_vm_fill_demo_slots(__global double *slot_rows_flat, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n) {
+        return;
+    }
+    slot_rows_flat[gid] = (double) (gid & 63) * 0.5;
+    slot_rows_flat[n + gid] = 10.0 - (double) (gid & 31) * 0.25;
+}
+
+__kernel void dfc_slab_vm_fill_noise_slots(__global double *slot_rows_flat, int n,
+                                           DFC_NOISE_MEM const uchar *permutations,
+                                           DFC_NOISE_MEM const double *origins,
+                                           DFC_NOISE_MEM const double *input_factors,
+                                           DFC_NOISE_MEM const double *amp_factors,
+                                           DFC_NOISE_MEM const int *branch_octave_offsets,
+                                           DFC_NOISE_MEM const int *branch_octave_counts,
+                                           DFC_NOISE_MEM const double *branch_coord_scales,
+                                           DFC_NOISE_MEM const double *slot_value_factors,
+                                           int slot_count, int branches_per_slot,
+                                           int octaves_per_branch,
+                                           int first_block_x, int first_block_y, int first_block_z,
+                                           int cell_w, int cell_h, int cells) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n || slot_count <= 0 || branches_per_slot <= 0
+            || octaves_per_branch <= 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return;
+    }
+
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+        return;
+    }
+
+    for (int slot = 0; slot < slot_count; slot++) {
+        slot_rows_flat[slot * n + gid] = dfc_noise_slot_sample(permutations, origins, input_factors, amp_factors,
+                branch_octave_offsets, branch_octave_counts, branch_coord_scales, slot_value_factors,
+                slot, branches_per_slot, bx, by, bz);
+    }
+}
+
+__kernel void dfc_slab_vm_fill_noise_slots_by_slot(__global double *slot_rows_flat, int n,
+                                                   DFC_NOISE_MEM const uchar *permutations,
+                                                   DFC_NOISE_MEM const double *origins,
+                                                   DFC_NOISE_MEM const double *input_factors,
+                                                   DFC_NOISE_MEM const double *amp_factors,
+                                                   DFC_NOISE_MEM const int *branch_octave_offsets,
+                                                   DFC_NOISE_MEM const int *branch_octave_counts,
+                                                   DFC_NOISE_MEM const double *branch_coord_scales,
+                                                   DFC_NOISE_MEM const double *slot_value_factors,
+                                                   int slot_count, int branches_per_slot,
+                                                   int octaves_per_branch,
+                                                   int first_block_x, int first_block_y, int first_block_z,
+                                                   int cell_w, int cell_h, int cells) {
+    int flat = (int) get_global_id(0);
+    int total = n * slot_count;
+    if (flat >= total || n <= 0 || slot_count <= 0 || branches_per_slot <= 0
+            || octaves_per_branch <= 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return;
+    }
+
+    int slot = flat / n;
+    int gid = flat - slot * n;
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+        return;
+    }
+
+    slot_rows_flat[flat] = dfc_noise_slot_sample(permutations, origins, input_factors, amp_factors,
+            branch_octave_offsets, branch_octave_counts, branch_coord_scales, slot_value_factors,
+            slot, branches_per_slot, bx, by, bz);
+}
+
+__kernel void dfc_slab_vm_eval_cell_grid_direct_noise(DFC_NOISE_MEM const uchar *permutations,
+                                                      DFC_NOISE_MEM const double *origins,
+                                                      DFC_NOISE_MEM const double *input_factors,
+                                                      DFC_NOISE_MEM const double *amp_factors,
+                                                      DFC_NOISE_MEM const int *branch_octave_offsets,
+                                                      DFC_NOISE_MEM const int *branch_octave_counts,
+                                                      DFC_NOISE_MEM const double *branch_coord_scales,
+                                                      DFC_NOISE_MEM const double *slot_value_factors,
+                                                      int slot_count, int branches_per_slot,
+                                                      int octaves_per_branch, int used_slot_count,
+                                                      int first_block_x, int first_block_y, int first_block_z,
+                                                      int cell_w, int cell_h, int cells, double hoist_base,
+                                                      __global double *out, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n || slot_count <= 0 || branches_per_slot <= 0 || used_slot_count <= 0
+            || octaves_per_branch <= 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return;
+    }
+
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+        return;
+    }
+    int slots_to_use = used_slot_count < slot_count ? used_slot_count : slot_count;
+
+    double value = 0.0;
+    for (int slot = 0; slot < slots_to_use; slot++) {
+        value += dfc_noise_slot_sample(permutations, origins, input_factors, amp_factors,
+                branch_octave_offsets, branch_octave_counts, branch_coord_scales, slot_value_factors,
+                slot, branches_per_slot, bx, by, bz);
+    }
+    double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
+    out[gid] = value + y_hoist + bx - bz + dfc_squeeze(by * 0.1);
+}
+
+__kernel void dfc_slab_vm_eval_cell_grid_direct_demo(int first_block_x, int first_block_y, int first_block_z,
+                                                     int cell_w, int cell_h, int cells, double hoist_base,
+                                                     __global double *out, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
+        return;
+    }
+
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+        return;
+    }
+
+    double slot0 = (double) (gid & 63) * 0.5;
+    double slot1 = 10.0 - (double) (gid & 31) * 0.25;
+    double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
+    out[gid] = slot0 + slot1 + y_hoist + bx - bz + dfc_squeeze(by * 0.1);
 }
 
 #endif // DFC_OPENCL_SLAB_VM_CL

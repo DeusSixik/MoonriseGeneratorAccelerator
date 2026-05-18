@@ -62,6 +62,10 @@ public final class DfcOpenClConfig {
         return intProperty("dfc.opencl.coordBenchMaxElements", 1 << 20, 1, 1 << 24);
     }
 
+    public static boolean directStagingEnabled() {
+        return boolProperty("dfc.opencl.directStaging", false);
+    }
+
     public static String deviceFilter() {
         return System.getProperty("dfc.opencl.deviceFilter", "").trim();
     }

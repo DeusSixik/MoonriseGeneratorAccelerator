@@ -45,6 +45,9 @@ inline double dfc_squeeze(double value) {
 }
 
 inline double dfc_wrap_axis(double value) {
+    if (value >= -16777216.0 && value < 16777216.0) {
+        return value;
+    }
     double scaled = value / 33554432.0 + 0.5;
     long floored = dfc_java_floor_long(scaled);
     return value - (double) floored * 33554432.0;

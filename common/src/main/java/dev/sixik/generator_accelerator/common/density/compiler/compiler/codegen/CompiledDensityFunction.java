@@ -261,6 +261,10 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
                 : ", registry=<missing>");
     }
 
+    public final NormalNoise[] dfc$normalNoisesForDiagnostics() {
+        return this.noises == null ? new NormalNoise[0] : this.noises.clone();
+    }
+
     public final ArrayIndexOutOfBoundsException dfc$wrapArrayIndexOutOfBounds(
             ArrayIndexOutOfBoundsException cause,
             DensityFunction.FunctionContext context,
