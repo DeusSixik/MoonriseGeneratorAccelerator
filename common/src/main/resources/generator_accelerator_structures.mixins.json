@@ -11,6 +11,7 @@
     "compats.blueprints.Blueprint$StructurePieceMixin",
     "compats.zeta.Zeta$StructurePiece$Fix",
     "optimization.MixinPiecesContainer",
+    "optimization.MixinStructure$generation_hot_path",
     "optimization.MixinStructurePiece",
     "pools.MixinEmptyPoolElement$default_empty_list",
     "pools.MixinFeaturePoolElement$cached",
