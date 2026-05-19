@@ -50,6 +50,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private final DeviceBuffer noiseBranchScalesBuffer = new DeviceBuffer();
     private final DeviceBuffer noiseSlotFactorsBuffer = new DeviceBuffer();
     private final DeviceBuffer generatedExternalSlotsBuffer = new DeviceBuffer();
+    private final DeviceBuffer generatedSlotBuffer = new DeviceBuffer();
     private final HostDoubleBuffer doubleStagingBuffer = new HostDoubleBuffer();
     private final HostDoubleBuffer gridOutHostBuffer = new HostDoubleBuffer();
     private boolean closed;
@@ -1080,6 +1081,89 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
     }
 
+    synchronized SlabVmResult evalGeneratedNoiseKernelWavesToSlotBuffer(GeneratedNoiseKernel[] generatedKernels,
+                                                                         boolean[][] waves,
+                                                                         SlabVmNoiseCellGridRequest request,
+                                                                         int slotBufferSlotCount,
+                                                                         boolean uploadInputs) {
+        assertOpen();
+        validateNoiseCellGridRequest(request);
+        if (slotBufferSlotCount <= 0) {
+            throw new IllegalArgumentException("slotBufferSlotCount must be positive");
+        }
+        int slotValues = Math.multiplyExact(request.n, slotBufferSlotCount);
+
+        ByteBuffer permutationsHost = null;
+        long started = System.nanoTime();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer err = stack.callocInt(1);
+            boolean writeInputs = uploadInputs
+                    || !bufferReady(this.noisePermutationsBuffer, request.permutations.length, CL12.CL_MEM_READ_ONLY);
+            if (writeInputs) {
+                permutationsHost = MemoryUtil.memAlloc(request.permutations.length);
+                permutationsHost.put(request.permutations).flip();
+            }
+
+            long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
+                    CL12.CL_MEM_READ_ONLY, err, "generated wave permutations");
+            long slotBuffer = ensureBuffer(this.generatedSlotBuffer, doubleBytes(slotValues),
+                    CL12.CL_MEM_READ_WRITE, err, "generated wave slots");
+            if (writeInputs) {
+                check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
+                        null, null), "clEnqueueWriteBuffer(generated wave permutations)");
+            }
+
+            PointerBuffer globalWorkSize = stack.callocPointer(1);
+            globalWorkSize.put(0, request.n);
+            for (boolean[] wave : waves) {
+                if (wave == null) {
+                    continue;
+                }
+                int limit = Math.min(wave.length, generatedKernels.length);
+                for (int chunk = 0; chunk < limit; chunk++) {
+                    if (!wave[chunk]) {
+                        continue;
+                    }
+                    GeneratedNoiseKernel generated = generatedKernels[chunk];
+                    if (generated == null) {
+                        throw new IllegalArgumentException("missing generated kernel for chunk " + chunk);
+                    }
+                    generated.assertOpen();
+                    int arg = 0;
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, permutationsBuffer),
+                            "clSetKernelArg(generated wave permutations)");
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                            "clSetKernelArg(generated wave external slots)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockX),
+                            "clSetKernelArg(generated wave first x)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockY),
+                            "clSetKernelArg(generated wave first y)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockZ),
+                            "clSetKernelArg(generated wave first z)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellWidth),
+                            "clSetKernelArg(generated wave cell width)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellHeight),
+                            "clSetKernelArg(generated wave cell height)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
+                            "clSetKernelArg(generated wave cells)");
+                    check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
+                            "clSetKernelArg(generated wave hoist)");
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                            "clSetKernelArg(generated wave output slots)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg, request.n),
+                            "clSetKernelArg(generated wave n)");
+                    check(CL12.clEnqueueNDRangeKernel(this.queue, generated.kernel, 1,
+                            null, globalWorkSize, null, null, null),
+                            "clEnqueueNDRangeKernel(generated wave)");
+                }
+            }
+            check(CL12.clFinish(this.queue), "clFinish(generated wave)");
+            return new SlabVmResult(System.nanoTime() - started);
+        } finally {
+            free(permutationsHost);
+        }
+    }
+
     DfcOpenClDeviceInfo deviceInfo() {
         return this.candidate.info();
     }
@@ -1430,6 +1514,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private void releaseDeviceBuffers() {
         this.gridOutHostBuffer.release();
         this.doubleStagingBuffer.release();
+        this.generatedSlotBuffer.release();
         this.noiseSlotFactorsBuffer.release();
         this.noiseBranchScalesBuffer.release();
         this.noiseBranchOctaveCountsBuffer.release();

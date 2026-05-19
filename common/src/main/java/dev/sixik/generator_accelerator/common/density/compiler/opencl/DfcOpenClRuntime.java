@@ -1,12 +1,15 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 /**
  * Fail-soft entry point for the experimental DFC OpenCL backend.
@@ -37,6 +40,7 @@ public final class DfcOpenClRuntime {
     private static final int OP_ABS = 49;
     private static final int OP_SQUARE = 50;
     private static final int OP_SQUEEZE = 51;
+    private static final int COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS = 16_384;
 
     private static volatile Status cachedStatus = Status.disabled();
     private static volatile DfcOpenClDeviceEnumerator.Candidate selectedCandidate;
@@ -640,6 +644,472 @@ public final class DfcOpenClRuntime {
             OpenClCompiledPlan plan, int cellWidth, int cellHeight, int cells, int iterations, int warmups) {
         return slabVmCellGridCompiledPlanSourceBenchmark(plan, cellWidth, cellHeight, cells, iterations, warmups,
                 false, null);
+    }
+
+    public static synchronized GeneratedSourceCompileProbe compiledPlanChunkSourceCompileProbe(
+            OpenClCompiledPlan plan, int startSlot, int endSlot) {
+        if (plan == null || plan.specs() == null || plan.specs().length == 0) {
+            return GeneratedSourceCompileProbe.failed(status().selectedDevice(), "compiled plan is null or empty");
+        }
+        int slotCount = plan.specs().length;
+        int safeStart = Math.max(0, Math.min(startSlot, slotCount - 1));
+        int safeEnd = Math.max(safeStart, Math.min(endSlot, slotCount - 1));
+
+        ChunkDescriptorInput input = chunkDescriptorInput(plan, safeStart, safeEnd);
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    input.specs(), input.blendedSpecs(), input.inactiveSlots());
+        } catch (Throwable throwable) {
+            return GeneratedSourceCompileProbe.failed(status().selectedDevice(),
+                    "Invalid chunk noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return GeneratedSourceCompileProbe.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return GeneratedSourceCompileProbe.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            boolean[] chunkExternalSlots = compiledPlanChunkExternalInputs(plan, safeStart, safeEnd);
+            ComputedSlot[] chunkComputedSlots = chunkComputedSlots(plan, safeStart, safeEnd);
+            int externalInputs = externalSlotCount(chunkExternalSlots, slotCount);
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanChunk(
+                            descriptor, safeStart, safeEnd,
+                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                            chunkExternalSlots, chunkComputedSlots,
+                            DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            if (source.source().length() > COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS) {
+                return new GeneratedSourceCompileProbe(
+                        false,
+                        status.selectedDevice(),
+                        safeStart,
+                        safeEnd,
+                        0L,
+                        source.source().length(),
+                        descriptor.totalOctaves,
+                        source.coordScaleTemps(),
+                        source.coordScaleRefs(),
+                        "blocked: sourceChars " + source.source().length()
+                                + ">" + COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS
+                                + ", externalInputs=" + externalInputs
+                                + ", split this chunk before native OpenCL build");
+            }
+            long started = System.nanoTime();
+            try (DfcOpenClDeviceContext.GeneratedNoiseKernel ignored =
+                         context.compileGeneratedNoiseKernel(source.source())) {
+                long compileNanos = System.nanoTime() - started;
+                return new GeneratedSourceCompileProbe(
+                        true,
+                        context.deviceInfo(),
+                        safeStart,
+                        safeEnd,
+                        compileNanos,
+                        source.source().length(),
+                        descriptor.totalOctaves,
+                        source.coordScaleTemps(),
+                        source.coordScaleRefs(),
+                        "ok, compiledPlanChunk=true, slots=" + safeStart + ".." + safeEnd
+                                + ", externalInputs=" + externalInputs
+                                + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                                + ", sourceChars=" + source.source().length()
+                                + ", coordTemps=" + source.coordScaleTemps()
+                                + ", coordTempRefs=" + source.coordScaleRefs()
+                                + ", compileMs=" + formatMillis(compileNanos)
+                                + ", wrapAxis=nowrap");
+            }
+        } catch (Throwable throwable) {
+            closeActiveContext();
+            return GeneratedSourceCompileProbe.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkSourceBenchmark(OpenClCompiledPlan plan,
+                                                                                     int startSlot, int endSlot,
+                                                                                     int cellWidth, int cellHeight,
+                                                                                     int cells, int iterations,
+                                                                                     int warmups) {
+        if (plan == null || plan.specs() == null || plan.specs().length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "compiled plan is null or empty");
+        }
+        int slotCount = plan.specs().length;
+        int safeStart = Math.max(0, Math.min(startSlot, slotCount - 1));
+        int safeEnd = Math.max(safeStart, Math.min(endSlot, slotCount - 1));
+
+        ChunkDescriptorInput input = chunkDescriptorInput(plan, safeStart, safeEnd);
+        DfcOpenClNoiseDescriptor descriptor;
+        DfcOpenClNoiseDescriptor fullDescriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    input.specs(), input.blendedSpecs(), input.inactiveSlots());
+            fullDescriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid chunk noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+            boolean[] chunkExternalSlots = compiledPlanChunkExternalInputs(plan, safeStart, safeEnd);
+            ComputedSlot[] chunkComputedSlots = chunkComputedSlots(plan, safeStart, safeEnd);
+            int externalInputs = externalSlotCount(chunkExternalSlots, slotCount);
+            if (externalInputs > 0) {
+                return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                        "blocked: externalInputs=" + externalInputs
+                                + " require staged producer slot buffers; use compiledfinaldensitychunkcompile "
+                                + "for compile-only diagnostics");
+            }
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanChunk(
+                            descriptor, safeStart, safeEnd,
+                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                            chunkExternalSlots, chunkComputedSlots,
+                            DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            if (source.source().length() > COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS) {
+                return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                        "blocked: sourceChars " + source.source().length()
+                                + ">" + COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS
+                                + ", externalInputs=" + externalInputs
+                                + ", split this chunk before native OpenCL build");
+            }
+
+            long prefillStarted = System.nanoTime();
+            double[] originalExternalSlots = null;
+            double[] chunkExternalValues = null;
+            if (externalInputs > 0) {
+                originalExternalSlots = externalSlotCount(plan.externalSlots(), slotCount) == 0
+                        ? null
+                        : fillExternalSlots(plan, request, slotCount);
+                chunkExternalValues = fillChunkExternalInputs(plan, request, fullDescriptor, chunkExternalSlots,
+                        originalExternalSlots, slotCount);
+            }
+            long prefillNanos = System.nanoTime() - prefillStarted;
+
+            long compileStarted = System.nanoTime();
+            try (DfcOpenClDeviceContext.GeneratedNoiseKernel generated =
+                         context.compileGeneratedNoiseKernel(source.source())) {
+                long compileNanos = System.nanoTime() - compileStarted;
+                context.evalGeneratedNoiseKernel(generated, request, chunkExternalValues, true);
+                validateCompiledPlanChunkGrid(out, request, fullDescriptor, safeStart, safeEnd,
+                        plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(), plan.slotCoordZEvaluators(),
+                        originalExternalSlots, plan.externalSlots(), plan.computedSlots(), slotCount);
+
+                long totalNanos = 0L;
+                long bestNanos = Long.MAX_VALUE;
+                long worstNanos = 0L;
+                int totalRuns = safeWarmups + safeIterations;
+                for (int i = 0; i < totalRuns; i++) {
+                    DfcOpenClStats.recordSlabAttempt(out.length);
+                    DfcOpenClStats.recordSlabSubmitted();
+                    DfcOpenClDeviceContext.SlabVmResult result =
+                            context.evalGeneratedNoiseKernelReuseInputs(
+                                    generated, request, chunkExternalValues, false);
+                    DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                    if (i >= safeWarmups) {
+                        long nanos = result.elapsedNanos();
+                        totalNanos += nanos;
+                        bestNanos = Math.min(bestNanos, nanos);
+                        worstNanos = Math.max(worstNanos, nanos);
+                    }
+                }
+                long totalElements = (long) out.length * safeIterations;
+                long averageKernelNanos = totalNanos / safeIterations;
+                return new SlabVmCellBenchmark(
+                        true,
+                        context.deviceInfo(),
+                        safeCellWidth,
+                        safeCellHeight,
+                        safeCells,
+                        safeIterations,
+                        safeWarmups,
+                        out.length,
+                        totalElements,
+                        totalNanos,
+                        averageKernelNanos,
+                        bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                        worstNanos,
+                        "ok, compiledPlanChunkBench=true, slots=" + safeStart + ".." + safeEnd
+                                + ", externalInputs=" + externalInputs
+                                + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                                + ", sourceChars=" + source.source().length()
+                                + ", coordTemps=" + source.coordScaleTemps()
+                                + ", coordTempRefs=" + source.coordScaleRefs()
+                                + ", compileMs=" + formatMillis(compileNanos)
+                                + ", externalPrefillMs=" + formatMillis(prefillNanos)
+                                + ", externalPrefillValueNs=" + formatNanosPerValue(
+                                prefillNanos, (long) request.n() * Math.max(1, externalInputs))
+                                + ", oneShotWithPrefillMs=" + formatMillis(prefillNanos + averageKernelNanos)
+                                + ", wrapAxis=nowrap"
+                                + ", cachedInputs=true"
+                                + ", noRead=true");
+            }
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkWavesSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups) {
+        return compiledPlanChunkWavesSourceBenchmark(plan, chunkStartSlots, chunkEndSlots, waves,
+                directBlockedChunks, stalledChunks, cellWidth, cellHeight, cells, iterations, warmups, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkWavesCompactSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups) {
+        return compiledPlanChunkWavesSourceBenchmark(plan, chunkStartSlots, chunkEndSlots, waves,
+                directBlockedChunks, stalledChunks, cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    private static SlabVmCellBenchmark compiledPlanChunkWavesSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups,
+            boolean compactSlotBuffer) {
+        if (plan == null || plan.specs() == null || plan.specs().length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "compiled plan is null or empty");
+        }
+        if (chunkStartSlots == null || chunkEndSlots == null || chunkStartSlots.length != chunkEndSlots.length) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "invalid chunk ranges");
+        }
+        if (waves == null || waves.length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "no scheduled chunk waves");
+        }
+
+        int slotCount = plan.specs().length;
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid wave noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        boolean[] scheduledChunks = scheduledChunks(waves, chunkStartSlots.length);
+        int scheduledChunkCount = countTrue(scheduledChunks);
+        if (scheduledChunkCount == 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "no chunks scheduled by waves");
+        }
+        int scheduledSlotCount = scheduledSlotCount(chunkStartSlots, chunkEndSlots, scheduledChunks);
+        if (scheduledSlotCount <= 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "scheduled chunks contain no slots");
+        }
+        int elementsPerIteration = Math.toIntExact(elements * scheduledSlotCount);
+        int[] slotBufferIndices = compactSlotBuffer
+                ? compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, scheduledChunks, slotCount)
+                : null;
+        int slotBufferSlotCount = compactSlotBuffer ? scheduledSlotCount : slotCount;
+        long slotBufferBytes = Math.multiplyExact(
+                Math.multiplyExact(elements, slotBufferSlotCount), (long) Double.BYTES);
+
+        DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                new DfcOpenClDeviceContext.GeneratedNoiseKernel[chunkStartSlots.length];
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+
+            long compileNanos = 0L;
+            int totalSourceChars = 0;
+            int maxSourceChars = 0;
+            int kernelsCompiled = 0;
+            for (int chunk = 0; chunk < scheduledChunks.length; chunk++) {
+                if (!scheduledChunks[chunk]) {
+                    continue;
+                }
+                int safeStart = Math.max(0, Math.min(chunkStartSlots[chunk], slotCount - 1));
+                int safeEnd = Math.max(safeStart, Math.min(chunkEndSlots[chunk], slotCount - 1));
+                boolean[] chunkExternalSlots = compiledPlanChunkExternalInputs(plan, safeStart, safeEnd);
+                ComputedSlot[] chunkComputedSlots = chunkComputedSlots(plan, safeStart, safeEnd);
+                DfcOpenClGeneratedNoiseSource.BuildResult source = compactSlotBuffer
+                        ? DfcOpenClGeneratedNoiseSource.buildCompiledPlanChunkCompactSlotBuffer(
+                        descriptor, safeStart, safeEnd,
+                        plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                        plan.slotCoordZExpressions(),
+                        chunkExternalSlots, chunkComputedSlots, slotBufferIndices,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP)
+                        : DfcOpenClGeneratedNoiseSource.buildCompiledPlanChunkSlotBuffer(
+                        descriptor, safeStart, safeEnd,
+                        plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                        plan.slotCoordZExpressions(),
+                        chunkExternalSlots, chunkComputedSlots,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                if (source.source().length() > COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS) {
+                    return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                            "blocked: chunk=" + chunk
+                                    + " sourceChars " + source.source().length()
+                                    + ">" + COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS
+                                    + ", split this chunk before native OpenCL build");
+                }
+                long started = System.nanoTime();
+                kernels[chunk] = context.compileGeneratedNoiseKernel(source.source());
+                compileNanos += System.nanoTime() - started;
+                totalSourceChars += source.source().length();
+                maxSourceChars = Math.max(maxSourceChars, source.source().length());
+                kernelsCompiled++;
+            }
+
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(elementsPerIteration);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                                kernels, waves, request, slotBufferSlotCount, i == 0);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+
+            long totalElements = (long) elementsPerIteration * safeIterations;
+            long averageKernelNanos = totalNanos / safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    elementsPerIteration,
+                    totalElements,
+                    totalNanos,
+                    averageKernelNanos,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, compiledPlanWaveBench=true"
+                            + ", waves=" + waves.length
+                            + ", chunks=" + scheduledChunkCount + "/" + chunkStartSlots.length
+                            + ", kernelsCompiled=" + kernelsCompiled
+                            + ", slotsComputed=" + scheduledSlotCount + "/" + slotCount
+                            + ", directBlockedChunks=" + directBlockedChunks
+                            + ", stalledChunks=" + stalledChunks
+                            + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                            + ", totalSourceChars=" + totalSourceChars
+                            + ", maxSourceChars=" + maxSourceChars
+                            + ", compileMs=" + formatMillis(compileNanos)
+                            + ", slotBufferBytes=" + slotBufferBytes
+                            + ", slotBufferSlots=" + slotBufferSlotCount
+                            + ", slotBufferLayout=" + (compactSlotBuffer ? "compact-slot-major" : "slot-major")
+                            + ", cachedInputs=true"
+                            + ", noRead=true");
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        } finally {
+            for (DfcOpenClDeviceContext.GeneratedNoiseKernel kernel : kernels) {
+                if (kernel != null) {
+                    kernel.close();
+                }
+            }
+        }
     }
 
     private static SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
@@ -1542,6 +2012,47 @@ public final class DfcOpenClRuntime {
         }
     }
 
+    private static void validateCompiledPlanChunkGrid(double[] out,
+                                                      DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                                      DfcOpenClNoiseDescriptor descriptor,
+                                                      int startSlot,
+                                                      int endSlot,
+                                                      HoistEvaluator[] slotCoordXEvaluators,
+                                                      HoistEvaluator[] slotCoordYEvaluators,
+                                                      HoistEvaluator[] slotCoordZEvaluators,
+                                                      double[] originalExternalSlotValues,
+                                                      boolean[] originalExternalSlots,
+                                                      ComputedSlot[] computedSlots,
+                                                      int usedSlotCount) {
+        int n = request.n();
+        if (out.length < n) {
+            throw new IllegalStateException("OpenCL compiled chunk output too short: " + out.length);
+        }
+        int checks = Math.min(n, 257);
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), descriptor.slotCount);
+        int safeStart = Math.max(0, Math.min(startSlot, safeUsedSlots - 1));
+        int safeEnd = Math.max(safeStart, Math.min(endSlot, safeUsedSlots - 1));
+        for (int check = 0; check < checks; check++) {
+            int i = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
+            double bx = cellBlockX(i, request);
+            double by = cellBlockY(i, request);
+            double bz = cellBlockZ(i, request);
+            double[] slots = new double[safeUsedSlots];
+            boolean[] resolvedSlots = new boolean[safeUsedSlots];
+            double expected = 0.0D;
+            for (int slot = safeStart; slot <= safeEnd; slot++) {
+                expected += resolveCompiledPlanSlot(slot, slots, resolvedSlots, i, safeUsedSlots, bx, by, bz,
+                        descriptor, slotCoordXEvaluators, slotCoordYEvaluators, slotCoordZEvaluators,
+                        originalExternalSlotValues, originalExternalSlots, computedSlots);
+            }
+            double actual = out[i];
+            if (!Double.isFinite(actual) || Math.abs(actual - expected) > COMPILED_PLAN_EPSILON) {
+                throw new IllegalStateException("OpenCL compiled chunk mismatch at " + i
+                        + ": expected=" + expected + ", actual=" + actual);
+            }
+        }
+    }
+
     private static double resolveCompiledPlanSlot(int slot, double[] slots, boolean[] resolvedSlots,
                                                   int element, int safeUsedSlots,
                                                   double bx, double by, double bz,
@@ -1685,6 +2196,34 @@ public final class DfcOpenClRuntime {
         return values;
     }
 
+    private static double[] fillChunkExternalInputs(OpenClCompiledPlan plan,
+                                                    DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                                    DfcOpenClNoiseDescriptor descriptor,
+                                                    boolean[] chunkExternalInputs,
+                                                    double[] originalExternalSlotValues,
+                                                    int usedSlotCount) {
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), request.slotCount());
+        double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
+        for (int i = 0; i < request.n(); i++) {
+            double bx = cellBlockX(i, request);
+            double by = cellBlockY(i, request);
+            double bz = cellBlockZ(i, request);
+            double[] slots = new double[safeUsedSlots];
+            boolean[] resolvedSlots = new boolean[safeUsedSlots];
+            for (int slot = 0; slot < safeUsedSlots; slot++) {
+                if (chunkExternalInputs == null || slot >= chunkExternalInputs.length || !chunkExternalInputs[slot]) {
+                    continue;
+                }
+                values[elementSlotIndex(i, safeUsedSlots, slot)] = resolveCompiledPlanSlot(
+                        slot, slots, resolvedSlots, i, safeUsedSlots, bx, by, bz,
+                        descriptor,
+                        plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(), plan.slotCoordZEvaluators(),
+                        originalExternalSlotValues, plan.externalSlots(), plan.computedSlots());
+            }
+        }
+        return values;
+    }
+
     private static DensityFunction markerExtern(OpenClCompiledPlan plan, int slot) {
         int[] markerExternIndices = plan.markerExternIndices();
         DensityFunction[] externs = plan.externs();
@@ -1697,6 +2236,65 @@ public final class DfcOpenClRuntime {
                     + " has invalid marker extern index " + externIndex);
         }
         return externs[externIndex];
+    }
+
+    private static boolean[] scheduledChunks(boolean[][] waves, int chunkCount) {
+        boolean[] scheduled = new boolean[Math.max(0, chunkCount)];
+        if (waves == null) {
+            return scheduled;
+        }
+        for (boolean[] wave : waves) {
+            if (wave == null) {
+                continue;
+            }
+            int limit = Math.min(wave.length, scheduled.length);
+            for (int chunk = 0; chunk < limit; chunk++) {
+                scheduled[chunk] |= wave[chunk];
+            }
+        }
+        return scheduled;
+    }
+
+    private static int scheduledSlotCount(int[] chunkStartSlots, int[] chunkEndSlots, boolean[] scheduledChunks) {
+        int count = 0;
+        int limit = Math.min(Math.min(chunkStartSlots.length, chunkEndSlots.length), scheduledChunks.length);
+        for (int chunk = 0; chunk < limit; chunk++) {
+            if (scheduledChunks[chunk]) {
+                count += Math.max(0, chunkEndSlots[chunk] - chunkStartSlots[chunk] + 1);
+            }
+        }
+        return count;
+    }
+
+    private static int[] compactSlotBufferIndices(int[] chunkStartSlots, int[] chunkEndSlots,
+                                                  boolean[] scheduledChunks, int slotCount) {
+        int[] indices = new int[Math.max(0, slotCount)];
+        Arrays.fill(indices, -1);
+        int next = 0;
+        int limit = Math.min(Math.min(chunkStartSlots.length, chunkEndSlots.length), scheduledChunks.length);
+        for (int chunk = 0; chunk < limit; chunk++) {
+            if (!scheduledChunks[chunk]) {
+                continue;
+            }
+            int start = Math.max(0, Math.min(chunkStartSlots[chunk], indices.length - 1));
+            int end = Math.max(start, Math.min(chunkEndSlots[chunk], indices.length - 1));
+            for (int slot = start; slot <= end; slot++) {
+                indices[slot] = next++;
+            }
+        }
+        return indices;
+    }
+
+    private static int countTrue(boolean[] values) {
+        int count = 0;
+        if (values != null) {
+            for (boolean value : values) {
+                if (value) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static int externalSlotCount(boolean[] externalSlots) {
@@ -1733,6 +2331,110 @@ public final class DfcOpenClRuntime {
             inactive[slot] = isExternalSlot(externalSlots, slot) || computedSlot(computedSlots, slot) != null;
         }
         return inactive;
+    }
+
+    public static boolean[] compiledPlanChunkExternalInputs(OpenClCompiledPlan plan, int startSlot, int endSlot) {
+        int length = plan.specs() == null ? 0 : plan.specs().length;
+        boolean[] inputs = new boolean[length];
+        boolean[] visited = new boolean[length];
+        boolean[] visiting = new boolean[length];
+        int safeStart = Math.max(0, Math.min(startSlot, Math.max(0, length - 1)));
+        int safeEnd = Math.max(safeStart, Math.min(endSlot, Math.max(0, length - 1)));
+        for (int slot = safeStart; slot <= safeEnd; slot++) {
+            collectChunkExternalInputs(plan, slot, safeStart, safeEnd, inputs, visited, visiting);
+        }
+        return inputs;
+    }
+
+    private static void collectChunkExternalInputs(OpenClCompiledPlan plan, int slot, int startSlot, int endSlot,
+                                                   boolean[] inputs, boolean[] visited, boolean[] visiting) {
+        if (slot < 0 || slot >= inputs.length) {
+            return;
+        }
+        boolean[] externalSlots = plan.externalSlots();
+        if (slot < startSlot || slot > endSlot || isExternalSlot(externalSlots, slot)) {
+            inputs[slot] = true;
+            return;
+        }
+        if (visited[slot]) {
+            return;
+        }
+        if (visiting[slot]) {
+            throw new IllegalStateException("cyclic compiled chunk dependency at slot " + slot);
+        }
+        visiting[slot] = true;
+        try {
+            ComputedSlot computed = computedSlot(plan.computedSlots(), slot);
+            if (computed != null) {
+                for (int dependency : slotDependencies(computed.slabProgram(), inputs.length)) {
+                    collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
+                }
+                markSlotExpressionDependencies(computed.hoistExpression(), inputs, dependency -> {
+                    collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
+                });
+            } else {
+                collectChunkSlotCoordinateInputs(plan, slot, startSlot, endSlot, inputs, visited, visiting);
+            }
+        } finally {
+            visiting[slot] = false;
+        }
+        visited[slot] = true;
+    }
+
+    private static void collectChunkSlotCoordinateInputs(OpenClCompiledPlan plan, int slot, int startSlot, int endSlot,
+                                                        boolean[] inputs, boolean[] visited, boolean[] visiting) {
+        collectChunkExpressionInputs(expressionAt(plan.slotCoordXExpressions(), slot),
+                plan, startSlot, endSlot, inputs, visited, visiting);
+        collectChunkExpressionInputs(expressionAt(plan.slotCoordYExpressions(), slot),
+                plan, startSlot, endSlot, inputs, visited, visiting);
+        collectChunkExpressionInputs(expressionAt(plan.slotCoordZExpressions(), slot),
+                plan, startSlot, endSlot, inputs, visited, visiting);
+    }
+
+    private static void collectChunkExpressionInputs(String expression, OpenClCompiledPlan plan,
+                                                     int startSlot, int endSlot,
+                                                     boolean[] inputs, boolean[] visited, boolean[] visiting) {
+        markSlotExpressionDependencies(expression, inputs, dependency -> {
+            collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
+        });
+    }
+
+    private static ComputedSlot[] chunkComputedSlots(OpenClCompiledPlan plan, int startSlot, int endSlot) {
+        ComputedSlot[] computedSlots = plan.computedSlots();
+        if (computedSlots == null) {
+            return null;
+        }
+        ComputedSlot[] chunkComputedSlots = Arrays.copyOf(computedSlots, computedSlots.length);
+        for (int slot = 0; slot < chunkComputedSlots.length; slot++) {
+            if (slot < startSlot || slot > endSlot) {
+                chunkComputedSlots[slot] = null;
+            }
+        }
+        return chunkComputedSlots;
+    }
+
+    private static ChunkDescriptorInput chunkDescriptorInput(OpenClCompiledPlan plan, int startSlot, int endSlot) {
+        int length = plan.specs() == null ? 0 : plan.specs().length;
+        NoiseSpec[] specs = Arrays.copyOf(plan.specs(), length);
+        BlendedNoiseSpec[] blendedSpecs = plan.blendedSpecs() == null
+                ? null
+                : Arrays.copyOf(plan.blendedSpecs(), length);
+        boolean[] inactive = new boolean[length];
+        boolean[] externalSlots = plan.externalSlots();
+        ComputedSlot[] computedSlots = plan.computedSlots();
+        for (int slot = 0; slot < length; slot++) {
+            boolean slotInactive = slot < startSlot || slot > endSlot
+                    || isExternalSlot(externalSlots, slot)
+                    || computedSlot(computedSlots, slot) != null;
+            inactive[slot] = slotInactive;
+            if (slotInactive) {
+                specs[slot] = null;
+                if (blendedSpecs != null) {
+                    blendedSpecs[slot] = null;
+                }
+            }
+        }
+        return new ChunkDescriptorInput(specs, blendedSpecs, inactive);
     }
 
     private static boolean isExternalSlot(boolean[] externalSlots, int slot) {
@@ -1790,6 +2492,38 @@ public final class DfcOpenClRuntime {
             }
         }
         return dependencies;
+    }
+
+    private static String expressionAt(String[] expressions, int slot) {
+        return expressions != null && slot >= 0 && slot < expressions.length ? expressions[slot] : null;
+    }
+
+    private static void markSlotExpressionDependencies(String expression, boolean[] bounds, IntConsumer dependency) {
+        if (expression == null || expression.indexOf("slot") < 0) {
+            return;
+        }
+        for (int i = 0; i < expression.length() - 4; i++) {
+            if (expression.charAt(i) != 's'
+                    || expression.charAt(i + 1) != 'l'
+                    || expression.charAt(i + 2) != 'o'
+                    || expression.charAt(i + 3) != 't') {
+                continue;
+            }
+            int digit = i + 4;
+            if (digit >= expression.length() || !Character.isDigit(expression.charAt(digit))) {
+                continue;
+            }
+            int value = 0;
+            int end = digit;
+            while (end < expression.length() && Character.isDigit(expression.charAt(end))) {
+                value = value * 10 + (expression.charAt(end) - '0');
+                end++;
+            }
+            if (value >= 0 && value < bounds.length) {
+                dependency.accept(value);
+            }
+            i = end;
+        }
     }
 
     private static String formatMillis(long nanos) {
@@ -1966,6 +2700,29 @@ public final class DfcOpenClRuntime {
         private static SlabVmCellBenchmark failed(DfcOpenClDeviceInfo device, String message) {
             return new SlabVmCellBenchmark(false, device, 0, 0, 0, 0, 0, 0, 0L, 0L, 0L, 0L, 0L, message);
         }
+    }
+
+    public record GeneratedSourceCompileProbe(
+            boolean passed,
+            DfcOpenClDeviceInfo device,
+            int startSlot,
+            int endSlot,
+            long compileNanos,
+            int sourceChars,
+            int totalNoiseOctaves,
+            int coordScaleTemps,
+            int coordScaleRefs,
+            String message) {
+
+        private static GeneratedSourceCompileProbe failed(DfcOpenClDeviceInfo device, String message) {
+            return new GeneratedSourceCompileProbe(false, device, 0, 0, 0L, 0, 0, 0, 0, message);
+        }
+    }
+
+    private record ChunkDescriptorInput(
+            NoiseSpec[] specs,
+            BlendedNoiseSpec[] blendedSpecs,
+            boolean[] inactiveSlots) {
     }
 
     @FunctionalInterface

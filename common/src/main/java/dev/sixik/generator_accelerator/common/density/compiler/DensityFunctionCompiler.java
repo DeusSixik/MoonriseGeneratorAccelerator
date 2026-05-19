@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -53,6 +54,9 @@ public final class DensityFunctionCompiler {
     private static final int OPENCL_SOURCE_BENCH_MAX_SLOTS = 16;
     private static final int OPENCL_SOURCE_BENCH_MAX_OCTAVES = 32;
     private static final int OPENCL_SOURCE_BENCH_MAX_COMPUTED = 8;
+    private static final int OPENCL_FINAL_CHUNK_MAX_SLOTS = 8;
+    private static final int OPENCL_FINAL_CHUNK_MAX_OCTAVES = 16;
+    private static final int OPENCL_FINAL_CHUNK_MAX_COMPUTED = 2;
 
     private static volatile boolean initialized;
 
@@ -702,6 +706,26 @@ public final class DensityFunctionCompiler {
                                 .executes(context -> sendOpenClCompiledPlanCandidates(context.getSource())))
                         .then(Commands.literal("compiledfinaldensitychunks")
                                 .executes(context -> sendOpenClCompiledFinalDensityChunks(context.getSource())))
+                        .then(Commands.literal("compiledfinaldensitychunkdeps")
+                                .executes(context -> sendOpenClCompiledFinalDensityChunkDeps(context.getSource())))
+                        .then(Commands.literal("compiledfinaldensitychunkwaves")
+                                .executes(context -> sendOpenClCompiledFinalDensityChunkWaves(context.getSource())))
+                        .then(Commands.literal("compiledfinaldensitywavesbench")
+                                .executes(context -> runOpenClCompiledFinalDensityWavesBench(
+                                        context.getSource(), 4, 8, 8192, 8, 2, false)))
+                        .then(Commands.literal("compiledfinaldensitywavescompactbench")
+                                .executes(context -> runOpenClCompiledFinalDensityWavesBench(
+                                        context.getSource(), 4, 8, 8192, 8, 2, true)))
+                        .then(Commands.literal("compiledfinaldensitychunkcompile")
+                                .then(Commands.argument("chunk", IntegerArgumentType.integer(0, 255))
+                                        .executes(context -> runOpenClCompiledFinalDensityChunkCompileProbe(
+                                                context.getSource(),
+                                                IntegerArgumentType.getInteger(context, "chunk")))))
+                        .then(Commands.literal("compiledfinaldensitychunkbench")
+                                .then(Commands.argument("chunk", IntegerArgumentType.integer(0, 255))
+                                        .executes(context -> runOpenClCompiledFinalDensityChunkBench(
+                                                context.getSource(), 4, 8, 8192, 8, 2,
+                                                IntegerArgumentType.getInteger(context, "chunk")))))
                         .then(Commands.literal("compiledplanexterns")
                                 .executes(context -> sendOpenClCompiledPlanExterns(context.getSource())))
                         .then(Commands.literal("stats")
@@ -1753,9 +1777,9 @@ public final class DensityFunctionCompiler {
                             + ", greedyChunks=" + chunks.size()
                             + ", chunkedSlots=" + finalChunkedSlots + "/" + slots
                             + ", blockedSlots=" + blockedSlots.size()
-                            + ", caps=slots<=" + OPENCL_SOURCE_BENCH_MAX_SLOTS
-                            + "/octaves<=" + OPENCL_SOURCE_BENCH_MAX_OCTAVES
-                            + "/computed<=" + OPENCL_SOURCE_BENCH_MAX_COMPUTED
+                            + ", caps=slots<=" + OPENCL_FINAL_CHUNK_MAX_SLOTS
+                            + "/octaves<=" + OPENCL_FINAL_CHUNK_MAX_OCTAVES
+                            + "/computed<=" + OPENCL_FINAL_CHUNK_MAX_COMPUTED
                             + "/external=0"),
                     false);
 
@@ -1763,9 +1787,12 @@ public final class DensityFunctionCompiler {
             for (int i = 0; i < chunkLimit; i++) {
                 int chunkIndex = i;
                 OpenClCompiledPlanChunk chunk = chunks.get(i);
+                boolean[] inputs = DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                        plan, chunk.startSlot(), chunk.endSlot());
                 source.sendSuccess(() -> Component.literal(
                         "DFC OpenCL finalDensity chunk[" + chunkIndex + "]: "
-                                + describeOpenClCompiledPlanChunk(chunk)),
+                                + describeOpenClCompiledPlanChunk(chunk)
+                                + ", inputs=" + describeOpenClSlotSet(inputs, 8)),
                         false);
             }
             if (chunks.size() > chunkLimit) {
@@ -1796,6 +1823,293 @@ public final class DensityFunctionCompiler {
                     "DFC OpenCL finalDensity chunks: " + formatThrowable(throwable)));
             return 0;
         }
+    }
+
+    private static int sendOpenClCompiledFinalDensityChunkDeps(CommandSourceStack source) {
+        try {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = collectOpenClCompiledFinalDensityPlan(source);
+            List<OpenClCompiledPlanChunk> chunks = new ArrayList<>();
+            List<Integer> blockedSlots = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, blockedSlots);
+
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            int[] slotOwners = buildOpenClChunkSlotOwners(chunks, slots);
+            List<boolean[]> chunkInputs = new ArrayList<>(chunks.size());
+            int readyChunks = 0;
+            int waitingChunks = 0;
+            int blockedInputRefs = 0;
+            int producerEdges = 0;
+            for (OpenClCompiledPlanChunk chunk : chunks) {
+                boolean[] inputs = DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                        plan, chunk.startSlot(), chunk.endSlot());
+                chunkInputs.add(inputs);
+                if (countTrue(inputs) == 0) {
+                    readyChunks++;
+                } else {
+                    waitingChunks++;
+                }
+                blockedInputRefs += countOpenClBlockedInputs(inputs, slotOwners);
+                producerEdges += countOpenClChunkProducerChunks(inputs, slotOwners);
+            }
+
+            int finalReadyChunks = readyChunks;
+            int finalWaitingChunks = waitingChunks;
+            int finalBlockedInputRefs = blockedInputRefs;
+            int finalProducerEdges = producerEdges;
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL finalDensity chunk deps: chunks=" + chunks.size()
+                            + ", ready=" + finalReadyChunks
+                            + ", waiting=" + finalWaitingChunks
+                            + ", producerEdges=" + finalProducerEdges
+                            + ", blockedInputRefs=" + finalBlockedInputRefs
+                            + ", blockedSlots=" + blockedSlots.size()),
+                    false);
+
+            int chunkLimit = Math.min(chunks.size(), 32);
+            for (int i = 0; i < chunkLimit; i++) {
+                int chunkIndex = i;
+                OpenClCompiledPlanChunk chunk = chunks.get(i);
+                boolean[] inputs = chunkInputs.get(i);
+                int blockedInputs = countOpenClBlockedInputs(inputs, slotOwners);
+                String state = countTrue(inputs) == 0 ? "ready" : blockedInputs == 0 ? "staged" : "blocked";
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunk deps[" + chunkIndex + "]: "
+                                + describeOpenClCompiledPlanChunk(chunk)
+                                + ", inputs=" + describeOpenClSlotSet(inputs, 8)
+                                + ", producerChunks=" + describeOpenClChunkProducerSet(inputs, slotOwners, 8)
+                                + ", blockedInputs=" + describeOpenClBlockedInputSet(inputs, slotOwners, 8)
+                                + ", state=" + state),
+                        false);
+            }
+            if (chunks.size() > chunkLimit) {
+                int hiddenChunks = chunks.size() - chunkLimit;
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunk deps: +" + hiddenChunks + " more chunk(s) hidden."),
+                        false);
+            }
+            return chunks.size();
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity chunk deps: " + formatThrowable(throwable)));
+            return 0;
+        }
+    }
+
+    private static int sendOpenClCompiledFinalDensityChunkWaves(CommandSourceStack source) {
+        try {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = collectOpenClCompiledFinalDensityPlan(source);
+            List<OpenClCompiledPlanChunk> chunks = new ArrayList<>();
+            List<Integer> blockedSlots = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, blockedSlots);
+
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            int[] slotOwners = buildOpenClChunkSlotOwners(chunks, slots);
+            List<boolean[]> chunkInputs = new ArrayList<>(chunks.size());
+            for (OpenClCompiledPlanChunk chunk : chunks) {
+                chunkInputs.add(DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                        plan, chunk.startSlot(), chunk.endSlot()));
+            }
+
+            OpenClChunkWavePlan wavePlan = collectOpenClChunkWaves(chunkInputs, slotOwners);
+            boolean[] blockedInputUnion = collectOpenClBlockedInputUnion(chunkInputs, slotOwners);
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL finalDensity chunk waves: chunks=" + chunks.size()
+                            + ", waves=" + wavePlan.waves().size()
+                            + ", scheduled=" + countTrue(wavePlan.scheduledChunks())
+                            + ", directBlocked=" + describeOpenClSlotSet(wavePlan.directBlockedChunks(), 12)
+                            + ", stalled=" + describeOpenClSlotSet(wavePlan.stalledChunks(), 12)
+                            + ", blockedInputs=" + describeOpenClSlotSet(blockedInputUnion, 12)
+                            + ", blockedSlots=" + blockedSlots.size()),
+                    false);
+
+            int waveLimit = Math.min(wavePlan.waves().size(), 16);
+            for (int i = 0; i < waveLimit; i++) {
+                int waveIndex = i;
+                boolean[] wave = wavePlan.waves().get(i);
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunk wave[" + waveIndex + "]: chunks="
+                                + describeOpenClSlotSet(wave, 16)),
+                        false);
+            }
+            if (wavePlan.waves().size() > waveLimit) {
+                int hiddenWaves = wavePlan.waves().size() - waveLimit;
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunk waves: +" + hiddenWaves + " more wave(s) hidden."),
+                        false);
+            }
+            return countTrue(wavePlan.scheduledChunks());
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity chunk waves: " + formatThrowable(throwable)));
+            return 0;
+        }
+    }
+
+    private static int runOpenClCompiledFinalDensityWavesBench(CommandSourceStack source, int cellWidth,
+                                                               int cellHeight, int cells, int iterations,
+                                                               int warmups, boolean compactSlotBuffer) {
+        DfcOpenClRuntime.OpenClCompiledPlan plan;
+        List<OpenClCompiledPlanChunk> chunks;
+        OpenClChunkWavePlan wavePlan;
+        int[] chunkStartSlots;
+        int[] chunkEndSlots;
+        try {
+            plan = collectOpenClCompiledFinalDensityPlan(source);
+            chunks = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, new ArrayList<>());
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            int[] slotOwners = buildOpenClChunkSlotOwners(chunks, slots);
+            List<boolean[]> chunkInputs = new ArrayList<>(chunks.size());
+            for (OpenClCompiledPlanChunk chunk : chunks) {
+                chunkInputs.add(DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                        plan, chunk.startSlot(), chunk.endSlot()));
+            }
+            wavePlan = collectOpenClChunkWaves(chunkInputs, slotOwners);
+            chunkStartSlots = new int[chunks.size()];
+            chunkEndSlots = new int[chunks.size()];
+            for (int i = 0; i < chunks.size(); i++) {
+                chunkStartSlots[i] = chunks.get(i).startSlot();
+                chunkEndSlots[i] = chunks.get(i).endSlot();
+            }
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity waves" + (compactSlotBuffer ? " compact" : "")
+                            + " bench: " + formatThrowable(throwable)));
+            return 0;
+        }
+
+        String label = "finalDensity waves" + (compactSlotBuffer ? " compact" : "") + " bench";
+        boolean[][] waves = wavePlan.waves().toArray(new boolean[0][]);
+        int scheduledChunks = countTrue(wavePlan.scheduledChunks());
+        int scheduledSlots = countOpenClScheduledChunkSlots(chunks, wavePlan.scheduledChunks());
+        int totalChunks = chunks.size();
+        int directBlockedChunks = countTrue(wavePlan.directBlockedChunks());
+        int stalledChunks = countTrue(wavePlan.stalledChunks());
+        return runOpenClDiagnostic(source, label, () -> {
+            DfcOpenClRuntime.SlabVmCellBenchmark result = compactSlotBuffer
+                    ? DfcOpenClRuntime.compiledPlanChunkWavesCompactSourceBenchmark(
+                    plan, chunkStartSlots, chunkEndSlots, waves,
+                    directBlockedChunks, stalledChunks,
+                    cellWidth, cellHeight, cells, iterations, warmups)
+                    : DfcOpenClRuntime.compiledPlanChunkWavesSourceBenchmark(
+                            plan, chunkStartSlots, chunkEndSlots, waves,
+                            directBlockedChunks, stalledChunks,
+                            cellWidth, cellHeight, cells, iterations, warmups);
+            return Component.literal(
+                    "DFC OpenCL " + label + ": passed=" + result.passed()
+                            + ", waves=" + waves.length
+                            + ", chunks=" + scheduledChunks + "/" + totalChunks
+                            + ", slotsComputed=" + scheduledSlots
+                            + ", directBlocked=" + describeOpenClSlotSet(wavePlan.directBlockedChunks(), 12)
+                            + ", stalled=" + describeOpenClSlotSet(wavePlan.stalledChunks(), 12)
+                            + ", cellWidth=" + result.cellWidth()
+                            + ", cellHeight=" + result.cellHeight()
+                            + ", cells=" + result.cells()
+                            + ", iterations=" + result.iterations()
+                            + ", warmups=" + result.warmups()
+                            + ", elementsPerIter=" + result.elementsPerIteration()
+                            + ", totalElements=" + result.totalElements()
+                            + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                            + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                            + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                            + ", avgSlotValueNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                            + ", bestSlotValueNs=" + formatAverageNanos(
+                            result.bestNanos(), result.elementsPerIteration())
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
+    }
+
+    private static int runOpenClCompiledFinalDensityChunkCompileProbe(CommandSourceStack source, int chunkIndex) {
+        DfcOpenClRuntime.OpenClCompiledPlan plan;
+        OpenClCompiledPlanChunk chunk;
+        try {
+            plan = collectOpenClCompiledFinalDensityPlan(source);
+            List<OpenClCompiledPlanChunk> chunks = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, new ArrayList<>());
+            if (chunkIndex < 0 || chunkIndex >= chunks.size()) {
+                source.sendFailure(Component.literal(
+                        "DFC OpenCL finalDensity chunk source compile: chunk " + chunkIndex
+                                + " is out of range 0.." + Math.max(0, chunks.size() - 1)));
+                return 0;
+            }
+            chunk = chunks.get(chunkIndex);
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity chunk source compile: " + formatThrowable(throwable)));
+            return 0;
+        }
+
+        return runOpenClDiagnostic(source, "finalDensity chunk source compile", () -> {
+            DfcOpenClRuntime.GeneratedSourceCompileProbe result =
+                    DfcOpenClRuntime.compiledPlanChunkSourceCompileProbe(
+                            plan, chunk.startSlot(), chunk.endSlot());
+            boolean[] inputs = DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                    plan, chunk.startSlot(), chunk.endSlot());
+            return Component.literal(
+                    "DFC OpenCL finalDensity chunk source compile: passed=" + result.passed()
+                            + ", chunk=" + chunkIndex
+                            + ", " + describeOpenClCompiledPlanChunk(chunk)
+                            + ", inputs=" + describeOpenClSlotSet(inputs, 12)
+                            + ", compileMs=" + formatNanosMillis(result.compileNanos())
+                            + ", sourceChars=" + result.sourceChars()
+                            + ", totalNoiseOctaves=" + result.totalNoiseOctaves()
+                            + ", coordTemps=" + result.coordScaleTemps()
+                            + ", coordTempRefs=" + result.coordScaleRefs()
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
+    }
+
+    private static int runOpenClCompiledFinalDensityChunkBench(CommandSourceStack source, int cellWidth,
+                                                               int cellHeight, int cells, int iterations,
+                                                               int warmups, int chunkIndex) {
+        DfcOpenClRuntime.OpenClCompiledPlan plan;
+        OpenClCompiledPlanChunk chunk;
+        try {
+            plan = collectOpenClCompiledFinalDensityPlan(source);
+            List<OpenClCompiledPlanChunk> chunks = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, new ArrayList<>());
+            if (chunkIndex < 0 || chunkIndex >= chunks.size()) {
+                source.sendFailure(Component.literal(
+                        "DFC OpenCL finalDensity chunk source bench: chunk " + chunkIndex
+                                + " is out of range 0.." + Math.max(0, chunks.size() - 1)));
+                return 0;
+            }
+            chunk = chunks.get(chunkIndex);
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity chunk source bench: " + formatThrowable(throwable)));
+            return 0;
+        }
+
+        return runOpenClDiagnostic(source, "finalDensity chunk source bench", () -> {
+            DfcOpenClRuntime.SlabVmCellBenchmark result =
+                    DfcOpenClRuntime.compiledPlanChunkSourceBenchmark(
+                            plan, chunk.startSlot(), chunk.endSlot(),
+                            cellWidth, cellHeight, cells, iterations, warmups);
+            boolean[] inputs = DfcOpenClRuntime.compiledPlanChunkExternalInputs(
+                    plan, chunk.startSlot(), chunk.endSlot());
+            return Component.literal(
+                    "DFC OpenCL finalDensity chunk source bench: passed=" + result.passed()
+                            + ", chunk=" + chunkIndex
+                            + ", " + describeOpenClCompiledPlanChunk(chunk)
+                            + ", inputs=" + describeOpenClSlotSet(inputs, 12)
+                            + ", cellWidth=" + result.cellWidth()
+                            + ", cellHeight=" + result.cellHeight()
+                            + ", cells=" + result.cells()
+                            + ", iterations=" + result.iterations()
+                            + ", warmups=" + result.warmups()
+                            + ", elementsPerIter=" + result.elementsPerIteration()
+                            + ", totalElements=" + result.totalElements()
+                            + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                            + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                            + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                            + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                            + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
     }
 
     private static int sendOpenClCompiledPlanCandidates(CommandSourceStack source) {
@@ -2023,9 +2337,9 @@ public final class DensityFunctionCompiler {
                 continue;
             }
             if (count > 0
-                    && (count + 1 > OPENCL_SOURCE_BENCH_MAX_SLOTS
-                    || octaves + slotOctaves > OPENCL_SOURCE_BENCH_MAX_OCTAVES
-                    || computed + slotComputed > OPENCL_SOURCE_BENCH_MAX_COMPUTED)) {
+                    && (count + 1 > OPENCL_FINAL_CHUNK_MAX_SLOTS
+                    || octaves + slotOctaves > OPENCL_FINAL_CHUNK_MAX_OCTAVES
+                    || computed + slotComputed > OPENCL_FINAL_CHUNK_MAX_COMPUTED)) {
                 chunks.add(new OpenClCompiledPlanChunk(start, slot - 1, count, octaves, computed));
                 start = -1;
                 count = 0;
@@ -2046,10 +2360,198 @@ public final class DensityFunctionCompiler {
 
     private static String describeOpenClCompiledPlanChunk(OpenClCompiledPlanChunk chunk) {
         return "slots=" + chunk.startSlot() + ".." + chunk.endSlot()
-                + ", count=" + chunk.count() + "/" + OPENCL_SOURCE_BENCH_MAX_SLOTS
-                + ", octaves=" + chunk.octaves() + "/" + OPENCL_SOURCE_BENCH_MAX_OCTAVES
-                + ", computed=" + chunk.computed() + "/" + OPENCL_SOURCE_BENCH_MAX_COMPUTED
+                + ", count=" + chunk.count() + "/" + OPENCL_FINAL_CHUNK_MAX_SLOTS
+                + ", octaves=" + chunk.octaves() + "/" + OPENCL_FINAL_CHUNK_MAX_OCTAVES
+                + ", computed=" + chunk.computed() + "/" + OPENCL_FINAL_CHUNK_MAX_COMPUTED
                 + ", external=0";
+    }
+
+    private static String describeOpenClSlotSet(boolean[] slots, int limit) {
+        int total = countTrue(slots);
+        if (total == 0) {
+            return "0[]";
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(total).append('[');
+        int emitted = 0;
+        for (int slot = 0; slot < slots.length && emitted < limit; slot++) {
+            if (!slots[slot]) {
+                continue;
+            }
+            if (emitted > 0) {
+                out.append(',');
+            }
+            out.append(slot);
+            emitted++;
+        }
+        if (total > emitted) {
+            out.append(",+").append(total - emitted);
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    private static int[] buildOpenClChunkSlotOwners(List<OpenClCompiledPlanChunk> chunks, int slots) {
+        int[] owners = new int[Math.max(0, slots)];
+        Arrays.fill(owners, -1);
+        for (int chunkIndex = 0; chunkIndex < chunks.size(); chunkIndex++) {
+            OpenClCompiledPlanChunk chunk = chunks.get(chunkIndex);
+            int start = Math.max(0, chunk.startSlot());
+            int end = Math.min(owners.length - 1, chunk.endSlot());
+            for (int slot = start; slot <= end; slot++) {
+                owners[slot] = chunkIndex;
+            }
+        }
+        return owners;
+    }
+
+    static String describeOpenClChunkProducerSet(boolean[] inputs, int[] slotOwners, int limit) {
+        return describeOpenClSlotSet(openClChunkProducerMask(inputs, slotOwners), limit);
+    }
+
+    static String describeOpenClBlockedInputSet(boolean[] inputs, int[] slotOwners, int limit) {
+        return describeOpenClSlotSet(openClBlockedInputMask(inputs, slotOwners), limit);
+    }
+
+    private static int countOpenClChunkProducerChunks(boolean[] inputs, int[] slotOwners) {
+        return countTrue(openClChunkProducerMask(inputs, slotOwners));
+    }
+
+    private static int countOpenClBlockedInputs(boolean[] inputs, int[] slotOwners) {
+        return countTrue(openClBlockedInputMask(inputs, slotOwners));
+    }
+
+    private static int countOpenClScheduledChunkSlots(List<OpenClCompiledPlanChunk> chunks, boolean[] scheduledChunks) {
+        int count = 0;
+        int limit = Math.min(chunks.size(), scheduledChunks == null ? 0 : scheduledChunks.length);
+        for (int chunk = 0; chunk < limit; chunk++) {
+            if (scheduledChunks[chunk]) {
+                count += chunks.get(chunk).count();
+            }
+        }
+        return count;
+    }
+
+    static OpenClChunkWavePlan collectOpenClChunkWaves(List<boolean[]> chunkInputs, int[] slotOwners) {
+        int chunkCount = chunkInputs == null ? 0 : chunkInputs.size();
+        boolean[] scheduledChunks = new boolean[chunkCount];
+        boolean[] directBlockedChunks = new boolean[chunkCount];
+        for (int chunk = 0; chunk < chunkCount; chunk++) {
+            directBlockedChunks[chunk] = countOpenClBlockedInputs(chunkInputs.get(chunk), slotOwners) > 0;
+        }
+
+        List<boolean[]> waves = new ArrayList<>();
+        while (true) {
+            boolean[] wave = new boolean[chunkCount];
+            int waveChunks = 0;
+            for (int chunk = 0; chunk < chunkCount; chunk++) {
+                if (scheduledChunks[chunk] || directBlockedChunks[chunk]) {
+                    continue;
+                }
+                if (openClChunkInputsReady(chunkInputs.get(chunk), slotOwners, scheduledChunks)) {
+                    wave[chunk] = true;
+                    waveChunks++;
+                }
+            }
+            if (waveChunks == 0) {
+                break;
+            }
+            waves.add(wave);
+            for (int chunk = 0; chunk < wave.length; chunk++) {
+                scheduledChunks[chunk] |= wave[chunk];
+            }
+        }
+
+        boolean[] stalledChunks = new boolean[chunkCount];
+        for (int chunk = 0; chunk < chunkCount; chunk++) {
+            stalledChunks[chunk] = !scheduledChunks[chunk] && !directBlockedChunks[chunk];
+        }
+        return new OpenClChunkWavePlan(waves, scheduledChunks, directBlockedChunks, stalledChunks);
+    }
+
+    private static boolean openClChunkInputsReady(boolean[] inputs, int[] slotOwners, boolean[] scheduledChunks) {
+        if (inputs == null) {
+            return true;
+        }
+        for (int slot = 0; slot < inputs.length; slot++) {
+            if (!inputs[slot]) {
+                continue;
+            }
+            int owner = openClSlotOwner(slotOwners, slot);
+            if (owner < 0 || owner >= scheduledChunks.length || !scheduledChunks[owner]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean[] collectOpenClBlockedInputUnion(List<boolean[]> chunkInputs, int[] slotOwners) {
+        int slots = slotOwners == null ? 0 : slotOwners.length;
+        boolean[] blockedInputs = new boolean[slots];
+        if (chunkInputs == null) {
+            return blockedInputs;
+        }
+        for (boolean[] inputs : chunkInputs) {
+            boolean[] chunkBlockedInputs = openClBlockedInputMask(inputs, slotOwners);
+            int limit = Math.min(blockedInputs.length, chunkBlockedInputs.length);
+            for (int slot = 0; slot < limit; slot++) {
+                blockedInputs[slot] |= chunkBlockedInputs[slot];
+            }
+        }
+        return blockedInputs;
+    }
+
+    private static boolean[] openClChunkProducerMask(boolean[] inputs, int[] slotOwners) {
+        int maxOwner = -1;
+        if (slotOwners != null) {
+            for (int owner : slotOwners) {
+                maxOwner = Math.max(maxOwner, owner);
+            }
+        }
+        boolean[] producers = new boolean[Math.max(0, maxOwner + 1)];
+        if (inputs == null) {
+            return producers;
+        }
+        for (int slot = 0; slot < inputs.length; slot++) {
+            if (!inputs[slot]) {
+                continue;
+            }
+            int owner = openClSlotOwner(slotOwners, slot);
+            if (owner >= 0 && owner < producers.length) {
+                producers[owner] = true;
+            }
+        }
+        return producers;
+    }
+
+    private static boolean[] openClBlockedInputMask(boolean[] inputs, int[] slotOwners) {
+        if (inputs == null) {
+            return new boolean[0];
+        }
+        boolean[] blockedInputs = new boolean[inputs.length];
+        for (int slot = 0; slot < inputs.length; slot++) {
+            blockedInputs[slot] = inputs[slot] && openClSlotOwner(slotOwners, slot) < 0;
+        }
+        return blockedInputs;
+    }
+
+    private static int openClSlotOwner(int[] slotOwners, int slot) {
+        if (slotOwners == null || slot < 0 || slot >= slotOwners.length) {
+            return -1;
+        }
+        return slotOwners[slot];
+    }
+
+    private static int countTrue(boolean[] values) {
+        int count = 0;
+        if (values != null) {
+            for (boolean value : values) {
+                if (value) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static String describeOpenClCompiledPlanBlockedSlot(
@@ -2071,11 +2573,11 @@ public final class DensityFunctionCompiler {
         List<String> reasons = new ArrayList<>(4);
         int octaves = countActiveOctaves(plan, slot);
         int computed = hasComputedSlot(plan.computedSlots(), slot) ? 1 : 0;
-        if (octaves > OPENCL_SOURCE_BENCH_MAX_OCTAVES) {
-            reasons.add("octaves " + octaves + ">" + OPENCL_SOURCE_BENCH_MAX_OCTAVES);
+        if (octaves > OPENCL_FINAL_CHUNK_MAX_OCTAVES) {
+            reasons.add("octaves " + octaves + ">" + OPENCL_FINAL_CHUNK_MAX_OCTAVES);
         }
-        if (computed > OPENCL_SOURCE_BENCH_MAX_COMPUTED) {
-            reasons.add("computed " + computed + ">" + OPENCL_SOURCE_BENCH_MAX_COMPUTED);
+        if (computed > OPENCL_FINAL_CHUNK_MAX_COMPUTED) {
+            reasons.add("computed " + computed + ">" + OPENCL_FINAL_CHUNK_MAX_COMPUTED);
         }
         if (isExternalSlot(plan.externalSlots(), slot)) {
             reasons.add("external");
@@ -2311,6 +2813,10 @@ public final class DensityFunctionCompiler {
     }
 
     private record OpenClCompiledPlanChunk(int startSlot, int endSlot, int count, int octaves, int computed) {
+    }
+
+    record OpenClChunkWavePlan(List<boolean[]> waves, boolean[] scheduledChunks, boolean[] directBlockedChunks,
+                               boolean[] stalledChunks) {
     }
 
     private static NormalNoise[] collectOpenClRealNoises(CommandSourceStack source, int requestedSlots) {
