@@ -700,6 +700,8 @@ public final class DensityFunctionCompiler {
                                         context.getSource(), 4, 8, 8192, 8, 2)))
                         .then(Commands.literal("compiledplancandidates")
                                 .executes(context -> sendOpenClCompiledPlanCandidates(context.getSource())))
+                        .then(Commands.literal("compiledfinaldensitychunks")
+                                .executes(context -> sendOpenClCompiledFinalDensityChunks(context.getSource())))
                         .then(Commands.literal("compiledplanexterns")
                                 .executes(context -> sendOpenClCompiledPlanExterns(context.getSource())))
                         .then(Commands.literal("stats")
@@ -1615,16 +1617,7 @@ public final class DensityFunctionCompiler {
                                                                               int warmups) {
         DfcOpenClRuntime.OpenClCompiledPlan plan;
         try {
-            NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
-            List<String> failures = new ArrayList<>();
-            plan = tryCollectOpenClCompiledPlan(
-                    new RouterDensityCandidate("finalDensity", router.finalDensity()), failures);
-            if (plan == null) {
-                source.sendFailure(Component.literal(
-                        "DFC OpenCL compiled finalDensity source no-read bench: "
-                                + limitedFailureSummary(failures, 4)));
-                return 0;
-            }
+            plan = collectOpenClCompiledFinalDensityPlan(source);
         } catch (Throwable throwable) {
             source.sendFailure(Component.literal(
                     "DFC OpenCL compiled finalDensity source no-read bench: " + formatThrowable(throwable)));
@@ -1728,6 +1721,81 @@ public final class DensityFunctionCompiler {
         }
         throw new IllegalStateException("no source-bench-safe router density field has an OpenCL diagnostic plan: "
                 + limitedFailureSummary(failures, 8));
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan collectOpenClCompiledFinalDensityPlan(
+            CommandSourceStack source) {
+        NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+        List<String> failures = new ArrayList<>();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = tryCollectOpenClCompiledPlan(
+                new RouterDensityCandidate("finalDensity", router.finalDensity()), failures);
+        if (plan != null) {
+            return plan;
+        }
+        throw new IllegalStateException(limitedFailureSummary(failures, 4));
+    }
+
+    private static int sendOpenClCompiledFinalDensityChunks(CommandSourceStack source) {
+        try {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = collectOpenClCompiledFinalDensityPlan(source);
+            List<OpenClCompiledPlanChunk> chunks = new ArrayList<>();
+            List<Integer> blockedSlots = new ArrayList<>();
+            collectOpenClCompiledPlanChunks(plan, chunks, blockedSlots);
+
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            int chunkedSlots = 0;
+            for (OpenClCompiledPlanChunk chunk : chunks) {
+                chunkedSlots += chunk.count();
+            }
+            int finalChunkedSlots = chunkedSlots;
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL finalDensity chunks: " + describeOpenClCompiledPlanSourceLimits(plan)
+                            + ", greedyChunks=" + chunks.size()
+                            + ", chunkedSlots=" + finalChunkedSlots + "/" + slots
+                            + ", blockedSlots=" + blockedSlots.size()
+                            + ", caps=slots<=" + OPENCL_SOURCE_BENCH_MAX_SLOTS
+                            + "/octaves<=" + OPENCL_SOURCE_BENCH_MAX_OCTAVES
+                            + "/computed<=" + OPENCL_SOURCE_BENCH_MAX_COMPUTED
+                            + "/external=0"),
+                    false);
+
+            int chunkLimit = Math.min(chunks.size(), 32);
+            for (int i = 0; i < chunkLimit; i++) {
+                int chunkIndex = i;
+                OpenClCompiledPlanChunk chunk = chunks.get(i);
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunk[" + chunkIndex + "]: "
+                                + describeOpenClCompiledPlanChunk(chunk)),
+                        false);
+            }
+            if (chunks.size() > chunkLimit) {
+                int hiddenChunks = chunks.size() - chunkLimit;
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity chunks: +" + hiddenChunks + " more chunk(s) hidden."),
+                        false);
+            }
+
+            int blockedLimit = Math.min(blockedSlots.size(), 16);
+            for (int i = 0; i < blockedLimit; i++) {
+                int blockedIndex = i;
+                int slot = blockedSlots.get(i);
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity blocked[" + blockedIndex + "]: "
+                                + describeOpenClCompiledPlanBlockedSlot(plan, slot)),
+                        false);
+            }
+            if (blockedSlots.size() > blockedLimit) {
+                int hiddenBlocked = blockedSlots.size() - blockedLimit;
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL finalDensity blocked: +" + hiddenBlocked + " more slot(s) hidden."),
+                        false);
+            }
+            return chunks.size();
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL finalDensity chunks: " + formatThrowable(throwable)));
+            return 0;
+        }
     }
 
     private static int sendOpenClCompiledPlanCandidates(CommandSourceStack source) {
@@ -1932,6 +2000,89 @@ public final class DensityFunctionCompiler {
                 + ", external=" + countExternalSlots(plan.externalSlots(), slots) + "/0";
     }
 
+    private static void collectOpenClCompiledPlanChunks(DfcOpenClRuntime.OpenClCompiledPlan plan,
+                                                        List<OpenClCompiledPlanChunk> chunks,
+                                                        List<Integer> blockedSlots) {
+        int slots = plan.specs() == null ? 0 : plan.specs().length;
+        int start = -1;
+        int count = 0;
+        int octaves = 0;
+        int computed = 0;
+        for (int slot = 0; slot < slots; slot++) {
+            int slotOctaves = countActiveOctaves(plan, slot);
+            int slotComputed = hasComputedSlot(plan.computedSlots(), slot) ? 1 : 0;
+            if (openClCompiledPlanSlotChunkRejection(plan, slot) != null) {
+                if (count > 0) {
+                    chunks.add(new OpenClCompiledPlanChunk(start, slot - 1, count, octaves, computed));
+                    start = -1;
+                    count = 0;
+                    octaves = 0;
+                    computed = 0;
+                }
+                blockedSlots.add(slot);
+                continue;
+            }
+            if (count > 0
+                    && (count + 1 > OPENCL_SOURCE_BENCH_MAX_SLOTS
+                    || octaves + slotOctaves > OPENCL_SOURCE_BENCH_MAX_OCTAVES
+                    || computed + slotComputed > OPENCL_SOURCE_BENCH_MAX_COMPUTED)) {
+                chunks.add(new OpenClCompiledPlanChunk(start, slot - 1, count, octaves, computed));
+                start = -1;
+                count = 0;
+                octaves = 0;
+                computed = 0;
+            }
+            if (count == 0) {
+                start = slot;
+            }
+            count++;
+            octaves += slotOctaves;
+            computed += slotComputed;
+        }
+        if (count > 0) {
+            chunks.add(new OpenClCompiledPlanChunk(start, slots - 1, count, octaves, computed));
+        }
+    }
+
+    private static String describeOpenClCompiledPlanChunk(OpenClCompiledPlanChunk chunk) {
+        return "slots=" + chunk.startSlot() + ".." + chunk.endSlot()
+                + ", count=" + chunk.count() + "/" + OPENCL_SOURCE_BENCH_MAX_SLOTS
+                + ", octaves=" + chunk.octaves() + "/" + OPENCL_SOURCE_BENCH_MAX_OCTAVES
+                + ", computed=" + chunk.computed() + "/" + OPENCL_SOURCE_BENCH_MAX_COMPUTED
+                + ", external=0";
+    }
+
+    private static String describeOpenClCompiledPlanBlockedSlot(
+            DfcOpenClRuntime.OpenClCompiledPlan plan, int slot) {
+        StringBuilder out = new StringBuilder();
+        out.append("slot=").append(slot)
+                .append(", octaves=").append(countActiveOctaves(plan, slot))
+                .append(", computed=").append(hasComputedSlot(plan.computedSlots(), slot) ? 1 : 0)
+                .append(", external=").append(isExternalSlot(plan.externalSlots(), slot));
+        if (isExternalSlot(plan.externalSlots(), slot)) {
+            out.append(", ").append(describeOpenClCompiledExternalSlot(plan, slot));
+        }
+        out.append(", reason=").append(openClCompiledPlanSlotChunkRejection(plan, slot));
+        return out.toString();
+    }
+
+    private static String openClCompiledPlanSlotChunkRejection(
+            DfcOpenClRuntime.OpenClCompiledPlan plan, int slot) {
+        List<String> reasons = new ArrayList<>(4);
+        int octaves = countActiveOctaves(plan, slot);
+        int computed = hasComputedSlot(plan.computedSlots(), slot) ? 1 : 0;
+        if (octaves > OPENCL_SOURCE_BENCH_MAX_OCTAVES) {
+            reasons.add("octaves " + octaves + ">" + OPENCL_SOURCE_BENCH_MAX_OCTAVES);
+        }
+        if (computed > OPENCL_SOURCE_BENCH_MAX_COMPUTED) {
+            reasons.add("computed " + computed + ">" + OPENCL_SOURCE_BENCH_MAX_COMPUTED);
+        }
+        if (isExternalSlot(plan.externalSlots(), slot)) {
+            reasons.add("external");
+        }
+        return reasons.isEmpty() ? null : String.join(", ", reasons);
+    }
+
     private static int countExternalSlots(boolean[] externalSlots) {
         int count = 0;
         if (externalSlots != null) {
@@ -1955,6 +2106,14 @@ public final class DensityFunctionCompiler {
             }
         }
         return count;
+    }
+
+    private static boolean isExternalSlot(boolean[] externalSlots, int slot) {
+        return externalSlots != null && slot >= 0 && slot < externalSlots.length && externalSlots[slot];
+    }
+
+    private static boolean hasComputedSlot(DfcOpenClRuntime.ComputedSlot[] computedSlots, int slot) {
+        return computedSlots != null && slot >= 0 && slot < computedSlots.length && computedSlots[slot] != null;
     }
 
     private static int countComputedSlots(DfcOpenClRuntime.ComputedSlot[] computedSlots, int usedSlotCount) {
@@ -2151,6 +2310,9 @@ public final class DensityFunctionCompiler {
     private record RouterDensityCandidate(String name, DensityFunction function) {
     }
 
+    private record OpenClCompiledPlanChunk(int startSlot, int endSlot, int count, int octaves, int computed) {
+    }
+
     private static NormalNoise[] collectOpenClRealNoises(CommandSourceStack source, int requestedSlots) {
         int target = Math.max(2, requestedSlots);
         NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
@@ -2258,6 +2420,31 @@ public final class DensityFunctionCompiler {
         return specs.toArray(new NoiseSpec[0]);
     }
 
+    private static int countActiveOctaves(DfcOpenClRuntime.OpenClCompiledPlan plan, int slot) {
+        if (plan == null || slot < 0) {
+            return 0;
+        }
+        int total = 0;
+        NoiseSpec[] specs = plan.specs();
+        if (specs != null && slot < specs.length && specs[slot] != null) {
+            total += specs[slot].totalActiveOctaves();
+        }
+        BlendedNoiseSpec[] blendedSpecs = plan.blendedSpecs();
+        if (blendedSpecs != null && slot < blendedSpecs.length) {
+            total += countActiveOctaves(blendedSpecs[slot]);
+        }
+        return total;
+    }
+
+    private static int countActiveOctaves(BlendedNoiseSpec spec) {
+        if (spec == null) {
+            return 0;
+        }
+        return countNonNull(spec.mainOctaves())
+                + countNonNull(spec.minLimitOctaves())
+                + countNonNull(spec.maxLimitOctaves());
+    }
+
     private static int countActiveOctaves(NoiseSpec[] specs) {
         int total = 0;
         if (specs != null) {
@@ -2274,11 +2461,7 @@ public final class DensityFunctionCompiler {
         int total = countActiveOctaves(specs);
         if (blendedSpecs != null) {
             for (BlendedNoiseSpec spec : blendedSpecs) {
-                if (spec != null) {
-                    total += countNonNull(spec.mainOctaves());
-                    total += countNonNull(spec.minLimitOctaves());
-                    total += countNonNull(spec.maxLimitOctaves());
-                }
+                total += countActiveOctaves(spec);
             }
         }
         return total;
