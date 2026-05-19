@@ -18,6 +18,7 @@
     "pools.MixinJigsawPlacement$use_cached_jigsaws",
     "pools.MixinSinglePoolElement$cache_jigsawBlocks",
     "pools.MixinStructurePoolElement$cache_jigsawBlocks",
+    "pools.MixinStructureTemplatePool$cache_templates",
     "pools.MixinStructureTemplateManager$lru_cache",
     "safe.MixinStructureCheck",
     "safe.MixinStructureTemplatePalette",

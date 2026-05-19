@@ -1,95 +1,132 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 
+import dev.sixik.generator_accelerator.common.structures.StructureJigsawConnectorPlan;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-import it.unimi.dsi.fastutil.objects.ObjectImmutableList;
-import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Vec3i;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.pools.SinglePoolElement;
 import net.minecraft.world.level.levelgen.structure.pools.StructurePoolElement;
 import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
-import org.apache.commons.lang3.NotImplementedException;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 @Mixin(SinglePoolElement.class)
 public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends StructurePoolElement implements StructurePoolElementCache {
 
-    @Shadow
-    protected abstract StructureTemplate getTemplate(StructureTemplateManager structureTemplateManager);
+    @Unique
+    private final Map<Rotation, StructureJigsawConnectorPlan> bts$jigsawPlans = new ConcurrentHashMap<>(4);
+    @Unique
+    private final AtomicReferenceArray<Vec3i> bts$cachedSizes = new AtomicReferenceArray<>(4);
+    @Unique
+    private final AtomicReferenceArray<BoundingBox> bts$cachedLocalBoxes = new AtomicReferenceArray<>(4);
 
     @Shadow
-    static void sortBySelectionPriority(List<StructureTemplate.StructureBlockInfo> list) {
-        throw new NotImplementedException();
-    }
+    protected abstract StructureTemplate getTemplate(StructureTemplateManager structureTemplateManager);
 
     protected MixinSinglePoolElement$cache_jigsawBlocks(StructureTemplatePool.Projection projection) {
         super(projection);
     }
 
     @Override
-    public List<StructureTemplate.StructureBlockInfo> bts$getCachedJigsawBlocks(StructureTemplateManager manager, BlockPos pos, Rotation rotation, RandomSource random) {
-        final var bts$jigsawCache = bts$getJigsawCache();
-
-        List<StructureTemplate.StructureBlockInfo> cached = bts$jigsawCache.get(rotation);
-
-        if (cached == null) {
-            final StructureTemplate template = this.getTemplate(manager);
-
-            /*
-                Filtering blocks (an expensive operation)
-             */
-            final ObjectArrayList<StructureTemplate.StructureBlockInfo> blocks =
-                    template.filterBlocks(BlockPos.ZERO,
-                            new StructurePlaceSettings().setRotation(rotation), Blocks.JIGSAW, true
-                    );
-
-            /*
-                Sorting once (calling sortBySelectionPriority)
-             */
-            sortBySelectionPriority(blocks);
-
-            /*
-                We save an immutable list to the cache
-             */
-
-            cached = new ObjectImmutableList<>(blocks);
-            bts$jigsawCache.put(rotation, cached);
+    public List<StructureTemplate.StructureBlockInfo> bts$getCachedJigsawBlocks(
+            StructureTemplateManager manager,
+            BlockPos pos,
+            Rotation rotation,
+            RandomSource random
+    ) {
+        Rotation safeRotation = bts$safeRotation(rotation);
+        StructureJigsawConnectorPlan plan = this.bts$jigsawPlans.get(safeRotation);
+        if (plan == null) {
+            StructureTemplate template = this.getTemplate(manager);
+            ObjectArrayList<StructureTemplate.StructureBlockInfo> blocks = template.filterBlocks(
+                    BlockPos.ZERO,
+                    new StructurePlaceSettings().setRotation(safeRotation),
+                    Blocks.JIGSAW,
+                    true
+            );
+            StructureJigsawConnectorPlan compiled = StructureJigsawConnectorPlan.compile(blocks);
+            StructureJigsawConnectorPlan raced = this.bts$jigsawPlans.putIfAbsent(safeRotation, compiled);
+            plan = raced == null ? compiled : raced;
         }
 
-        /*
-            Creating a mutable copy for mixing
-         */
-        final ObjectArrayList<StructureTemplate.StructureBlockInfo> result =
-                new ObjectArrayList<>(cached);
-
-        /*
-            We mix only the elements with the same priority.
-         */
-        Util.shuffle(result, random);
-        sortBySelectionPriority(result);
-
-        if (pos.equals(BlockPos.ZERO)) {
-            return result;
-        }
-
-        /*
-            Applying the BlockPos offset
-         */
-        final ObjectArrayList<StructureTemplate.StructureBlockInfo> offsetResult =
-                new ObjectArrayList<>(result.size());
-        for (StructureTemplate.StructureBlockInfo info : result) {
-            offsetResult.add(new StructureTemplate.StructureBlockInfo(info.pos().offset(pos), info.state(), info.nbt()));
-        }
-        return offsetResult;
+        return plan.shuffled(pos, random);
     }
 
+    /**
+     * @author Sixik
+     * @reason SinglePoolElement size is immutable for a template/rotation; vanilla re-derives it for every candidate.
+     */
+    @Overwrite
+    public Vec3i getSize(StructureTemplateManager manager, Rotation rotation) {
+        Rotation safeRotation = bts$safeRotation(rotation);
+        int index = safeRotation.ordinal();
+        Vec3i size = this.bts$cachedSizes.get(index);
+        if (size != null) {
+            return size;
+        }
+
+        Vec3i computed = this.getTemplate(manager).getSize(safeRotation);
+        if (this.bts$cachedSizes.compareAndSet(index, null, computed)) {
+            return computed;
+        }
+        return this.bts$cachedSizes.get(index);
+    }
+
+    /**
+     * @author Sixik
+     * @reason Cache the local rotated bounds and only copy/move it per call; callers may mutate returned boxes.
+     */
+    @Overwrite
+    public BoundingBox getBoundingBox(StructureTemplateManager manager, BlockPos pos, Rotation rotation) {
+        Rotation safeRotation = bts$safeRotation(rotation);
+        int index = safeRotation.ordinal();
+        BoundingBox localBox = this.bts$cachedLocalBoxes.get(index);
+        if (localBox == null) {
+            BoundingBox computed = this.getTemplate(manager).getBoundingBox(
+                    new StructurePlaceSettings().setRotation(safeRotation),
+                    BlockPos.ZERO
+            );
+            if (this.bts$cachedLocalBoxes.compareAndSet(index, null, computed)) {
+                localBox = computed;
+            } else {
+                localBox = this.bts$cachedLocalBoxes.get(index);
+            }
+        }
+        return bts$copyMoved(localBox, pos);
+    }
+
+    @Unique
+    private static Rotation bts$safeRotation(Rotation rotation) {
+        return rotation == null ? Rotation.NONE : rotation;
+    }
+
+    @Unique
+    private static BoundingBox bts$copyMoved(BoundingBox box, BlockPos pos) {
+        int dx = pos.getX();
+        int dy = pos.getY();
+        int dz = pos.getZ();
+        return new BoundingBox(
+                box.minX() + dx,
+                box.minY() + dy,
+                box.minZ() + dz,
+                box.maxX() + dx,
+                box.maxY() + dy,
+                box.maxZ() + dz
+        );
+    }
 }
