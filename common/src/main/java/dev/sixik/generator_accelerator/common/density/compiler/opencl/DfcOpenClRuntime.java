@@ -1,14 +1,20 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.function.IntConsumer;
 
 /**
@@ -41,11 +47,26 @@ public final class DfcOpenClRuntime {
     private static final int OP_SQUARE = 50;
     private static final int OP_SQUEEZE = 51;
     private static final int COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS = 16_384;
+    private static final int COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS = 131_072;
+    private static final int COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS = 196_608;
+    private static final int RUNTIME_FINAL_CHUNK_MAX_SLOTS = 8;
+    private static final int RUNTIME_FINAL_CHUNK_MAX_OCTAVES = 16;
+    private static final int RUNTIME_FINAL_CHUNK_MAX_COMPUTED = 2;
+    /*
+     * The router-level finalDensity plan is much larger (~118 slots), but the real
+     * NoiseChunk hot path sees it after cache/interpolator rebinding. Those wrappers
+     * collapse parts of the plan into external interpolator reads; in practice the
+     * embedded finalDensity candidate is still substantial (~54 slots), while tiny
+     * add/cache wrappers stay below this cutoff.
+     */
+    private static final int RUNTIME_FINAL_MIN_SLOTS = 32;
 
     private static volatile Status cachedStatus = Status.disabled();
     private static volatile DfcOpenClDeviceEnumerator.Candidate selectedCandidate;
     private static DfcOpenClDeviceContext activeContext;
     private static volatile boolean slabVmDispatchBroken;
+    private static volatile boolean finalDensityHybridBroken;
+    private static final Map<CompiledDensityFunction, RuntimeHybridPlan> RUNTIME_HYBRID_PLANS = new WeakHashMap<>();
 
     private DfcOpenClRuntime() {
     }
@@ -55,6 +76,7 @@ public final class DfcOpenClRuntime {
             closeActiveContext();
             selectedCandidate = null;
             slabVmDispatchBroken = false;
+            finalDensityHybridBroken = false;
             cachedStatus = Status.disabled();
             LOGGER.info("DFC OpenCL: disabled. Enable config enableDensityCompilerOpenCL or -Ddfc.opencl.enabled=true to probe devices.");
             return;
@@ -81,8 +103,12 @@ public final class DfcOpenClRuntime {
             closeActiveContext();
             selectedCandidate = null;
             slabVmDispatchBroken = false;
+            finalDensityHybridBroken = false;
             cachedStatus = Status.disabled();
             return cachedStatus;
+        }
+        if (force) {
+            finalDensityHybridBroken = false;
         }
 
         Status status = cachedStatus;
@@ -137,6 +163,10 @@ public final class DfcOpenClRuntime {
         return slabVmDispatchBroken;
     }
 
+    public static boolean finalDensityHybridBroken() {
+        return finalDensityHybridBroken;
+    }
+
     public static boolean slabVmDispatchAvailable() {
         Status status = cachedStatus;
         return DfcOpenClConfig.worldgenBridgeEnabled()
@@ -145,6 +175,105 @@ public final class DfcOpenClRuntime {
                 && status.available()
                 && selectedCandidate != null
                 && DfcOpenClConfig.slabVmMinElements() <= DfcOpenClConfig.currentBridgeMaxElements();
+    }
+
+    public static boolean tryFillFinalDensityHybrid(CompiledDensityFunction compiled,
+                                                    double[] out,
+                                                    NoiseChunk chunk) {
+        DfcOpenClStats.recordHybridCall();
+        if (!DfcOpenClConfig.finalDensityHybridEnabled()) {
+            DfcOpenClStats.recordHybridSkippedDisabled();
+            return false;
+        }
+        if (finalDensityHybridBroken) {
+            DfcOpenClStats.recordHybridSkippedBroken();
+            return false;
+        }
+        if (compiled == null || out == null || chunk == null) {
+            DfcOpenClStats.recordHybridSkippedInvalid("null compiled/out/chunk");
+            return false;
+        }
+        int cellWidth = chunk.cellWidth;
+        int cellHeight = chunk.cellHeight;
+        if (cellWidth <= 0 || cellHeight <= 0) {
+            DfcOpenClStats.recordHybridSkippedInvalid("invalid cell shape " + cellWidth + "x" + cellHeight);
+            return false;
+        }
+        int n = Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth), cellHeight);
+        if (out.length < n) {
+            DfcOpenClStats.recordHybridSkippedInvalid("output length " + out.length + "<" + n);
+            return false;
+        }
+
+        RuntimeHybridPlan runtimePlan = runtimeHybridPlan(compiled);
+        if (!runtimePlan.available()) {
+            DfcOpenClStats.recordHybridSkippedPlan(runtimePlan.unavailableReason());
+            return false;
+        }
+
+        int slotValues = Math.multiplyExact(n, runtimePlan.scheduledSlotCount());
+        if (!runtimeHybridSlotValuesMeetMinimum(slotValues)) {
+            DfcOpenClStats.recordHybridSkippedTooSmall("runtime hybrid slot values " + slotValues
+                    + "<" + DfcOpenClConfig.finalDensityHybridMinSlotValues()
+                    + "; per-cell OpenCL dispatch is too small");
+            return false;
+        }
+
+        return dispatchFinalDensityHybrid(out, chunk, cellWidth, cellHeight, n, runtimePlan, slotValues);
+    }
+
+    private static synchronized boolean dispatchFinalDensityHybrid(double[] out,
+                                                                   NoiseChunk chunk,
+                                                                   int cellWidth,
+                                                                   int cellHeight,
+                                                                   int n,
+                                                                   RuntimeHybridPlan runtimePlan,
+                                                                   int slotValues) {
+        if (finalDensityHybridBroken) {
+            DfcOpenClStats.recordHybridSkippedBroken();
+            return false;
+        }
+        Status status = cachedStatus;
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            DfcOpenClStats.recordHybridSkippedUnavailable(
+                    status.error() == null ? "no available OpenCL device" : status.error());
+            return false;
+        }
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                    new DfcOpenClDeviceContext.GeneratedNoiseKernel[runtimePlan.waveSources().length];
+            for (int wave = 0; wave < runtimePlan.waveSources().length; wave++) {
+                kernels[wave] = context.compileGeneratedNoiseKernelCached(runtimePlan.waveSources()[wave]);
+            }
+
+            double[] requestOut = new double[n];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    runtimeNoiseCellGridRequest(requestOut, cellWidth, cellHeight, chunk, runtimePlan.descriptor());
+            double[] slotBuffer = new double[slotValues];
+
+            DfcOpenClStats.recordHybridAttempt();
+            DfcOpenClStats.recordSlabAttempt(slotValues);
+            DfcOpenClStats.recordSlabSubmitted();
+            DfcOpenClDeviceContext.SlabVmResult result = context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                    kernels, runtimePlan.kernelWaves(), request, runtimePlan.scheduledSlotCount(), true, slotBuffer);
+            DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+
+            fillRuntimeHybridFinalDensity(out, chunk, request, runtimePlan, slotBuffer);
+            DfcOpenClStats.recordHybridSuccess();
+            return true;
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordHybridFailure(errorMessage(throwable));
+            DfcOpenClStats.recordSlabFailure();
+            finalDensityHybridBroken = true;
+            closeActiveContext();
+            LOGGER.warn("DFC OpenCL: finalDensity hybrid dispatch failed; disabling hybrid dispatch for this session: {}",
+                    errorMessage(throwable), throwable);
+            return false;
+        }
     }
 
     public static synchronized boolean tryEvalSlabInner(byte[] bytecode, double[] constants, double[] packedSlotRows,
@@ -921,6 +1050,426 @@ public final class DfcOpenClRuntime {
             int warmups) {
         return compiledPlanChunkWavesSourceBenchmark(plan, chunkStartSlots, chunkEndSlots, waves,
                 directBlockedChunks, stalledChunks, cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkWavesFusedCompactSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups) {
+        return compiledPlanChunkWavesFusedCompactSourceBenchmark(plan, chunkStartSlots, chunkEndSlots, waves,
+                directBlockedChunks, stalledChunks, cellWidth, cellHeight, cells, iterations, warmups, false);
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkAllWavesFusedCompactSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups) {
+        return compiledPlanChunkWavesFusedCompactSourceBenchmark(plan, chunkStartSlots, chunkEndSlots, waves,
+                directBlockedChunks, stalledChunks, cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    private static SlabVmCellBenchmark compiledPlanChunkWavesFusedCompactSourceBenchmark(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells,
+            int iterations,
+            int warmups,
+            boolean allWavesFused) {
+        if (plan == null || plan.specs() == null || plan.specs().length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "compiled plan is null or empty");
+        }
+        if (chunkStartSlots == null || chunkEndSlots == null || chunkStartSlots.length != chunkEndSlots.length) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "invalid chunk ranges");
+        }
+        if (waves == null || waves.length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "no scheduled chunk waves");
+        }
+
+        int slotCount = plan.specs().length;
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid fused wave noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        boolean[] scheduledChunks = scheduledChunks(waves, chunkStartSlots.length);
+        int scheduledChunkCount = countTrue(scheduledChunks);
+        if (scheduledChunkCount == 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "no chunks scheduled by waves");
+        }
+        int scheduledSlotCount = scheduledSlotCount(chunkStartSlots, chunkEndSlots, scheduledChunks);
+        if (scheduledSlotCount <= 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "scheduled chunks contain no slots");
+        }
+        int[] slotBufferIndices = compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, scheduledChunks, slotCount);
+        int elementsPerIteration = Math.toIntExact(elements * scheduledSlotCount);
+        long slotBufferBytes = Math.multiplyExact(
+                Math.multiplyExact(elements, scheduledSlotCount), (long) Double.BYTES);
+
+        DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                new DfcOpenClDeviceContext.GeneratedNoiseKernel[allWavesFused ? 1 : waves.length];
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+
+            long compileNanos = 0L;
+            int totalSourceChars = 0;
+            int maxSourceChars = 0;
+            int kernelsCompiled = 0;
+            if (allWavesFused) {
+                boolean[] targetSlots = waveTargetSlots(scheduledChunks, chunkStartSlots, chunkEndSlots, slotCount);
+                boolean[] allWaveExternalInputs = waveExternalInputs(plan, scheduledChunks,
+                        chunkStartSlots, chunkEndSlots, targetSlots);
+                ComputedSlot[] allWaveComputedSlots = waveComputedSlots(plan, targetSlots);
+                DfcOpenClGeneratedNoiseSource.BuildResult source =
+                        DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                descriptor, targetSlots,
+                                plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                plan.slotCoordZExpressions(),
+                                allWaveExternalInputs, allWaveComputedSlots, slotBufferIndices,
+                                DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                if (source.source().length() > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                    return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                            "blocked: all-waves sourceChars " + source.source().length()
+                                    + ">" + COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS
+                                    + ", split waves before native OpenCL build");
+                }
+                long started = System.nanoTime();
+                kernels[0] = context.compileGeneratedNoiseKernel(source.source());
+                compileNanos += System.nanoTime() - started;
+                totalSourceChars += source.source().length();
+                maxSourceChars = Math.max(maxSourceChars, source.source().length());
+                kernelsCompiled++;
+            } else {
+                for (int waveIndex = 0; waveIndex < waves.length; waveIndex++) {
+                    boolean[] targetSlots = waveTargetSlots(waves[waveIndex], chunkStartSlots, chunkEndSlots, slotCount);
+                    if (countTrue(targetSlots) == 0) {
+                        continue;
+                    }
+                    boolean[] waveExternalInputs = waveExternalInputs(plan, waves[waveIndex],
+                            chunkStartSlots, chunkEndSlots, targetSlots);
+                    ComputedSlot[] waveComputedSlots = waveComputedSlots(plan, targetSlots);
+                    DfcOpenClGeneratedNoiseSource.BuildResult source =
+                            DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
+                                    descriptor, targetSlots,
+                                    plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                    plan.slotCoordZExpressions(),
+                                    waveExternalInputs, waveComputedSlots, slotBufferIndices,
+                                    DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                    if (source.source().length() > COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS) {
+                        return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                                "blocked: wave=" + waveIndex
+                                        + " sourceChars " + source.source().length()
+                                        + ">" + COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS
+                                        + ", split this wave before native OpenCL build");
+                    }
+                    long started = System.nanoTime();
+                    kernels[waveIndex] = context.compileGeneratedNoiseKernel(source.source());
+                    compileNanos += System.nanoTime() - started;
+                    totalSourceChars += source.source().length();
+                    maxSourceChars = Math.max(maxSourceChars, source.source().length());
+                    kernelsCompiled++;
+                }
+            }
+
+            boolean[][] fusedKernelWaves = identityWaves(kernels.length);
+            long totalNanos = 0L;
+            long bestNanos = Long.MAX_VALUE;
+            long worstNanos = 0L;
+            int totalRuns = safeWarmups + safeIterations;
+            for (int i = 0; i < totalRuns; i++) {
+                DfcOpenClStats.recordSlabAttempt(elementsPerIteration);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result =
+                        context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                                kernels, fusedKernelWaves, request, scheduledSlotCount, i == 0);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                if (i >= safeWarmups) {
+                    long nanos = result.elapsedNanos();
+                    totalNanos += nanos;
+                    bestNanos = Math.min(bestNanos, nanos);
+                    worstNanos = Math.max(worstNanos, nanos);
+                }
+            }
+
+            long totalElements = (long) elementsPerIteration * safeIterations;
+            long averageKernelNanos = totalNanos / safeIterations;
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    safeIterations,
+                    safeWarmups,
+                    elementsPerIteration,
+                    totalElements,
+                    totalNanos,
+                    averageKernelNanos,
+                    bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                    worstNanos,
+                    "ok, " + (allWavesFused
+                            ? "compiledPlanAllWavesFusedBench=true"
+                            : "compiledPlanWaveFusedBench=true")
+                            + ", waves=" + waves.length
+                            + ", chunks=" + scheduledChunkCount + "/" + chunkStartSlots.length
+                            + ", kernelsCompiled=" + kernelsCompiled
+                            + ", slotsComputed=" + scheduledSlotCount + "/" + slotCount
+                            + ", directBlockedChunks=" + directBlockedChunks
+                            + ", stalledChunks=" + stalledChunks
+                            + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                            + ", totalSourceChars=" + totalSourceChars
+                            + ", maxSourceChars=" + maxSourceChars
+                            + ", compileMs=" + formatMillis(compileNanos)
+                            + ", slotBufferBytes=" + slotBufferBytes
+                            + ", slotBufferSlots=" + scheduledSlotCount
+                            + ", slotBufferLayout=" + (allWavesFused
+                            ? "all-waves-fused-compact-slot-major"
+                            : "fused-compact-slot-major")
+                            + ", cachedInputs=true"
+                            + ", noRead=true");
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        } finally {
+            for (DfcOpenClDeviceContext.GeneratedNoiseKernel kernel : kernels) {
+                if (kernel != null) {
+                    kernel.close();
+                }
+            }
+        }
+    }
+
+    public static synchronized SlabVmCellBenchmark compiledPlanChunkWavesFusedCompactSourceCheck(
+            OpenClCompiledPlan plan,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            int directBlockedChunks,
+            int stalledChunks,
+            int cellWidth,
+            int cellHeight,
+            int cells) {
+        if (plan == null || plan.specs() == null || plan.specs().length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "compiled plan is null or empty");
+        }
+        if (chunkStartSlots == null || chunkEndSlots == null || chunkStartSlots.length != chunkEndSlots.length) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "invalid chunk ranges");
+        }
+        if (waves == null || waves.length == 0) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "no scheduled chunk waves");
+        }
+
+        int slotCount = plan.specs().length;
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid fused wave noise specs: " + errorMessage(throwable));
+        }
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        boolean[] scheduledChunks = scheduledChunks(waves, chunkStartSlots.length);
+        int scheduledChunkCount = countTrue(scheduledChunks);
+        if (scheduledChunkCount == 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "no chunks scheduled by waves");
+        }
+        int scheduledSlotCount = scheduledSlotCount(chunkStartSlots, chunkEndSlots, scheduledChunks);
+        if (scheduledSlotCount <= 0) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), "scheduled chunks contain no slots");
+        }
+        int[] slotBufferIndices = compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, scheduledChunks, slotCount);
+        boolean[] targetSlots = waveTargetSlots(scheduledChunks, chunkStartSlots, chunkEndSlots, slotCount);
+        int elementsPerIteration = Math.toIntExact(elements * scheduledSlotCount);
+        long slotBufferBytes = Math.multiplyExact(
+                Math.multiplyExact(elements, scheduledSlotCount), (long) Double.BYTES);
+
+        DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                new DfcOpenClDeviceContext.GeneratedNoiseKernel[waves.length];
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+
+            long compileNanos = 0L;
+            int totalSourceChars = 0;
+            int maxSourceChars = 0;
+            int kernelsCompiled = 0;
+            for (int waveIndex = 0; waveIndex < waves.length; waveIndex++) {
+                boolean[] waveTargetSlots = waveTargetSlots(waves[waveIndex], chunkStartSlots, chunkEndSlots, slotCount);
+                if (countTrue(waveTargetSlots) == 0) {
+                    continue;
+                }
+                boolean[] waveExternalInputs = waveExternalInputs(plan, waves[waveIndex],
+                        chunkStartSlots, chunkEndSlots, waveTargetSlots);
+                ComputedSlot[] waveComputedSlots = waveComputedSlots(plan, waveTargetSlots);
+                DfcOpenClGeneratedNoiseSource.BuildResult source =
+                        DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
+                                descriptor, waveTargetSlots,
+                                plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                plan.slotCoordZExpressions(),
+                                waveExternalInputs, waveComputedSlots, slotBufferIndices,
+                                DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                if (source.source().length() > COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS) {
+                    return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                            "blocked: wave=" + waveIndex
+                                    + " sourceChars " + source.source().length()
+                                    + ">" + COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS
+                                    + ", split this wave before native OpenCL build");
+                }
+                long started = System.nanoTime();
+                kernels[waveIndex] = context.compileGeneratedNoiseKernel(source.source());
+                compileNanos += System.nanoTime() - started;
+                totalSourceChars += source.source().length();
+                maxSourceChars = Math.max(maxSourceChars, source.source().length());
+                kernelsCompiled++;
+            }
+
+            double[] slotBufferOut = new double[elementsPerIteration];
+            boolean[][] fusedKernelWaves = identityWaves(kernels.length);
+            DfcOpenClStats.recordSlabAttempt(elementsPerIteration);
+            DfcOpenClStats.recordSlabSubmitted();
+            DfcOpenClDeviceContext.SlabVmResult result = context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                    kernels, fusedKernelWaves, request, scheduledSlotCount, true, slotBufferOut);
+            DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+
+            double[] originalExternalSlotValues = fillExternalSlots(plan, request, slotCount);
+            WaveSlotBufferValidation validation = validateCompiledPlanWaveSlotBuffer(
+                    slotBufferOut, request, descriptor, slotBufferIndices, targetSlots,
+                    plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(), plan.slotCoordZEvaluators(),
+                    originalExternalSlotValues, plan.externalSlots(), plan.computedSlots(), slotCount, 257);
+            HybridFinalDensityValidation hybridValidation = validateCompiledPlanHybridFinalDensity(
+                    slotBufferOut, request, descriptor, plan, slotBufferIndices, targetSlots, slotCount, 257);
+
+            return new SlabVmCellBenchmark(
+                    true,
+                    context.deviceInfo(),
+                    safeCellWidth,
+                    safeCellHeight,
+                    safeCells,
+                    1,
+                    0,
+                    elementsPerIteration,
+                    elementsPerIteration,
+                    result.elapsedNanos(),
+                    result.elapsedNanos(),
+                    result.elapsedNanos(),
+                    result.elapsedNanos(),
+                    "ok, compiledPlanWaveFusedCheck=true"
+                            + ", compiledPlanHybridFinalDensityCheck=true"
+                            + ", waves=" + waves.length
+                            + ", chunks=" + scheduledChunkCount + "/" + chunkStartSlots.length
+                            + ", kernelsCompiled=" + kernelsCompiled
+                            + ", slotsComputed=" + scheduledSlotCount + "/" + slotCount
+                            + ", directBlockedChunks=" + directBlockedChunks
+                            + ", stalledChunks=" + stalledChunks
+                            + ", checkedElements=" + validation.checkedElements()
+                            + ", checkedSlotValues=" + validation.checkedSlots()
+                            + ", maxAbsError=" + formatDecimal(validation.maxAbsError())
+                            + ", hybridCheckedElements=" + hybridValidation.checkedElements()
+                            + ", hybridStagedReads=" + hybridValidation.stagedReads()
+                            + ", hybridMaxAbsError=" + formatDecimal(hybridValidation.maxAbsError())
+                            + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                            + ", totalSourceChars=" + totalSourceChars
+                            + ", maxSourceChars=" + maxSourceChars
+                            + ", compileMs=" + formatMillis(compileNanos)
+                            + ", slotBufferBytes=" + slotBufferBytes
+                            + ", slotBufferSlots=" + scheduledSlotCount
+                            + ", slotBufferLayout=fused-compact-slot-major"
+                            + ", readback=true");
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        } finally {
+            for (DfcOpenClDeviceContext.GeneratedNoiseKernel kernel : kernels) {
+                if (kernel != null) {
+                    kernel.close();
+                }
+            }
+        }
     }
 
     private static SlabVmCellBenchmark compiledPlanChunkWavesSourceBenchmark(
@@ -1897,6 +2446,451 @@ public final class DfcOpenClRuntime {
         }
     }
 
+    private static RuntimeHybridPlan runtimeHybridPlan(CompiledDensityFunction compiled) {
+        synchronized (RUNTIME_HYBRID_PLANS) {
+            RuntimeHybridPlan cached = RUNTIME_HYBRID_PLANS.get(compiled);
+            if (cached != null) {
+                return cached;
+            }
+            RuntimeHybridPlan built = buildRuntimeHybridPlan(compiled);
+            RUNTIME_HYBRID_PLANS.put(compiled, built);
+            return built;
+        }
+    }
+
+    private static RuntimeHybridPlan buildRuntimeHybridPlan(CompiledDensityFunction compiled) {
+        DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+        if (!entry.available()) {
+            return RuntimeHybridPlan.unavailable(entry.unavailableReason());
+        }
+        OpenClCompiledPlan plan = DfcOpenClCompiledPlanRegistry.expandMarkerSlots(entry.plan(), 3);
+        int slotCount = plan.specs() == null ? 0 : plan.specs().length;
+        RuntimeOutputLayer[] outputLayers = new RuntimeOutputLayer[0];
+        if (!runtimeHybridCandidateSlotCount(slotCount)) {
+            EmbeddedRuntimePlan embedded = findEmbeddedRuntimePlan(plan);
+            if (embedded == null) {
+                return RuntimeHybridPlan.unavailable("compiled plan has only " + slotCount
+                        + " slots; runtime hybrid is reserved for finalDensity-sized plans; "
+                        + describeEmbeddedPlanCandidates(plan));
+            }
+            plan = embedded.plan();
+            outputLayers = embedded.outputLayers();
+            slotCount = plan.specs() == null ? 0 : plan.specs().length;
+        }
+        if (plan.slabProgram() == null || plan.slabProgram().length == 0) {
+            return RuntimeHybridPlan.unavailable("compiled plan has no final slab program");
+        }
+
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return RuntimeHybridPlan.unavailable("invalid runtime hybrid noise specs: " + errorMessage(throwable));
+        }
+
+        List<RuntimeChunk> chunks = new ArrayList<>();
+        collectRuntimeChunks(plan, chunks);
+        if (chunks.isEmpty()) {
+            return RuntimeHybridPlan.unavailable("no runtime hybrid chunks");
+        }
+
+        int[] chunkStartSlots = new int[chunks.size()];
+        int[] chunkEndSlots = new int[chunks.size()];
+        List<boolean[]> chunkInputs = new ArrayList<>(chunks.size());
+        for (int i = 0; i < chunks.size(); i++) {
+            RuntimeChunk chunk = chunks.get(i);
+            chunkStartSlots[i] = chunk.startSlot();
+            chunkEndSlots[i] = chunk.endSlot();
+            chunkInputs.add(compiledPlanChunkExternalInputs(plan, chunk.startSlot(), chunk.endSlot()));
+        }
+
+        int[] slotOwners = runtimeChunkSlotOwners(chunks, slotCount);
+        RuntimeWavePlan wavePlan = collectRuntimeChunkWaves(chunkInputs, slotOwners);
+        if (wavePlan.waves().length == 0) {
+            return RuntimeHybridPlan.unavailable("no schedulable runtime hybrid waves");
+        }
+
+        int scheduledSlotCount = scheduledSlotCount(chunkStartSlots, chunkEndSlots, wavePlan.scheduledChunks());
+        if (scheduledSlotCount <= 0) {
+            return RuntimeHybridPlan.unavailable("runtime hybrid waves contain no slots");
+        }
+        int[] slotBufferIndices =
+                compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, wavePlan.scheduledChunks(), slotCount);
+        boolean[] stagedSlots =
+                waveTargetSlots(wavePlan.scheduledChunks(), chunkStartSlots, chunkEndSlots, slotCount);
+
+        String[] waveSources = new String[wavePlan.waves().length];
+        int totalSourceChars = 0;
+        int maxSourceChars = 0;
+        for (int wave = 0; wave < wavePlan.waves().length; wave++) {
+            boolean[] waveTargetSlots = waveTargetSlots(wavePlan.waves()[wave], chunkStartSlots, chunkEndSlots,
+                    slotCount);
+            boolean[] waveExternalInputs = waveExternalInputs(plan, wavePlan.waves()[wave],
+                    chunkStartSlots, chunkEndSlots, waveTargetSlots);
+            ComputedSlot[] waveComputedSlots = waveComputedSlots(plan, waveTargetSlots);
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
+                            descriptor, waveTargetSlots,
+                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                            waveExternalInputs, waveComputedSlots, slotBufferIndices,
+                            DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            if (source.source().length() > COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS) {
+                return RuntimeHybridPlan.unavailable("runtime hybrid wave " + wave
+                        + " sourceChars " + source.source().length()
+                        + ">" + COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS);
+            }
+            waveSources[wave] = source.source();
+            totalSourceChars += source.source().length();
+            maxSourceChars = Math.max(maxSourceChars, source.source().length());
+        }
+
+        return RuntimeHybridPlan.available(plan, descriptor, outputLayers,
+                slotCount, scheduledSlotCount, slotBufferIndices, stagedSlots, waveSources,
+                identityWaves(waveSources.length), totalSourceChars, maxSourceChars);
+    }
+
+    private static EmbeddedRuntimePlan findEmbeddedRuntimePlan(OpenClCompiledPlan outputPlan) {
+        DensityFunction[] externs = outputPlan.externs();
+        if (externs == null) {
+            return null;
+        }
+        EmbeddedRuntimePlan best = null;
+        for (int externIndex = 0; externIndex < externs.length; externIndex++) {
+            OpenClCompiledPlan plan = embeddedOpenClPlan(externs[externIndex]);
+            if (plan == null) {
+                continue;
+            }
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            EmbeddedRuntimePlan candidate;
+            RuntimeOutputLayer currentLayer = runtimeOutputLayer(outputPlan, externIndex);
+            if (runtimeHybridCandidateSlotCount(slots)) {
+                candidate = new EmbeddedRuntimePlan(plan, slots, new RuntimeOutputLayer[]{currentLayer});
+            } else {
+                EmbeddedRuntimePlan nested = findEmbeddedRuntimePlan(plan);
+                if (nested == null) {
+                    continue;
+                }
+                RuntimeOutputLayer[] layers = new RuntimeOutputLayer[nested.outputLayers().length + 1];
+                layers[0] = currentLayer;
+                System.arraycopy(nested.outputLayers(), 0, layers, 1, nested.outputLayers().length);
+                candidate = new EmbeddedRuntimePlan(nested.plan(), nested.slotCount(), layers);
+            }
+            if (best == null || candidate.slotCount() > best.slotCount()) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private static RuntimeOutputLayer runtimeOutputLayer(OpenClCompiledPlan plan, int embeddedExternIndex) {
+        DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        return new RuntimeOutputLayer(plan, descriptor, embeddedExternIndex);
+    }
+
+    private static OpenClCompiledPlan embeddedOpenClPlan(DensityFunction extern) {
+        DensityFunction candidate = extern;
+        if (candidate instanceof DensityFunctions.MarkerOrMarked marker) {
+            candidate = marker.wrapped();
+        }
+        if (candidate == null) {
+            return null;
+        }
+        try {
+            CompiledDensityFunction compiled = null;
+            if (candidate instanceof CompiledDensityFunction c) {
+                compiled = c;
+            }
+            if (compiled == null) {
+                return null;
+            }
+            DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+            return entry.available()
+                    ? DfcOpenClCompiledPlanRegistry.expandMarkerSlots(entry.plan(), 3)
+                    : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String describeEmbeddedPlanCandidates(OpenClCompiledPlan outputPlan) {
+        return describeEmbeddedPlanCandidates(outputPlan, 0);
+    }
+
+    private static String describeEmbeddedPlanCandidates(OpenClCompiledPlan outputPlan, int depth) {
+        DensityFunction[] externs = outputPlan.externs();
+        int[] markerExternIndices = outputPlan.markerExternIndices();
+        boolean[] externalSlots = outputPlan.externalSlots();
+        StringBuilder out = new StringBuilder();
+        out.append("plan{slots=").append(outputPlan.specs() == null ? 0 : outputPlan.specs().length)
+                .append(", label=").append(outputPlan.label()).append(", externs=");
+        int externCount = externs == null ? 0 : externs.length;
+        out.append(externCount).append('[');
+        int emitted = 0;
+        for (int externIndex = 0; externIndex < externCount && emitted < 4; externIndex++) {
+            DensityFunction extern = externs[externIndex];
+            if (emitted > 0) {
+                out.append("; ");
+            }
+            out.append(externIndex).append(':').append(shortClassName(extern));
+            if (extern instanceof DensityFunctions.MarkerOrMarked marker) {
+                DensityFunction wrapped = marker.wrapped();
+                out.append("{marker=").append(marker.type())
+                        .append(", wrapped=").append(shortClassName(wrapped))
+                        .append(", wrappedPlan=").append(describeCompiledPlanLookup(wrapped))
+                        .append('}');
+                appendNestedPlanDescription(out, wrapped, depth);
+            } else {
+                out.append("{plan=").append(describeCompiledPlanLookup(extern)).append('}');
+                appendNestedPlanDescription(out, extern, depth);
+            }
+            emitted++;
+        }
+        if (externCount > emitted) {
+            out.append("; +").append(externCount - emitted);
+        }
+        out.append("], externalSlots=");
+        if (externalSlots == null || markerExternIndices == null) {
+            out.append("n/a");
+        } else {
+            out.append('[');
+            int slots = 0;
+            for (int slot = 0; slot < externalSlots.length && slots < 6; slot++) {
+                if (!externalSlots[slot]) {
+                    continue;
+                }
+                if (slots > 0) {
+                    out.append(',');
+                }
+                out.append(slot).append("->").append(
+                        slot < markerExternIndices.length ? markerExternIndices[slot] : -1);
+                slots++;
+            }
+            out.append(']');
+        }
+        out.append('}');
+        return out.toString();
+    }
+
+    private static void appendNestedPlanDescription(StringBuilder out, DensityFunction function, int depth) {
+        if (depth >= 3 || !(function instanceof CompiledDensityFunction compiled)) {
+            return;
+        }
+        DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+        if (!entry.available()) {
+            return;
+        }
+        OpenClCompiledPlan nested = DfcOpenClCompiledPlanRegistry.expandMarkerSlots(entry.plan(), 3);
+        int slots = nested.specs() == null ? 0 : nested.specs().length;
+        if (slots >= RUNTIME_FINAL_MIN_SLOTS || nested.externs() == null || nested.externs().length == 0) {
+            return;
+        }
+        out.append(", nested=").append(describeEmbeddedPlanCandidates(nested, depth + 1));
+    }
+
+    private static String describeCompiledPlanLookup(DensityFunction function) {
+        if (function instanceof CompiledDensityFunction compiled) {
+            DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+            if (!entry.available()) {
+                return "unavailable:" + entry.unavailableReason();
+            }
+            OpenClCompiledPlan plan = entry.plan();
+            return "slots=" + (plan.specs() == null ? 0 : plan.specs().length)
+                    + ", label=" + plan.label();
+        }
+        return "not-compiled";
+    }
+
+    private static String shortClassName(Object object) {
+        if (object == null) {
+            return "null";
+        }
+        String name = object.getClass().getName();
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
+    }
+
+    private static void fillRuntimeHybridFinalDensity(
+            double[] out,
+            NoiseChunk chunk,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            RuntimeHybridPlan runtimePlan,
+            double[] slotBuffer) {
+        int cellWidth = request.cellWidth();
+        int cellHeight = request.cellHeight();
+        int safeUsedSlots = Math.min(Math.max(1, runtimePlan.slotCount()), runtimePlan.descriptor().slotCount);
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellX = 0; inCellX < cellWidth; inCellX++) {
+            chunk.inCellX = inCellX;
+            for (int inCellZ = 0; inCellZ < cellWidth; inCellZ++) {
+                chunk.inCellZ = inCellZ;
+                for (int inCellY = cellHeight - 1; inCellY >= 0; inCellY--) {
+                    chunk.inCellY = inCellY;
+                    chunk.arrayIndex = idx;
+
+                    int element = runtimeCellFillElementIndex(idx, cellWidth, cellHeight);
+                    double bx = chunk.cellStartBlockX + inCellX;
+                    double by = chunk.cellStartBlockY + inCellY;
+                    double bz = chunk.cellStartBlockZ + inCellZ;
+                    HybridResolveResult hybrid = resolveHybridFinalDensitySlotValues(
+                            slotBuffer, request, runtimePlan.descriptor(), runtimePlan.plan(),
+                            runtimePlan.slotBufferIndices(), runtimePlan.stagedSlots(),
+                            element, safeUsedSlots, bx, by, bz, chunk);
+                    double hoist = runtimePlan.plan().hoistEvaluator() == null
+                            ? 0.0D
+                            : runtimePlan.plan().hoistEvaluator().evaluate(bx, by, bz);
+                    double baseValue = evalCompiledPlanProgram(runtimePlan.plan().slabProgram(),
+                            runtimePlan.plan().slabConstants(), hybrid.slots(), bx, by, bz, hoist);
+                    out[idx] = runtimePlan.outputLayers().length == 0
+                            ? baseValue
+                            : evalRuntimeHybridOutputLayers(runtimePlan.outputLayers(), bx, by, bz, chunk, baseValue);
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
+    }
+
+    private static double evalRuntimeHybridOutputLayers(RuntimeOutputLayer[] outputLayers,
+                                                        double bx,
+                                                        double by,
+                                                        double bz,
+                                                        DensityFunction.FunctionContext context,
+                                                        double embeddedValue) {
+        double value = embeddedValue;
+        for (int layerIndex = outputLayers.length - 1; layerIndex >= 0; layerIndex--) {
+            value = evalRuntimeHybridOutputLayer(outputLayers[layerIndex], bx, by, bz, context, value);
+        }
+        return value;
+    }
+
+    private static double evalRuntimeHybridOutputLayer(RuntimeOutputLayer layer,
+                                                       double bx,
+                                                       double by,
+                                                       double bz,
+                                                       DensityFunction.FunctionContext context,
+                                                       double embeddedValue) {
+        OpenClCompiledPlan plan = layer.plan();
+        int safeUsedSlots = plan.specs() == null ? 0 : plan.specs().length;
+        if (safeUsedSlots <= 0) {
+            return embeddedValue;
+        }
+        double[] slots = new double[safeUsedSlots];
+        boolean[] resolvedSlots = new boolean[safeUsedSlots];
+        boolean[] visitingSlots = new boolean[safeUsedSlots];
+        for (int slot = 0; slot < safeUsedSlots; slot++) {
+            resolveRuntimeHybridOutputSlot(layer, slot, safeUsedSlots, bx, by, bz, context,
+                    embeddedValue, slots, resolvedSlots, visitingSlots);
+        }
+        double hoist = plan.hoistEvaluator() == null ? 0.0D : plan.hoistEvaluator().evaluate(bx, by, bz);
+        return evalCompiledPlanProgram(plan.slabProgram(), plan.slabConstants(), slots, bx, by, bz, hoist);
+    }
+
+    private static double resolveRuntimeHybridOutputSlot(RuntimeOutputLayer layer,
+                                                         int slot,
+                                                         int safeUsedSlots,
+                                                         double bx,
+                                                         double by,
+                                                         double bz,
+                                                         DensityFunction.FunctionContext context,
+                                                         double embeddedValue,
+                                                         double[] slots,
+                                                         boolean[] resolvedSlots,
+                                                         boolean[] visitingSlots) {
+        if (slot < 0 || slot >= safeUsedSlots) {
+            throw new IllegalStateException("runtime hybrid output plan references slot outside batch: " + slot);
+        }
+        if (resolvedSlots[slot]) {
+            return slots[slot];
+        }
+        if (visitingSlots[slot]) {
+            throw new IllegalStateException("cyclic runtime hybrid output slot dependency at slot " + slot);
+        }
+        OpenClCompiledPlan outputPlan = layer.plan();
+        visitingSlots[slot] = true;
+        try {
+            ComputedSlot computed = computedSlot(outputPlan.computedSlots(), slot);
+            if (computed != null) {
+                for (int dependency : slotDependencies(computed.slabProgram(), safeUsedSlots)) {
+                    resolveRuntimeHybridOutputSlot(layer, dependency, safeUsedSlots, bx, by, bz, context,
+                            embeddedValue, slots, resolvedSlots, visitingSlots);
+                }
+                double hoist = computed.hoistEvaluator() == null
+                        ? 0.0D
+                        : computed.hoistEvaluator().evaluate(bx, by, bz);
+                slots[slot] = evalCompiledPlanProgram(computed.slabProgram(), computed.slabConstants(),
+                        slots, bx, by, bz, hoist);
+            } else if (isExternalSlot(outputPlan.externalSlots(), slot)) {
+                int externIndex = markerExternIndex(outputPlan, slot);
+                if (externIndex == layer.embeddedExternIndex()) {
+                    slots[slot] = embeddedValue;
+                } else {
+                    slots[slot] = markerExtern(outputPlan, slot).compute(context);
+                }
+            } else {
+                double sx = evalSlotCoord(outputPlan.slotCoordXEvaluators(), slot, bx, by, bz, bx);
+                double sy = evalSlotCoord(outputPlan.slotCoordYEvaluators(), slot, bx, by, bz, by);
+                double sz = evalSlotCoord(outputPlan.slotCoordZEvaluators(), slot, bx, by, bz, bz);
+                slots[slot] = layer.descriptor().sampleSlot(slot, sx, sy, sz);
+            }
+        } finally {
+            visitingSlots[slot] = false;
+        }
+        resolvedSlots[slot] = true;
+        return slots[slot];
+    }
+
+    static int runtimeCellFillElementIndex(int javaFillIndex, int cellWidth, int cellHeight) {
+        int planeSize = Math.multiplyExact(cellWidth, cellWidth);
+        int column = javaFillIndex / cellHeight;
+        int yIndex = javaFillIndex - column * cellHeight;
+        int inCellX = column / cellWidth;
+        int inCellZ = column - inCellX * cellWidth;
+        return Math.addExact(Math.multiplyExact(yIndex, planeSize), inCellX * cellWidth + inCellZ);
+    }
+
+    static boolean runtimeHybridCandidateSlotCount(int slotCount) {
+        return slotCount >= RUNTIME_FINAL_MIN_SLOTS;
+    }
+
+    static boolean runtimeHybridSlotValuesMeetMinimum(int slotValues) {
+        return slotValues >= DfcOpenClConfig.finalDensityHybridMinSlotValues();
+    }
+
+    private static DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest runtimeNoiseCellGridRequest(
+            double[] out,
+            int cellWidth,
+            int cellHeight,
+            NoiseChunk chunk,
+            DfcOpenClNoiseDescriptor descriptor) {
+        int n = Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth), cellHeight);
+        return new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                DfcOpenClSlabVmSmoke.bytecode(),
+                DfcOpenClSlabVmSmoke.constants(),
+                descriptor.permutations,
+                descriptor.origins,
+                descriptor.inputFactors,
+                descriptor.ampFactors,
+                descriptor.branchOctaveOffsets,
+                descriptor.branchOctaveCounts,
+                descriptor.branchCoordScales,
+                descriptor.slotValueFactors,
+                descriptor.slotCount,
+                descriptor.branchesPerSlot,
+                descriptor.octavesPerBranch,
+                chunk.cellStartBlockX,
+                chunk.cellStartBlockY,
+                chunk.cellStartBlockZ,
+                cellWidth,
+                cellHeight,
+                1,
+                0.0D,
+                out,
+                n);
+    }
+
     private static DfcOpenClDeviceContext ensureActiveContext() {
         DfcOpenClDeviceEnumerator.Candidate candidate = selectedCandidate;
         if (candidate == null) {
@@ -1914,6 +2908,9 @@ public final class DfcOpenClRuntime {
     }
 
     private static void closeActiveContext() {
+        synchronized (RUNTIME_HYBRID_PLANS) {
+            RUNTIME_HYBRID_PLANS.clear();
+        }
         if (activeContext != null) {
             activeContext.close();
             activeContext = null;
@@ -2051,6 +3048,254 @@ public final class DfcOpenClRuntime {
                         + ": expected=" + expected + ", actual=" + actual);
             }
         }
+    }
+
+    static WaveSlotBufferValidation validateCompiledPlanWaveSlotBuffer(
+            double[] slotBuffer,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            int[] slotBufferIndices,
+            boolean[] targetSlots,
+            HoistEvaluator[] slotCoordXEvaluators,
+            HoistEvaluator[] slotCoordYEvaluators,
+            HoistEvaluator[] slotCoordZEvaluators,
+            double[] originalExternalSlotValues,
+            boolean[] originalExternalSlots,
+            ComputedSlot[] computedSlots,
+            int usedSlotCount,
+            int maxChecks) {
+        int n = request.n();
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), descriptor.slotCount);
+        int checks = Math.min(n, Math.max(1, maxChecks));
+        int checkedSlots = 0;
+        double maxAbsError = 0.0D;
+        for (int check = 0; check < checks; check++) {
+            int element = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
+            double bx = cellBlockX(element, request);
+            double by = cellBlockY(element, request);
+            double bz = cellBlockZ(element, request);
+            double[] slots = new double[safeUsedSlots];
+            boolean[] resolvedSlots = new boolean[safeUsedSlots];
+            for (int slot = 0; slot < safeUsedSlots; slot++) {
+                if (targetSlots == null || slot >= targetSlots.length || !targetSlots[slot]) {
+                    continue;
+                }
+                int compactIndex = slotBufferIndex(slotBufferIndices, slot);
+                int bufferIndex = Math.addExact(Math.multiplyExact(compactIndex, n), element);
+                if (slotBuffer == null || bufferIndex >= slotBuffer.length) {
+                    throw new IllegalStateException("OpenCL wave slot buffer is missing slot "
+                            + slot + " for element " + element);
+                }
+                double expected = resolveCompiledPlanSlot(slot, slots, resolvedSlots, element, safeUsedSlots,
+                        bx, by, bz, descriptor, slotCoordXEvaluators, slotCoordYEvaluators, slotCoordZEvaluators,
+                        originalExternalSlotValues, originalExternalSlots, computedSlots);
+                double actual = slotBuffer[bufferIndex];
+                double absError = Math.abs(actual - expected);
+                maxAbsError = Math.max(maxAbsError, absError);
+                if (!Double.isFinite(actual) || absError > COMPILED_PLAN_EPSILON) {
+                    throw new IllegalStateException("OpenCL compiled wave slot mismatch at element "
+                            + element + ", slot=" + slot + ": expected=" + expected
+                            + ", actual=" + actual + ", absError=" + absError);
+                }
+                checkedSlots++;
+            }
+        }
+        return new WaveSlotBufferValidation(checks, checkedSlots, maxAbsError);
+    }
+
+    static HybridFinalDensityValidation validateCompiledPlanHybridFinalDensity(
+            double[] slotBuffer,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            OpenClCompiledPlan plan,
+            int[] slotBufferIndices,
+            boolean[] stagedSlots,
+            int usedSlotCount,
+            int maxChecks) {
+        int n = request.n();
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), descriptor.slotCount);
+        int checks = Math.min(n, Math.max(1, maxChecks));
+        double maxAbsError = 0.0D;
+        int stagedReads = 0;
+        for (int check = 0; check < checks; check++) {
+            int element = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
+            double bx = cellBlockX(element, request);
+            double by = cellBlockY(element, request);
+            double bz = cellBlockZ(element, request);
+
+            double[] referenceSlots = new double[safeUsedSlots];
+            boolean[] referenceResolved = new boolean[safeUsedSlots];
+            double[] originalExternalSlotValues = null;
+            if (plan.externalSlots() != null) {
+                originalExternalSlotValues = new double[Math.multiplyExact(n, safeUsedSlots)];
+                DensityFunction.FunctionContext context = new DensityFunction.SinglePointContext(
+                        (int) bx, (int) by, (int) bz);
+                for (int slot = 0; slot < safeUsedSlots; slot++) {
+                    if (isExternalSlot(plan.externalSlots(), slot)) {
+                        originalExternalSlotValues[elementSlotIndex(element, safeUsedSlots, slot)] =
+                                markerExtern(plan, slot).compute(context);
+                    }
+                }
+            }
+            for (int slot = 0; slot < safeUsedSlots; slot++) {
+                resolveCompiledPlanSlot(slot, referenceSlots, referenceResolved, element, safeUsedSlots,
+                        bx, by, bz, descriptor, plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(),
+                        plan.slotCoordZEvaluators(), originalExternalSlotValues, plan.externalSlots(),
+                        plan.computedSlots());
+            }
+            double hoist = plan.hoistEvaluator() == null ? 0.0D : plan.hoistEvaluator().evaluate(bx, by, bz);
+            double expected = evalCompiledPlanProgram(
+                    plan.slabProgram(), plan.slabConstants(), referenceSlots, bx, by, bz, hoist);
+
+            HybridResolveResult hybrid = resolveHybridFinalDensitySlotValues(slotBuffer, request, descriptor, plan,
+                    slotBufferIndices, stagedSlots, element, safeUsedSlots, bx, by, bz);
+            stagedReads += hybrid.stagedReads();
+            double actual = evalCompiledPlanProgram(
+                    plan.slabProgram(), plan.slabConstants(), hybrid.slots(), bx, by, bz, hoist);
+            double absError = equivalentCompiledPlanValue(actual, expected) ? 0.0D : Math.abs(actual - expected);
+            maxAbsError = Math.max(maxAbsError, absError);
+            if (absError > COMPILED_PLAN_EPSILON || Double.isNaN(absError)) {
+                throw new IllegalStateException("OpenCL compiled hybrid finalDensity mismatch at element "
+                        + element + ": expected=" + expected + ", actual=" + actual
+                        + ", absError=" + absError);
+            }
+        }
+        return new HybridFinalDensityValidation(checks, stagedReads, maxAbsError);
+    }
+
+    private static boolean equivalentCompiledPlanValue(double actual, double expected) {
+        if (Double.isNaN(actual) || Double.isNaN(expected)) {
+            return Double.isNaN(actual) && Double.isNaN(expected);
+        }
+        if (Double.isInfinite(actual) || Double.isInfinite(expected)) {
+            return actual == expected;
+        }
+        return false;
+    }
+
+    private static HybridResolveResult resolveHybridFinalDensitySlotValues(
+            double[] slotBuffer,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            OpenClCompiledPlan plan,
+            int[] slotBufferIndices,
+            boolean[] stagedSlots,
+            int element,
+            int safeUsedSlots,
+            double bx,
+            double by,
+            double bz) {
+        return resolveHybridFinalDensitySlotValues(slotBuffer, request, descriptor, plan, slotBufferIndices,
+                stagedSlots, element, safeUsedSlots, bx, by, bz, null);
+    }
+
+    private static HybridResolveResult resolveHybridFinalDensitySlotValues(
+            double[] slotBuffer,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            OpenClCompiledPlan plan,
+            int[] slotBufferIndices,
+            boolean[] stagedSlots,
+            int element,
+            int safeUsedSlots,
+            double bx,
+            double by,
+            double bz,
+            DensityFunction.FunctionContext externalContext) {
+        double[] slots = new double[safeUsedSlots];
+        boolean[] resolvedSlots = new boolean[safeUsedSlots];
+        boolean[] visitingSlots = new boolean[safeUsedSlots];
+        int[] stagedReads = new int[1];
+        for (int slot = 0; slot < safeUsedSlots; slot++) {
+            resolveHybridSlot(slotBuffer, request, descriptor, plan, slotBufferIndices, stagedSlots,
+                    element, safeUsedSlots, bx, by, bz, externalContext,
+                    slots, resolvedSlots, visitingSlots, stagedReads, slot);
+        }
+        return new HybridResolveResult(slots, stagedReads[0]);
+    }
+
+    private static double resolveHybridSlot(double[] slotBuffer,
+                                            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                            DfcOpenClNoiseDescriptor descriptor,
+                                            OpenClCompiledPlan plan,
+                                            int[] slotBufferIndices,
+                                            boolean[] stagedSlots,
+                                            int element,
+                                            int safeUsedSlots,
+                                            double bx,
+                                            double by,
+                                            double bz,
+                                            DensityFunction.FunctionContext externalContext,
+                                            double[] slots,
+                                            boolean[] resolvedSlots,
+                                            boolean[] visitingSlots,
+                                            int[] stagedReads,
+                                            int slot) {
+        if (slot < 0 || slot >= safeUsedSlots) {
+            throw new IllegalStateException("compiled hybrid plan references slot outside batch: " + slot);
+        }
+        if (resolvedSlots[slot]) {
+            return slots[slot];
+        }
+        if (stagedSlots != null && slot < stagedSlots.length && stagedSlots[slot]) {
+            int compactIndex = slotBufferIndex(slotBufferIndices, slot);
+            int bufferIndex = Math.addExact(Math.multiplyExact(compactIndex, request.n()), element);
+            if (slotBuffer == null || bufferIndex >= slotBuffer.length) {
+                throw new IllegalStateException("OpenCL hybrid slot buffer is missing slot "
+                        + slot + " for element " + element);
+            }
+            slots[slot] = slotBuffer[bufferIndex];
+            resolvedSlots[slot] = true;
+            stagedReads[0]++;
+            return slots[slot];
+        }
+        if (visitingSlots[slot]) {
+            throw new IllegalStateException("cyclic compiled hybrid slot dependency at slot " + slot);
+        }
+        visitingSlots[slot] = true;
+        try {
+            ComputedSlot computed = computedSlot(plan.computedSlots(), slot);
+            if (computed != null) {
+                for (int dependency : slotDependencies(computed.slabProgram(), safeUsedSlots)) {
+                    resolveHybridSlot(slotBuffer, request, descriptor, plan, slotBufferIndices, stagedSlots,
+                            element, safeUsedSlots, bx, by, bz, externalContext, slots, resolvedSlots, visitingSlots,
+                            stagedReads, dependency);
+                }
+                double hoist = computed.hoistEvaluator() == null
+                        ? 0.0D
+                        : computed.hoistEvaluator().evaluate(bx, by, bz);
+                slots[slot] = evalCompiledPlanProgram(computed.slabProgram(), computed.slabConstants(),
+                        slots, bx, by, bz, hoist);
+            } else if (isExternalSlot(plan.externalSlots(), slot)) {
+                DensityFunction extern = markerExtern(plan, slot);
+                DensityFunction.FunctionContext context = externalContext == null
+                        ? new DensityFunction.SinglePointContext((int) bx, (int) by, (int) bz)
+                        : externalContext;
+                slots[slot] = extern.compute(context);
+            } else {
+                double sx = evalSlotCoord(plan.slotCoordXEvaluators(), slot, bx, by, bz, bx);
+                double sy = evalSlotCoord(plan.slotCoordYEvaluators(), slot, bx, by, bz, by);
+                double sz = evalSlotCoord(plan.slotCoordZEvaluators(), slot, bx, by, bz, bz);
+                slots[slot] = descriptor.sampleSlot(slot, sx, sy, sz);
+            }
+        } finally {
+            visitingSlots[slot] = false;
+        }
+        resolvedSlots[slot] = true;
+        return slots[slot];
+    }
+
+    private record HybridResolveResult(double[] slots, int stagedReads) {
+    }
+
+    private static int slotBufferIndex(int[] slotBufferIndices, int slot) {
+        if (slotBufferIndices == null) {
+            return slot;
+        }
+        if (slot < 0 || slot >= slotBufferIndices.length || slotBufferIndices[slot] < 0) {
+            throw new IllegalStateException("OpenCL wave slot " + slot + " has no compact slot buffer index");
+        }
+        return slotBufferIndices[slot];
     }
 
     private static double resolveCompiledPlanSlot(int slot, double[] slots, boolean[] resolvedSlots,
@@ -2225,17 +3470,26 @@ public final class DfcOpenClRuntime {
     }
 
     private static DensityFunction markerExtern(OpenClCompiledPlan plan, int slot) {
-        int[] markerExternIndices = plan.markerExternIndices();
+        int externIndex = markerExternIndex(plan, slot);
         DensityFunction[] externs = plan.externs();
-        if (markerExternIndices == null || externs == null || slot < 0 || slot >= markerExternIndices.length) {
-            throw new IllegalStateException("compiled plan external slot " + slot + " has no marker extern index");
-        }
-        int externIndex = markerExternIndices[slot];
-        if (externIndex < 0 || externIndex >= externs.length || externs[externIndex] == null) {
+        if (externs == null || externIndex >= externs.length || externs[externIndex] == null) {
             throw new IllegalStateException("compiled plan external slot " + slot
                     + " has invalid marker extern index " + externIndex);
         }
         return externs[externIndex];
+    }
+
+    private static int markerExternIndex(OpenClCompiledPlan plan, int slot) {
+        int[] markerExternIndices = plan.markerExternIndices();
+        if (markerExternIndices == null || slot < 0 || slot >= markerExternIndices.length) {
+            throw new IllegalStateException("compiled plan external slot " + slot + " has no marker extern index");
+        }
+        int externIndex = markerExternIndices[slot];
+        if (externIndex < 0) {
+            throw new IllegalStateException("compiled plan external slot " + slot
+                    + " has invalid marker extern index " + externIndex);
+        }
+        return externIndex;
     }
 
     private static boolean[] scheduledChunks(boolean[][] waves, int chunkCount) {
@@ -2283,6 +3537,239 @@ public final class DfcOpenClRuntime {
             }
         }
         return indices;
+    }
+
+    private static boolean[] waveTargetSlots(boolean[] wave, int[] chunkStartSlots, int[] chunkEndSlots,
+                                             int slotCount) {
+        boolean[] targetSlots = new boolean[Math.max(0, slotCount)];
+        if (wave == null) {
+            return targetSlots;
+        }
+        int limit = Math.min(Math.min(chunkStartSlots.length, chunkEndSlots.length), wave.length);
+        for (int chunk = 0; chunk < limit; chunk++) {
+            if (!wave[chunk]) {
+                continue;
+            }
+            int start = Math.max(0, Math.min(chunkStartSlots[chunk], targetSlots.length - 1));
+            int end = Math.max(start, Math.min(chunkEndSlots[chunk], targetSlots.length - 1));
+            for (int slot = start; slot <= end; slot++) {
+                targetSlots[slot] = true;
+            }
+        }
+        return targetSlots;
+    }
+
+    private static boolean[] waveExternalInputs(OpenClCompiledPlan plan, boolean[] wave,
+                                                int[] chunkStartSlots, int[] chunkEndSlots,
+                                                boolean[] targetSlots) {
+        int slotCount = plan.specs() == null ? 0 : plan.specs().length;
+        boolean[] inputs = new boolean[slotCount];
+        if (wave == null) {
+            return inputs;
+        }
+        int limit = Math.min(Math.min(chunkStartSlots.length, chunkEndSlots.length), wave.length);
+        for (int chunk = 0; chunk < limit; chunk++) {
+            if (!wave[chunk]) {
+                continue;
+            }
+            boolean[] chunkInputs = compiledPlanChunkExternalInputs(
+                    plan, chunkStartSlots[chunk], chunkEndSlots[chunk]);
+            int inputLimit = Math.min(inputs.length, chunkInputs.length);
+            for (int slot = 0; slot < inputLimit; slot++) {
+                inputs[slot] |= chunkInputs[slot];
+            }
+        }
+        int targetLimit = Math.min(inputs.length, targetSlots == null ? 0 : targetSlots.length);
+        for (int slot = 0; slot < targetLimit; slot++) {
+            if (targetSlots[slot]) {
+                inputs[slot] = false;
+            }
+        }
+        return inputs;
+    }
+
+    private static ComputedSlot[] waveComputedSlots(OpenClCompiledPlan plan, boolean[] targetSlots) {
+        ComputedSlot[] computedSlots = plan.computedSlots();
+        if (computedSlots == null) {
+            return null;
+        }
+        ComputedSlot[] waveComputedSlots = Arrays.copyOf(computedSlots, computedSlots.length);
+        for (int slot = 0; slot < waveComputedSlots.length; slot++) {
+            if (targetSlots == null || slot >= targetSlots.length || !targetSlots[slot]) {
+                waveComputedSlots[slot] = null;
+            }
+        }
+        return waveComputedSlots;
+    }
+
+    private static boolean[][] identityWaves(int count) {
+        boolean[][] waves = new boolean[Math.max(0, count)][Math.max(0, count)];
+        for (int i = 0; i < waves.length; i++) {
+            waves[i][i] = true;
+        }
+        return waves;
+    }
+
+    private static void collectRuntimeChunks(OpenClCompiledPlan plan, List<RuntimeChunk> chunks) {
+        int slots = plan.specs() == null ? 0 : plan.specs().length;
+        int start = -1;
+        int count = 0;
+        int octaves = 0;
+        int computed = 0;
+        for (int slot = 0; slot < slots; slot++) {
+            int slotOctaves = runtimeSlotOctaves(plan, slot);
+            int slotComputed = computedSlot(plan.computedSlots(), slot) == null ? 0 : 1;
+            if (runtimeSlotChunkBlocked(plan, slot, slotOctaves, slotComputed)) {
+                if (count > 0) {
+                    chunks.add(new RuntimeChunk(start, slot - 1, count, octaves, computed));
+                    start = -1;
+                    count = 0;
+                    octaves = 0;
+                    computed = 0;
+                }
+                continue;
+            }
+            if (count > 0
+                    && (count + 1 > RUNTIME_FINAL_CHUNK_MAX_SLOTS
+                    || octaves + slotOctaves > RUNTIME_FINAL_CHUNK_MAX_OCTAVES
+                    || computed + slotComputed > RUNTIME_FINAL_CHUNK_MAX_COMPUTED)) {
+                chunks.add(new RuntimeChunk(start, slot - 1, count, octaves, computed));
+                start = -1;
+                count = 0;
+                octaves = 0;
+                computed = 0;
+            }
+            if (count == 0) {
+                start = slot;
+            }
+            count++;
+            octaves += slotOctaves;
+            computed += slotComputed;
+        }
+        if (count > 0) {
+            chunks.add(new RuntimeChunk(start, slots - 1, count, octaves, computed));
+        }
+    }
+
+    private static boolean runtimeSlotChunkBlocked(OpenClCompiledPlan plan, int slot, int octaves, int computed) {
+        return octaves > RUNTIME_FINAL_CHUNK_MAX_OCTAVES
+                || computed > RUNTIME_FINAL_CHUNK_MAX_COMPUTED
+                || isExternalSlot(plan.externalSlots(), slot);
+    }
+
+    private static int runtimeSlotOctaves(OpenClCompiledPlan plan, int slot) {
+        int total = 0;
+        NoiseSpec[] specs = plan.specs();
+        if (specs != null && slot >= 0 && slot < specs.length && specs[slot] != null) {
+            total += specs[slot].totalActiveOctaves();
+        }
+        BlendedNoiseSpec[] blendedSpecs = plan.blendedSpecs();
+        if (blendedSpecs != null && slot >= 0 && slot < blendedSpecs.length) {
+            total += runtimeBlendedOctaves(blendedSpecs[slot]);
+        }
+        return total;
+    }
+
+    private static int runtimeBlendedOctaves(BlendedNoiseSpec spec) {
+        if (spec == null) {
+            return 0;
+        }
+        return countNonNull(spec.mainOctaves())
+                + countNonNull(spec.minLimitOctaves())
+                + countNonNull(spec.maxLimitOctaves());
+    }
+
+    private static int countNonNull(Object[] values) {
+        int count = 0;
+        if (values != null) {
+            for (Object value : values) {
+                if (value != null) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int[] runtimeChunkSlotOwners(List<RuntimeChunk> chunks, int slots) {
+        int[] owners = new int[Math.max(0, slots)];
+        Arrays.fill(owners, -1);
+        for (int chunkIndex = 0; chunkIndex < chunks.size(); chunkIndex++) {
+            RuntimeChunk chunk = chunks.get(chunkIndex);
+            int start = Math.max(0, chunk.startSlot());
+            int end = Math.min(owners.length - 1, chunk.endSlot());
+            for (int slot = start; slot <= end; slot++) {
+                owners[slot] = chunkIndex;
+            }
+        }
+        return owners;
+    }
+
+    private static RuntimeWavePlan collectRuntimeChunkWaves(List<boolean[]> chunkInputs, int[] slotOwners) {
+        int chunkCount = chunkInputs == null ? 0 : chunkInputs.size();
+        boolean[] scheduledChunks = new boolean[chunkCount];
+        boolean[] directBlockedChunks = new boolean[chunkCount];
+        for (int chunk = 0; chunk < chunkCount; chunk++) {
+            directBlockedChunks[chunk] = runtimeBlockedInputCount(chunkInputs.get(chunk), slotOwners) > 0;
+        }
+
+        List<boolean[]> waves = new ArrayList<>();
+        while (true) {
+            boolean[] wave = new boolean[chunkCount];
+            int waveChunks = 0;
+            for (int chunk = 0; chunk < chunkCount; chunk++) {
+                if (scheduledChunks[chunk] || directBlockedChunks[chunk]) {
+                    continue;
+                }
+                if (runtimeChunkInputsReady(chunkInputs.get(chunk), slotOwners, scheduledChunks)) {
+                    wave[chunk] = true;
+                    waveChunks++;
+                }
+            }
+            if (waveChunks == 0) {
+                break;
+            }
+            waves.add(wave);
+            for (int chunk = 0; chunk < wave.length; chunk++) {
+                scheduledChunks[chunk] |= wave[chunk];
+            }
+        }
+        return new RuntimeWavePlan(waves.toArray(new boolean[0][]), scheduledChunks, directBlockedChunks);
+    }
+
+    private static boolean runtimeChunkInputsReady(boolean[] inputs, int[] slotOwners, boolean[] scheduledChunks) {
+        if (inputs == null) {
+            return true;
+        }
+        for (int slot = 0; slot < inputs.length; slot++) {
+            if (!inputs[slot]) {
+                continue;
+            }
+            int owner = runtimeSlotOwner(slotOwners, slot);
+            if (owner < 0 || owner >= scheduledChunks.length || !scheduledChunks[owner]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int runtimeBlockedInputCount(boolean[] inputs, int[] slotOwners) {
+        int count = 0;
+        if (inputs != null) {
+            for (int slot = 0; slot < inputs.length; slot++) {
+                if (inputs[slot] && runtimeSlotOwner(slotOwners, slot) < 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int runtimeSlotOwner(int[] slotOwners, int slot) {
+        if (slotOwners == null || slot < 0 || slot >= slotOwners.length) {
+            return -1;
+        }
+        return slotOwners[slot];
     }
 
     private static int countTrue(boolean[] values) {
@@ -2530,6 +4017,10 @@ public final class DfcOpenClRuntime {
         return String.format(java.util.Locale.ROOT, "%.3f", nanos / 1_000_000.0D);
     }
 
+    private static String formatDecimal(double value) {
+        return String.format(java.util.Locale.ROOT, "%.6g", value);
+    }
+
     private static String formatNanosPerValue(long nanos, long values) {
         double perValue = values <= 0L ? 0.0D : nanos / (double) values;
         return String.format(java.util.Locale.ROOT, "%.1f", perValue);
@@ -2702,6 +4193,18 @@ public final class DfcOpenClRuntime {
         }
     }
 
+    public record WaveSlotBufferValidation(
+            int checkedElements,
+            int checkedSlots,
+            double maxAbsError) {
+    }
+
+    public record HybridFinalDensityValidation(
+            int checkedElements,
+            int stagedReads,
+            double maxAbsError) {
+    }
+
     public record GeneratedSourceCompileProbe(
             boolean passed,
             DfcOpenClDeviceInfo device,
@@ -2723,6 +4226,62 @@ public final class DfcOpenClRuntime {
             NoiseSpec[] specs,
             BlendedNoiseSpec[] blendedSpecs,
             boolean[] inactiveSlots) {
+    }
+
+    private record RuntimeChunk(int startSlot, int endSlot, int count, int octaves, int computed) {
+    }
+
+    private record RuntimeWavePlan(boolean[][] waves, boolean[] scheduledChunks, boolean[] directBlockedChunks) {
+    }
+
+    private record RuntimeHybridPlan(
+            boolean available,
+            String unavailableReason,
+            OpenClCompiledPlan plan,
+            DfcOpenClNoiseDescriptor descriptor,
+            RuntimeOutputLayer[] outputLayers,
+            int slotCount,
+            int scheduledSlotCount,
+            int[] slotBufferIndices,
+            boolean[] stagedSlots,
+            String[] waveSources,
+            boolean[][] kernelWaves,
+            int totalSourceChars,
+            int maxSourceChars) {
+
+        static RuntimeHybridPlan available(
+                OpenClCompiledPlan plan,
+                DfcOpenClNoiseDescriptor descriptor,
+                RuntimeOutputLayer[] outputLayers,
+                int slotCount,
+                int scheduledSlotCount,
+                int[] slotBufferIndices,
+                boolean[] stagedSlots,
+                String[] waveSources,
+                boolean[][] kernelWaves,
+                int totalSourceChars,
+                int maxSourceChars) {
+            return new RuntimeHybridPlan(true, null, plan, descriptor, outputLayers,
+                    slotCount, scheduledSlotCount, slotBufferIndices, stagedSlots,
+                    waveSources, kernelWaves, totalSourceChars, maxSourceChars);
+        }
+
+        static RuntimeHybridPlan unavailable(String reason) {
+            return new RuntimeHybridPlan(false, reason, null, null, new RuntimeOutputLayer[0], 0, 0,
+                    null, null, new String[0], new boolean[0][], 0, 0);
+        }
+    }
+
+    private record RuntimeOutputLayer(
+            OpenClCompiledPlan plan,
+            DfcOpenClNoiseDescriptor descriptor,
+            int embeddedExternIndex) {
+    }
+
+    private record EmbeddedRuntimePlan(
+            OpenClCompiledPlan plan,
+            int slotCount,
+            RuntimeOutputLayer[] outputLayers) {
     }
 
     @FunctionalInterface

@@ -8,6 +8,8 @@ import org.lwjgl.system.MemoryUtil;
 import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.nio.IntBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
 final class DfcOpenClDeviceContext implements AutoCloseable {
     private static final double[] EMPTY_EXTERNAL_SLOTS = new double[]{0.0D};
@@ -51,6 +53,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private final DeviceBuffer noiseSlotFactorsBuffer = new DeviceBuffer();
     private final DeviceBuffer generatedExternalSlotsBuffer = new DeviceBuffer();
     private final DeviceBuffer generatedSlotBuffer = new DeviceBuffer();
+    private final Map<String, GeneratedNoiseKernel> generatedKernelCache = new HashMap<>();
     private final HostDoubleBuffer doubleStagingBuffer = new HostDoubleBuffer();
     private final HostDoubleBuffer gridOutHostBuffer = new HostDoubleBuffer();
     private boolean closed;
@@ -953,6 +956,17 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
     }
 
+    synchronized GeneratedNoiseKernel compileGeneratedNoiseKernelCached(String kernelSource) {
+        assertOpen();
+        GeneratedNoiseKernel cached = this.generatedKernelCache.get(kernelSource);
+        if (cached != null && !cached.closed) {
+            return cached;
+        }
+        GeneratedNoiseKernel compiled = compileGeneratedNoiseKernel(kernelSource);
+        this.generatedKernelCache.put(kernelSource, compiled);
+        return compiled;
+    }
+
     synchronized SlabVmResult evalGeneratedNoiseKernel(GeneratedNoiseKernel generated,
                                                        SlabVmNoiseCellGridRequest request,
                                                        boolean readOutput) {
@@ -1086,14 +1100,28 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                                                                          SlabVmNoiseCellGridRequest request,
                                                                          int slotBufferSlotCount,
                                                                          boolean uploadInputs) {
+        return evalGeneratedNoiseKernelWavesToSlotBuffer(
+                generatedKernels, waves, request, slotBufferSlotCount, uploadInputs, null);
+    }
+
+    synchronized SlabVmResult evalGeneratedNoiseKernelWavesToSlotBuffer(GeneratedNoiseKernel[] generatedKernels,
+                                                                         boolean[][] waves,
+                                                                         SlabVmNoiseCellGridRequest request,
+                                                                         int slotBufferSlotCount,
+                                                                         boolean uploadInputs,
+                                                                         double[] slotBufferOut) {
         assertOpen();
         validateNoiseCellGridRequest(request);
         if (slotBufferSlotCount <= 0) {
             throw new IllegalArgumentException("slotBufferSlotCount must be positive");
         }
         int slotValues = Math.multiplyExact(request.n, slotBufferSlotCount);
+        if (slotBufferOut != null && slotBufferOut.length < slotValues) {
+            throw new IllegalArgumentException("slotBufferOut is shorter than n * slotBufferSlotCount");
+        }
 
         ByteBuffer permutationsHost = null;
+        DoubleBuffer slotOutHost = null;
         long started = System.nanoTime();
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer err = stack.callocInt(1);
@@ -1102,6 +1130,9 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             if (writeInputs) {
                 permutationsHost = MemoryUtil.memAlloc(request.permutations.length);
                 permutationsHost.put(request.permutations).flip();
+            }
+            if (slotBufferOut != null) {
+                slotOutHost = ensureHostDoubleBuffer(this.gridOutHostBuffer, slotValues);
             }
 
             long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
@@ -1157,6 +1188,14 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                             "clEnqueueNDRangeKernel(generated wave)");
                 }
             }
+            if (slotBufferOut != null) {
+                slotOutHost.clear();
+                slotOutHost.limit(slotValues);
+                check(CL12.clEnqueueReadBuffer(this.queue, slotBuffer, true, 0L, slotOutHost, null, null),
+                        "clEnqueueReadBuffer(generated wave slots)");
+                slotOutHost.position(0);
+                slotOutHost.get(slotBufferOut, 0, slotValues);
+            }
             check(CL12.clFinish(this.queue), "clFinish(generated wave)");
             return new SlabVmResult(System.nanoTime() - started);
         } finally {
@@ -1186,6 +1225,10 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             return;
         }
         this.closed = true;
+        for (GeneratedNoiseKernel kernel : this.generatedKernelCache.values()) {
+            kernel.close();
+        }
+        this.generatedKernelCache.clear();
         releaseDeviceBuffers();
         releaseKernel(this.slabVmDirectNoiseKernel);
         releaseKernel(this.slabVmDirectDemoKernel);

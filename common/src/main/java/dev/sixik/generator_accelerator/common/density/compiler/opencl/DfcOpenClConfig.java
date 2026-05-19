@@ -50,6 +50,14 @@ public final class DfcOpenClConfig {
         return slabVmDispatchEnabled() && boolProperty("dfc.opencl.enableWorldgenBridge", false);
     }
 
+    public static boolean finalDensityHybridEnabled() {
+        return enabled() && boolProperty("dfc.opencl.finalDensityHybrid", false);
+    }
+
+    public static int finalDensityHybridMinSlotValues() {
+        return intProperty("dfc.opencl.finalDensityHybridMinSlotValues", slabVmMinElements(), 0, 1 << 24);
+    }
+
     public static int slabVmMinElements() {
         return intProperty("dfc.opencl.slabVmMinElements", 1 << 14, 0, 1 << 20);
     }

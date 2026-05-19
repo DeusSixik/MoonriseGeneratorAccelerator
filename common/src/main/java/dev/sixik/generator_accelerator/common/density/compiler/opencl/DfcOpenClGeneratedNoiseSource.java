@@ -304,6 +304,77 @@ final class DfcOpenClGeneratedNoiseSource {
         return new BuildResult(source.toString(), scaleTempCount, scaleRefCount);
     }
 
+    static BuildResult buildCompiledPlanWaveCompactSlotBuffer(DfcOpenClNoiseDescriptor descriptor,
+                                                              boolean[] targetSlots,
+                                                              String[] slotCoordXExpressions,
+                                                              String[] slotCoordYExpressions,
+                                                              String[] slotCoordZExpressions,
+                                                              boolean[] externalSlots,
+                                                              DfcOpenClRuntime.ComputedSlot[] computedSlots,
+                                                              int[] slotBufferIndices,
+                                                              WrapMode wrapMode) {
+        int safeUsedSlots = descriptor.slotCount;
+        boolean customCoords = hasSlotCoords(safeUsedSlots, slotCoordXExpressions, slotCoordYExpressions,
+                slotCoordZExpressions);
+        Map<Long, ScaleUse> scaleUses = customCoords ? Map.of() : collectScaleUses(descriptor, safeUsedSlots);
+        int scaleTempCount = 0;
+        int scaleRefCount = 0;
+        for (ScaleUse use : scaleUses.values()) {
+            if (use.count > 1) {
+                use.tempIndex = scaleTempCount++;
+                scaleRefCount += use.count;
+            }
+        }
+        StringBuilder source = new StringBuilder(8192 + descriptor.totalOctaves * 512);
+        source.append('\n')
+                .append("__kernel void ").append(KERNEL_NAME)
+                .append("(DFC_NOISE_MEM const uchar *permutations, ")
+                .append("__global const double *external_slots, ")
+                .append("int first_block_x, int first_block_y, int first_block_z, ")
+                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("__global double *out, int n) {\n")
+                .append("    int gid = (int) get_global_id(0);\n")
+                .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
+                .append("    double bx;\n")
+                .append("    double by;\n")
+                .append("    double bz;\n")
+                .append("    int cell;\n")
+                .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
+                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+        appendSlotLocals(source, descriptor, targetSlots, safeUsedSlots, scaleUses,
+                wrapMode == WrapMode.WRAP, "    ",
+                customCoords ? slotCoordXExpressions : null,
+                customCoords ? slotCoordYExpressions : null,
+                customCoords ? slotCoordZExpressions : null,
+                externalSlots,
+                computedSlots,
+                ExternalSlotLayout.SLOT_MAJOR,
+                slotBufferIndices);
+        for (int slot = 0; slot < safeUsedSlots; slot++) {
+            if (targetSlots == null || slot >= targetSlots.length || !targetSlots[slot]) {
+                continue;
+            }
+            source.append("    out[").append(slotBufferIndex(slotBufferIndices, slot))
+                    .append(" * n + gid] = slot").append(slot).append(";\n");
+        }
+        source.append("}\n");
+        return new BuildResult(source.toString(), scaleTempCount, scaleRefCount);
+    }
+
+    static BuildResult buildCompiledPlanAllWavesCompactSlotBuffer(DfcOpenClNoiseDescriptor descriptor,
+                                                                  boolean[] targetSlots,
+                                                                  String[] slotCoordXExpressions,
+                                                                  String[] slotCoordYExpressions,
+                                                                  String[] slotCoordZExpressions,
+                                                                  boolean[] externalSlots,
+                                                                  DfcOpenClRuntime.ComputedSlot[] computedSlots,
+                                                                  int[] slotBufferIndices,
+                                                                  WrapMode wrapMode) {
+        return buildCompiledPlanWaveCompactSlotBuffer(
+                descriptor, targetSlots, slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                externalSlots, computedSlots, slotBufferIndices, wrapMode);
+    }
+
     private static void appendBody(StringBuilder source, DfcOpenClNoiseDescriptor descriptor, int safeUsedSlots,
                                    Map<Long, ScaleUse> scaleUses, boolean wrapAxis, String indent) {
         for (ScaleUse use : scaleUses.values()) {
@@ -361,6 +432,35 @@ final class DfcOpenClGeneratedNoiseSource {
         boolean[] emitted = new boolean[safeUsedSlots];
         boolean[] visiting = new boolean[safeUsedSlots];
         for (int slot = startSlot; slot <= endSlot; slot++) {
+            appendSlotLocal(source, descriptor, safeUsedSlots, scaleUses, wrapAxis, indent,
+                    slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                    externalSlots, computedSlots, externalSlotLayout, slotBufferIndices, emitted, visiting, slot);
+        }
+    }
+
+    private static void appendSlotLocals(StringBuilder source, DfcOpenClNoiseDescriptor descriptor,
+                                         boolean[] targetSlots, int safeUsedSlots,
+                                         Map<Long, ScaleUse> scaleUses, boolean wrapAxis, String indent,
+                                         String[] slotCoordXExpressions,
+                                         String[] slotCoordYExpressions,
+                                         String[] slotCoordZExpressions,
+                                         boolean[] externalSlots,
+                                         DfcOpenClRuntime.ComputedSlot[] computedSlots,
+                                         ExternalSlotLayout externalSlotLayout,
+                                         int[] slotBufferIndices) {
+        for (ScaleUse use : scaleUses.values()) {
+            if (use.tempIndex >= 0) {
+                appendScaledCoordDeclaration(source, indent, "sx", use, "bx", wrapAxis);
+                appendScaledCoordDeclaration(source, indent, "sy", use, "by", wrapAxis);
+                appendScaledCoordDeclaration(source, indent, "sz", use, "bz", wrapAxis);
+            }
+        }
+        boolean[] emitted = new boolean[safeUsedSlots];
+        boolean[] visiting = new boolean[safeUsedSlots];
+        for (int slot = 0; slot < safeUsedSlots; slot++) {
+            if (targetSlots == null || slot >= targetSlots.length || !targetSlots[slot]) {
+                continue;
+            }
             appendSlotLocal(source, descriptor, safeUsedSlots, scaleUses, wrapAxis, indent,
                     slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
                     externalSlots, computedSlots, externalSlotLayout, slotBufferIndices, emitted, visiting, slot);

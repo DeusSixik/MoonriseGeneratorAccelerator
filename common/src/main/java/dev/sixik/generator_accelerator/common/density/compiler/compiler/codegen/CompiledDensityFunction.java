@@ -5,6 +5,8 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClCompiledPlanRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -210,6 +212,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        if (DfcOpenClRuntime.tryFillFinalDensityHybrid(this, out, chunk)) {
+            return;
+        }
         fillArray(out, chunk);
     }
 
@@ -344,10 +349,12 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             return this;
         }
         try {
-            return (CompiledDensityFunction) constructorMH.invokeExact(
+            CompiledDensityFunction rebound = (CompiledDensityFunction) constructorMH.invokeExact(
                     constants, visitedNoises, splines, noiseOctaves, visitedExterns,
                     minValue, maxValue, helperHandles, nativeNoiseHandles,
                     slabInnerProgram, slabInnerConsts, constructorMH);
+            DfcOpenClCompiledPlanRegistry.registerRebind(this, rebound, visitedExterns);
+            return rebound;
         } catch (Throwable t) {
             throw new RuntimeException(
                     "CompiledDensityFunction.rebind failed for "

@@ -15,7 +15,8 @@ loom {
                     "-Ddfc.opencl.probeOnInit=false",
                     "-Ddfc.opencl.enableSlabVmDispatch=false",
                     "-Ddfc.opencl.enableWorldgenBridge=false",
-                    "-Ddfc.opencl.directStaging=false"
+                    "-Ddfc.opencl.directStaging=false",
+                    "-Ddfc.opencl.finalDensityHybrid=true"
         }
     }
 }

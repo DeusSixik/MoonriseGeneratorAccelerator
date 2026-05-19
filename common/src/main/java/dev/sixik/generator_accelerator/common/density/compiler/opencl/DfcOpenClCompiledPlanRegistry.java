@@ -79,6 +79,40 @@ public final class DfcOpenClCompiledPlanRegistry {
                         + "this diagnostic registry was installed");
     }
 
+    public static void registerRebind(CompiledDensityFunction source, CompiledDensityFunction rebound,
+                                      DensityFunction[] reboundExterns) {
+        if (source == null || rebound == null || source == rebound) {
+            return;
+        }
+        Entry entry = PLANS.get(source);
+        if (entry == null) {
+            return;
+        }
+        if (!entry.available()) {
+            PLANS.put(rebound, entry);
+            return;
+        }
+        DfcOpenClRuntime.OpenClCompiledPlan plan = entry.plan();
+        PLANS.put(rebound, Entry.available(new DfcOpenClRuntime.OpenClCompiledPlan(
+                plan.label(),
+                plan.specs(),
+                plan.slabProgram(),
+                plan.slabConstants(),
+                plan.hoistExpression(),
+                plan.hoistEvaluator(),
+                plan.slotCoordXExpressions(),
+                plan.slotCoordYExpressions(),
+                plan.slotCoordZExpressions(),
+                plan.slotCoordXEvaluators(),
+                plan.slotCoordYEvaluators(),
+                plan.slotCoordZEvaluators(),
+                plan.blendedSpecs(),
+                plan.externalSlots(),
+                plan.markerExternIndices(),
+                reboundExterns == null ? plan.externs() : reboundExterns.clone(),
+                plan.computedSlots())));
+    }
+
     public static void clear() {
         PLANS.clear();
     }
