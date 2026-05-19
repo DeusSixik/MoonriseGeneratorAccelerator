@@ -9,12 +9,15 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePl
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpecCache;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClCompiledPlanRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClStats;
 import net.minecraft.commands.CommandSourceStack;
@@ -22,6 +25,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseRouter;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.slf4j.Logger;
@@ -45,6 +49,10 @@ public final class DensityFunctionCompiler {
         thread.setDaemon(true);
         return thread;
     });
+    private static final int OPENCL_COMPILED_PLAN_MARKER_EXPAND_DEPTH = 8;
+    private static final int OPENCL_SOURCE_BENCH_MAX_SLOTS = 16;
+    private static final int OPENCL_SOURCE_BENCH_MAX_OCTAVES = 32;
+    private static final int OPENCL_SOURCE_BENCH_MAX_COMPUTED = 8;
 
     private static volatile boolean initialized;
 
@@ -684,6 +692,16 @@ public final class DensityFunctionCompiler {
                                         .executes(context -> runOpenClSlabGridRealNoiseSourceAutoNoReadBench(
                                                 context.getSource(), 4, 8, 8192, 8, 2,
                                                 IntegerArgumentType.getInteger(context, "slots")))))
+                        .then(Commands.literal("slabgridcompiledsourceautonoreadbench")
+                                .executes(context -> runOpenClSlabGridCompiledSourceAutoNoReadBench(
+                                        context.getSource(), 4, 8, 8192, 8, 2)))
+                        .then(Commands.literal("slabgridcompiledsourcefinaldensitybench")
+                                .executes(context -> runOpenClSlabGridCompiledSourceFinalDensityNoReadBench(
+                                        context.getSource(), 4, 8, 8192, 8, 2)))
+                        .then(Commands.literal("compiledplancandidates")
+                                .executes(context -> sendOpenClCompiledPlanCandidates(context.getSource())))
+                        .then(Commands.literal("compiledplanexterns")
+                                .executes(context -> sendOpenClCompiledPlanExterns(context.getSource())))
                         .then(Commands.literal("stats")
                                 .executes(context -> {
                                     sendOpenClStats(context.getSource());
@@ -1557,6 +1575,100 @@ public final class DensityFunctionCompiler {
         });
     }
 
+    private static int runOpenClSlabGridCompiledSourceAutoNoReadBench(CommandSourceStack source, int cellWidth,
+                                                                      int cellHeight, int cells, int iterations,
+                                                                      int warmups) {
+        DfcOpenClRuntime.OpenClCompiledPlan plan;
+        try {
+            plan = collectOpenClCompiledRouterSourceBenchPlan(source);
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL compiled source auto no-read bench: " + formatThrowable(throwable)));
+            return 0;
+        }
+        return runOpenClDiagnostic(source, "slab VM grid compiled source auto no-read bench", () -> {
+            DfcOpenClRuntime.SlabVmCellBenchmark result =
+                    DfcOpenClRuntime.slabVmCellGridCompiledPlanSourceAutoNoReadBenchmark(
+                            plan, cellWidth, cellHeight, cells, iterations, warmups);
+            return Component.literal(
+                    "DFC OpenCL slab VM grid compiled source auto no-read bench: passed=" + result.passed()
+                            + ", cellWidth=" + result.cellWidth()
+                            + ", cellHeight=" + result.cellHeight()
+                            + ", cells=" + result.cells()
+                            + ", iterations=" + result.iterations()
+                            + ", warmups=" + result.warmups()
+                            + ", elementsPerIter=" + result.elementsPerIteration()
+                            + ", totalElements=" + result.totalElements()
+                            + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                            + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                            + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                            + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                            + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
+    }
+
+    private static int runOpenClSlabGridCompiledSourceFinalDensityNoReadBench(CommandSourceStack source,
+                                                                              int cellWidth, int cellHeight,
+                                                                              int cells, int iterations,
+                                                                              int warmups) {
+        DfcOpenClRuntime.OpenClCompiledPlan plan;
+        try {
+            NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+            List<String> failures = new ArrayList<>();
+            plan = tryCollectOpenClCompiledPlan(
+                    new RouterDensityCandidate("finalDensity", router.finalDensity()), failures);
+            if (plan == null) {
+                source.sendFailure(Component.literal(
+                        "DFC OpenCL compiled finalDensity source no-read bench: "
+                                + limitedFailureSummary(failures, 4)));
+                return 0;
+            }
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL compiled finalDensity source no-read bench: " + formatThrowable(throwable)));
+            return 0;
+        }
+
+        String rejection = openClCompiledPlanSourceBenchRejection(plan);
+        if (rejection != null) {
+            DfcOpenClRuntime.OpenClCompiledPlan blockedPlan = plan;
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL slab VM grid compiled finalDensity source no-read bench: blocked=true, "
+                            + describeOpenClCompiledPlanSourceLimits(blockedPlan)
+                            + ", reason=" + rejection),
+                    false);
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL slab VM grid compiled finalDensity source no-read bench: not queued; use "
+                            + "/dfc opencl slabgridcompiledsourceautonoreadbench for the safe source bench."),
+                    false);
+            return 0;
+        }
+
+        return runOpenClDiagnostic(source, "slab VM grid compiled finalDensity source no-read bench", () -> {
+            DfcOpenClRuntime.SlabVmCellBenchmark result =
+                    DfcOpenClRuntime.slabVmCellGridCompiledPlanSourceAutoNoReadBenchmark(
+                            plan, cellWidth, cellHeight, cells, iterations, warmups);
+            return Component.literal(
+                    "DFC OpenCL slab VM grid compiled finalDensity source no-read bench: passed=" + result.passed()
+                            + ", cellWidth=" + result.cellWidth()
+                            + ", cellHeight=" + result.cellHeight()
+                            + ", cells=" + result.cells()
+                            + ", iterations=" + result.iterations()
+                            + ", warmups=" + result.warmups()
+                            + ", elementsPerIter=" + result.elementsPerIteration()
+                            + ", totalElements=" + result.totalElements()
+                            + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                            + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                            + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                            + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                            + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
+    }
+
     private static int runOpenClDiagnostic(CommandSourceStack source, String label, Supplier<Component> action) {
         MinecraftServer server = source.getServer();
         source.sendSuccess(() -> Component.literal("DFC OpenCL " + label + ": queued."), false);
@@ -1570,6 +1682,533 @@ public final class DensityFunctionCompiler {
                     }
                 }));
         return 1;
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan collectOpenClCompiledRouterPlan(CommandSourceStack source) {
+        NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+        RouterDensityCandidate[] candidates = openClRouterCandidates(router);
+
+        List<String> failures = new ArrayList<>();
+        DfcOpenClRuntime.OpenClCompiledPlan best = null;
+        for (RouterDensityCandidate candidate : candidates) {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = tryCollectOpenClCompiledPlan(candidate, failures);
+            if (plan != null) {
+                best = betterOpenClCompiledPlan(best, plan);
+            }
+        }
+        if (best != null) {
+            return best;
+        }
+        DfcOpenClRuntime.OpenClCompiledPlan syntheticPlan = tryCollectSyntheticOpenClCompiledPlan(source, failures);
+        if (syntheticPlan != null) {
+            return syntheticPlan;
+        }
+
+        throw new IllegalStateException("no router density field has an OpenCL diagnostic plan: "
+                + limitedFailureSummary(failures, 8));
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan collectOpenClCompiledRouterSourceBenchPlan(
+            CommandSourceStack source) {
+        NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+        List<String> failures = new ArrayList<>();
+        DfcOpenClRuntime.OpenClCompiledPlan best = null;
+        for (RouterDensityCandidate candidate : openClRouterCandidates(router)) {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = tryCollectOpenClCompiledPlan(candidate, failures);
+            if (plan != null && openClCompiledPlanSourceBenchSafe(plan)) {
+                best = betterOpenClCompiledPlan(best, plan);
+            }
+        }
+        if (best != null) {
+            return best;
+        }
+        DfcOpenClRuntime.OpenClCompiledPlan syntheticPlan = tryCollectSyntheticOpenClCompiledPlan(source, failures);
+        if (syntheticPlan != null) {
+            return syntheticPlan;
+        }
+        throw new IllegalStateException("no source-bench-safe router density field has an OpenCL diagnostic plan: "
+                + limitedFailureSummary(failures, 8));
+    }
+
+    private static int sendOpenClCompiledPlanCandidates(CommandSourceStack source) {
+        try {
+            NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+            List<String> entries = new ArrayList<>();
+            DfcOpenClRuntime.OpenClCompiledPlan best = null;
+            DfcOpenClRuntime.OpenClCompiledPlan sourceBest = null;
+            int ok = 0;
+            for (RouterDensityCandidate candidate : openClRouterCandidates(router)) {
+                List<String> failures = new ArrayList<>();
+                DfcOpenClRuntime.OpenClCompiledPlan plan = tryCollectOpenClCompiledPlan(candidate, failures);
+                if (plan != null) {
+                    ok++;
+                    best = betterOpenClCompiledPlan(best, plan);
+                    if (openClCompiledPlanSourceBenchSafe(plan)) {
+                        sourceBest = betterOpenClCompiledPlan(sourceBest, plan);
+                    }
+                    entries.add(describeOpenClCompiledPlan(plan));
+                } else {
+                    entries.add(failures.isEmpty() ? candidate.name() + ": fail"
+                            : failures.get(0));
+                }
+            }
+            List<String> syntheticFailures = new ArrayList<>();
+            DfcOpenClRuntime.OpenClCompiledPlan synthetic = tryCollectSyntheticOpenClCompiledPlan(
+                    source, syntheticFailures);
+            if (synthetic != null) {
+                ok++;
+                entries.add(describeOpenClCompiledPlan(synthetic));
+                if (best == null) {
+                    best = synthetic;
+                }
+                if (sourceBest == null && openClCompiledPlanSourceBenchSafe(synthetic)) {
+                    sourceBest = synthetic;
+                }
+            } else if (!syntheticFailures.isEmpty()) {
+                entries.add(syntheticFailures.get(0));
+            }
+
+            DfcOpenClRuntime.OpenClCompiledPlan selected = best;
+            DfcOpenClRuntime.OpenClCompiledPlan sourceSelected = sourceBest;
+            int okCount = ok;
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL compiled plan candidates: ok=" + okCount
+                            + ", selected=" + (selected == null ? "none" : selected.label())
+                            + (selected == null ? "" : ", score=" + openClCompiledPlanScore(selected))
+                            + ", sourceSelected="
+                            + (sourceSelected == null ? "none" : sourceSelected.label())),
+                    false);
+            int perLine = 4;
+            for (int i = 0; i < entries.size(); i += perLine) {
+                int start = i;
+                int end = Math.min(entries.size(), i + perLine);
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL compiled plan candidates[" + start + ".." + (end - 1) + "]: "
+                                + String.join(" | ", entries.subList(start, end))),
+                        false);
+            }
+            return ok;
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL compiled plan candidates: " + formatThrowable(throwable)));
+            return 0;
+        }
+    }
+
+    private static int sendOpenClCompiledPlanExterns(CommandSourceStack source) {
+        try {
+            DfcOpenClRuntime.OpenClCompiledPlan plan = collectOpenClCompiledRouterPlan(source);
+            int slots = plan.specs() == null ? 0 : plan.specs().length;
+            int external = countExternalSlots(plan.externalSlots(), slots);
+            int computed = countComputedSlots(plan.computedSlots(), slots);
+            source.sendSuccess(() -> Component.literal(
+                    "DFC OpenCL compiled plan externs: label=" + plan.label()
+                            + ", slots=" + slots
+                            + ", gpu=" + Math.max(0, slots - external)
+                            + ", external=" + external
+                            + ", computed=" + computed),
+                    false);
+            if (external == 0) {
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL compiled plan externs: no unresolved external slots."), false);
+                return 0;
+            }
+
+            int sent = 0;
+            boolean[] externalSlots = plan.externalSlots();
+            for (int slot = 0; slot < slots; slot++) {
+                if (externalSlots == null || slot >= externalSlots.length || !externalSlots[slot]) {
+                    continue;
+                }
+                int externalSlot = slot;
+                String line = describeOpenClCompiledExternalSlot(plan, slot);
+                source.sendSuccess(() -> Component.literal(
+                        "DFC OpenCL compiled plan extern[" + externalSlot + "]: " + line), false);
+                sent++;
+            }
+            return sent;
+        } catch (Throwable throwable) {
+            source.sendFailure(Component.literal(
+                    "DFC OpenCL compiled plan externs: " + formatThrowable(throwable)));
+            return 0;
+        }
+    }
+
+    private static RouterDensityCandidate[] openClRouterCandidates(NoiseRouter router) {
+        return new RouterDensityCandidate[]{
+                new RouterDensityCandidate("finalDensity", router.finalDensity()),
+                new RouterDensityCandidate("initialDensityWithoutJaggedness", router.initialDensityWithoutJaggedness()),
+                new RouterDensityCandidate("depth", router.depth()),
+                new RouterDensityCandidate("ridges", router.ridges()),
+                new RouterDensityCandidate("continents", router.continents()),
+                new RouterDensityCandidate("erosion", router.erosion()),
+                new RouterDensityCandidate("temperature", router.temperature()),
+                new RouterDensityCandidate("vegetation", router.vegetation()),
+                new RouterDensityCandidate("veinToggle", router.veinToggle()),
+                new RouterDensityCandidate("veinRidged", router.veinRidged()),
+                new RouterDensityCandidate("veinGap", router.veinGap()),
+                new RouterDensityCandidate("barrierNoise", router.barrierNoise()),
+                new RouterDensityCandidate("fluidLevelFloodednessNoise", router.fluidLevelFloodednessNoise()),
+                new RouterDensityCandidate("fluidLevelSpreadNoise", router.fluidLevelSpreadNoise()),
+                new RouterDensityCandidate("lavaNoise", router.lavaNoise()),
+        };
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan betterOpenClCompiledPlan(
+            DfcOpenClRuntime.OpenClCompiledPlan left, DfcOpenClRuntime.OpenClCompiledPlan right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return openClCompiledPlanScore(right) > openClCompiledPlanScore(left) ? right : left;
+    }
+
+    private static boolean openClCompiledPlanSourceBenchSafe(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        return openClCompiledPlanSourceBenchRejection(plan) == null;
+    }
+
+    private static String openClCompiledPlanSourceBenchRejection(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        if (plan == null || plan.specs() == null) {
+            return "missing compiled plan specs";
+        }
+        int slots = plan.specs().length;
+        int octaves = countActiveOctaves(plan.specs(), plan.blendedSpecs());
+        int computed = countComputedSlots(plan.computedSlots(), slots);
+        int external = countExternalSlots(plan.externalSlots(), slots);
+        List<String> reasons = new ArrayList<>(4);
+        if (slots > OPENCL_SOURCE_BENCH_MAX_SLOTS) {
+            reasons.add("slots " + slots + ">" + OPENCL_SOURCE_BENCH_MAX_SLOTS);
+        }
+        if (octaves > OPENCL_SOURCE_BENCH_MAX_OCTAVES) {
+            reasons.add("octaves " + octaves + ">" + OPENCL_SOURCE_BENCH_MAX_OCTAVES);
+        }
+        if (computed > OPENCL_SOURCE_BENCH_MAX_COMPUTED) {
+            reasons.add("computed " + computed + ">" + OPENCL_SOURCE_BENCH_MAX_COMPUTED);
+        }
+        if (external > 0) {
+            reasons.add("external " + external + ">0");
+        }
+        return reasons.isEmpty() ? null : String.join(", ", reasons);
+    }
+
+    private static long openClCompiledPlanScore(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        if (plan == null) {
+            return Long.MIN_VALUE;
+        }
+        long slots = plan.specs() == null ? 0L : plan.specs().length;
+        long octaves = countActiveOctaves(plan.specs(), plan.blendedSpecs());
+        long programBytes = plan.slabProgram() == null ? 0L : plan.slabProgram().length;
+        long constants = plan.slabConstants() == null ? 0L : plan.slabConstants().length;
+        return slots * 1_000_000L + octaves * 10_000L + programBytes * 100L + constants;
+    }
+
+    private static String describeOpenClCompiledPlan(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        int slots = plan.specs() == null ? 0 : plan.specs().length;
+        int externalSlots = countExternalSlots(plan.externalSlots(), slots);
+        int computedSlots = countComputedSlots(plan.computedSlots(), slots);
+        int gpuSlots = Math.max(0, slots - externalSlots);
+        return plan.label()
+                + ": score=" + openClCompiledPlanScore(plan)
+                + ", slots=" + slots
+                + ", gpu=" + gpuSlots
+                + ", external=" + externalSlots
+                + ", computed=" + computedSlots
+                + ", octaves=" + countActiveOctaves(plan.specs(), plan.blendedSpecs())
+                + ", bc=" + (plan.slabProgram() == null ? 0 : plan.slabProgram().length)
+                + ", consts=" + (plan.slabConstants() == null ? 0 : plan.slabConstants().length)
+                + ", slotCoords=" + (plan.slotCoordXExpressions() != null);
+    }
+
+    private static String describeOpenClCompiledPlanSourceLimits(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        int slots = plan.specs() == null ? 0 : plan.specs().length;
+        return "label=" + plan.label()
+                + ", slots=" + slots + "/" + OPENCL_SOURCE_BENCH_MAX_SLOTS
+                + ", octaves=" + countActiveOctaves(plan.specs(), plan.blendedSpecs())
+                + "/" + OPENCL_SOURCE_BENCH_MAX_OCTAVES
+                + ", computed=" + countComputedSlots(plan.computedSlots(), slots)
+                + "/" + OPENCL_SOURCE_BENCH_MAX_COMPUTED
+                + ", external=" + countExternalSlots(plan.externalSlots(), slots) + "/0";
+    }
+
+    private static int countExternalSlots(boolean[] externalSlots) {
+        int count = 0;
+        if (externalSlots != null) {
+            for (boolean externalSlot : externalSlots) {
+                if (externalSlot) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int countExternalSlots(boolean[] externalSlots, int usedSlotCount) {
+        int count = 0;
+        int limit = Math.max(0, usedSlotCount);
+        if (externalSlots != null) {
+            for (int slot = 0; slot < Math.min(externalSlots.length, limit); slot++) {
+                if (externalSlots[slot]) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int countComputedSlots(DfcOpenClRuntime.ComputedSlot[] computedSlots, int usedSlotCount) {
+        int count = 0;
+        int limit = Math.max(0, usedSlotCount);
+        if (computedSlots != null) {
+            for (int slot = 0; slot < Math.min(computedSlots.length, limit); slot++) {
+                if (computedSlots[slot] != null) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static String describeOpenClCompiledExternalSlot(DfcOpenClRuntime.OpenClCompiledPlan plan, int slot) {
+        int[] markerExternIndices = plan.markerExternIndices();
+        DensityFunction[] externs = plan.externs();
+        if (markerExternIndices == null || slot < 0 || slot >= markerExternIndices.length) {
+            return "missing marker extern index";
+        }
+        int externIndex = markerExternIndices[slot];
+        if (externIndex < 0 || externs == null || externIndex >= externs.length || externs[externIndex] == null) {
+            return "invalid externIndex=" + externIndex;
+        }
+        DensityFunction extern = externs[externIndex];
+        StringBuilder out = new StringBuilder();
+        out.append("externIndex=").append(externIndex)
+                .append(", externClass=").append(shortClassName(extern));
+        if (extern instanceof DensityFunctions.MarkerOrMarked marker) {
+            DensityFunction wrapped = marker.wrapped();
+            out.append(", markerType=").append(marker.type())
+                    .append(", wrappedClass=").append(shortClassName(wrapped))
+                    .append(", wrappedPlan=").append(describeWrappedOpenClPlan(wrapped));
+        }
+        return out.toString();
+    }
+
+    private static String describeWrappedOpenClPlan(DensityFunction wrapped) {
+        if (wrapped == null) {
+            return "null";
+        }
+        try {
+            CompiledDensityFunction compiled = null;
+            if (wrapped instanceof CompiledDensityFunction c) {
+                compiled = c;
+            } else {
+                Compiler.Result result = Compiler.compileWithDetail(wrapped);
+                if (result != null) {
+                    compiled = result.compiled();
+                }
+            }
+            if (compiled == null) {
+                return "did not compile";
+            }
+            DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+            if (!entry.available()) {
+                return entry.unavailableReason();
+            }
+            DfcOpenClRuntime.OpenClCompiledPlan expanded =
+                    DfcOpenClCompiledPlanRegistry.expandMarkerSlots(
+                            entry.plan(), OPENCL_COMPILED_PLAN_MARKER_EXPAND_DEPTH);
+            return describeOpenClCompiledPlan(expanded);
+        } catch (Throwable throwable) {
+            return formatThrowable(throwable);
+        }
+    }
+
+    private static String shortClassName(Object object) {
+        if (object == null) {
+            return "null";
+        }
+        String name = object.getClass().getName();
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan tryCollectOpenClCompiledPlan(
+            RouterDensityCandidate candidate, List<String> failures) {
+        try {
+            DensityFunction function = candidate.function();
+            CompiledDensityFunction compiled = null;
+            if (function instanceof CompiledDensityFunction c) {
+                compiled = c;
+            } else if (function != null) {
+                DensityFunction compiledFunction = CompilingVisitor.global().apply(function);
+                if (compiledFunction instanceof CompiledDensityFunction c) {
+                    compiled = c;
+                }
+            }
+            if (compiled == null) {
+                failures.add(candidate.name() + ": did not compile to CompiledDensityFunction");
+                return null;
+            }
+
+            DfcOpenClCompiledPlanRegistry.Entry entry = DfcOpenClCompiledPlanRegistry.lookup(compiled);
+            if (entry.available()) {
+                DfcOpenClRuntime.OpenClCompiledPlan expanded =
+                        DfcOpenClCompiledPlanRegistry.expandMarkerSlots(
+                                entry.plan(), OPENCL_COMPILED_PLAN_MARKER_EXPAND_DEPTH);
+                return labelOpenClCompiledPlan(candidate.name(), expanded);
+            }
+            failures.add(candidate.name() + ": " + entry.unavailableReason());
+            return null;
+        } catch (Throwable throwable) {
+            failures.add(candidate.name() + ": " + formatThrowable(throwable));
+            return null;
+        }
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan tryCollectSyntheticOpenClCompiledPlan(
+            CommandSourceStack source, List<String> failures) {
+        String name = "syntheticRealNoise";
+        try {
+            NormalNoise[] noises = collectOpenClRealNoises(source, 8);
+            DensityFunction graph = buildSyntheticOpenClCompiledDensity(noises);
+            Compiler.Result result = Compiler.compileWithDetail(graph);
+            if (result == null) {
+                failures.add(name + ": synthetic graph did not compile");
+                return null;
+            }
+            DfcOpenClCompiledPlanRegistry.Entry entry =
+                    DfcOpenClCompiledPlanRegistry.lookup(result.compiled());
+            if (entry.available()) {
+                return labelOpenClCompiledPlan(name, entry.plan());
+            }
+            failures.add(name + ": " + entry.unavailableReason());
+            return null;
+        } catch (Throwable throwable) {
+            failures.add(name + ": " + formatThrowable(throwable));
+            return null;
+        }
+    }
+
+    private static DensityFunction buildSyntheticOpenClCompiledDensity(NormalNoise[] noises) {
+        DensityFunction sum = DensityFunctions.constant(0.0D);
+        for (int i = 0; i < noises.length; i++) {
+            DensityFunction noise = new DensityFunctions.Noise(
+                    new DensityFunction.NoiseHolder(null, noises[i]),
+                    1.0D + i * 0.03125D,
+                    1.0D + i * 0.015625D);
+            if (i != 0) {
+                noise = DensityFunctions.mul(noise, DensityFunctions.constant(1.0D / (i + 1.0D)));
+            }
+            sum = DensityFunctions.add(sum, noise);
+        }
+
+        DensityFunction yHoist = DensityFunctions.yClampedGradient(-64, 320, -1.0D, 1.0D);
+        yHoist = DensityFunctions.add(yHoist, DensityFunctions.constant(0.125D));
+        yHoist = yHoist.clamp(-0.75D, 0.75D).square().squeeze();
+        return DensityFunctions.add(sum, yHoist);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan labelOpenClCompiledPlan(
+            String fieldName, DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
+                fieldName + "/" + plan.label(),
+                plan.specs(),
+                plan.slabProgram(),
+                plan.slabConstants(),
+                plan.hoistExpression(),
+                plan.hoistEvaluator(),
+                plan.slotCoordXExpressions(),
+                plan.slotCoordYExpressions(),
+                plan.slotCoordZExpressions(),
+                plan.slotCoordXEvaluators(),
+                plan.slotCoordYEvaluators(),
+                plan.slotCoordZEvaluators(),
+                plan.blendedSpecs(),
+                plan.externalSlots(),
+                plan.markerExternIndices(),
+                plan.externs(),
+                plan.computedSlots());
+    }
+
+    private static String limitedFailureSummary(List<String> failures, int limit) {
+        if (failures.isEmpty()) {
+            return "no candidates were checked";
+        }
+        int count = Math.min(Math.max(1, limit), failures.size());
+        StringBuilder summary = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                summary.append("; ");
+            }
+            summary.append(failures.get(i));
+        }
+        if (failures.size() > count) {
+            summary.append("; +").append(failures.size() - count).append(" more");
+        }
+        return summary.toString();
+    }
+
+    private record RouterDensityCandidate(String name, DensityFunction function) {
+    }
+
+    private static NormalNoise[] collectOpenClRealNoises(CommandSourceStack source, int requestedSlots) {
+        int target = Math.max(2, requestedSlots);
+        NoiseRouter router = source.getLevel().getChunkSource().randomState().router();
+        DensityFunction[] fields = new DensityFunction[]{
+                router.barrierNoise(),
+                router.fluidLevelFloodednessNoise(),
+                router.fluidLevelSpreadNoise(),
+                router.lavaNoise(),
+                router.temperature(),
+                router.vegetation(),
+                router.continents(),
+                router.erosion(),
+                router.depth(),
+                router.ridges(),
+                router.initialDensityWithoutJaggedness(),
+                router.finalDensity(),
+                router.veinToggle(),
+                router.veinRidged(),
+                router.veinGap()
+        };
+        IdentityHashMap<NormalNoise, Boolean> seen = new IdentityHashMap<>();
+        List<NormalNoise> noises = new ArrayList<>(target);
+        for (DensityFunction field : fields) {
+            CompiledDensityFunction compiled = null;
+            if (field instanceof CompiledDensityFunction c) {
+                compiled = c;
+            } else {
+                try {
+                    DensityFunction compiledField = CompilingVisitor.global().apply(field);
+                    if (compiledField instanceof CompiledDensityFunction c) {
+                        compiled = c;
+                    }
+                } catch (Throwable ignored) {
+                    compiled = null;
+                }
+            }
+            if (compiled == null) {
+                continue;
+            }
+            for (NormalNoise noise : compiled.dfc$normalNoisesForDiagnostics()) {
+                if (noise == null || seen.put(noise, Boolean.TRUE) != null) {
+                    continue;
+                }
+                NoiseSpec spec = NoiseSpecCache.specFor(noise);
+                if (spec == null || spec.totalActiveOctaves() <= 0) {
+                    continue;
+                }
+                noises.add(noise);
+                if (noises.size() >= target) {
+                    return noises.toArray(new NormalNoise[0]);
+                }
+            }
+        }
+        if (noises.size() < 2) {
+            throw new IllegalStateException("found " + noises.size()
+                    + " real NormalNoise instances in compiled router; enter a world with DFC compiled router first");
+        }
+        return noises.toArray(new NormalNoise[0]);
     }
 
     private static NoiseSpec[] collectOpenClRealNoiseSpecs(CommandSourceStack source, int requestedSlots) {
@@ -1625,6 +2264,32 @@ public final class DensityFunctionCompiler {
             for (NoiseSpec spec : specs) {
                 if (spec != null) {
                     total += spec.totalActiveOctaves();
+                }
+            }
+        }
+        return total;
+    }
+
+    private static int countActiveOctaves(NoiseSpec[] specs, BlendedNoiseSpec[] blendedSpecs) {
+        int total = countActiveOctaves(specs);
+        if (blendedSpecs != null) {
+            for (BlendedNoiseSpec spec : blendedSpecs) {
+                if (spec != null) {
+                    total += countNonNull(spec.mainOctaves());
+                    total += countNonNull(spec.minLimitOctaves());
+                    total += countNonNull(spec.maxLimitOctaves());
+                }
+            }
+        }
+        return total;
+    }
+
+    private static int countNonNull(Object[] values) {
+        int total = 0;
+        if (values != null) {
+            for (Object value : values) {
+                if (value != null) {
+                    total++;
                 }
             }
         }

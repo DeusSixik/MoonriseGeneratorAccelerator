@@ -50,7 +50,7 @@ import java.util.Set;
  * <p>Note the absence of any {@code rebind} override or any opcode mentioning the
  * generated class's own internal name (i.e. no {@code NEW CompiledDF_N},
  * {@code INVOKESTATIC CompiledDF_N.helper_K}, etc.). Hidden classes are forbidden
- * from referring to themselves symbolically — the JVM rejects {@code defineHiddenClass}
+ * from referring to themselves symbolically вЂ” the JVM rejects {@code defineHiddenClass}
  * with {@code NoClassDefFoundError} when the constant pool contains a CONSTANT_Class_info
  * matching the class's own name. We work around this by:
  * <ul>
@@ -58,7 +58,7 @@ import java.util.Set;
  *       {@code self} parameter rather than the hidden subclass.</li>
  *   <li>Helper call sites loading a {@link java.lang.invoke.MethodHandle} from the
  *       inherited {@code helperHandles[]} field and using {@code INVOKEVIRTUAL
- *       MethodHandle.invokeExact} — signature-polymorphic so the verifier doesn't
+ *       MethodHandle.invokeExact} вЂ” signature-polymorphic so the verifier doesn't
  *       enforce arg types, and the descriptor names only the supertype.</li>
  *   <li>The MH array being populated by {@link Compiler} after {@code defineHiddenClass}
  *       returns: the post-define {@link java.lang.invoke.MethodHandles.Lookup} can
@@ -67,7 +67,7 @@ import java.util.Set;
  *       {@code NEW SelfClass}); the supertype's {@code rebind} instead routes
  *       through a {@link java.lang.invoke.MethodHandle} bound to the subclass
  *       constructor (passed in via the trailing {@code MethodHandle} ctor arg),
- *       which lets visitor-driven extern remaps reach inner Markers — critical
+ *       which lets visitor-driven extern remaps reach inner Markers вЂ” critical
  *       for the {@code NoiseChunk} cell-cache wraps that vanilla worldgen
  *       depends on for both correctness and performance.</li>
  * </ul>
@@ -78,7 +78,7 @@ import java.util.Set;
  *       blockY -&gt; slot 3, blockZ -&gt; slot 4 (each int).</li>
  *   <li>Spilled IR nodes (refcount &ge; 2) are computed once into a freshly allocated double
  *       slot and reloaded with {@code DLOAD} on subsequent uses.</li>
- *   <li>Single-use IR nodes leave their result on the operand stack — no store/reload.</li>
+ *   <li>Single-use IR nodes leave their result on the operand stack вЂ” no store/reload.</li>
  *   <li>Nodes in the {@link Splitter}-supplied {@code extracted} set become standalone
  *       {@code helper_N} static methods on the same class. Call sites become a single
  *       {@code MethodHandle.invokeExact} dispatch, slashing the parent method's bytecode
@@ -178,7 +178,7 @@ public final class Codegen {
      * classes are forbidden from emitting).
      *
      * <p>The {@code Object[]} after the splines array is the per-noise per-octave
-     * {@link net.minecraft.world.level.levelgen.synth.ImprovedNoise} payload —
+     * {@link net.minecraft.world.level.levelgen.synth.ImprovedNoise} payload вЂ”
      * see {@link CompiledDensityFunction#noiseOctaves}. The generated subclass
      * unloads it into its own typed final fields in its constructor body.
      *
@@ -190,7 +190,7 @@ public final class Codegen {
                     + "L" + METHOD_HANDLE_INTERNAL + ";)V";
 
     /**
-     * Helper static methods all share this descriptor — first arg is the supertype
+     * Helper static methods all share this descriptor вЂ” first arg is the supertype
      * rather than the hidden class itself so the call-site descriptor never names
      * a hidden class (the JVM rejects hidden-class self-references in the constant
      * pool).
@@ -219,7 +219,7 @@ public final class Codegen {
      * exercised by {@code ParitySelfTest}.
      *
      * <p>The lattice path uses {@code INVOKEDYNAMIC + ConstantCallSite} for the
-     * helper dispatch unconditionally — a hidden class cannot {@code INVOKESTATIC}
+     * helper dispatch unconditionally вЂ” a hidden class cannot {@code INVOKESTATIC}
      * its own static methods symbolically, and we don't want to extend the
      * {@code helperHandles[]} array's contract for this. When
      * {@link #INDY_HELPERS_ENABLED} is false the existing {@code helper_<idx>} sites
@@ -285,7 +285,7 @@ public final class Codegen {
     private static final String NATIVE_BRIDGE_INTERNAL =
             "dev/sixik/generator_accelerator/common/density/compiler/natives/DfcNativeBridge";
 
-    /** {@code DfcNativeBridge.slabInnerEval} — ends with slabLayout, colXi, colZi, columnCellHeight. */
+    /** {@code DfcNativeBridge.slabInnerEval} вЂ” ends with slabLayout, colXi, colZi, columnCellHeight. */
     private static final String SLAB_INNER_EVAL_DESC = "([B[D[[DIIIIIIIID[DI)V";
 
     /** Internal name of {@code net.minecraft.world.level.levelgen.NoiseChunk} (vanilla). */
@@ -346,11 +346,11 @@ public final class Codegen {
     /**
      * ASM {@link Handle} pointing at {@link CompiledDensityFunction#bootstrapHelper}.
      *
-     * <p>The bsm signature is the standard 3-arg shape — Lookup, invokedName,
-     * invokedType — with no extra static bsm args. The helper's identity is encoded
+     * <p>The bsm signature is the standard 3-arg shape вЂ” Lookup, invokedName,
+     * invokedType вЂ” with no extra static bsm args. The helper's identity is encoded
      * entirely in the {@code invokedName} string at the call site (e.g.
      * {@code "helper_5"}), which keeps the same bsm reusable for the cell-lattice
-     * helpers ({@code "lattice_y"}, {@code "lattice_inner"}) introduced by Phase 2 —
+     * helpers ({@code "lattice_y"}, {@code "lattice_inner"}) introduced by Phase 2 вЂ”
      * those use a different {@link java.lang.invoke.MethodType} but the same lookup
      * mechanism.
      */
@@ -371,7 +371,7 @@ public final class Codegen {
         // symbolic INVOKESTATIC self-references (it goes through the classloader, which
         // can't find the unnamed hidden class and throws NoClassDefFoundError). We
         // sidestep this by routing helper calls through MethodHandle.invokeExact off
-        // the inherited `helperMHs` field — see HelperRegistry.emitHelperCall.
+        // the inherited `helperMHs` field вЂ” see HelperRegistry.emitHelperCall.
         //
         // ASM's stock getCommonSuperClass calls Class.forName with the system class loader,
         // which would also choke on the in-progress class if frame computation ever
@@ -488,7 +488,7 @@ public final class Codegen {
 
     /**
      * Bytecode + count of regular helper methods generated + whether a cell-lattice
-     * fast path was emitted. {@code latticeEmitted} is purely diagnostic — it is
+     * fast path was emitted. {@code latticeEmitted} is purely diagnostic вЂ” it is
      * surfaced through {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline}
      * so {@code /dfc stats} can report "lattice plans: K / N roots".
      */
@@ -791,7 +791,7 @@ public final class Codegen {
     /* --------------------------------------------------------------------- */
 
     /**
-     * Emit the {@code lattice_y} static helper — exactly one method body that
+     * Emit the {@code lattice_y} static helper вЂ” exactly one method body that
      * computes the {@link CellLatticeOption.LatticePlan#hoistedSubtree() hoisted
      * Y-only subtree} given the same {@code (self, ctx)} signature as a regular
      * helper. Called by the {@code fillArray} override once per Y-position to
@@ -799,7 +799,7 @@ public final class Codegen {
      *
      * <p>Same {@link HelperRegistry} instance is reused so the lattice helper's
      * per-helper child extractions thread back through the same pool that the
-     * regular helpers use — no double emission of the same extracted subtree.
+     * regular helpers use вЂ” no double emission of the same extracted subtree.
      */
     private static void emitLatticePrecomputeHelper(ClassWriter cw, String classInternalName,
                                                     CellLatticeOption.LatticePlan plan,
@@ -817,23 +817,23 @@ public final class Codegen {
     }
 
     /**
-     * Emit the {@code lattice_inner} static helper — same body as {@code compute},
+     * Emit the {@code lattice_inner} static helper вЂ” same body as {@code compute},
      * but the hoisted Y-only subtree is replaced everywhere with the precomputed
      * value passed in as the third method parameter. The resulting body is the
-     * "inner expression" reused {@code cellWidth × cellWidth} times per Y-slab in
+     * "inner expression" reused {@code cellWidth Г— cellWidth} times per Y-slab in
      * the {@link #emitLatticeFillArrayOverride fillArray override}.
      *
      * <p>Slot layout:
      * <ul>
-     *   <li>0 — {@code self} (CompiledDensityFunction)</li>
-     *   <li>1 — {@code ctx}  (FunctionContext)</li>
-     *   <li>2-3 — {@code yPrecomputed} (double; the third method parameter)</li>
+     *   <li>0 вЂ” {@code self} (CompiledDensityFunction)</li>
+     *   <li>1 вЂ” {@code ctx}  (FunctionContext)</li>
+     *   <li>2-3 вЂ” {@code yPrecomputed} (double; the third method parameter)</li>
      * </ul>
      *
      * <p>The shared {@link #emitCoordPrologue} writes int blockX/Y/Z to slots
      * 2/3/4, which would clobber the high half of {@code yPrecomputed}. We
      * therefore copy {@code yPrecomputed} into slots 5/6 first, then run the
-     * prologue, then preinstall a spill mapping {@code hoistedSubtree → 5} on
+     * prologue, then preinstall a spill mapping {@code hoistedSubtree в†’ 5} on
      * the {@link EmitState} so every {@code emit()} call that encounters the
      * hoisted node loads the cached double instead of recomputing it. This is
      * the precompute-cache contract we built {@code preinstallSpill} for.
@@ -884,7 +884,7 @@ public final class Codegen {
             MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                     latticeSlabCoordMethodName(i), desc, null, null);
             mv.visitCode();
-            // 0=self, 1=nc, 2=flatIdx, 3=xs, 4=ys, 5=zs — stash before prologue clobbers 2–4
+            // 0=self, 1=nc, 2=flatIdx, 3=xs, 4=ys, 5=zs вЂ” stash before prologue clobbers 2вЂ“4
             mv.visitVarInsn(Opcodes.ILOAD, 2);
             mv.visitVarInsn(Opcodes.ISTORE, 20);
             mv.visitVarInsn(Opcodes.ALOAD, 3);
@@ -908,6 +908,7 @@ public final class Codegen {
                         helpers.extracted, ns.noise().coordX(), ns.noise().coordY(), ns.noise().coordZ());
                 case SlabNativeBatchPlan.BlendedSlot ignored -> CoordinateSlotUse.ALL;
                 case SlabNativeBatchPlan.MarkerSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.ExternalSlot ignored -> CoordinateSlotUse.NONE;
             };
             emitCoordPrologue(mv, slotUse);
             switch (s) {
@@ -945,6 +946,8 @@ public final class Codegen {
                     mv.visitInsn(Opcodes.DASTORE);
                 }
                 case SlabNativeBatchPlan.MarkerSlot ignored -> {
+                }
+                case SlabNativeBatchPlan.ExternalSlot ignored -> {
                 }
             }
             mv.visitInsn(Opcodes.RETURN);
@@ -977,6 +980,7 @@ public final class Codegen {
                         helpers.extracted, ns.noise().coordX(), ns.noise().coordY(), ns.noise().coordZ());
                 case SlabNativeBatchPlan.BlendedSlot ignored -> CoordinateSlotUse.ALL;
                 case SlabNativeBatchPlan.MarkerSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.ExternalSlot ignored -> CoordinateSlotUse.NONE;
             };
             emitCoordPrologue(mv, slotUse);
             switch (s) {
@@ -1015,6 +1019,8 @@ public final class Codegen {
                 }
                 case SlabNativeBatchPlan.MarkerSlot ignored -> {
                 }
+                case SlabNativeBatchPlan.ExternalSlot ignored -> {
+                }
             }
             mv.visitInsn(Opcodes.RETURN);
             mv.visitMaxs(0, 0);
@@ -1046,10 +1052,10 @@ public final class Codegen {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 batchedMethodName, LATTICE_INNER_BATCHED_DESC, null, null);
         mv.visitCode();
-        // (self, ctx, precomputed D, nativeSlabOut [[D)D — slots 0,1,2-3,4. Move precomputed D to 5-6
+        // (self, ctx, precomputed D, nativeSlabOut [[D)D вЂ” slots 0,1,2-3,4. Move precomputed D to 5-6
         // before ASTORE of [[D: DSTORE 5 occupies 5 and 6 and must not follow an ASTORE into 6.
         // Stash [[D at 8; after preinstallSpill(5) the emitter's nextLocal is 7, so without a guard
-        // allocDoubleSlot() would use 7-8 and clobber 8 — reserve locals from 9 after preinstall.
+        // allocDoubleSlot() would use 7-8 and clobber 8 вЂ” reserve locals from 9 after preinstall.
         final int yPrecomputedSlot = 5;
         final int slabOutLocal = 8;
         mv.visitVarInsn(Opcodes.DLOAD, 2);
@@ -1068,6 +1074,7 @@ public final class Codegen {
                 case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
                 case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
                 case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
+                case SlabNativeBatchPlan.ExternalSlot es -> es.node();
             };
             slabMap.put(key, s.slotIndex());
         }
@@ -1118,13 +1125,13 @@ public final class Codegen {
      *
      * <p>NoiseChunk's wrap-then-iterate model already expects each
      * {@link DensityFunction} child to drive its own {@code fillArray} via the
-     * provider — that's the existing {@code provider.fillAllDirectly(values, this)}
+     * provider вЂ” that's the existing {@code provider.fillAllDirectly(values, this)}
      * fallback we sit on top of. The vanilla path runs the (y, x, z) triple loop in
      * {@code NoiseChunk.fillAllDirectly}, calling {@code compute(this)} per cell
-     * — recomputing the Y-only subtree {@code cellWidth × cellWidth} times per Y.
+     * вЂ” recomputing the Y-only subtree {@code cellWidth Г— cellWidth} times per Y.
      * Overriding {@code fillArray} here lets us keep the same iteration order
      * vanilla uses (so the order of side-effecting noise samples remains identical
-     * — important for parity) but lift the per-Y precompute out of the inner two
+     * вЂ” important for parity) but lift the per-Y precompute out of the inner two
      * loops.
      *
      * <h2>Correctness boundary</h2>
@@ -1134,7 +1141,7 @@ public final class Codegen {
      * {@code NoiseChunk} we don't ship) would still trigger the fast path; that's
      * fine because the inner loop's only assumption is that {@code blockX/Y/Z} on
      * the FunctionContext are derived from {@code cellStartBlockX + inCellX}, etc.
-     * — which is part of NoiseChunk's public contract.
+     * вЂ” which is part of NoiseChunk's public contract.
      *
      * <p>Subclasses of NoiseChunk that override {@code fillAllDirectly} would
      * normally see their override called by the supertype's {@link
@@ -1174,6 +1181,21 @@ public final class Codegen {
             mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
                     "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
         }
+    }
+
+    private static boolean isExternalSlabSlot(SlabNativeBatchPlan.Slot slot) {
+        return slot instanceof SlabNativeBatchPlan.MarkerSlot
+                || slot instanceof SlabNativeBatchPlan.ExternalSlot;
+    }
+
+    private static int slabExternalIndex(SlabNativeBatchPlan.Slot slot) {
+        if (slot instanceof SlabNativeBatchPlan.MarkerSlot markerSlot) {
+            return markerSlot.marker().externIndex();
+        }
+        if (slot instanceof SlabNativeBatchPlan.ExternalSlot externalSlot) {
+            return externalSlot.externIndex();
+        }
+        return -1;
     }
 
     private static void emitLatticeFillArrayScalarOnly(ClassWriter cw, String classInternalName,
@@ -2797,7 +2819,7 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.IFLE, slabSetupDone);
 
             for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-                if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+                if (isExternalSlabSlot(s)) {
                     continue;
                 }
                 emitNativeHandleFieldLoad(mv, classInternalName, s.nativeHandleIndex(nn), false);
@@ -2879,7 +2901,7 @@ public final class Codegen {
             mv.visitInsn(Opcodes.IADD);
             mv.visitVarInsn(Opcodes.ISTORE, 29);
 
-            if (slot instanceof SlabNativeBatchPlan.MarkerSlot ms) {
+            if (isExternalSlabSlot(slot)) {
                 mv.visitVarInsn(Opcodes.ALOAD, 3);
                 mv.visitVarInsn(Opcodes.ILOAD, 29);
                 mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
@@ -2887,7 +2909,7 @@ public final class Codegen {
                 ldcIntStatic(mv, si);
                 mv.visitInsn(Opcodes.AALOAD);
                 mv.visitVarInsn(Opcodes.ILOAD, 29);
-                emitMarkerSlotCompute(mv, classInternalName, pool, ms.marker().externIndex(), 3);
+                emitMarkerSlotCompute(mv, classInternalName, pool, slabExternalIndex(slot), 3);
                 mv.visitInsn(Opcodes.DASTORE);
             } else {
                 mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -2907,7 +2929,7 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.GOTO, prepXHead);
             mv.visitLabel(prepXEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!isExternalSlabSlot(slot)) {
                 emitNativeHandleFieldLoad(mv, classInternalName, slot.nativeHandleIndex(nn), false);
                 mv.visitVarInsn(Opcodes.ALOAD, 33);
                 mv.visitVarInsn(Opcodes.ALOAD, 34);
@@ -2977,7 +2999,7 @@ public final class Codegen {
         String batchNormalDesc = "(J[D[D[D[DIZ)V";
         String batchBlendedDesc = "(J[D[D[D[DIZ)V";
         // Emitted first: large CFG in isolation. Public fillArray (below) is tiny: guard + super fallback
-        // only — that split avoids ASM 9.8+ Frame.merge AIOOBE when computing stack maps in one method.
+        // only вЂ” that split avoids ASM 9.8+ Frame.merge AIOOBE when computing stack maps in one method.
         MethodVisitor body = cw.visitMethod(
                 Opcodes.ACC_PRIVATE, LATTICE_XZ_SLAB_FILL_BODY, bodyDesc, null, null);
         body.visitCode();
@@ -3009,7 +3031,7 @@ public final class Codegen {
         int nn = pool.noiseSpecCount();
         if (!slabPlan.isEmpty()) {
             for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-                if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+                if (isExternalSlabSlot(s)) {
                     continue;
                 }
                 emitNativeHandleFieldLoad(body, classInternalName, s.nativeHandleIndex(nn), false);
@@ -3086,7 +3108,7 @@ public final class Codegen {
             body.visitVarInsn(Opcodes.ILOAD, 40);
             body.visitVarInsn(Opcodes.ISTORE, 29);
 
-            if (slot instanceof SlabNativeBatchPlan.MarkerSlot ms) {
+            if (isExternalSlabSlot(slot)) {
                 body.visitVarInsn(Opcodes.ILOAD, 40);
                 body.visitVarInsn(Opcodes.ILOAD, 4);
                 body.visitVarInsn(Opcodes.ILOAD, 4);
@@ -3106,7 +3128,7 @@ public final class Codegen {
                 ldcIntStatic(body, si);
                 body.visitInsn(Opcodes.AALOAD);
                 body.visitVarInsn(Opcodes.ILOAD, 29);
-                emitMarkerSlotCompute(body, classInternalName, pool, ms.marker().externIndex(), 3);
+                emitMarkerSlotCompute(body, classInternalName, pool, slabExternalIndex(slot), 3);
                 body.visitInsn(Opcodes.DASTORE);
             } else {
                 body.visitVarInsn(Opcodes.ALOAD, 0);
@@ -3122,7 +3144,7 @@ public final class Codegen {
             body.visitJumpInsn(Opcodes.GOTO, prepYHead);
             body.visitLabel(prepYEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!isExternalSlabSlot(slot)) {
                 emitNativeHandleFieldLoad(body, classInternalName, slot.nativeHandleIndex(nn), false);
                 body.visitVarInsn(Opcodes.ALOAD, 33);
                 body.visitVarInsn(Opcodes.ALOAD, 34);
@@ -3253,7 +3275,7 @@ public final class Codegen {
 
         int nn = pool.noiseSpecCount();
         for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-            if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+            if (isExternalSlabSlot(s)) {
                 continue;
             }
             emitNativeHandleFieldLoad(mv, classInternalName, s.nativeHandleIndex(nn), false);
@@ -3282,7 +3304,7 @@ public final class Codegen {
 
             emitSliceRowContext(mv, 40);
 
-            if (slot instanceof SlabNativeBatchPlan.MarkerSlot ms) {
+            if (isExternalSlabSlot(slot)) {
                 mv.visitVarInsn(Opcodes.ALOAD, 3);
                 mv.visitVarInsn(Opcodes.ILOAD, 40);
                 mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
@@ -3290,7 +3312,7 @@ public final class Codegen {
                 ldcIntStatic(mv, si);
                 mv.visitInsn(Opcodes.AALOAD);
                 mv.visitVarInsn(Opcodes.ILOAD, 40);
-                emitMarkerSlotCompute(mv, classInternalName, pool, ms.marker().externIndex(), 3);
+                emitMarkerSlotCompute(mv, classInternalName, pool, slabExternalIndex(slot), 3);
                 mv.visitInsn(Opcodes.DASTORE);
             } else {
                 mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -3307,7 +3329,7 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.GOTO, prepHead);
             mv.visitLabel(prepEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!isExternalSlabSlot(slot)) {
                 emitNativeHandleFieldLoad(mv, classInternalName, slot.nativeHandleIndex(nn), false);
                 mv.visitVarInsn(Opcodes.ALOAD, 33);
                 mv.visitVarInsn(Opcodes.ALOAD, 34);
@@ -3771,7 +3793,7 @@ public final class Codegen {
          * {@link CompiledDensityFunction} in the method descriptor, but
          * {@link #emitOctaveContribution} reads subclass-only {@code noise_*} fields.
          * A {@code CHECKCAST} to the generated class is required for verification.
-         * {@code compute()} passes false — {@code this} is already the precise subclass.
+         * {@code compute()} passes false вЂ” {@code this} is already the precise subclass.
          */
         private final boolean castSelfForSubclassNoiseFields;
         /** When non-null, {@link IRNode.InlinedNoise} / {@link IRNode.InlinedBlendedNoise} load slab results. */
@@ -3891,7 +3913,7 @@ public final class Codegen {
         }
 
         /**
-         * Pre-install a spill mapping for {@code node} → {@code doubleSlot} so the next
+         * Pre-install a spill mapping for {@code node} в†’ {@code doubleSlot} so the next
          * {@link #emit(IRNode)} call that encounters {@code node} short-circuits into
          * a single {@code DLOAD doubleSlot} instead of re-emitting its body. Used by
          * the lattice {@code lattice_inner} helper to substitute the precomputed
@@ -3925,7 +3947,7 @@ public final class Codegen {
          * tells {@link #emit(IRNode)} that the value is already live in some local slot, so
          * the next emission becomes a single {@code DLOAD slot}. If branch A emits {@code X}
          * for the first time and stores it into slot 9, then branch B (reached via a
-         * different jump) inherits the same map and tries to {@code DLOAD 9} — but on B's
+         * different jump) inherits the same map and tries to {@code DLOAD 9} вЂ” but on B's
          * incoming path slot 9 was never written, so the verifier rejects the class with
          * <em>"get long/double overflows locals"</em>. Restoring the snapshot before each
          * branch arm makes those spills strictly local: the branch can still spill its own
@@ -3952,7 +3974,7 @@ public final class Codegen {
         }
 
         void emit(IRNode node) {
-            // Already spilled in this method — just reload.
+            // Already spilled in this method вЂ” just reload.
             Integer slot = spillSlots.get(node);
             if (slot != null) {
                 mv.visitVarInsn(Opcodes.DLOAD, slot);
@@ -3980,7 +4002,7 @@ public final class Codegen {
         /**
          * Duplicates the wide value on the operand stack and stores one copy
          * into a double local (category-2). Single site for the canonical
-         * DUP2/DSTORE pattern used for refcount ≥ 2 scheduling.
+         * DUP2/DSTORE pattern used for refcount в‰Ґ 2 scheduling.
          */
         private void duplicateTopDoubleThenStoreTo(int doubleSlot) {
             mv.visitInsn(Opcodes.DUP2);
@@ -3990,7 +4012,7 @@ public final class Codegen {
         private void emitHelperCall(IRNode node) {
             int idx = helpers.indexOf(node);
             if (INDY_HELPERS_ENABLED) {
-                // INVOKEDYNAMIC path — single bytecode, ConstantCallSite resolved on
+                // INVOKEDYNAMIC path вЂ” single bytecode, ConstantCallSite resolved on
                 // first hit. The bsm uses invokedName ("helper_5" etc.) to locate
                 // the static helper on this hidden class and returns a CCS bound to
                 // it; subsequent calls go through a constant-target invokestatic that
@@ -4143,7 +4165,7 @@ public final class Codegen {
         }
 
         /**
-         * {@link IRNode.RangeChoice} — covers vanilla {@code DensityFunctions.rangeChoice}
+         * {@link IRNode.RangeChoice} вЂ” covers vanilla {@code DensityFunctions.rangeChoice}
          * and Generator Accelerator's {@code FastRangeChoice} (same IR after unwrap).
          *
          * <p><strong>Local types / verifier:</strong> the compared input is spilled with
@@ -4174,7 +4196,7 @@ public final class Codegen {
             mv.visitInsn(Opcodes.DCMPL);
             mv.visitJumpInsn(Opcodes.IFGE, outOfRange);
 
-            // Each branch must NOT see spills the other branch made — those slots are
+            // Each branch must NOT see spills the other branch made вЂ” those slots are
             // uninitialized on its incoming path. Snapshot before emitting each arm and
             // restore afterwards (also clears the post-merge state so code after `end`
             // never tries to reload a slot that's only typed on one arm).
@@ -4316,7 +4338,7 @@ public final class Codegen {
          * Emit the fully unrolled per-octave loop for a single
          * {@link IRNode.InlinedNoise}. The shape of the bytecode is:
          * <pre>
-         *   // Coordinate prep — emit each coord IR sub-tree once into a fresh slot
+         *   // Coordinate prep вЂ” emit each coord IR sub-tree once into a fresh slot
          *   emit(coordX); DSTORE cxSlot
          *   emit(coordY); DSTORE cySlot
          *   emit(coordZ); DSTORE czSlot
@@ -4440,7 +4462,7 @@ public final class Codegen {
          * a single double on top of the operand stack.
          *
          * <p>Field load order matters: pushing the {@code ampValueFactor_i} constant
-         * first lets the {@code DMUL} after the {@code INVOKEVIRTUAL} stay clean —
+         * first lets the {@code DMUL} after the {@code INVOKEVIRTUAL} stay clean вЂ”
          * we never have to swap a long/double from below an object reference.
          */
         private void emitOctaveContribution(int specIdx, int branchIdx, int activeOctaveIdx,
@@ -4546,7 +4568,7 @@ public final class Codegen {
             // outside-the-branch state and remains valid across all segment arms.
             // Each segment / extrapolation arm gets a clean view: it can spill its
             // own subexpressions, but those spills are invalidated before the next
-            // sibling arm runs (slot indices and IRNode→slot bindings are reset).
+            // sibling arm runs (slot indices and IRNodeв†’slot bindings are reset).
             BranchScope snap = snapshotBranch();
 
             if (n == 1) {
@@ -4825,7 +4847,7 @@ public final class Codegen {
         /* ---------------- invoke / blend ---------------- */
 
         /**
-         * Straight {@code pool[i].compute(ctx)} — do not wrap every extern in a
+         * Straight {@code pool[i].compute(ctx)} вЂ” do not wrap every extern in a
          * cache try/miss path: most externs are not {@code NoiseChunk} cache
          * wrappers, so a universal wrapper regresses hot paths (extra static
          * call, NaN check, second {@code GETFIELD} on miss). A future opt-in
@@ -4902,7 +4924,7 @@ public final class Codegen {
             // Evaluate the input first with a clean operand stack so any branchy code
             // inside (RangeChoice arms, nested Spline.Multipoint ladders) doesn't have
             // to merge frames while Blender+ctx are sitting on the operand stack. The
-            // previous emission order pushed Blender, ctx, then ran emit(bd.input()) —
+            // previous emission order pushed Blender, ctx, then ran emit(bd.input()) вЂ”
             // when the input contained a BranchScope-using subtree, ASM's COMPUTE_FRAMES
             // would merge divergent arm frames at the join label and slots written on
             // only some arms became TOP. Subsequent DLOADs of those slots from the

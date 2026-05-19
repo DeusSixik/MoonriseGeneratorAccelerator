@@ -20,6 +20,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.Bl
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClCompiledPlanRegistry;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
@@ -310,6 +311,7 @@ public final class Compiler {
                 bundle.cellAddLatticeSpecialized(),
                 bundle.cellAddExternSpecialized(),
                 bundle.rootDebug());
+        DfcOpenClCompiledPlanRegistry.register(compiled, root, pool, extracted);
         if (reusedClassFromCache) {
             RouterPipeline.recordRootFromGlobalClassCache(uniqueNodes, cseSavings);
         } else {

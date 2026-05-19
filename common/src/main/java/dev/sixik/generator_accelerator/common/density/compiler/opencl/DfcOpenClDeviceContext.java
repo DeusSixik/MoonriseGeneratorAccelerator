@@ -10,6 +10,8 @@ import java.nio.DoubleBuffer;
 import java.nio.IntBuffer;
 
 final class DfcOpenClDeviceContext implements AutoCloseable {
+    private static final double[] EMPTY_EXTERNAL_SLOTS = new double[]{0.0D};
+
     private final DfcOpenClDeviceEnumerator.Candidate candidate;
     private final String buildLog;
     private final long context;
@@ -47,6 +49,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private final DeviceBuffer noiseBranchOctaveCountsBuffer = new DeviceBuffer();
     private final DeviceBuffer noiseBranchScalesBuffer = new DeviceBuffer();
     private final DeviceBuffer noiseSlotFactorsBuffer = new DeviceBuffer();
+    private final DeviceBuffer generatedExternalSlotsBuffer = new DeviceBuffer();
     private final HostDoubleBuffer doubleStagingBuffer = new HostDoubleBuffer();
     private final HostDoubleBuffer gridOutHostBuffer = new HostDoubleBuffer();
     private boolean closed;
@@ -952,22 +955,42 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     synchronized SlabVmResult evalGeneratedNoiseKernel(GeneratedNoiseKernel generated,
                                                        SlabVmNoiseCellGridRequest request,
                                                        boolean readOutput) {
-        return evalGeneratedNoiseKernel(generated, request, readOutput, true);
+        return evalGeneratedNoiseKernel(generated, request, null, readOutput, true, true);
     }
 
     synchronized SlabVmResult evalGeneratedNoiseKernelReuseInputs(GeneratedNoiseKernel generated,
                                                                   SlabVmNoiseCellGridRequest request,
                                                                   boolean readOutput) {
-        return evalGeneratedNoiseKernel(generated, request, readOutput, false);
+        return evalGeneratedNoiseKernel(generated, request, null, readOutput, false, true);
+    }
+
+    synchronized SlabVmResult evalGeneratedNoiseKernel(GeneratedNoiseKernel generated,
+                                                       SlabVmNoiseCellGridRequest request,
+                                                       double[] externalSlots,
+                                                       boolean readOutput) {
+        return evalGeneratedNoiseKernel(generated, request, externalSlots, readOutput, true, true);
+    }
+
+    synchronized SlabVmResult evalGeneratedNoiseKernelReuseInputs(GeneratedNoiseKernel generated,
+                                                                  SlabVmNoiseCellGridRequest request,
+                                                                  double[] externalSlots,
+                                                                  boolean readOutput) {
+        return evalGeneratedNoiseKernel(generated, request, externalSlots, readOutput, false, true);
     }
 
     private SlabVmResult evalGeneratedNoiseKernel(GeneratedNoiseKernel generated,
                                                   SlabVmNoiseCellGridRequest request,
+                                                  double[] externalSlots,
                                                   boolean readOutput,
-                                                  boolean uploadInputs) {
+                                                  boolean uploadInputs,
+                                                  boolean bindExternalSlots) {
         assertOpen();
         generated.assertOpen();
         validateNoiseCellGridRequest(request);
+        if (bindExternalSlots && externalSlots != null
+                && externalSlots.length < Math.multiplyExact(request.n, request.slotCount)) {
+            throw new IllegalArgumentException("external slot buffer is shorter than n * slotCount");
+        }
 
         ByteBuffer permutationsHost = null;
         DoubleBuffer outHost = null;
@@ -986,16 +1009,38 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
 
             long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
                     CL12.CL_MEM_READ_ONLY, err, "generated source noise permutations");
+            long externalSlotsBuffer = 0L;
+            double[] externalSlotsForKernel = null;
+            boolean writeExternalSlots = false;
+            if (bindExternalSlots) {
+                externalSlotsForKernel = externalSlots == null || externalSlots.length == 0
+                        ? EMPTY_EXTERNAL_SLOTS
+                        : externalSlots;
+                long externalSlotBytes = doubleBytes(externalSlotsForKernel.length);
+                writeExternalSlots = uploadInputs
+                        || !bufferReady(this.generatedExternalSlotsBuffer, externalSlotBytes, CL12.CL_MEM_READ_ONLY);
+                externalSlotsBuffer = ensureBuffer(this.generatedExternalSlotsBuffer,
+                        externalSlotBytes, CL12.CL_MEM_READ_ONLY, err,
+                        "generated source external slots");
+            }
             long outBuffer = ensureBuffer(this.gridOutBuffer,
                     doubleBytes(request.n), CL12.CL_MEM_WRITE_ONLY, err, "generated source noise output");
             if (writeInputs) {
                 check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
                         null, null), "clEnqueueWriteBuffer(generated source noise permutations)");
             }
+            if (writeExternalSlots) {
+                writeDoubleArray(externalSlotsBuffer, externalSlotsForKernel,
+                        "clEnqueueWriteBuffer(generated source external slots)");
+            }
 
             int arg = 0;
             check(CL12.clSetKernelArg1p(generated.kernel, arg++, permutationsBuffer),
                     "clSetKernelArg(generated source noise permutations)");
+            if (bindExternalSlots) {
+                check(CL12.clSetKernelArg1p(generated.kernel, arg++, externalSlotsBuffer),
+                        "clSetKernelArg(generated source external slots)");
+            }
             check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockX),
                     "clSetKernelArg(generated source noise first x)");
             check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockY),
@@ -1393,6 +1438,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         this.noiseInputFactorsBuffer.release();
         this.noiseOriginsBuffer.release();
         this.noisePermutationsBuffer.release();
+        this.generatedExternalSlotsBuffer.release();
         this.gridOutBuffer.release();
         this.gridSlotsBuffer.release();
         this.gridConstantsBuffer.release();

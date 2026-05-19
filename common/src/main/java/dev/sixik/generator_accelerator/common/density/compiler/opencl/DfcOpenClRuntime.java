@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +17,26 @@ import java.util.List;
 public final class DfcOpenClRuntime {
     private static final Logger LOGGER = LoggerFactory.getLogger(DfcOpenClRuntime.class);
     private static final double WRAP_AXIS_FAST_LIMIT = 16777216.0D;
+    private static final double COMPILED_PLAN_EPSILON = 1.0E-6D;
+    private static final int OP_PUSH_CONST = 1;
+    private static final int OP_PUSH_SLOT = 2;
+    private static final int OP_COND_NEG_SCALE = 3;
+    private static final int OP_Y_CLAMPED_GRADIENT = 4;
+    private static final int OP_RANGE_CHOICE = 5;
+    private static final int OP_BLOCK_X = 16;
+    private static final int OP_BLOCK_Y = 17;
+    private static final int OP_BLOCK_Z = 18;
+    private static final int OP_HOIST = 19;
+    private static final int OP_ADD = 32;
+    private static final int OP_SUB = 33;
+    private static final int OP_MUL = 34;
+    private static final int OP_DIV = 35;
+    private static final int OP_MIN = 36;
+    private static final int OP_MAX = 37;
+    private static final int OP_NEG = 48;
+    private static final int OP_ABS = 49;
+    private static final int OP_SQUARE = 50;
+    private static final int OP_SQUEEZE = 51;
 
     private static volatile Status cachedStatus = Status.disabled();
     private static volatile DfcOpenClDeviceEnumerator.Candidate selectedCandidate;
@@ -615,6 +636,12 @@ public final class DfcOpenClRuntime {
                 false, null);
     }
 
+    public static synchronized SlabVmCellBenchmark slabVmCellGridCompiledPlanSourceAutoNoReadBenchmark(
+            OpenClCompiledPlan plan, int cellWidth, int cellHeight, int cells, int iterations, int warmups) {
+        return slabVmCellGridCompiledPlanSourceBenchmark(plan, cellWidth, cellHeight, cells, iterations, warmups,
+                false, null);
+    }
+
     private static SlabVmCellBenchmark slabVmCellGridRealNoiseBenchmark(NoiseSpec[] specs,
                                                                         int cellWidth, int cellHeight, int cells,
                                                                         int iterations, int warmups,
@@ -955,6 +982,7 @@ public final class DfcOpenClRuntime {
                     }
                 }
                 long totalElements = (long) out.length * safeIterations;
+                long averageKernelNanos = totalNanos / safeIterations;
                 return new SlabVmCellBenchmark(
                         true,
                         context.deviceInfo(),
@@ -966,7 +994,7 @@ public final class DfcOpenClRuntime {
                         out.length,
                         totalElements,
                         totalNanos,
-                        totalNanos / safeIterations,
+                        averageKernelNanos,
                         bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
                         worstNanos,
                         "ok, realNoiseSource=true, slots=" + request.slotCount()
@@ -988,6 +1016,169 @@ public final class DfcOpenClRuntime {
             closeActiveContext();
             return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
         }
+    }
+
+    private static SlabVmCellBenchmark slabVmCellGridCompiledPlanSourceBenchmark(OpenClCompiledPlan plan,
+                                                                                 int cellWidth, int cellHeight,
+                                                                                 int cells, int iterations,
+                                                                                 int warmups, boolean readOutput,
+                                                                                 DfcOpenClGeneratedNoiseSource.WrapMode wrapMode) {
+        if (plan == null) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(), "compiled plan is null");
+        }
+        DfcOpenClNoiseDescriptor descriptor;
+        try {
+            descriptor = DfcOpenClNoiseDescriptor.fromCompiledPlan(
+                    plan.specs(), plan.blendedSpecs(), inactiveSlots(plan));
+        } catch (Throwable throwable) {
+            return SlabVmCellBenchmark.failed(status().selectedDevice(),
+                    "Invalid compiled plan noise specs: " + errorMessage(throwable));
+        }
+        int externalSlotCount = externalSlotCount(plan.externalSlots());
+
+        if (!DfcOpenClConfig.enabled()) {
+            return SlabVmCellBenchmark.failed(null, "OpenCL runtime is disabled.");
+        }
+
+        Status status = status();
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    status.error() == null ? "No available OpenCL device." : status.error());
+        }
+
+        int safeCellWidth = Math.min(Math.max(1, cellWidth), 64);
+        int safeCellHeight = Math.min(Math.max(1, cellHeight), 512);
+        int safeCells = Math.min(Math.max(1, cells), 1 << 20);
+        int safeIterations = Math.min(Math.max(1, iterations), 256);
+        int safeWarmups = Math.min(Math.max(0, warmups), 64);
+        long elements = DfcOpenClSlabVmSmoke.cellCoordElementCount(safeCellWidth, safeCellHeight, safeCells);
+        int maxElements = DfcOpenClConfig.coordBenchMaxElements();
+        if (elements > maxElements) {
+            return SlabVmCellBenchmark.failed(status.selectedDevice(),
+                    "Requested " + elements + " elements, max=" + maxElements
+                            + " (set -Ddfc.opencl.coordBenchMaxElements to raise diagnostic limit).");
+        }
+
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            double[] out = new double[Math.toIntExact(elements)];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
+                            descriptor);
+            int usedSlots = request.slotCount();
+            int usedExternalSlots = externalSlotCount(plan.externalSlots(), usedSlots);
+            int usedComputedSlots = computedSlotCount(plan.computedSlots(), usedSlots);
+            int gpuSlots = Math.max(0, usedSlots - usedExternalSlots);
+            long externalPrefillNanos = 0L;
+            double[] externalSlots = null;
+            if (usedExternalSlots > 0) {
+                long prefillStarted = System.nanoTime();
+                externalSlots = fillExternalSlots(plan, request, usedSlots);
+                externalPrefillNanos = System.nanoTime() - prefillStarted;
+            }
+            DfcOpenClGeneratedNoiseSource.WrapMode sourceWrapMode = wrapMode != null
+                    ? wrapMode
+                    : (noWrapAxisSafe(request, usedSlots)
+                    ? DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP
+                    : DfcOpenClGeneratedNoiseSource.WrapMode.WRAP);
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlan(descriptor, usedSlots, plan.slabProgram(),
+                            plan.slabConstants(), plan.hoistExpression(),
+                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                            plan.externalSlots(),
+                            plan.computedSlots(),
+                            sourceWrapMode);
+            try (DfcOpenClDeviceContext.GeneratedNoiseKernel generated =
+                         context.compileGeneratedNoiseKernel(source.source())) {
+                context.evalGeneratedNoiseKernel(generated, request, externalSlots, true);
+                validateCompiledPlanCellGrid(out, request, descriptor,
+                        plan.slabProgram(), plan.slabConstants(), plan.hoistEvaluator(),
+                        plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(), plan.slotCoordZEvaluators(),
+                        externalSlots, plan.externalSlots(), plan.computedSlots(),
+                        usedSlots);
+
+                long totalNanos = 0L;
+                long bestNanos = Long.MAX_VALUE;
+                long worstNanos = 0L;
+                int totalRuns = safeWarmups + safeIterations;
+                for (int i = 0; i < totalRuns; i++) {
+                    DfcOpenClStats.recordSlabAttempt(out.length);
+                    DfcOpenClStats.recordSlabSubmitted();
+                    DfcOpenClDeviceContext.SlabVmResult result =
+                            context.evalGeneratedNoiseKernelReuseInputs(generated, request, externalSlots, readOutput);
+                    DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                    if (readOutput) {
+                        validateCompiledPlanCellGrid(out, request, descriptor,
+                                plan.slabProgram(), plan.slabConstants(), plan.hoistEvaluator(),
+                                plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(), plan.slotCoordZEvaluators(),
+                                externalSlots, plan.externalSlots(), plan.computedSlots(),
+                                usedSlots);
+                    }
+                    if (i >= safeWarmups) {
+                        long nanos = result.elapsedNanos();
+                        totalNanos += nanos;
+                        bestNanos = Math.min(bestNanos, nanos);
+                        worstNanos = Math.max(worstNanos, nanos);
+                    }
+                }
+                long totalElements = (long) out.length * safeIterations;
+                long averageKernelNanos = totalNanos / safeIterations;
+                return new SlabVmCellBenchmark(
+                        true,
+                        context.deviceInfo(),
+                        safeCellWidth,
+                        safeCellHeight,
+                        safeCells,
+                        safeIterations,
+                        safeWarmups,
+                        out.length,
+                        totalElements,
+                        totalNanos,
+                        averageKernelNanos,
+                        bestNanos == Long.MAX_VALUE ? 0L : bestNanos,
+                        worstNanos,
+                        "ok, compiledPlan=true, label=" + plan.label()
+                                + ", slots=" + request.slotCount()
+                                + ", branches=" + request.branchesPerSlot()
+                                + ", octaves=" + request.octavesPerBranch()
+                                + ", totalNoiseOctaves=" + descriptor.totalOctaves
+                                + ", slabProgramBytes=" + plan.slabProgram().length
+                                + ", slabConsts=" + plan.slabConstants().length
+                                + ", sourceChars=" + source.source().length()
+                                + ", coordTemps=" + source.coordScaleTemps()
+                                + ", coordTempRefs=" + source.coordScaleRefs()
+                                + ", slotCoords=" + hasPlanSlotCoords(plan, usedSlots)
+                                + ", externalSlots=" + externalSlotCount
+                                + ", gpuSlots=" + gpuSlots
+                                + ", computedSlots=" + usedComputedSlots
+                                + ", externalPrefillMs=" + formatMillis(externalPrefillNanos)
+                                + ", externalPrefillValueNs=" + formatNanosPerValue(
+                                externalPrefillNanos, (long) request.n() * usedExternalSlots)
+                                + ", oneShotWithPrefillMs=" + formatMillis(externalPrefillNanos + averageKernelNanos)
+                                + ", wrapAxis=" + (wrapMode == null
+                                ? "auto-" + wrapModeLabel(sourceWrapMode)
+                                : wrapModeLabel(sourceWrapMode))
+                                + ", cachedInputs=true"
+                                + (readOutput ? "" : ", noRead=true"));
+            }
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
+        }
+    }
+
+    private static boolean hasPlanSlotCoords(OpenClCompiledPlan plan, int usedSlots) {
+        return plan != null
+                && plan.slotCoordXExpressions() != null
+                && plan.slotCoordYExpressions() != null
+                && plan.slotCoordZExpressions() != null
+                && plan.slotCoordXExpressions().length >= usedSlots
+                && plan.slotCoordYExpressions().length >= usedSlots
+                && plan.slotCoordZExpressions().length >= usedSlots;
     }
 
     private static SlabVmCellBenchmark slabVmCellGridDirectBenchmark(int cellWidth, int cellHeight, int cells,
@@ -1310,6 +1501,357 @@ public final class DfcOpenClRuntime {
         return throwable.getClass().getSimpleName() + ": " + message;
     }
 
+    private static void validateCompiledPlanCellGrid(double[] out,
+                                                     DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                                     DfcOpenClNoiseDescriptor descriptor,
+                                                     byte[] program,
+                                                     double[] constants,
+                                                     HoistEvaluator hoistEvaluator,
+                                                     HoistEvaluator[] slotCoordXEvaluators,
+                                                     HoistEvaluator[] slotCoordYEvaluators,
+                                                     HoistEvaluator[] slotCoordZEvaluators,
+                                                     double[] externalSlotValues,
+                                                     boolean[] externalSlots,
+                                                     ComputedSlot[] computedSlots,
+                                                     int usedSlotCount) {
+        int n = request.n();
+        if (out.length < n) {
+            throw new IllegalStateException("OpenCL compiled plan output too short: " + out.length);
+        }
+        int checks = Math.min(n, 257);
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), descriptor.slotCount);
+        for (int check = 0; check < checks; check++) {
+            int i = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
+            double bx = cellBlockX(i, request);
+            double by = cellBlockY(i, request);
+            double bz = cellBlockZ(i, request);
+            double[] slots = new double[safeUsedSlots];
+            boolean[] resolvedSlots = new boolean[safeUsedSlots];
+            for (int slot = 0; slot < safeUsedSlots; slot++) {
+                resolveCompiledPlanSlot(slot, slots, resolvedSlots, i, safeUsedSlots, bx, by, bz,
+                        descriptor, slotCoordXEvaluators, slotCoordYEvaluators, slotCoordZEvaluators,
+                        externalSlotValues, externalSlots, computedSlots);
+            }
+            double hoist = hoistEvaluator.evaluate(bx, by, bz);
+            double expected = evalCompiledPlanProgram(program, constants, slots, bx, by, bz, hoist);
+            double actual = out[i];
+            if (!Double.isFinite(actual) || Math.abs(actual - expected) > COMPILED_PLAN_EPSILON) {
+                throw new IllegalStateException("OpenCL compiled plan mismatch at " + i
+                        + ": expected=" + expected + ", actual=" + actual);
+            }
+        }
+    }
+
+    private static double resolveCompiledPlanSlot(int slot, double[] slots, boolean[] resolvedSlots,
+                                                  int element, int safeUsedSlots,
+                                                  double bx, double by, double bz,
+                                                  DfcOpenClNoiseDescriptor descriptor,
+                                                  HoistEvaluator[] slotCoordXEvaluators,
+                                                  HoistEvaluator[] slotCoordYEvaluators,
+                                                  HoistEvaluator[] slotCoordZEvaluators,
+                                                  double[] externalSlotValues,
+                                                  boolean[] externalSlots,
+                                                  ComputedSlot[] computedSlots) {
+        if (slot < 0 || slot >= safeUsedSlots) {
+            throw new IllegalStateException("compiled plan references slot outside batch: " + slot);
+        }
+        if (resolvedSlots[slot]) {
+            return slots[slot];
+        }
+        ComputedSlot computed = computedSlot(computedSlots, slot);
+        if (computed != null) {
+            for (int dependency : slotDependencies(computed.slabProgram(), safeUsedSlots)) {
+                resolveCompiledPlanSlot(dependency, slots, resolvedSlots, element, safeUsedSlots, bx, by, bz,
+                        descriptor, slotCoordXEvaluators, slotCoordYEvaluators, slotCoordZEvaluators,
+                        externalSlotValues, externalSlots, computedSlots);
+            }
+            double hoist = computed.hoistEvaluator() == null ? 0.0D : computed.hoistEvaluator().evaluate(bx, by, bz);
+            slots[slot] = evalCompiledPlanProgram(computed.slabProgram(), computed.slabConstants(),
+                    slots, bx, by, bz, hoist);
+        } else if (isExternalSlot(externalSlots, slot)) {
+            int index = elementSlotIndex(element, safeUsedSlots, slot);
+            if (externalSlotValues == null || externalSlotValues.length <= index) {
+                throw new IllegalStateException("OpenCL compiled plan external slot buffer is missing slot "
+                        + slot + " for element " + element);
+            }
+            slots[slot] = externalSlotValues[index];
+        } else {
+            double sx = evalSlotCoord(slotCoordXEvaluators, slot, bx, by, bz, bx);
+            double sy = evalSlotCoord(slotCoordYEvaluators, slot, bx, by, bz, by);
+            double sz = evalSlotCoord(slotCoordZEvaluators, slot, bx, by, bz, bz);
+            slots[slot] = descriptor.sampleSlot(slot, sx, sy, sz);
+        }
+        resolvedSlots[slot] = true;
+        return slots[slot];
+    }
+
+    private static double evalCompiledPlanProgram(byte[] program, double[] constants, double[] slots,
+                                                  double bx, double by, double bz, double hoist) {
+        double[] stack = new double[192];
+        int sp = 0;
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST -> {
+                    int idx = readU16(program, pc);
+                    pc += 2;
+                    stack[sp++] = constants[idx];
+                }
+                case OP_PUSH_SLOT -> stack[sp++] = slots[program[pc++] & 0xFF];
+                case OP_COND_NEG_SCALE -> {
+                    int idx = readU16(program, pc);
+                    pc += 2;
+                    double x = stack[--sp];
+                    stack[sp++] = x > 0.0D ? x : x * constants[idx];
+                }
+                case OP_Y_CLAMPED_GRADIENT -> {
+                    int fromY = readU16(program, pc); pc += 2;
+                    int toY = readU16(program, pc); pc += 2;
+                    int fromValue = readU16(program, pc); pc += 2;
+                    int toValue = readU16(program, pc); pc += 2;
+                    stack[sp++] = clampedMap(by, constants[fromY], constants[toY],
+                            constants[fromValue], constants[toValue]);
+                }
+                case OP_RANGE_CHOICE -> {
+                    int min = readU16(program, pc); pc += 2;
+                    int max = readU16(program, pc); pc += 2;
+                    double whenOut = stack[--sp];
+                    double whenIn = stack[--sp];
+                    double input = stack[--sp];
+                    stack[sp++] = input >= constants[min] && input < constants[max] ? whenIn : whenOut;
+                }
+                case OP_BLOCK_X -> stack[sp++] = bx;
+                case OP_BLOCK_Y -> stack[sp++] = by;
+                case OP_BLOCK_Z -> stack[sp++] = bz;
+                case OP_HOIST -> stack[sp++] = hoist;
+                case OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX -> {
+                    double right = stack[--sp];
+                    double left = stack[--sp];
+                    stack[sp++] = switch (op) {
+                        case OP_ADD -> left + right;
+                        case OP_SUB -> left - right;
+                        case OP_MUL -> left * right;
+                        case OP_DIV -> left / right;
+                        case OP_MIN -> Math.min(left, right);
+                        case OP_MAX -> Math.max(left, right);
+                        default -> throw new IllegalStateException("not a binary opcode " + op);
+                    };
+                }
+                case OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                    double x = stack[--sp];
+                    stack[sp++] = switch (op) {
+                        case OP_NEG -> -x;
+                        case OP_ABS -> Math.abs(x);
+                        case OP_SQUARE -> x * x;
+                        case OP_SQUEEZE -> squeeze(x);
+                        default -> throw new IllegalStateException("not a unary opcode " + op);
+                    };
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        if (sp != 1) {
+            throw new IllegalStateException("compiled plan program ended with stack depth " + sp);
+        }
+        return stack[0];
+    }
+
+    private static double evalSlotCoord(HoistEvaluator[] evaluators, int slot,
+                                        double bx, double by, double bz, double fallback) {
+        if (evaluators == null || slot < 0 || slot >= evaluators.length || evaluators[slot] == null) {
+            return fallback;
+        }
+        return evaluators[slot].evaluate(bx, by, bz);
+    }
+
+    private static double[] fillExternalSlots(OpenClCompiledPlan plan,
+                                              DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                              int usedSlotCount) {
+        int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), request.slotCount());
+        double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
+        for (int i = 0; i < request.n(); i++) {
+            int bx = (int) cellBlockX(i, request);
+            int by = (int) cellBlockY(i, request);
+            int bz = (int) cellBlockZ(i, request);
+            DensityFunction.FunctionContext context = new DensityFunction.SinglePointContext(bx, by, bz);
+            for (int slot = 0; slot < safeUsedSlots; slot++) {
+                if (!isExternalSlot(plan.externalSlots(), slot)) {
+                    continue;
+                }
+                DensityFunction extern = markerExtern(plan, slot);
+                values[elementSlotIndex(i, safeUsedSlots, slot)] = extern.compute(context);
+            }
+        }
+        return values;
+    }
+
+    private static DensityFunction markerExtern(OpenClCompiledPlan plan, int slot) {
+        int[] markerExternIndices = plan.markerExternIndices();
+        DensityFunction[] externs = plan.externs();
+        if (markerExternIndices == null || externs == null || slot < 0 || slot >= markerExternIndices.length) {
+            throw new IllegalStateException("compiled plan external slot " + slot + " has no marker extern index");
+        }
+        int externIndex = markerExternIndices[slot];
+        if (externIndex < 0 || externIndex >= externs.length || externs[externIndex] == null) {
+            throw new IllegalStateException("compiled plan external slot " + slot
+                    + " has invalid marker extern index " + externIndex);
+        }
+        return externs[externIndex];
+    }
+
+    private static int externalSlotCount(boolean[] externalSlots) {
+        int count = 0;
+        if (externalSlots != null) {
+            for (boolean externalSlot : externalSlots) {
+                if (externalSlot) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int externalSlotCount(boolean[] externalSlots, int usedSlotCount) {
+        int count = 0;
+        int limit = Math.max(0, usedSlotCount);
+        if (externalSlots != null) {
+            for (int slot = 0; slot < Math.min(externalSlots.length, limit); slot++) {
+                if (externalSlots[slot]) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static boolean[] inactiveSlots(OpenClCompiledPlan plan) {
+        int length = plan.specs() == null ? 0 : plan.specs().length;
+        boolean[] inactive = new boolean[length];
+        boolean[] externalSlots = plan.externalSlots();
+        ComputedSlot[] computedSlots = plan.computedSlots();
+        for (int slot = 0; slot < length; slot++) {
+            inactive[slot] = isExternalSlot(externalSlots, slot) || computedSlot(computedSlots, slot) != null;
+        }
+        return inactive;
+    }
+
+    private static boolean isExternalSlot(boolean[] externalSlots, int slot) {
+        return externalSlots != null && slot >= 0 && slot < externalSlots.length && externalSlots[slot];
+    }
+
+    private static ComputedSlot computedSlot(ComputedSlot[] computedSlots, int slot) {
+        return computedSlots != null && slot >= 0 && slot < computedSlots.length ? computedSlots[slot] : null;
+    }
+
+    private static int computedSlotCount(ComputedSlot[] computedSlots, int usedSlotCount) {
+        int count = 0;
+        int limit = Math.max(0, usedSlotCount);
+        if (computedSlots != null) {
+            for (int slot = 0; slot < Math.min(computedSlots.length, limit); slot++) {
+                if (computedSlots[slot] != null) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int[] slotDependencies(byte[] program, int slotCount) {
+        boolean[] seen = new boolean[slotCount];
+        int count = 0;
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST, OP_COND_NEG_SCALE -> pc += 2;
+                case OP_PUSH_SLOT -> {
+                    int slot = program[pc++] & 0xFF;
+                    if (slot < 0 || slot >= slotCount) {
+                        throw new IllegalStateException("compiled slab program references missing slot " + slot);
+                    }
+                    if (!seen[slot]) {
+                        seen[slot] = true;
+                        count++;
+                    }
+                }
+                case OP_Y_CLAMPED_GRADIENT -> pc += 8;
+                case OP_RANGE_CHOICE -> pc += 4;
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST,
+                     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
+                     OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        int[] dependencies = new int[count];
+        int next = 0;
+        for (int slot = 0; slot < seen.length; slot++) {
+            if (seen[slot]) {
+                dependencies[next++] = slot;
+            }
+        }
+        return dependencies;
+    }
+
+    private static String formatMillis(long nanos) {
+        return String.format(java.util.Locale.ROOT, "%.3f", nanos / 1_000_000.0D);
+    }
+
+    private static String formatNanosPerValue(long nanos, long values) {
+        double perValue = values <= 0L ? 0.0D : nanos / (double) values;
+        return String.format(java.util.Locale.ROOT, "%.1f", perValue);
+    }
+
+    private static int elementSlotIndex(int element, int slotCount, int slot) {
+        return element * slotCount + slot;
+    }
+
+    private static int readU16(byte[] bytes, int offset) {
+        return (bytes[offset] & 0xFF) | ((bytes[offset + 1] & 0xFF) << 8);
+    }
+
+    private static double cellBlockX(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+        int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
+        int cell = element / cellVolume;
+        int inCell = element - cell * cellVolume;
+        int plane = inCell % (request.cellWidth() * request.cellWidth());
+        int ix = plane / request.cellWidth();
+        int cellX = cell & 31;
+        return request.firstBlockX() + cellX * request.cellWidth() + ix;
+    }
+
+    private static double cellBlockY(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+        int planeSize = request.cellWidth() * request.cellWidth();
+        int inCell = element % (planeSize * request.cellHeight());
+        int yIndex = inCell / planeSize;
+        return request.firstBlockY() + (request.cellHeight() - 1 - yIndex);
+    }
+
+    private static double cellBlockZ(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+        int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
+        int cell = element / cellVolume;
+        int inCell = element - cell * cellVolume;
+        int plane = inCell % (request.cellWidth() * request.cellWidth());
+        int iz = plane % request.cellWidth();
+        int cellZ = cell >> 5;
+        return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
+    }
+
+    private static double clampedMap(double value, double oldMin, double oldMax, double newMin, double newMax) {
+        double delta = (value - oldMin) / (oldMax - oldMin);
+        if (delta < 0.0D) {
+            return newMin;
+        }
+        if (delta > 1.0D) {
+            return newMax;
+        }
+        return newMin + delta * (newMax - newMin);
+    }
+
+    private static double squeeze(double value) {
+        double clamped = Math.max(-1.0D, Math.min(1.0D, value));
+        return clamped / 2.0D - clamped * clamped * clamped / 24.0D;
+    }
+
     private static String wrapModeLabel(DfcOpenClGeneratedNoiseSource.WrapMode wrapMode) {
         return switch (wrapMode) {
             case WRAP -> "true";
@@ -1424,6 +1966,39 @@ public final class DfcOpenClRuntime {
         private static SlabVmCellBenchmark failed(DfcOpenClDeviceInfo device, String message) {
             return new SlabVmCellBenchmark(false, device, 0, 0, 0, 0, 0, 0, 0L, 0L, 0L, 0L, 0L, message);
         }
+    }
+
+    @FunctionalInterface
+    public interface HoistEvaluator {
+        double evaluate(double bx, double by, double bz);
+    }
+
+    public record OpenClCompiledPlan(
+            String label,
+            NoiseSpec[] specs,
+            byte[] slabProgram,
+            double[] slabConstants,
+            String hoistExpression,
+            HoistEvaluator hoistEvaluator,
+            String[] slotCoordXExpressions,
+            String[] slotCoordYExpressions,
+            String[] slotCoordZExpressions,
+            HoistEvaluator[] slotCoordXEvaluators,
+            HoistEvaluator[] slotCoordYEvaluators,
+            HoistEvaluator[] slotCoordZEvaluators,
+            dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec[] blendedSpecs,
+            boolean[] externalSlots,
+            int[] markerExternIndices,
+            DensityFunction[] externs,
+            ComputedSlot[] computedSlots) {
+    }
+
+    public record ComputedSlot(
+            byte[] slabProgram,
+            double[] slabConstants,
+            String hoistExpression,
+            HoistEvaluator hoistEvaluator,
+            String label) {
     }
 
     public record Status(

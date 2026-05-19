@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.ImprovedNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
@@ -40,6 +41,7 @@ final class DfcOpenClNoiseDescriptor {
     final int branchesPerSlot;
     final int octavesPerBranch;
     final int totalOctaves;
+    private final BlendedSlot[] blendedSlots;
 
     private DfcOpenClNoiseDescriptor(byte[] permutations,
                                      double[] origins,
@@ -52,7 +54,8 @@ final class DfcOpenClNoiseDescriptor {
                                      int slotCount,
                                      int branchesPerSlot,
                                      int octavesPerBranch,
-                                     int totalOctaves) {
+                                     int totalOctaves,
+                                     BlendedSlot[] blendedSlots) {
         this.permutations = permutations;
         this.origins = origins;
         this.inputFactors = inputFactors;
@@ -65,6 +68,7 @@ final class DfcOpenClNoiseDescriptor {
         this.branchesPerSlot = branchesPerSlot;
         this.octavesPerBranch = octavesPerBranch;
         this.totalOctaves = totalOctaves;
+        this.blendedSlots = blendedSlots;
     }
 
     static DfcOpenClNoiseDescriptor synthetic(int slotCount, int octavesPerBranch) {
@@ -105,23 +109,48 @@ final class DfcOpenClNoiseDescriptor {
 
         return new DfcOpenClNoiseDescriptor(permutations, origins, inputFactors, ampFactors,
                 branchOffsets, branchCounts, branchScales, slotFactors, safeSlotCount, BRANCHES_PER_SLOT, safeOctaves,
-                totalOctaves);
+                totalOctaves, null);
     }
 
     static DfcOpenClNoiseDescriptor fromNoiseSpecs(NoiseSpec[] specs) {
+        return fromNoiseSpecs(specs, null);
+    }
+
+    static DfcOpenClNoiseDescriptor fromNoiseSpecs(NoiseSpec[] specs, boolean[] inactiveSlots) {
+        return fromCompiledPlan(specs, null, inactiveSlots);
+    }
+
+    static DfcOpenClNoiseDescriptor fromCompiledPlan(NoiseSpec[] specs,
+                                                     BlendedNoiseSpec[] blendedSpecs,
+                                                     boolean[] inactiveSlots) {
         if (specs == null || specs.length == 0) {
             throw new IllegalArgumentException("noise specs are empty");
         }
         int maxOctaves = 0;
         int totalOctaves = 0;
-        for (NoiseSpec spec : specs) {
-            if (spec == null) {
+        for (int slot = 0; slot < specs.length; slot++) {
+            NoiseSpec spec = specs[slot];
+            BlendedNoiseSpec blended = blendedSpec(blendedSpecs, slot);
+            if (spec != null && blended != null) {
+                throw new IllegalArgumentException("slot " + slot + " has both normal and blended noise specs");
+            }
+            if (spec == null && blended == null) {
+                if (isInactiveSlot(inactiveSlots, slot)) {
+                    continue;
+                }
                 throw new IllegalArgumentException("noise spec is null");
             }
-            maxOctaves = Math.max(maxOctaves, spec.first().activeOctaves().length);
-            maxOctaves = Math.max(maxOctaves, spec.second().activeOctaves().length);
-            totalOctaves += spec.first().activeOctaves().length;
-            totalOctaves += spec.second().activeOctaves().length;
+            if (spec != null) {
+                maxOctaves = Math.max(maxOctaves, spec.first().activeOctaves().length);
+                maxOctaves = Math.max(maxOctaves, spec.second().activeOctaves().length);
+                totalOctaves += spec.first().activeOctaves().length;
+                totalOctaves += spec.second().activeOctaves().length;
+            } else {
+                maxOctaves = Math.max(maxOctaves, BlendedNoiseSpec.LIMIT_OCTAVES);
+                totalOctaves += countNonNull(blended.mainOctaves());
+                totalOctaves += countNonNull(blended.minLimitOctaves());
+                totalOctaves += countNonNull(blended.maxLimitOctaves());
+            }
         }
         maxOctaves = Math.max(1, maxOctaves);
         totalOctaves = Math.max(1, totalOctaves);
@@ -136,23 +165,71 @@ final class DfcOpenClNoiseDescriptor {
         int[] branchCounts = new int[branchCount];
         double[] branchScales = new double[branchCount];
         double[] slotFactors = new double[slotCount];
+        BlendedSlot[] blendedSlots = blendedSpecs == null ? null : new BlendedSlot[slotCount];
 
         int nextOctave = 0;
         for (int slot = 0; slot < slotCount; slot++) {
             NoiseSpec spec = specs[slot];
-            slotFactors[slot] = spec.valueFactor();
-            nextOctave = fillBranch(spec.first(), slot, 0, nextOctave, permutations, origins, inputFactors,
-                    ampFactors, branchOffsets, branchCounts, branchScales);
-            nextOctave = fillBranch(spec.second(), slot, 1, nextOctave, permutations, origins, inputFactors,
-                    ampFactors, branchOffsets, branchCounts, branchScales);
+            BlendedNoiseSpec blended = blendedSpec(blendedSpecs, slot);
+            if (spec == null && blended == null && isInactiveSlot(inactiveSlots, slot)) {
+                slotFactors[slot] = 1.0D;
+                continue;
+            }
+            if (spec != null) {
+                slotFactors[slot] = spec.valueFactor();
+                nextOctave = fillBranch(spec.first(), slot, 0, nextOctave, permutations, origins, inputFactors,
+                        ampFactors, branchOffsets, branchCounts, branchScales);
+                nextOctave = fillBranch(spec.second(), slot, 1, nextOctave, permutations, origins, inputFactors,
+                        ampFactors, branchOffsets, branchCounts, branchScales);
+            } else {
+                slotFactors[slot] = 1.0D;
+                if (blendedSlots == null) {
+                    blendedSlots = new BlendedSlot[slotCount];
+                }
+                BlendedSlot built = new BlendedSlot(
+                        blended.xzMultiplier(),
+                        blended.yMultiplier(),
+                        blended.xzFactor(),
+                        blended.yFactor(),
+                        blended.smearScaleMultiplier(),
+                        new int[BlendedNoiseSpec.MAIN_OCTAVES],
+                        new int[BlendedNoiseSpec.LIMIT_OCTAVES],
+                        new int[BlendedNoiseSpec.LIMIT_OCTAVES]);
+                java.util.Arrays.fill(built.mainOctaves, -1);
+                java.util.Arrays.fill(built.minLimitOctaves, -1);
+                java.util.Arrays.fill(built.maxLimitOctaves, -1);
+                nextOctave = fillBlendedOctaves(blended.mainOctaves(), built.mainOctaves,
+                        nextOctave, permutations, origins);
+                nextOctave = fillBlendedOctaves(blended.minLimitOctaves(), built.minLimitOctaves,
+                        nextOctave, permutations, origins);
+                nextOctave = fillBlendedOctaves(blended.maxLimitOctaves(), built.maxLimitOctaves,
+                        nextOctave, permutations, origins);
+                blendedSlots[slot] = built;
+            }
         }
 
         return new DfcOpenClNoiseDescriptor(permutations, origins, inputFactors, ampFactors,
                 branchOffsets, branchCounts, branchScales, slotFactors, slotCount, BRANCHES_PER_SLOT, maxOctaves,
-                nextOctave);
+                nextOctave, blendedSlots);
+    }
+
+    private static boolean isInactiveSlot(boolean[] inactiveSlots, int slot) {
+        return inactiveSlots != null && slot >= 0 && slot < inactiveSlots.length && inactiveSlots[slot];
+    }
+
+    boolean isBlendedSlot(int slot) {
+        return blendedSlot(slot) != null;
+    }
+
+    BlendedSlot blendedSlot(int slot) {
+        return blendedSlots != null && slot >= 0 && slot < blendedSlots.length ? blendedSlots[slot] : null;
     }
 
     double sampleSlot(int slot, double bx, double by, double bz) {
+        BlendedSlot blended = blendedSlot(slot);
+        if (blended != null) {
+            return sampleBlendedSlot(blended, bx, by, bz);
+        }
         double value = 0.0D;
         int branchBase = slot * this.branchesPerSlot;
         for (int branch = 0; branch < this.branchesPerSlot; branch++) {
@@ -160,6 +237,69 @@ final class DfcOpenClNoiseDescriptor {
             value += sampleBranch(branchIndex, bx, by, bz, this.branchCoordScales[branchIndex]);
         }
         return value * this.slotValueFactors[slot];
+    }
+
+    private double sampleBlendedSlot(BlendedSlot slot, double bx, double by, double bz) {
+        double x = bx * slot.xzMultiplier;
+        double y = by * slot.yMultiplier;
+        double z = bz * slot.xzMultiplier;
+        double mainX = x / slot.xzFactor;
+        double mainY = y / slot.yFactor;
+        double mainZ = z / slot.xzFactor;
+        double smearY = slot.yMultiplier * slot.smearScaleMultiplier;
+        double mainYScale = smearY / slot.yFactor;
+
+        double main = 0.0D;
+        for (int octave = 0; octave < slot.mainOctaves.length; octave++) {
+            int index = slot.mainOctaves[octave];
+            if (index >= 0) {
+                double scale = 1.0D / (1L << octave);
+                main += perlinSample(index * PERMUTATION_STRIDE,
+                        this.origins[index * 3],
+                        this.origins[index * 3 + 1],
+                        this.origins[index * 3 + 2],
+                        wrapAxis(mainX * scale),
+                        wrapAxis(mainY * scale),
+                        wrapAxis(mainZ * scale),
+                        mainYScale * scale,
+                        mainY * scale) / scale;
+            }
+        }
+
+        double blend = (main / 10.0D + 1.0D) / 2.0D;
+        boolean skipMin = blend >= 1.0D;
+        boolean skipMax = blend <= 0.0D;
+        double min = 0.0D;
+        double max = 0.0D;
+        for (int octave = 0; octave < BlendedNoiseSpec.LIMIT_OCTAVES; octave++) {
+            double scale = 1.0D / (1L << octave);
+            double sx = wrapAxis(x * scale);
+            double sy = wrapAxis(y * scale);
+            double sz = wrapAxis(z * scale);
+            double yScale = smearY * scale;
+            double yMax = y * scale;
+            if (!skipMin) {
+                int minIndex = slot.minLimitOctaves[octave];
+                if (minIndex >= 0) {
+                    min += perlinSample(minIndex * PERMUTATION_STRIDE,
+                            this.origins[minIndex * 3],
+                            this.origins[minIndex * 3 + 1],
+                            this.origins[minIndex * 3 + 2],
+                            sx, sy, sz, yScale, yMax) / scale;
+                }
+            }
+            if (!skipMax) {
+                int maxIndex = slot.maxLimitOctaves[octave];
+                if (maxIndex >= 0) {
+                    max += perlinSample(maxIndex * PERMUTATION_STRIDE,
+                            this.origins[maxIndex * 3],
+                            this.origins[maxIndex * 3 + 1],
+                            this.origins[maxIndex * 3 + 2],
+                            sx, sy, sz, yScale, yMax) / scale;
+                }
+            }
+        }
+        return clampedLerp(min / 512.0D, max / 512.0D, blend) / 128.0D;
     }
 
     private double sampleBranch(int branchIndex, double bx, double by, double bz, double coordScale) {
@@ -189,6 +329,11 @@ final class DfcOpenClNoiseDescriptor {
 
     private double perlinSample(int offset, double originX, double originY, double originZ,
                                 double x, double y, double z) {
+        return perlinSample(offset, originX, originY, originZ, x, y, z, 0.0D, 0.0D);
+    }
+
+    private double perlinSample(int offset, double originX, double originY, double originZ,
+                                double x, double y, double z, double yScale, double yMax) {
         double inputX = x + originX;
         double inputY = y + originY;
         double inputZ = z + originZ;
@@ -198,16 +343,21 @@ final class DfcOpenClNoiseDescriptor {
         double deltaX = inputX - gridX;
         double deltaY = inputY - gridY;
         double deltaZ = inputZ - gridZ;
+        double shiftedDeltaY = deltaY;
+        if (yScale != 0.0D) {
+            double maxShift = yMax >= 0.0D && yMax < deltaY ? yMax : deltaY;
+            shiftedDeltaY = deltaY - Math.floor(maxShift / yScale + 1.0E-7D) * yScale;
+        }
         double x1 = deltaX - 1.0D;
-        double y1 = deltaY - 1.0D;
+        double y1 = shiftedDeltaY - 1.0D;
         double z1 = deltaZ - 1.0D;
 
-        double n000 = perlinGrad(offset, gridX, gridY, gridZ, deltaX, deltaY, deltaZ);
-        double n100 = perlinGrad(offset, gridX + 1, gridY, gridZ, x1, deltaY, deltaZ);
+        double n000 = perlinGrad(offset, gridX, gridY, gridZ, deltaX, shiftedDeltaY, deltaZ);
+        double n100 = perlinGrad(offset, gridX + 1, gridY, gridZ, x1, shiftedDeltaY, deltaZ);
         double n010 = perlinGrad(offset, gridX, gridY + 1, gridZ, deltaX, y1, deltaZ);
         double n110 = perlinGrad(offset, gridX + 1, gridY + 1, gridZ, x1, y1, deltaZ);
-        double n001 = perlinGrad(offset, gridX, gridY, gridZ + 1, deltaX, deltaY, z1);
-        double n101 = perlinGrad(offset, gridX + 1, gridY, gridZ + 1, x1, deltaY, z1);
+        double n001 = perlinGrad(offset, gridX, gridY, gridZ + 1, deltaX, shiftedDeltaY, z1);
+        double n101 = perlinGrad(offset, gridX + 1, gridY, gridZ + 1, x1, shiftedDeltaY, z1);
         double n011 = perlinGrad(offset, gridX, gridY + 1, gridZ + 1, deltaX, y1, z1);
         double n111 = perlinGrad(offset, gridX + 1, gridY + 1, gridZ + 1, x1, y1, z1);
 
@@ -255,6 +405,52 @@ final class DfcOpenClNoiseDescriptor {
         return octaveOffset + octaves.length;
     }
 
+    private static int fillBlendedOctaves(ImprovedNoise[] octaves, int[] indices, int octaveOffset,
+                                          byte[] permutations, double[] origins) {
+        int nextOctave = octaveOffset;
+        int limit = Math.min(octaves == null ? 0 : octaves.length, indices.length);
+        for (int octave = 0; octave < limit; octave++) {
+            ImprovedNoise noise = octaves[octave];
+            if (noise == null) {
+                continue;
+            }
+            indices[octave] = nextOctave;
+            fillImprovedNoise(noise, nextOctave, permutations, origins);
+            nextOctave++;
+        }
+        return nextOctave;
+    }
+
+    private static void fillImprovedNoise(ImprovedNoise noise, int index, byte[] permutations, double[] origins) {
+        ImprovedNoiseAccessor acc = (ImprovedNoiseAccessor) (Object) noise;
+        byte[] p = acc.dfc$getPermutation();
+        if (p == null || p.length < PERMUTATION_TABLE_SIZE) {
+            throw new IllegalArgumentException("improved-noise permutation is shorter than 256");
+        }
+        int offset = index * PERMUTATION_STRIDE;
+        System.arraycopy(p, 0, permutations, offset, PERMUTATION_TABLE_SIZE);
+        System.arraycopy(p, 0, permutations, offset + PERMUTATION_TABLE_SIZE, PERMUTATION_TABLE_SIZE);
+        origins[index * 3] = acc.dfc$getXo();
+        origins[index * 3 + 1] = acc.dfc$getYo();
+        origins[index * 3 + 2] = acc.dfc$getZo();
+    }
+
+    private static BlendedNoiseSpec blendedSpec(BlendedNoiseSpec[] specs, int slot) {
+        return specs != null && slot >= 0 && slot < specs.length ? specs[slot] : null;
+    }
+
+    private static int countNonNull(Object[] values) {
+        int count = 0;
+        if (values != null) {
+            for (Object value : values) {
+                if (value != null) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
     private static void fillPermutation(byte[] out, int offset, long seed) {
         fillIdentityPermutation(out, offset);
         for (int i = PERMUTATION_TABLE_SIZE - 1; i > 0; i--) {
@@ -294,6 +490,16 @@ final class DfcOpenClNoiseDescriptor {
         return start + delta * (end - start);
     }
 
+    private static double clampedLerp(double start, double end, double delta) {
+        if (delta < 0.0D) {
+            return start;
+        }
+        if (delta > 1.0D) {
+            return end;
+        }
+        return lerp(delta, start, end);
+    }
+
     private static int javaFloor(double value) {
         int truncated = (int) value;
         return value < truncated ? truncated - 1 : truncated;
@@ -304,5 +510,16 @@ final class DfcOpenClNoiseDescriptor {
             return value;
         }
         return value - Math.floor(value / 33554432.0D + 0.5D) * 33554432.0D;
+    }
+
+    record BlendedSlot(
+            double xzMultiplier,
+            double yMultiplier,
+            double xzFactor,
+            double yFactor,
+            double smearScaleMultiplier,
+            int[] mainOctaves,
+            int[] minLimitOctaves,
+            int[] maxLimitOctaves) {
     }
 }

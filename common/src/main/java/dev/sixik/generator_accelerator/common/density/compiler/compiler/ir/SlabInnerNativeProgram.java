@@ -48,20 +48,49 @@ public final class SlabInnerNativeProgram {
         if (plan == null || slabPlan == null || slabPlan.isEmpty()) {
             return Optional.empty();
         }
-        IdentityHashMap<IRNode, Integer> slabSlots = new IdentityHashMap<>();
-        for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-            IRNode key = switch (s) {
-                case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
-                case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
-                case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
-            };
-            slabSlots.put(key, s.slotIndex());
+        return tryCompileInternal(root, plan.hoistedSubtree(), slabPlan, extracted);
+    }
+
+    public static Optional<Result> tryCompileFull(IRNode root, SlabNativeBatchPlan slabPlan, Set<IRNode> extracted) {
+        if (root == null || slabPlan == null) {
+            return Optional.empty();
         }
+        return tryCompileInternal(root, null, slabPlan, extracted);
+    }
+
+    public static String diagnoseFullRoot(IRNode root, SlabNativeBatchPlan slabPlan, Set<IRNode> extracted) {
+        if (root == null) {
+            return "root is null";
+        }
+        if (slabPlan == null) {
+            return "slab plan is null";
+        }
+        IdentityHashMap<IRNode, Integer> slabSlots = slabSlotMap(slabPlan);
         boolean applyBlendDensity = root instanceof IRNode.BlendDensity;
         IRNode compileRoot = applyBlendDensity ? ((IRNode.BlendDensity) root).input() : root;
         var b = new Builder();
         try {
-            if (!b.compile(compileRoot, plan.hoistedSubtree(), extracted, slabSlots)) {
+            if (!b.compile(compileRoot, null, extracted, slabSlots)) {
+                return b.failureReason();
+            }
+        } catch (IOException e) {
+            return "io error: " + e.getMessage();
+        }
+        byte[] bytecode = b.bytes();
+        if (!isValidStackProgram(bytecode, b.constCount())) {
+            return "invalid stack program, bytes=" + bytecode.length + ", consts=" + b.constCount();
+        }
+        return "ok, bytes=" + bytecode.length + ", consts=" + b.constCount();
+    }
+
+    private static Optional<Result> tryCompileInternal(IRNode root, IRNode hoisted,
+                                                       SlabNativeBatchPlan slabPlan, Set<IRNode> extracted) {
+        IdentityHashMap<IRNode, Integer> slabSlots = slabSlotMap(slabPlan);
+        boolean applyBlendDensity = root instanceof IRNode.BlendDensity;
+        IRNode compileRoot = applyBlendDensity ? ((IRNode.BlendDensity) root).input() : root;
+        var b = new Builder();
+        try {
+            if (!b.compile(compileRoot, hoisted, extracted, slabSlots)) {
                 b.recordFailure();
                 return Optional.empty();
             }
@@ -75,6 +104,20 @@ public final class SlabInnerNativeProgram {
             return Optional.empty();
         }
         return Optional.of(new Result(bytecode, b.consts(), applyBlendDensity));
+    }
+
+    private static IdentityHashMap<IRNode, Integer> slabSlotMap(SlabNativeBatchPlan slabPlan) {
+        IdentityHashMap<IRNode, Integer> slabSlots = new IdentityHashMap<>();
+        for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
+            IRNode key = switch (s) {
+                case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
+                case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
+                case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
+                case SlabNativeBatchPlan.ExternalSlot es -> es.node();
+            };
+            slabSlots.put(key, s.slotIndex());
+        }
+        return slabSlots;
     }
 
     private static boolean isValidStackProgram(byte[] bc, int constCount) {
@@ -211,6 +254,14 @@ public final class SlabInnerNativeProgram {
             }
         }
 
+        String failureReason() {
+            if (this.failedOnExtracted) {
+                return "extracted helper node: "
+                        + (this.unsupportedClass != null ? this.unsupportedClass : "unknown");
+            }
+            return "unsupported node: " + (this.unsupportedClass != null ? this.unsupportedClass : "unknown");
+        }
+
         boolean compile(IRNode node, IRNode hoisted, Set<IRNode> extracted,
                         IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
             if (node == hoisted) {
@@ -251,6 +302,13 @@ public final class SlabInnerNativeProgram {
             }
             if (node instanceof IRNode.WeirdRarity wr) {
                 return emitWeirdRarity(wr, hoisted, extracted, slabSlots);
+            }
+            if (node instanceof IRNode.Spline.Constant sc) {
+                emitConst(sc.value());
+                return true;
+            }
+            if (node instanceof IRNode.Spline.Multipoint mp) {
+                return emitMultipointSpline(mp, hoisted, extracted, slabSlots);
             }
             if (node instanceof IRNode.Bin bin) {
                 if (!compile(bin.left(), hoisted, extracted, slabSlots)) {
@@ -415,6 +473,237 @@ public final class SlabInnerNativeProgram {
             raw.write(OP_RANGE_CHOICE);
             writeLeU16(addConst(min));
             writeLeU16(addConst(max));
+            return true;
+        }
+
+        private boolean emitMultipointSpline(IRNode.Spline.Multipoint mp, IRNode hoisted, Set<IRNode> extracted,
+                                             IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            float[] locations = mp.locations();
+            float[] derivatives = mp.derivatives();
+            List<IRNode.Spline> values = mp.values();
+            int n = locations.length;
+            if (n <= 0 || derivatives.length != n || values.size() != n) {
+                this.unsupportedClass = "Spline.Multipoint.invalid";
+                return false;
+            }
+            if (n == 1) {
+                return emitSplineLinearExtension(mp, 0, hoisted, extracted, slabSlots);
+            }
+            return emitSplineCaseRange(mp, 0, n, hoisted, extracted, slabSlots);
+        }
+
+        private boolean emitSplineCaseRange(IRNode.Spline.Multipoint mp, int loCase, int hiCase,
+                                            IRNode hoisted, Set<IRNode> extracted,
+                                            IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (loCase == hiCase) {
+                return emitSplineCase(mp, loCase, hoisted, extracted, slabSlots);
+            }
+            int mid = (loCase + hiCase) >>> 1;
+            double min = splineCaseLower(mp, loCase);
+            double max = splineCaseUpper(mp, mid);
+            if (!Double.isFinite(min) || !Double.isFinite(max) || !(min < max)) {
+                this.unsupportedClass = "Spline.Multipoint.range";
+                return false;
+            }
+            if (!compile(mp.coordinate(), hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineCaseRange(mp, loCase, mid, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineCaseRange(mp, mid + 1, hiCase, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_RANGE_CHOICE);
+            writeLeU16(addConst(min));
+            writeLeU16(addConst(max));
+            return true;
+        }
+
+        private double splineCaseLower(IRNode.Spline.Multipoint mp, int caseIndex) {
+            return caseIndex == 0 ? -Double.MAX_VALUE : mp.locations()[caseIndex - 1];
+        }
+
+        private double splineCaseUpper(IRNode.Spline.Multipoint mp, int caseIndex) {
+            return caseIndex >= mp.locations().length ? Double.MAX_VALUE : mp.locations()[caseIndex];
+        }
+
+        private boolean emitSplineCase(IRNode.Spline.Multipoint mp, int caseIndex, IRNode hoisted,
+                                       Set<IRNode> extracted,
+                                       IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            int n = mp.locations().length;
+            if (caseIndex == 0) {
+                return emitSplineLinearExtension(mp, 0, hoisted, extracted, slabSlots);
+            }
+            if (caseIndex == n) {
+                return emitSplineLinearExtension(mp, n - 1, hoisted, extracted, slabSlots);
+            }
+            return emitSplineInterpolatedSegment(mp, caseIndex - 1, hoisted, extracted, slabSlots);
+        }
+
+        private boolean emitSplineLinearExtension(IRNode.Spline.Multipoint mp, int idx, IRNode hoisted,
+                                                  Set<IRNode> extracted,
+                                                  IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (!emitSplineAsDouble(mp.values().get(idx), hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            double derivative = mp.derivatives()[idx];
+            if (derivative == 0.0D) {
+                return true;
+            }
+            if (!compile(mp.coordinate(), hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            emitConst(mp.locations()[idx]);
+            raw.write(OP_SUB);
+            emitConst(derivative);
+            raw.write(OP_MUL);
+            raw.write(OP_ADD);
+            return true;
+        }
+
+        private boolean emitSplineInterpolatedSegment(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                                      Set<IRNode> extracted,
+                                                      IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            // y0 + t*(y1-y0) + t*(1-t)*(f8 + t*(f9-f8))
+            if (!emitSplineY0(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineT(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineDeltaY(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_MUL);
+            raw.write(OP_ADD);
+
+            if (!emitSplineT(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineOneMinusT(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_MUL);
+            if (!emitSplineF8(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineT(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineF9MinusF8(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_MUL);
+            raw.write(OP_ADD);
+            raw.write(OP_MUL);
+            raw.write(OP_ADD);
+            return true;
+        }
+
+        private boolean emitSplineAsDouble(IRNode.Spline value, IRNode hoisted, Set<IRNode> extracted,
+                                           IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (value instanceof IRNode.Spline.Constant sc) {
+                emitConst(sc.value());
+                return true;
+            }
+            if (value instanceof IRNode.Spline.Multipoint mp) {
+                return compile(mp, hoisted, extracted, slabSlots);
+            }
+            this.unsupportedClass = value.getClass().getName();
+            return false;
+        }
+
+        private boolean emitSplineY0(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                     Set<IRNode> extracted,
+                                     IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            return emitSplineAsDouble(mp.values().get(index), hoisted, extracted, slabSlots);
+        }
+
+        private boolean emitSplineY1(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                     Set<IRNode> extracted,
+                                     IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            return emitSplineAsDouble(mp.values().get(index + 1), hoisted, extracted, slabSlots);
+        }
+
+        private boolean emitSplineDeltaY(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                         Set<IRNode> extracted,
+                                         IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (!emitSplineY1(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineY0(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_SUB);
+            return true;
+        }
+
+        private boolean emitSplineT(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                    Set<IRNode> extracted,
+                                    IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            float l0 = mp.locations()[index];
+            float l1 = mp.locations()[index + 1];
+            double length = l1 - l0;
+            if (!(length > 0.0D)) {
+                this.unsupportedClass = "Spline.Multipoint.nonIncreasing";
+                return false;
+            }
+            if (!compile(mp.coordinate(), hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            emitConst(l0);
+            raw.write(OP_SUB);
+            emitConst(length);
+            raw.write(OP_DIV);
+            return true;
+        }
+
+        private boolean emitSplineOneMinusT(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                            Set<IRNode> extracted,
+                                            IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            emitConst(1.0D);
+            if (!emitSplineT(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_SUB);
+            return true;
+        }
+
+        private boolean emitSplineF8(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                     Set<IRNode> extracted,
+                                     IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            double length = mp.locations()[index + 1] - mp.locations()[index];
+            emitConst(mp.derivatives()[index] * length);
+            if (!emitSplineDeltaY(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_SUB);
+            return true;
+        }
+
+        private boolean emitSplineF9(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                     Set<IRNode> extracted,
+                                     IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            double length = mp.locations()[index + 1] - mp.locations()[index];
+            emitConst(-mp.derivatives()[index + 1] * length);
+            if (!emitSplineDeltaY(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_ADD);
+            return true;
+        }
+
+        private boolean emitSplineF9MinusF8(IRNode.Spline.Multipoint mp, int index, IRNode hoisted,
+                                            Set<IRNode> extracted,
+                                            IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (!emitSplineF9(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            if (!emitSplineF8(mp, index, hoisted, extracted, slabSlots)) {
+                return false;
+            }
+            raw.write(OP_SUB);
             return true;
         }
     }
