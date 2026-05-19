@@ -16,6 +16,7 @@
     "optimization.MixinStructurePiecesBuilder$collision_index",
     "pools.MixinEmptyPoolElement$default_empty_list",
     "pools.MixinFeaturePoolElement$cached",
+    "pools.MixinJigsawPlacement$PieceStateAccessor",
     "pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",
     "pools.MixinJigsawPlacement$use_cached_jigsaws",
     "pools.MixinSinglePoolElement$cache_jigsawBlocks",
@@ -23,8 +24,8 @@
     "pools.MixinStructureTemplatePool$cache_templates",
     "pools.MixinStructureTemplateManager$lru_cache",
     "safe.MixinStructureCheck",
-    "safe.MixinStructureTemplatePalette",
     "safe.StructureTemplatePaletteInvoker",
+    "safe.MixinStructureTemplatePalette",
     "safe.MixinStructureTemplate"
   ],
   "injectors": {
