@@ -13,6 +13,7 @@
     "optimization.MixinPiecesContainer",
     "optimization.MixinStructure$generation_hot_path",
     "optimization.MixinStructurePiece",
+    "optimization.MixinStructurePiecesBuilder$collision_index",
     "pools.MixinEmptyPoolElement$default_empty_list",
     "pools.MixinFeaturePoolElement$cached",
     "pools.MixinJigsawPlacement$Placer$use_cached_jigsaws",

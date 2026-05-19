@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.structures.mixin.safe;
 
 import dev.sixik.generator_accelerator.common.structures.ChunkKeyedBooleanCache;
 import dev.sixik.generator_accelerator.common.structures.StructureGenerationHotPath;
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -41,6 +42,21 @@ public abstract class MixinStructureCheck {
 
     @Unique
     private final ChunkKeyedBooleanCache<Structure> generator_accelerator$featureChecksByChunk = new ChunkKeyedBooleanCache<>();
+
+    @Unique
+    private final Object generator_accelerator$storageStateLock = new Object();
+
+    @Unique
+    private final Long2ByteOpenHashMap generator_accelerator$storageStateByChunk = new Long2ByteOpenHashMap();
+
+    @Unique
+    private static final byte generator_accelerator$storageUnknown = 0;
+
+    @Unique
+    private static final byte generator_accelerator$storageNoData = 1;
+
+    @Unique
+    private static final byte generator_accelerator$storageChunkLoadNeeded = 2;
 
     @Shadow
     @Final
@@ -101,7 +117,7 @@ public abstract class MixinStructureCheck {
             return this.checkStructureInfo(structureRefs, structure, skipReferencedStructures);
         }
 
-        StructureCheckResult storageResult = this.tryLoadFromStorage(chunkPos, structure, skipReferencedStructures, chunkKey);
+        StructureCheckResult storageResult = this.generator_accelerator$tryLoadFromStorageCached(chunkPos, structure, skipReferencedStructures, chunkKey);
         if (storageResult != null) {
             return storageResult;
         }
@@ -127,6 +143,9 @@ public abstract class MixinStructureCheck {
 
         synchronized (this.generator_accelerator$featureChecksLock) {
             this.generator_accelerator$featureChecksByChunk.removeChunk(chunkKey);
+        }
+        synchronized (this.generator_accelerator$storageStateLock) {
+            this.generator_accelerator$storageStateByChunk.remove(chunkKey);
         }
         ci.cancel();
     }
@@ -169,6 +188,34 @@ public abstract class MixinStructureCheck {
         synchronized (this.generator_accelerator$featureChecksLock) {
             return this.generator_accelerator$featureChecksByChunk.getOrCompute(chunkKey, structure, () -> computed);
         }
+    }
+
+    @Unique
+    @Nullable
+    private StructureCheckResult generator_accelerator$tryLoadFromStorageCached(ChunkPos chunkPos, Structure structure, boolean skipReferencedStructures, long chunkKey) {
+        byte cachedState;
+        synchronized (this.generator_accelerator$storageStateLock) {
+            cachedState = this.generator_accelerator$storageStateByChunk.get(chunkKey);
+        }
+
+        if (cachedState == generator_accelerator$storageNoData) {
+            return null;
+        }
+        if (cachedState == generator_accelerator$storageChunkLoadNeeded) {
+            return StructureCheckResult.CHUNK_LOAD_NEEDED;
+        }
+
+        StructureCheckResult result = this.tryLoadFromStorage(chunkPos, structure, skipReferencedStructures, chunkKey);
+        synchronized (this.generator_accelerator$storageStateLock) {
+            if (result == null) {
+                this.generator_accelerator$storageStateByChunk.put(chunkKey, generator_accelerator$storageNoData);
+            } else if (result == StructureCheckResult.CHUNK_LOAD_NEEDED) {
+                this.generator_accelerator$storageStateByChunk.put(chunkKey, generator_accelerator$storageChunkLoadNeeded);
+            } else {
+                this.generator_accelerator$storageStateByChunk.remove(chunkKey);
+            }
+        }
+        return result;
     }
 
     @Unique
