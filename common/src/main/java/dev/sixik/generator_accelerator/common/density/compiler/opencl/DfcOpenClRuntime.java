@@ -250,6 +250,50 @@ public final class DfcOpenClRuntime {
         return dispatchFinalDensityHybrid(out, chunk, cellWidth, cellHeight, n, runtimePlan, slotValues);
     }
 
+    public static boolean tryFillFinalDensityHybridColumn(CompiledDensityFunction compiled,
+                                                          double[] out,
+                                                          NoiseChunk chunk,
+                                                          int baseCellY,
+                                                          int cellCountY) {
+        DfcOpenClStats.recordHybridBatchCall();
+        if (!DfcOpenClConfig.finalDensityHybridEnabled()) {
+            DfcOpenClStats.recordHybridBatchSkipped("disabled");
+            return false;
+        }
+        if (finalDensityHybridBroken) {
+            DfcOpenClStats.recordHybridBatchSkipped("broken");
+            return false;
+        }
+        if (compiled == null || out == null || chunk == null) {
+            DfcOpenClStats.recordHybridBatchSkipped("null compiled/out/chunk");
+            return false;
+        }
+        int cellWidth = chunk.cellWidth;
+        int cellHeight = chunk.cellHeight;
+        int n = runtimeHybridBatchCellValues(cellWidth, cellHeight, cellCountY);
+        if (n <= 0 || out.length < n) {
+            DfcOpenClStats.recordHybridBatchSkipped("invalid column batch shape");
+            return false;
+        }
+
+        RuntimeHybridPlan runtimePlan = runtimeHybridPlan(compiled);
+        if (!runtimePlan.available()) {
+            DfcOpenClStats.recordHybridBatchSkipped(runtimePlan.unavailableReason());
+            return false;
+        }
+
+        int slotValues = Math.multiplyExact(n, runtimePlan.scheduledSlotCount());
+        if (!runtimeHybridBatchMeetsMinimum(cellWidth, cellHeight, cellCountY,
+                runtimePlan.scheduledSlotCount())) {
+            DfcOpenClStats.recordHybridBatchSkipped("runtime hybrid column slot values " + slotValues
+                    + "<" + DfcOpenClConfig.finalDensityHybridMinSlotValues());
+            return false;
+        }
+
+        return dispatchFinalDensityHybridColumn(out, chunk, baseCellY, cellCountY,
+                cellWidth, cellHeight, n, runtimePlan, slotValues);
+    }
+
     private static synchronized boolean dispatchFinalDensityHybrid(double[] out,
                                                                    NoiseChunk chunk,
                                                                    int cellWidth,
@@ -299,6 +343,64 @@ public final class DfcOpenClRuntime {
             finalDensityHybridBroken = true;
             closeActiveContext();
             LOGGER.warn("DFC OpenCL: finalDensity hybrid dispatch failed; disabling hybrid dispatch for this session: {}",
+                    errorMessage(throwable), throwable);
+            return false;
+        }
+    }
+
+    private static synchronized boolean dispatchFinalDensityHybridColumn(double[] out,
+                                                                         NoiseChunk chunk,
+                                                                         int baseCellY,
+                                                                         int cellCountY,
+                                                                         int cellWidth,
+                                                                         int cellHeight,
+                                                                         int n,
+                                                                         RuntimeHybridPlan runtimePlan,
+                                                                         int slotValues) {
+        if (finalDensityHybridBroken) {
+            DfcOpenClStats.recordHybridBatchSkipped("broken");
+            return false;
+        }
+        Status status = cachedStatus;
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            DfcOpenClStats.recordHybridBatchSkipped(
+                    status.error() == null ? "no available OpenCL device" : status.error());
+            return false;
+        }
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                    new DfcOpenClDeviceContext.GeneratedNoiseKernel[runtimePlan.waveSources().length];
+            for (int wave = 0; wave < runtimePlan.waveSources().length; wave++) {
+                kernels[wave] = context.compileGeneratedNoiseKernelCached(runtimePlan.waveSources()[wave]);
+            }
+
+            double[] requestOut = new double[n];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    runtimeNoiseColumnCellGridRequest(
+                            requestOut, cellWidth, cellHeight, chunk, baseCellY, cellCountY,
+                            runtimePlan.descriptor());
+            double[] slotBuffer = new double[slotValues];
+
+            DfcOpenClStats.recordHybridBatchAttempt(cellCountY, n);
+            DfcOpenClStats.recordSlabAttempt(slotValues);
+            DfcOpenClStats.recordSlabSubmitted();
+            DfcOpenClDeviceContext.SlabVmResult result = context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                    kernels, runtimePlan.kernelWaves(), request, runtimePlan.scheduledSlotCount(), true, slotBuffer);
+            DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+
+            fillRuntimeHybridFinalDensityColumn(out, chunk, baseCellY, cellCountY, request, runtimePlan, slotBuffer);
+            DfcOpenClStats.recordHybridBatchSuccess(cellCountY, n);
+            return true;
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordHybridBatchFailure(errorMessage(throwable));
+            DfcOpenClStats.recordSlabFailure();
+            finalDensityHybridBroken = true;
+            closeActiveContext();
+            LOGGER.warn("DFC OpenCL: finalDensity hybrid column dispatch failed; disabling hybrid dispatch for this session: {}",
                     errorMessage(throwable), throwable);
             return false;
         }
@@ -3879,6 +3981,68 @@ public final class DfcOpenClRuntime {
         chunk.arrayIndex = idx;
     }
 
+    private static void fillRuntimeHybridFinalDensityColumn(
+            double[] out,
+            NoiseChunk chunk,
+            int baseCellY,
+            int cellCountY,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            RuntimeHybridPlan runtimePlan,
+            double[] slotBuffer) {
+        int cellWidth = request.cellWidth();
+        int cellHeight = request.cellHeight();
+        int cellVolume = Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth), cellHeight);
+        int safeUsedSlots = Math.min(Math.max(1, runtimePlan.slotCount()), runtimePlan.descriptor().slotCount);
+        int[] rootSlots = slotDependencies(runtimePlan.plan().slabProgram(), safeUsedSlots);
+        int savedCellStartBlockY = chunk.cellStartBlockY;
+        int savedInCellX = chunk.inCellX;
+        int savedInCellY = chunk.inCellY;
+        int savedInCellZ = chunk.inCellZ;
+        int savedArrayIndex = chunk.arrayIndex;
+        try {
+            for (int cellY = 0; cellY < cellCountY; cellY++) {
+                int cellBase = Math.multiplyExact(cellY, cellVolume);
+                chunk.cellStartBlockY = Math.multiplyExact(baseCellY + cellY, cellHeight);
+                int javaIndex = 0;
+                for (int inCellX = 0; inCellX < cellWidth; inCellX++) {
+                    chunk.inCellX = inCellX;
+                    for (int inCellZ = 0; inCellZ < cellWidth; inCellZ++) {
+                        chunk.inCellZ = inCellZ;
+                        for (int inCellY = cellHeight - 1; inCellY >= 0; inCellY--) {
+                            chunk.inCellY = inCellY;
+                            chunk.arrayIndex = javaIndex;
+
+                            int element = runtimeColumnBatchElementIndex(cellY, javaIndex, cellWidth, cellHeight);
+                            double bx = chunk.cellStartBlockX + inCellX;
+                            double by = chunk.cellStartBlockY + inCellY;
+                            double bz = chunk.cellStartBlockZ + inCellZ;
+                            HybridResolveResult hybrid = resolveHybridFinalDensitySlotValues(
+                                    slotBuffer, request, runtimePlan.descriptor(), runtimePlan.plan(),
+                                    runtimePlan.slotBufferIndices(), runtimePlan.stagedSlots(),
+                                    element, safeUsedSlots, bx, by, bz, chunk, rootSlots);
+                            double hoist = runtimePlan.plan().hoistEvaluator() == null
+                                    ? 0.0D
+                                    : runtimePlan.plan().hoistEvaluator().evaluate(bx, by, bz);
+                            double baseValue = evalCompiledPlanProgram(runtimePlan.plan().slabProgram(),
+                                    runtimePlan.plan().slabConstants(), hybrid.slots(), bx, by, bz, hoist);
+                            out[cellBase + javaIndex] = runtimePlan.outputLayers().length == 0
+                                    ? baseValue
+                                    : evalRuntimeHybridOutputLayers(
+                                    runtimePlan.outputLayers(), bx, by, bz, chunk, baseValue);
+                            javaIndex++;
+                        }
+                    }
+                }
+            }
+        } finally {
+            chunk.cellStartBlockY = savedCellStartBlockY;
+            chunk.inCellX = savedInCellX;
+            chunk.inCellY = savedInCellY;
+            chunk.inCellZ = savedInCellZ;
+            chunk.arrayIndex = savedArrayIndex;
+        }
+    }
+
     private static double evalRuntimeHybridOutputLayers(RuntimeOutputLayer[] outputLayers,
                                                         double bx,
                                                         double by,
@@ -4058,6 +4222,41 @@ public final class DfcOpenClRuntime {
                 cellHeight,
                 1,
                 CELL_GRID_LAYOUT_XZ,
+                0.0D,
+                out,
+                n);
+    }
+
+    private static DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest runtimeNoiseColumnCellGridRequest(
+            double[] out,
+            int cellWidth,
+            int cellHeight,
+            NoiseChunk chunk,
+            int baseCellY,
+            int cellCountY,
+            DfcOpenClNoiseDescriptor descriptor) {
+        int n = runtimeHybridBatchCellValues(cellWidth, cellHeight, cellCountY);
+        return new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                DfcOpenClSlabVmSmoke.bytecode(),
+                DfcOpenClSlabVmSmoke.constants(),
+                descriptor.permutations,
+                descriptor.origins,
+                descriptor.inputFactors,
+                descriptor.ampFactors,
+                descriptor.branchOctaveOffsets,
+                descriptor.branchOctaveCounts,
+                descriptor.branchCoordScales,
+                descriptor.slotValueFactors,
+                descriptor.slotCount,
+                descriptor.branchesPerSlot,
+                descriptor.octavesPerBranch,
+                chunk.cellStartBlockX,
+                Math.multiplyExact(baseCellY, cellHeight),
+                chunk.cellStartBlockZ,
+                cellWidth,
+                cellHeight,
+                cellCountY,
+                CELL_GRID_LAYOUT_Y_COLUMN,
                 0.0D,
                 out,
                 n);

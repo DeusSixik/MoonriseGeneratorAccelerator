@@ -1704,6 +1704,40 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridColumnApiIsPublicAndNotSynchronized() throws NoSuchMethodException {
+        int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
+                "tryFillFinalDensityHybridColumn",
+                CompiledDensityFunction.class, double[].class, NoiseChunk.class, int.class, int.class)
+                .getModifiers();
+        assertTrue(Modifier.isPublic(modifiers));
+        assertFalse(Modifier.isSynchronized(modifiers));
+    }
+
+    @Test
+    void runtimeHybridColumnRecordsDisabledSkipWithoutDispatch() {
+        String oldHybrid = System.getProperty("dfc.opencl.finalDensityHybrid");
+        try {
+            System.setProperty("dfc.opencl.finalDensityHybrid", "false");
+            DfcOpenClStats.reset();
+
+            assertFalse(DfcOpenClRuntime.tryFillFinalDensityHybridColumn(null, new double[0], null, 0, 0));
+
+            DfcOpenClStats.Snapshot snapshot = DfcOpenClStats.snapshot();
+            assertEquals(1L, snapshot.hybridBatchCalls());
+            assertEquals(1L, snapshot.hybridBatchSkipped());
+            assertEquals(0L, snapshot.hybridBatchAttempts());
+            assertEquals("disabled", snapshot.hybridBatchLastSkip());
+        } finally {
+            if (oldHybrid == null) {
+                System.clearProperty("dfc.opencl.finalDensityHybrid");
+            } else {
+                System.setProperty("dfc.opencl.finalDensityHybrid", oldHybrid);
+            }
+            DfcOpenClStats.reset();
+        }
+    }
+
+    @Test
     void runtimeHybridDoesNotCachePlansThatRetainRuntimeExterns() {
         assertFalse(DfcOpenClRuntime.runtimeHybridPlanCacheable(true));
         assertTrue(DfcOpenClRuntime.runtimeHybridPlanCacheable(false));
