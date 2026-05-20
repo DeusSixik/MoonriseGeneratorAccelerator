@@ -985,6 +985,20 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void externalPrefillTraceReportsFlatCache2dCounters() {
+        String details = DfcOpenClRuntime.describeFlatCache2dPrefillForTest(
+                new DfcOpenClDeviceContext.FlatCache2dPrefill(
+                        new double[]{1.0D, 2.0D, 3.0D, 4.0D},
+                        new int[]{0, 1}, new int[]{0, 0}, new int[]{0},
+                        new int[]{2}, new int[]{0}, new int[]{0}, 2),
+                "");
+
+        assertTrue(details.contains("flatCache2dSlots=2"));
+        assertTrue(details.contains("flatCache2dBuffers=1"));
+        assertTrue(details.contains("flatCache2dBytes=32"));
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();

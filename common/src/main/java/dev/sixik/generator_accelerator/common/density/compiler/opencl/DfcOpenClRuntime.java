@@ -2268,6 +2268,8 @@ public final class DfcOpenClRuntime {
                                 + ", compileMs=" + formatMillis(compileNanos)
                                 + ", originalExternPrefillMs=" + formatMillis(originalPrefillNanos)
                                 + ", externalPrefillMs=" + formatMillis(externalPrefillNanos)
+                                + ", " + describeFlatCache2dPrefillForTest(
+                                flatCache2dPrefill, flatCache2dFallbackReason)
                                 + ", slotBufferBytes=" + slotBufferBytes
                                 + ", slotBufferSlots=" + slotBufferSlotCount
                                 + ", outputBytes=" + outputBytes
@@ -2435,6 +2437,8 @@ public final class DfcOpenClRuntime {
                             ? ", externalPrefillTrace=" + describeFinalOutputExternalPrefillTrace(
                             plan, initialInputSlots, externalPrefillTrace, 8)
                             : "")
+                            + ", " + describeFlatCache2dPrefillForTest(
+                            flatCache2dPrefill, flatCache2dFallbackReason)
                             + ", oneShotWithPrefillMs=" + formatMillis(externalPrefillNanos + averageKernelNanos)
                             + ", slotBufferBytes=" + slotBufferBytes
                             + ", slotBufferSlots=" + slotBufferSlotCount
@@ -6493,6 +6497,21 @@ public final class DfcOpenClRuntime {
                 + "/copyMs=" + formatMillis(trace.copyNanos())
                 + "/otherMs=" + formatMillis(otherNanos)
                 + "/slotTop=" + describeTopExternalPrefillSlotTimes(slotTimes, limit);
+    }
+
+    static String describeFlatCache2dPrefillForTest(
+            DfcOpenClDeviceContext.FlatCache2dPrefill prefill,
+            String fallbackReason) {
+        int slots = prefill == null ? 0 : prefill.slotCount();
+        int buffers = prefill == null ? 0 : prefill.tableOffsets().length;
+        long bytes = prefill == null ? 0L : Math.multiplyExact((long) prefill.flatValues().length, Double.BYTES);
+        String details = "flatCache2dSlots=" + slots
+                + ", flatCache2dBuffers=" + buffers
+                + ", flatCache2dBytes=" + bytes;
+        if (fallbackReason != null && !fallbackReason.isEmpty()) {
+            details += ", flatCache2dFallbackReason=" + fallbackReason.replace(',', ';');
+        }
+        return details;
     }
 
     private static String describeTopExternalPrefillSlotTimes(List<FinalOutputExternalPrefillSlotTime> slots,
