@@ -1853,6 +1853,31 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridGpuFinalOutputAllowsResidualComputedRootSlots() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[3];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 0, 2, 1, 32}, new double[0], null, null, "gpu-root");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 2},
+                new boolean[]{false, false, false},
+                computedSlots);
+
+        assertFalse(DfcOpenClRuntime.runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, new boolean[]{true, true, false}, 3, false));
+        assertTrue(DfcOpenClRuntime.runtimeHybridGpuFinalOutputSupportsPlan(plan, 3, false));
+    }
+
+    @Test
+    void runtimeHybridGpuFinalOutputRejectsOutputLayers() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 0},
+                new boolean[]{false},
+                null);
+
+        assertFalse(DfcOpenClRuntime.runtimeHybridGpuFinalOutputSupportsPlan(plan, 1, true));
+    }
+
+    @Test
     void runtimeHybridCpuFinishRejectsOutputLayers() {
         DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
                 new byte[]{2, 0},

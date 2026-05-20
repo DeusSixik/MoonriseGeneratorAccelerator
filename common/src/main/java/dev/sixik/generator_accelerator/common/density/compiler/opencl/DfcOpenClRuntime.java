@@ -357,23 +357,60 @@ public final class DfcOpenClRuntime {
                                                             int n,
                                                             RuntimeHybridPlan runtimePlan,
                                                             int slotValues) {
-        RuntimeHybridColumnGpuResult gpuResult;
         try {
-            gpuResult = dispatchFinalDensityHybridColumnGpu(
-                    chunk, baseCellY, cellCountY, cellWidth, cellHeight, n, runtimePlan, slotValues);
+            return dispatchFinalDensityHybridColumnFinalOutputGpu(
+                    out, chunk, baseCellY, cellCountY, cellWidth, cellHeight, n, runtimePlan, slotValues);
+        } catch (RuntimeFinalOutputUnavailable unavailable) {
+            DfcOpenClStats.recordHybridBatchSkipped(unavailable.getMessage());
+            return false;
         } catch (Throwable throwable) {
             return failFinalDensityHybridColumnDispatch(throwable, true);
         }
-        if (gpuResult == null) {
+    }
+
+    private static synchronized boolean dispatchFinalDensityHybridColumnFinalOutputGpu(
+            double[] out,
+            NoiseChunk chunk,
+            int baseCellY,
+            int cellCountY,
+            int cellWidth,
+            int cellHeight,
+            int n,
+            RuntimeHybridPlan runtimePlan,
+            int slotValues) {
+        if (finalDensityHybridBroken) {
+            DfcOpenClStats.recordHybridBatchSkipped("broken");
             return false;
         }
+        Status status = cachedStatus;
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            DfcOpenClStats.recordHybridBatchSkipped(
+                    status.error() == null ? "no available OpenCL device" : status.error());
+            return false;
+        }
+
+        DfcOpenClDeviceContext context = ensureActiveContext();
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                runtimeNoiseColumnCellGridRequest(
+                        out, cellWidth, cellHeight, chunk, baseCellY, cellCountY,
+                        runtimePlan.descriptor());
+        RuntimeFinalOutputDispatch finalOutput = buildRuntimeFinalOutputDispatch(context, runtimePlan, request);
         try {
-            fillRuntimeHybridFinalDensityColumn(
-                    out, chunk, baseCellY, cellCountY, gpuResult.request(), runtimePlan, gpuResult.slotBuffer());
+            DfcOpenClStats.recordHybridBatchAttempt(cellCountY, n);
+            DfcOpenClStats.recordSlabAttempt(slotValues);
+            DfcOpenClStats.recordSlabSubmitted();
+            DfcOpenClDeviceContext.SlabVmResult result = context.evalFinalOutputStagesToFinalOutput(
+                    finalOutput.stages(), finalOutput.finalKernel(), request,
+                    finalOutput.slotBufferSlotCount(), true, finalOutput.initialSlotBuffer(),
+                    finalOutput.flatCache2dKernel(), finalOutput.flatCache2dPrefill(), true);
+            DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
             DfcOpenClStats.recordHybridBatchSuccess(cellCountY, n);
             return true;
-        } catch (Throwable throwable) {
-            return failFinalDensityHybridColumnDispatch(throwable, false);
+        } finally {
+            finalOutput.close();
         }
     }
 
@@ -422,6 +459,35 @@ public final class DfcOpenClRuntime {
         DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
 
         return new RuntimeHybridColumnGpuResult(request, slotBuffer);
+    }
+
+    private static boolean dispatchFinalDensityHybridColumnCpuFinish(double[] out,
+                                                                     NoiseChunk chunk,
+                                                                     int baseCellY,
+                                                                     int cellCountY,
+                                                                     int cellWidth,
+                                                                     int cellHeight,
+                                                                     int n,
+                                                                     RuntimeHybridPlan runtimePlan,
+                                                                     int slotValues) {
+        RuntimeHybridColumnGpuResult gpuResult;
+        try {
+            gpuResult = dispatchFinalDensityHybridColumnGpu(
+                    chunk, baseCellY, cellCountY, cellWidth, cellHeight, n, runtimePlan, slotValues);
+        } catch (Throwable throwable) {
+            return failFinalDensityHybridColumnDispatch(throwable, true);
+        }
+        if (gpuResult == null) {
+            return false;
+        }
+        try {
+            fillRuntimeHybridFinalDensityColumn(
+                    out, chunk, baseCellY, cellCountY, gpuResult.request(), runtimePlan, gpuResult.slotBuffer());
+            DfcOpenClStats.recordHybridBatchSuccess(cellCountY, n);
+            return true;
+        } catch (Throwable throwable) {
+            return failFinalDensityHybridColumnDispatch(throwable, false);
+        }
     }
 
     private static boolean failFinalDensityHybridColumnDispatch(Throwable throwable, boolean slabFailure) {
@@ -2609,6 +2675,295 @@ public final class DfcOpenClRuntime {
             }
         }
     }
+
+    private static RuntimeFinalOutputDispatch buildRuntimeFinalOutputDispatch(
+            DfcOpenClDeviceContext context,
+            RuntimeHybridPlan runtimePlan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+        if (runtimePlan == null || !runtimePlan.available()) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output plan is unavailable");
+        }
+        OpenClCompiledPlan plan = runtimePlan.plan();
+        DfcOpenClNoiseDescriptor descriptor = runtimePlan.descriptor();
+        int slotCount = runtimePlan.slotCount();
+        int[] chunkStartSlots = runtimePlan.chunkStartSlots();
+        int[] chunkEndSlots = runtimePlan.chunkEndSlots();
+        boolean[][] waves = runtimePlan.waves();
+        if (plan == null || descriptor == null || slotCount <= 0) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output plan is incomplete");
+        }
+        if (chunkStartSlots == null || chunkEndSlots == null
+                || chunkStartSlots.length == 0 || chunkStartSlots.length != chunkEndSlots.length) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output has invalid chunk ranges");
+        }
+        if (waves == null || waves.length == 0) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output has no waves");
+        }
+
+        boolean[] scheduledChunks = runtimePlan.scheduledChunks();
+        if (scheduledChunks == null || scheduledChunks.length != chunkStartSlots.length) {
+            scheduledChunks = scheduledChunks(waves, chunkStartSlots.length);
+        }
+        if (countTrue(scheduledChunks) == 0) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output has no scheduled chunks");
+        }
+        boolean[] scheduledSlots = waveTargetSlots(scheduledChunks, chunkStartSlots, chunkEndSlots, slotCount);
+        boolean[] rootSlots = compiledPlanFinalOutputRootSlots(plan, slotCount);
+        boolean[] finalResidualCandidateSlots = compiledPlanFinalOutputResidualGpuInputSlots(
+                plan, scheduledSlots, slotCount);
+        boolean[] markerExternalInputs = compiledPlanFinalOutputExternalInputs(plan, slotCount);
+        boolean[] allWaveExternalInputs = waveExternalInputs(plan, scheduledChunks,
+                chunkStartSlots, chunkEndSlots, scheduledSlots);
+        boolean[] residualExternalInputs = unionSlots(scheduledSlots,
+                unionSlots(markerExternalInputs, allWaveExternalInputs, slotCount), slotCount);
+        boolean[] residualDependencyCandidateSlots = compiledPlanFinalOutputResidualDependencySlots(
+                plan, finalResidualCandidateSlots, scheduledSlots, markerExternalInputs, slotCount);
+        boolean[] slotBufferSlots = unionSlots(scheduledSlots,
+                unionSlots(residualExternalInputs,
+                        unionSlots(finalResidualCandidateSlots, residualDependencyCandidateSlots, slotCount),
+                        slotCount), slotCount);
+        int slotBufferSlotCount = countTrue(slotBufferSlots);
+        if (slotBufferSlotCount <= 0) {
+            throw new RuntimeFinalOutputUnavailable("runtime final output slot buffer has no slots");
+        }
+        int[] slotBufferIndices = compactSlotBufferIndices(slotBufferSlots, slotCount);
+        ComputedSlot[] computedSlots = compiledPlanFinalOutputComputedSlots(plan, slotCount);
+
+        boolean[] residualDependencyNoiseSlots = residualDependencyNoiseBatchSlots(
+                residualDependencyCandidateSlots, null, computedSlots, slotCount);
+        boolean[] foldedWaveResidualNoiseSlots = finalOutputFoldedWaveResidualNoiseSlots(
+                descriptor, plan, waves, chunkStartSlots, chunkEndSlots, residualDependencyNoiseSlots,
+                markerExternalInputs, slotBufferIndices, slotCount, request.n());
+        List<FinalOutputStageBuild> waveSources = buildFinalOutputSplitWaveSources(
+                descriptor, plan, waves, chunkStartSlots, chunkEndSlots, foldedWaveResidualNoiseSlots,
+                markerExternalInputs, slotBufferIndices, slotCount, false);
+        if (countTrue(foldedWaveResidualNoiseSlots) > 0 && maxSourceChars(waveSources)
+                > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+            foldedWaveResidualNoiseSlots = new boolean[slotCount];
+            waveSources = buildFinalOutputSplitWaveSources(
+                    descriptor, plan, waves, chunkStartSlots, chunkEndSlots, foldedWaveResidualNoiseSlots,
+                    markerExternalInputs, slotBufferIndices, slotCount, false);
+        }
+        int waveMaxSourceChars = maxSourceChars(waveSources);
+        if (waveMaxSourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+            throw new RuntimeFinalOutputUnavailable(
+                    "runtime final-output wave source is too large: " + waveMaxSourceChars);
+        }
+
+        List<FinalOutputStageBuild> residualSources = new ArrayList<>();
+        List<FinalOutputStageBuild> residualDependencySources = new ArrayList<>();
+        boolean[] finalResidualDependencySlots = Arrays.copyOf(foldedWaveResidualNoiseSlots, slotCount);
+        boolean[] finalResidualDependencyCpuSlots = new boolean[slotCount];
+        boolean[] finalGpuInputSlots = new boolean[slotCount];
+        boolean acceptedDependency;
+        long[] residualDependencyRejectedSourceCharsBySlot = new long[slotCount];
+        do {
+            acceptedDependency = false;
+            boolean[] dependencyInputs = unionSlots(residualExternalInputs,
+                    unionSlots(finalResidualDependencySlots, finalResidualDependencyCpuSlots, slotCount),
+                    slotCount);
+            boolean[] noiseBatchSlots = residualDependencyNoiseBatchSlots(
+                    residualDependencyCandidateSlots, finalResidualDependencySlots, computedSlots, slotCount);
+            int noiseBatchSlotCount = countTrue(noiseBatchSlots);
+            if (noiseBatchSlotCount > 1) {
+                boolean[] stageInputs = slotsExcept(dependencyInputs, noiseBatchSlots, slotCount);
+                DfcOpenClGeneratedNoiseSource.BuildResult dependencySource =
+                        DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                descriptor, noiseBatchSlots,
+                                plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                plan.slotCoordZExpressions(),
+                                stageInputs, computedSlots, slotBufferIndices,
+                                DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                int sourceChars = dependencySource.source().length();
+                if (sourceChars <= COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                    residualDependencySources.add(FinalOutputStageBuild.generatedBatch(
+                            firstTrueSlot(noiseBatchSlots), noiseBatchSlotCount, dependencySource,
+                            null, null));
+                    for (int slot = 0; slot < Math.min(noiseBatchSlots.length,
+                            finalResidualDependencySlots.length); slot++) {
+                        if (noiseBatchSlots[slot]) {
+                            finalResidualDependencySlots[slot] = true;
+                            finalResidualDependencyCpuSlots[slot] = false;
+                        }
+                    }
+                    acceptedDependency = true;
+                }
+            }
+            int unresolvedDependencySlots = 0;
+            for (int slot = 0; slot < residualDependencyCandidateSlots.length; slot++) {
+                if (!residualDependencyCandidateSlots[slot]
+                        || finalResidualDependencySlots[slot]) {
+                    continue;
+                }
+                unresolvedDependencySlots++;
+                boolean[] targetSlot = singleSlotMask(slot, slotCount);
+                boolean[] stageInputs = slotsExcept(dependencyInputs, slot, slotCount);
+                ComputedSlot computed = computedSlot(computedSlots, slot);
+                FinalOutputStageBuild dependencyStage;
+                if (computed != null) {
+                    if (!computedSlotDependenciesStaged(computed, stageInputs, slot, slotCount)) {
+                        continue;
+                    }
+                    dependencyStage = buildComputedSlotStage(
+                            descriptor, slot, computed, stageInputs, slotBufferIndices);
+                } else {
+                    DfcOpenClGeneratedNoiseSource.BuildResult dependencySource =
+                            DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                    descriptor, targetSlot,
+                                    plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                    plan.slotCoordZExpressions(),
+                                    stageInputs, computedSlots, slotBufferIndices,
+                                    DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                    dependencyStage = FinalOutputStageBuild.generated(slot, dependencySource);
+                }
+                int sourceChars = dependencyStage.sourceChars();
+                if (!dependencyStage.deviceVm()
+                        && sourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                    residualDependencyRejectedSourceCharsBySlot[slot] = sourceChars;
+                    continue;
+                }
+                residualDependencySources.add(dependencyStage);
+                finalResidualDependencySlots[slot] = true;
+                finalResidualDependencyCpuSlots[slot] = false;
+                acceptedDependency = true;
+            }
+            if (!acceptedDependency && unresolvedDependencySlots > 0) {
+                int cpuSlot = residualDependencyCpuFallbackSlot(
+                        residualDependencyCandidateSlots, finalResidualDependencySlots,
+                        finalResidualDependencyCpuSlots, residualDependencyRejectedSourceCharsBySlot);
+                if (cpuSlot >= 0) {
+                    finalResidualDependencyCpuSlots[cpuSlot] = true;
+                    acceptedDependency = true;
+                }
+            }
+        } while (acceptedDependency);
+
+        boolean[] residualStageInputs = unionSlots(residualExternalInputs,
+                unionSlots(finalResidualDependencySlots, finalResidualDependencyCpuSlots, slotCount),
+                slotCount);
+        boolean acceptedResidual;
+        do {
+            acceptedResidual = false;
+            boolean[] residualRootInputs = unionSlots(residualStageInputs, finalGpuInputSlots, slotCount);
+            for (int slot = 0; slot < finalResidualCandidateSlots.length; slot++) {
+                if (!finalResidualCandidateSlots[slot] || finalGpuInputSlots[slot]) {
+                    continue;
+                }
+                boolean[] targetSlot = singleSlotMask(slot, slotCount);
+                boolean[] stageInputs = slotsExcept(residualRootInputs, slot, slotCount);
+                ComputedSlot computed = computedSlot(computedSlots, slot);
+                FinalOutputStageBuild residualStage;
+                if (computed != null) {
+                    if (!computedSlotDependenciesStaged(computed, stageInputs, slot, slotCount)) {
+                        continue;
+                    }
+                    residualStage = buildComputedSlotStage(
+                            descriptor, slot, computed, stageInputs, slotBufferIndices);
+                } else {
+                    DfcOpenClGeneratedNoiseSource.BuildResult residualSource =
+                            DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                    descriptor, targetSlot,
+                                    plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                    plan.slotCoordZExpressions(),
+                                    stageInputs, computedSlots, slotBufferIndices,
+                                    DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                    residualStage = FinalOutputStageBuild.generated(slot, residualSource);
+                }
+                int sourceChars = residualStage.sourceChars();
+                if (!residualStage.deviceVm()
+                        && sourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                    continue;
+                }
+                residualSources.add(residualStage);
+                finalGpuInputSlots[slot] = true;
+                acceptedResidual = true;
+            }
+        } while (acceptedResidual);
+
+        boolean[] finalCpuInputSlots = compiledPlanFinalOutputCpuInputSlots(
+                plan, scheduledSlots, finalGpuInputSlots, finalResidualDependencyCpuSlots, slotCount);
+        if (hasNonExternalInputSlot(plan, finalCpuInputSlots, slotCount)) {
+            throw new RuntimeFinalOutputUnavailable(
+                    "runtime GPU final output still needs CPU residual slots; skip column batch");
+        }
+        boolean[] initialInputSlots = unionSlots(finalCpuInputSlots, allWaveExternalInputs, slotCount);
+
+        DfcOpenClGeneratedNoiseSource.BuildResult finalSource =
+                DfcOpenClGeneratedNoiseSource.buildCompiledPlanFinalOutputFromSlotBuffer(
+                        descriptor, rootSlots, plan.slabProgram(), plan.slabConstants(), plan.hoistExpression(),
+                        plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                        slotBufferSlots, null, slotBufferIndices,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+        if (finalSource.source().length() > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+            throw new RuntimeFinalOutputUnavailable(
+                    "runtime final-output source is too large: " + finalSource.source().length());
+        }
+
+        double[] originalExternalSlotValues = externalSlotCount(plan.externalSlots(), slotCount) == 0
+                ? null
+                : fillExternalSlots(plan, request, slotCount);
+        FinalOutputSlotBufferInputs initialInputs = fillFinalOutputSlotBufferInputs(
+                plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
+                slotBufferIndices, slotBufferSlotCount, false);
+        double[] initialSlotBuffer = initialInputs.values();
+        DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill = initialInputs.flatCache2dPrefill();
+        String flatCache2dFallbackReason = initialInputs.flatCache2dFallbackReason();
+
+        List<DfcOpenClDeviceContext.FinalOutputStage> outputStages = new ArrayList<>();
+        DfcOpenClDeviceContext.GeneratedNoiseKernel flatCache2dKernel = null;
+        try {
+            for (FinalOutputStageBuild waveSource : waveSources) {
+                addFinalOutputStageCached(context, waveSource, outputStages);
+            }
+            for (FinalOutputStageBuild residualDependencySource : residualDependencySources) {
+                addFinalOutputStageCached(context, residualDependencySource, outputStages);
+            }
+            for (FinalOutputStageBuild residualSource : residualSources) {
+                addFinalOutputStageCached(context, residualSource, outputStages);
+            }
+            DfcOpenClDeviceContext.GeneratedNoiseKernel finalKernel =
+                    context.compileGeneratedNoiseKernelCached(finalSource.source());
+            if (flatCache2dPrefill != null) {
+                try {
+                    flatCache2dKernel = context.compileGeneratedNoiseKernelCached(
+                            DfcOpenClGeneratedNoiseSource.buildFlatCache2dSlotBufferPrefill().source());
+                } catch (Throwable throwable) {
+                    flatCache2dFallbackReason = "FlatCache 2D prefill compile failed: " + errorMessage(throwable);
+                    initialInputs = fillFinalOutputSlotBufferInputsCpuFallback(
+                            plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
+                            slotBufferIndices, slotBufferSlotCount, false, flatCache2dFallbackReason);
+                    initialSlotBuffer = initialInputs.values();
+                    flatCache2dPrefill = null;
+                    flatCache2dKernel = null;
+                }
+            }
+            return new RuntimeFinalOutputDispatch(
+                    outputStages.toArray(new DfcOpenClDeviceContext.FinalOutputStage[0]),
+                    finalKernel,
+                    slotBufferSlotCount,
+                    initialSlotBuffer,
+                    flatCache2dKernel,
+                    flatCache2dPrefill);
+        } catch (Throwable throwable) {
+            for (DfcOpenClDeviceContext.FinalOutputStage stage : outputStages) {
+                if (stage != null) {
+                    stage.close();
+                }
+            }
+            throw throwable;
+        }
+    }
+
+    private static boolean hasNonExternalInputSlot(OpenClCompiledPlan plan, boolean[] inputSlots, int slotCount) {
+        int limit = Math.min(inputSlots == null ? 0 : inputSlots.length, Math.max(0, slotCount));
+        for (int slot = 0; slot < limit; slot++) {
+            if (inputSlots[slot] && !isExternalSlot(plan.externalSlots(), slot)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static SlabVmCellBenchmark compiledPlanChunkWavesSourceBenchmark(
             OpenClCompiledPlan plan,
             int[] chunkStartSlots,
@@ -3778,10 +4133,9 @@ public final class DfcOpenClRuntime {
                 compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, wavePlan.scheduledChunks(), slotCount);
         boolean[] stagedSlots =
                 waveTargetSlots(wavePlan.scheduledChunks(), chunkStartSlots, chunkEndSlots, slotCount);
-        if (!runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
-                plan, stagedSlots, slotCount, outputLayers.length > 0)) {
+        if (!runtimeHybridGpuFinalOutputSupportsPlan(plan, slotCount, outputLayers.length > 0)) {
             return RuntimeHybridPlan.unavailable(
-                    "runtime hybrid CPU finish has residual computed/noise slots; skip column batch");
+                    "runtime hybrid GPU final output requires a direct final plan; skip column batch");
         }
 
         String[] waveSources = new String[wavePlan.waves().length];
@@ -3811,7 +4165,8 @@ public final class DfcOpenClRuntime {
 
         return RuntimeHybridPlan.available(plan, descriptor, outputLayers,
                 slotCount, scheduledSlotCount, slotBufferIndices, stagedSlots, waveSources,
-                identityWaves(waveSources.length), totalSourceChars, maxSourceChars);
+                identityWaves(waveSources.length), chunkStartSlots, chunkEndSlots, wavePlan.waves(),
+                wavePlan.scheduledChunks(), totalSourceChars, maxSourceChars);
     }
 
     private static EmbeddedRuntimePlan findEmbeddedRuntimePlan(OpenClCompiledPlan outputPlan) {
@@ -4228,6 +4583,16 @@ public final class DfcOpenClRuntime {
             }
         }
         return true;
+    }
+
+    static boolean runtimeHybridGpuFinalOutputSupportsPlan(OpenClCompiledPlan plan,
+                                                           int usedSlotCount,
+                                                           boolean hasOutputLayers) {
+        return plan != null
+                && !hasOutputLayers
+                && usedSlotCount > 0
+                && plan.slabProgram() != null
+                && plan.slabProgram().length > 0;
     }
 
     static int runtimeColumnBatchElementIndex(int cellYIndex, int javaFillIndex, int cellWidth, int cellHeight) {
@@ -6411,6 +6776,19 @@ public final class DfcOpenClRuntime {
         stages.add(DfcOpenClDeviceContext.FinalOutputStage.generated(kernel));
     }
 
+    private static void addFinalOutputStageCached(DfcOpenClDeviceContext context,
+                                                  FinalOutputStageBuild build,
+                                                  List<DfcOpenClDeviceContext.FinalOutputStage> stages) {
+        if (build.deviceVm()) {
+            stages.add(DfcOpenClDeviceContext.FinalOutputStage.slabVmSlot(
+                    build.bytecode(), build.constants(), build.targetSlotBufferIndex()));
+            return;
+        }
+        DfcOpenClDeviceContext.GeneratedNoiseKernel kernel =
+                context.compileGeneratedNoiseKernelCached(build.source().source());
+        stages.add(DfcOpenClDeviceContext.FinalOutputStage.generated(kernel));
+    }
+
     private static FinalOutputTraceStageInfo[] finalOutputTraceStageInfos(
             OpenClCompiledPlan plan,
             List<FinalOutputStageBuild> waveStages,
@@ -8155,6 +8533,32 @@ public final class DfcOpenClRuntime {
             double[] slotBuffer) {
     }
 
+    private record RuntimeFinalOutputDispatch(
+            DfcOpenClDeviceContext.FinalOutputStage[] stages,
+            DfcOpenClDeviceContext.GeneratedNoiseKernel finalKernel,
+            int slotBufferSlotCount,
+            double[] initialSlotBuffer,
+            DfcOpenClDeviceContext.GeneratedNoiseKernel flatCache2dKernel,
+            DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill) implements AutoCloseable {
+        @Override
+        public void close() {
+            if (this.stages == null) {
+                return;
+            }
+            for (DfcOpenClDeviceContext.FinalOutputStage stage : this.stages) {
+                if (stage != null) {
+                    stage.close();
+                }
+            }
+        }
+    }
+
+    private static final class RuntimeFinalOutputUnavailable extends RuntimeException {
+        private RuntimeFinalOutputUnavailable(String message) {
+            super(message);
+        }
+    }
+
     private record RuntimeHybridPlan(
             boolean available,
             String unavailableReason,
@@ -8167,6 +8571,10 @@ public final class DfcOpenClRuntime {
             boolean[] stagedSlots,
             String[] waveSources,
             boolean[][] kernelWaves,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[][] waves,
+            boolean[] scheduledChunks,
             int totalSourceChars,
             int maxSourceChars) {
 
@@ -8180,16 +8588,22 @@ public final class DfcOpenClRuntime {
                 boolean[] stagedSlots,
                 String[] waveSources,
                 boolean[][] kernelWaves,
+                int[] chunkStartSlots,
+                int[] chunkEndSlots,
+                boolean[][] waves,
+                boolean[] scheduledChunks,
                 int totalSourceChars,
                 int maxSourceChars) {
             return new RuntimeHybridPlan(true, null, plan, descriptor, outputLayers,
                     slotCount, scheduledSlotCount, slotBufferIndices, stagedSlots,
-                    waveSources, kernelWaves, totalSourceChars, maxSourceChars);
+                    waveSources, kernelWaves, chunkStartSlots, chunkEndSlots, waves, scheduledChunks,
+                    totalSourceChars, maxSourceChars);
         }
 
         static RuntimeHybridPlan unavailable(String reason) {
             return new RuntimeHybridPlan(false, reason, null, null, new RuntimeOutputLayer[0], 0, 0,
-                    null, null, new String[0], new boolean[0][], 0, 0);
+                    null, null, new String[0], new boolean[0][],
+                    new int[0], new int[0], new boolean[0][], new boolean[0], 0, 0);
         }
     }
 
