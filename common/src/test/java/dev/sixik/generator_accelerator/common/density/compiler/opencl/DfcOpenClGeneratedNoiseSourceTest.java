@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -779,6 +780,54 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void externalSlotPrefillDoesNotTreatCacheWrapperRangeAsConstant() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "flat-cache-like-external-prefill",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[3],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false},
+                new int[]{-1, 0, -1},
+                new DensityFunction[]{
+                        new FlatCacheLikeDensityFunction(1_000.0D)
+                },
+                null);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        3, 0, 0,
+                        2, 10, 30,
+                        1, 3, 1,
+                        0.0D, new double[0], 3);
+        double[] compactSlotMajorValues = new double[3];
+
+        double[] rowMajorValues = DfcOpenClRuntime.fillExternalSlots(plan, request, 3);
+        DfcOpenClRuntime.fillDirectExternalSlotBufferInputs(
+                plan, request, compactSlotMajorValues, new int[]{1}, new int[]{0});
+
+        assertArrayEquals(new double[]{
+                0.0D, 4_122.0D, 0.0D,
+                0.0D, 4_112.0D, 0.0D,
+                0.0D, 4_102.0D, 0.0D
+        }, rowMajorValues);
+        assertArrayEquals(new double[]{4_122.0D, 4_112.0D, 4_102.0D}, compactSlotMajorValues);
+        assertFalse(DfcOpenClRuntime.directExternalSlotBufferInputsConstant(plan, new int[]{1}));
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
@@ -1475,6 +1524,34 @@ class DfcOpenClGeneratedNoiseSourceTest {
         @Override
         public double maxValue() {
             return this.value;
+        }
+
+        @Override
+        public net.minecraft.util.KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            return DensityFunctions.zero().codec();
+        }
+    }
+
+    private record FlatCacheLikeDensityFunction(double baseValue)
+            implements DensityFunction.SimpleFunction, DfcCellCacheAccess {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            return this.baseValue + context.blockX() + context.blockY() * 10.0D + context.blockZ() * 100.0D;
+        }
+
+        @Override
+        public double minValue() {
+            return 1.0D;
+        }
+
+        @Override
+        public double maxValue() {
+            return 1.0D;
+        }
+
+        @Override
+        public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
+            return compute(context);
         }
 
         @Override

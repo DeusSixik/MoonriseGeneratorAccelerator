@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
@@ -4695,9 +4696,21 @@ public final class DfcOpenClRuntime {
         if (function == null) {
             return Double.NaN;
         }
+        if (!constantDensityFunctionRangeIsTrustworthy(function)) {
+            return Double.NaN;
+        }
         double min = function.minValue();
         double max = function.maxValue();
         return Double.compare(min, max) == 0 ? min : Double.NaN;
+    }
+
+    private static boolean constantDensityFunctionRangeIsTrustworthy(DensityFunction function) {
+        // NoiseChunk cache wrappers can inherit constant bounds while compute reads a chunk-local table.
+        if (function instanceof DfcCellCacheAccess || function instanceof NoiseChunk.NoiseChunkDensityFunction) {
+            return false;
+        }
+        return !(function instanceof DensityFunctions.MarkerOrMarked)
+                || function instanceof DensityFunctions.Marker;
     }
 
     static int[] compiledPlanExternalSlotIndices(boolean[] externalSlots, int usedSlotCount) {
