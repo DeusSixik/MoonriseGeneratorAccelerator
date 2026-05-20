@@ -927,6 +927,27 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void flatCache2dPrefillPacksTablesAndSlotMetadata() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, 2, -1, 5));
+        DfcOpenClRuntime.ExternalInputClassification classification =
+                DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
+
+        DfcOpenClDeviceContext.FlatCache2dPrefill prefill = DfcOpenClRuntime.flatCache2dPrefill(classification);
+
+        assertArrayEquals(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, prefill.flatValues());
+        assertArrayEquals(new int[]{0}, prefill.slotCompactIndices());
+        assertArrayEquals(new int[]{0}, prefill.slotTableIndices());
+        assertArrayEquals(new int[]{0}, prefill.tableOffsets());
+        assertArrayEquals(new int[]{2}, prefill.tableSides());
+        assertArrayEquals(new int[]{-1}, prefill.tableFirstNoiseX());
+        assertArrayEquals(new int[]{5}, prefill.tableFirstNoiseZ());
+        assertEquals(1, prefill.slotCount());
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();

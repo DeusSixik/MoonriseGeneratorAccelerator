@@ -2167,7 +2167,7 @@ public final class DfcOpenClRuntime {
                 DfcOpenClDeviceContext.SlabVmResult validationRun =
                         context.evalFinalOutputStagesToFinalOutput(
                                 outputStages, finalKernel, request,
-                                slotBufferSlotCount, true, initialSlotBuffer, true);
+                                slotBufferSlotCount, true, initialSlotBuffer, null, null, true);
                 DfcOpenClStats.recordSlabSuccess(validationRun.elapsedNanos());
                 FinalOutputValidation validation = validateCompiledPlanFinalOutput(
                         out, request, descriptor, plan, originalExternalSlotValues, slotCount, 257);
@@ -2260,7 +2260,7 @@ public final class DfcOpenClRuntime {
                     DfcOpenClDeviceContext.FinalOutputTraceResult trace =
                             context.evalFinalOutputStagesToFinalOutputTrace(
                                     outputStages, finalKernel, request,
-                                    slotBufferSlotCount, false, initialSlotBuffer, runReadOutput);
+                                    slotBufferSlotCount, false, initialSlotBuffer, null, null, runReadOutput);
                     elapsedNanos = trace.elapsedNanos();
                     long[] stageNanos = trace.stageNanos();
                     for (int stage = 0; stage < Math.min(traceStageNanos.length, stageNanos.length); stage++) {
@@ -2286,10 +2286,10 @@ public final class DfcOpenClRuntime {
                     DfcOpenClDeviceContext.SlabVmResult result = i == 0
                             ? context.evalFinalOutputStagesToFinalOutput(
                             outputStages, finalKernel, request,
-                            slotBufferSlotCount, true, initialSlotBuffer, runReadOutput)
+                            slotBufferSlotCount, true, initialSlotBuffer, null, null, runReadOutput)
                             : context.evalFinalOutputStagesToFinalOutput(
                             outputStages, finalKernel, request,
-                            slotBufferSlotCount, false, initialSlotBuffer, runReadOutput);
+                            slotBufferSlotCount, false, initialSlotBuffer, null, null, runReadOutput);
                     elapsedNanos = result.elapsedNanos();
                 }
                 DfcOpenClStats.recordSlabSuccess(elapsedNanos);
@@ -5104,6 +5104,66 @@ public final class DfcOpenClRuntime {
                 values[targetIndex + element] = table.values()[localX * table.side() + localZ];
             }
         }
+    }
+
+    static DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill(
+            ExternalInputClassification classification) {
+        if (classification == null) {
+            return null;
+        }
+        int slotCount = 0;
+        for (ExternalInputSlot slot : classification.slots()) {
+            if (slot.kind() == ExternalInputKind.FLAT_CACHE_2D) {
+                slotCount++;
+            }
+        }
+        if (slotCount == 0) {
+            return null;
+        }
+
+        FlatCache2dTable[] tables = classification.flatTables();
+        int[] tableOffsets = new int[tables.length];
+        int[] tableSides = new int[tables.length];
+        int[] tableFirstNoiseX = new int[tables.length];
+        int[] tableFirstNoiseZ = new int[tables.length];
+        int totalValues = 0;
+        for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+            FlatCache2dTable table = tables[tableIndex];
+            int valueCount = flatCache2dRequiredValueCount(table.values(), table.side());
+            if (valueCount < 0) {
+                throw new IllegalArgumentException("invalid FlatCache 2D table " + tableIndex);
+            }
+            tableOffsets[tableIndex] = totalValues;
+            tableSides[tableIndex] = table.side();
+            tableFirstNoiseX[tableIndex] = table.firstNoiseX();
+            tableFirstNoiseZ[tableIndex] = table.firstNoiseZ();
+            totalValues = Math.addExact(totalValues, valueCount);
+        }
+
+        double[] flatValues = new double[totalValues];
+        for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+            FlatCache2dTable table = tables[tableIndex];
+            int valueCount = Math.multiplyExact(table.side(), table.side());
+            System.arraycopy(table.values(), 0, flatValues, tableOffsets[tableIndex], valueCount);
+        }
+
+        int[] slotCompactIndices = new int[slotCount];
+        int[] slotTableIndices = new int[slotCount];
+        int nextSlot = 0;
+        for (ExternalInputSlot slot : classification.slots()) {
+            if (slot.kind() != ExternalInputKind.FLAT_CACHE_2D) {
+                continue;
+            }
+            if (slot.tableIndex() < 0 || slot.tableIndex() >= tables.length) {
+                throw new IllegalArgumentException("invalid FlatCache 2D slot table index " + slot.tableIndex());
+            }
+            slotCompactIndices[nextSlot] = slot.compactIndex();
+            slotTableIndices[nextSlot] = slot.tableIndex();
+            nextSlot++;
+        }
+        return new DfcOpenClDeviceContext.FlatCache2dPrefill(
+                flatValues, slotCompactIndices, slotTableIndices, tableOffsets, tableSides,
+                tableFirstNoiseX, tableFirstNoiseZ, slotCount);
     }
 
     static void fillDirectExternalSlotBufferInputs(

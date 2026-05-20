@@ -54,6 +54,13 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private final DeviceBuffer noiseSlotFactorsBuffer = new DeviceBuffer();
     private final DeviceBuffer generatedExternalSlotsBuffer = new DeviceBuffer();
     private final DeviceBuffer generatedSlotBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dValuesBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dSlotCompactIndicesBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dSlotTableIndicesBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dTableOffsetsBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dTableSidesBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dTableFirstNoiseXBuffer = new DeviceBuffer();
+    private final DeviceBuffer flatCache2dTableFirstNoiseZBuffer = new DeviceBuffer();
     private final Map<String, GeneratedNoiseKernel> generatedKernelCache = new HashMap<>();
     private final HostDoubleBuffer doubleStagingBuffer = new HostDoubleBuffer();
     private final HostDoubleBuffer gridOutHostBuffer = new HostDoubleBuffer();
@@ -1357,6 +1364,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                                                                  int slotBufferSlotCount,
                                                                  boolean uploadInputs,
                                                                  double[] initialSlotBuffer,
+                                                                 GeneratedNoiseKernel flatCache2dKernel,
+                                                                 FlatCache2dPrefill flatCache2dPrefill,
                                                                  boolean readOutput) {
         assertOpen();
         validateNoiseCellGridRequest(request);
@@ -1405,6 +1414,10 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
 
             PointerBuffer globalWorkSize = stack.callocPointer(1);
             globalWorkSize.put(0, request.n);
+            if (flatCache2dKernel != null && flatCache2dPrefill != null) {
+                enqueueFlatCache2dPrefill(flatCache2dKernel, request, flatCache2dPrefill,
+                        slotBuffer, globalWorkSize, err);
+            }
             if (stages != null) {
                 for (FinalOutputStage stage : stages) {
                     if (stage == null) {
@@ -1444,6 +1457,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                                                                                 int slotBufferSlotCount,
                                                                                 boolean uploadInputs,
                                                                                 double[] initialSlotBuffer,
+                                                                                GeneratedNoiseKernel flatCache2dKernel,
+                                                                                FlatCache2dPrefill flatCache2dPrefill,
                                                                                 boolean readOutput) {
         assertOpen();
         validateNoiseCellGridRequest(request);
@@ -1506,6 +1521,10 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
 
             PointerBuffer globalWorkSize = stack.callocPointer(1);
             globalWorkSize.put(0, request.n);
+            if (flatCache2dKernel != null && flatCache2dPrefill != null) {
+                enqueueFlatCache2dPrefill(flatCache2dKernel, request, flatCache2dPrefill,
+                        slotBuffer, globalWorkSize, err);
+            }
             if (stages != null) {
                 for (int i = 0; i < stages.length; i++) {
                     FinalOutputStage stage = stages[i];
@@ -1556,6 +1575,88 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         } finally {
             free(permutationsHost);
         }
+    }
+
+    private void enqueueFlatCache2dPrefill(GeneratedNoiseKernel kernel,
+                                           SlabVmNoiseCellGridRequest request,
+                                           FlatCache2dPrefill prefill,
+                                           long slotBuffer,
+                                           PointerBuffer globalWorkSize,
+                                           IntBuffer err) {
+        kernel.assertOpen();
+        if (prefill.slotCount() <= 0) {
+            return;
+        }
+
+        long valuesBuffer = ensureBuffer(this.flatCache2dValuesBuffer,
+                doubleBytes(prefill.flatValues().length), CL12.CL_MEM_READ_ONLY, err, "FlatCache 2D values");
+        long slotCompactIndicesBuffer = ensureBuffer(this.flatCache2dSlotCompactIndicesBuffer,
+                intBytes(prefill.slotCompactIndices().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D slot compact indices");
+        long slotTableIndicesBuffer = ensureBuffer(this.flatCache2dSlotTableIndicesBuffer,
+                intBytes(prefill.slotTableIndices().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D slot table indices");
+        long tableOffsetsBuffer = ensureBuffer(this.flatCache2dTableOffsetsBuffer,
+                intBytes(prefill.tableOffsets().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D table offsets");
+        long tableSidesBuffer = ensureBuffer(this.flatCache2dTableSidesBuffer,
+                intBytes(prefill.tableSides().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D table sides");
+        long tableFirstNoiseXBuffer = ensureBuffer(this.flatCache2dTableFirstNoiseXBuffer,
+                intBytes(prefill.tableFirstNoiseX().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D table first noise x");
+        long tableFirstNoiseZBuffer = ensureBuffer(this.flatCache2dTableFirstNoiseZBuffer,
+                intBytes(prefill.tableFirstNoiseZ().length), CL12.CL_MEM_READ_ONLY, err,
+                "FlatCache 2D table first noise z");
+
+        writeDoubleArray(valuesBuffer, prefill.flatValues(), "clEnqueueWriteBuffer(FlatCache 2D values)");
+        writeIntArray(slotCompactIndicesBuffer, prefill.slotCompactIndices(),
+                "clEnqueueWriteBuffer(FlatCache 2D slot compact indices)");
+        writeIntArray(slotTableIndicesBuffer, prefill.slotTableIndices(),
+                "clEnqueueWriteBuffer(FlatCache 2D slot table indices)");
+        writeIntArray(tableOffsetsBuffer, prefill.tableOffsets(), "clEnqueueWriteBuffer(FlatCache 2D table offsets)");
+        writeIntArray(tableSidesBuffer, prefill.tableSides(), "clEnqueueWriteBuffer(FlatCache 2D table sides)");
+        writeIntArray(tableFirstNoiseXBuffer, prefill.tableFirstNoiseX(),
+                "clEnqueueWriteBuffer(FlatCache 2D table first noise x)");
+        writeIntArray(tableFirstNoiseZBuffer, prefill.tableFirstNoiseZ(),
+                "clEnqueueWriteBuffer(FlatCache 2D table first noise z)");
+
+        int arg = 0;
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, valuesBuffer),
+                "clSetKernelArg(FlatCache 2D values)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, slotCompactIndicesBuffer),
+                "clSetKernelArg(FlatCache 2D slot compact indices)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, slotTableIndicesBuffer),
+                "clSetKernelArg(FlatCache 2D slot table indices)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, tableOffsetsBuffer),
+                "clSetKernelArg(FlatCache 2D table offsets)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, tableSidesBuffer),
+                "clSetKernelArg(FlatCache 2D table sides)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, tableFirstNoiseXBuffer),
+                "clSetKernelArg(FlatCache 2D table first noise x)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, tableFirstNoiseZBuffer),
+                "clSetKernelArg(FlatCache 2D table first noise z)");
+        check(CL12.clSetKernelArg1p(kernel.kernel, arg++, slotBuffer),
+                "clSetKernelArg(FlatCache 2D slot buffer)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.firstBlockX),
+                "clSetKernelArg(FlatCache 2D first x)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.firstBlockY),
+                "clSetKernelArg(FlatCache 2D first y)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.firstBlockZ),
+                "clSetKernelArg(FlatCache 2D first z)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.cellWidth),
+                "clSetKernelArg(FlatCache 2D cell width)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.cellHeight),
+                "clSetKernelArg(FlatCache 2D cell height)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.cells),
+                "clSetKernelArg(FlatCache 2D cells)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, prefill.slotCount()),
+                "clSetKernelArg(FlatCache 2D slot count)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg, request.n),
+                "clSetKernelArg(FlatCache 2D n)");
+        check(CL12.clEnqueueNDRangeKernel(this.queue, kernel.kernel, 1,
+                null, globalWorkSize, null, null, null),
+                "clEnqueueNDRangeKernel(FlatCache 2D prefill)");
     }
 
     private void enqueueGeneratedFinalOutputStage(GeneratedNoiseKernel generated,
@@ -2047,6 +2148,13 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         check(CL12.clEnqueueWriteBuffer(this.queue, buffer, true, 0L, host, null, null), op);
     }
 
+    private void writeIntArray(long buffer, int[] values, String op) {
+        if (values.length == 0) {
+            return;
+        }
+        check(CL12.clEnqueueWriteBuffer(this.queue, buffer, true, 0L, values, null, null), op);
+    }
+
     private static long doubleBytes(int elements) {
         return (long) Math.max(1, elements) * Double.BYTES;
     }
@@ -2070,6 +2178,13 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private void releaseDeviceBuffers() {
         this.gridOutHostBuffer.release();
         this.doubleStagingBuffer.release();
+        this.flatCache2dTableFirstNoiseZBuffer.release();
+        this.flatCache2dTableFirstNoiseXBuffer.release();
+        this.flatCache2dTableSidesBuffer.release();
+        this.flatCache2dTableOffsetsBuffer.release();
+        this.flatCache2dSlotTableIndicesBuffer.release();
+        this.flatCache2dSlotCompactIndicesBuffer.release();
+        this.flatCache2dValuesBuffer.release();
         this.generatedSlotBuffer.release();
         this.noiseSlotFactorsBuffer.release();
         this.noiseBranchScalesBuffer.release();
@@ -2234,6 +2349,16 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             double hoistBase,
             double[] out,
             int n) {
+    }
+
+    record FlatCache2dPrefill(double[] flatValues,
+                              int[] slotCompactIndices,
+                              int[] slotTableIndices,
+                              int[] tableOffsets,
+                              int[] tableSides,
+                              int[] tableFirstNoiseX,
+                              int[] tableFirstNoiseZ,
+                              int slotCount) {
     }
 
     record SlabVmResult(long elapsedNanos) {
