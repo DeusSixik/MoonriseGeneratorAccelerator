@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -4991,6 +4993,92 @@ public final class DfcOpenClRuntime {
         return true;
     }
 
+    static ExternalInputClassification classifyDirectExternalSlotBufferInputs(
+            OpenClCompiledPlan plan,
+            int[] slots,
+            int[] compactIndices) {
+        if (slots.length != compactIndices.length) {
+            throw new IllegalArgumentException("direct external slot count does not match compact index count");
+        }
+        ExternalInputSlot[] classifiedSlots = new ExternalInputSlot[slots.length];
+        List<FlatCache2dTable> flatTables = new ArrayList<>();
+        Map<double[], Integer> tableIndices = new IdentityHashMap<>();
+        boolean requiresCpuFallback = false;
+        for (int slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+            int slot = slots[slotIndex];
+            int compactIndex = compactIndices[slotIndex];
+            DensityFunction extern = markerExtern(plan, slot);
+            double constantValue = constantDensityFunctionValue(extern);
+            if (!Double.isNaN(constantValue)) {
+                classifiedSlots[slotIndex] = new ExternalInputSlot(
+                        slot, compactIndex, ExternalInputKind.CONSTANT, constantValue, -1, "");
+                continue;
+            }
+
+            if (!(extern instanceof DfcCellCacheAccess)
+                    || !(extern instanceof NoiseChunk$FlatCache$FlatArray flatCache)) {
+                classifiedSlots[slotIndex] = externalInputCpuFallbackSlot(
+                        slot, compactIndex, "external is not a trusted constant or FlatCache 2D");
+                requiresCpuFallback = true;
+                continue;
+            }
+
+            double[] values = flatCache.bts$getArray();
+            int side = flatCache.bts$getSide();
+            int requiredValues = flatCache2dRequiredValueCount(values, side);
+            if (requiredValues < 0) {
+                classifiedSlots[slotIndex] = externalInputCpuFallbackSlot(
+                        slot, compactIndex, "invalid FlatCache 2D array");
+                requiresCpuFallback = true;
+                continue;
+            }
+
+            Double uniformValue = uniformFlatCache2dValue(values, requiredValues);
+            if (uniformValue != null) {
+                classifiedSlots[slotIndex] = new ExternalInputSlot(
+                        slot, compactIndex, ExternalInputKind.CONSTANT, uniformValue, -1, "");
+                continue;
+            }
+
+            Integer tableIndex = tableIndices.get(values);
+            if (tableIndex == null) {
+                tableIndex = flatTables.size();
+                tableIndices.put(values, tableIndex);
+                flatTables.add(new FlatCache2dTable(
+                        values, side, flatCache.bts$getFirstNoiseX(), flatCache.bts$getFirstNoiseZ()));
+            }
+            classifiedSlots[slotIndex] = new ExternalInputSlot(
+                    slot, compactIndex, ExternalInputKind.FLAT_CACHE_2D, Double.NaN, tableIndex, "");
+        }
+        return new ExternalInputClassification(
+                classifiedSlots, flatTables.toArray(FlatCache2dTable[]::new), requiresCpuFallback);
+    }
+
+    private static ExternalInputSlot externalInputCpuFallbackSlot(int slot, int compactIndex, String reason) {
+        return new ExternalInputSlot(slot, compactIndex, ExternalInputKind.CPU_FALLBACK, Double.NaN, -1, reason);
+    }
+
+    private static int flatCache2dRequiredValueCount(double[] values, int side) {
+        if (values == null || side <= 0) {
+            return -1;
+        }
+        long requiredValues = (long) side * (long) side;
+        if (requiredValues > values.length || requiredValues > Integer.MAX_VALUE) {
+            return -1;
+        }
+        return (int) requiredValues;
+    }
+
+    private static Double uniformFlatCache2dValue(double[] values, int requiredValues) {
+        long firstBits = Double.doubleToRawLongBits(values[0]);
+        for (int i = 1; i < requiredValues; i++) {
+            if (Double.doubleToRawLongBits(values[i]) != firstBits) {
+                return null;
+            }
+        }
+        return values[0];
+    }
+
     static void fillDirectExternalSlotBufferInputs(
             OpenClCompiledPlan plan,
             DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
@@ -7438,6 +7526,28 @@ public final class DfcOpenClRuntime {
     }
 
     private record FinalOutputSlotBufferInputs(double[] values, FinalOutputExternalPrefillTrace trace) {
+    }
+
+    enum ExternalInputKind {
+        CONSTANT,
+        FLAT_CACHE_2D,
+        CPU_FALLBACK
+    }
+
+    record FlatCache2dTable(double[] values, int side, int firstNoiseX, int firstNoiseZ) {
+    }
+
+    record ExternalInputSlot(int slot,
+                             int compactIndex,
+                             ExternalInputKind kind,
+                             double constantValue,
+                             int tableIndex,
+                             String fallbackReason) {
+    }
+
+    record ExternalInputClassification(ExternalInputSlot[] slots,
+                                       FlatCache2dTable[] flatTables,
+                                       boolean requiresCpuFallback) {
     }
 
     public record GeneratedSourceCompileProbe(

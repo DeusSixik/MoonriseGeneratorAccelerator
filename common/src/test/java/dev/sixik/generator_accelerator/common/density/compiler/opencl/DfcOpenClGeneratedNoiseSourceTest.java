@@ -844,6 +844,52 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void directExternalSlotClassificationTreatsUniformFlatCacheAsConstant() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{7.0D, 7.0D, 7.0D, 7.0D}, 2, 0, 0));
+
+        DfcOpenClRuntime.ExternalInputClassification classification =
+                DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
+
+        assertFalse(classification.requiresCpuFallback());
+        assertEquals(DfcOpenClRuntime.ExternalInputKind.CONSTANT, classification.slots()[0].kind());
+        assertEquals(7.0D, classification.slots()[0].constantValue());
+    }
+
+    @Test
+    void directExternalSlotClassificationTreatsNonUniformFlatCacheAsFlatCache2d() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, 2, -1, 5));
+
+        DfcOpenClRuntime.ExternalInputClassification classification =
+                DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
+
+        assertFalse(classification.requiresCpuFallback());
+        assertEquals(1, classification.flatTables().length);
+        assertEquals(DfcOpenClRuntime.ExternalInputKind.FLAT_CACHE_2D, classification.slots()[0].kind());
+        assertEquals(-1, classification.flatTables()[0].firstNoiseX());
+        assertEquals(5, classification.flatTables()[0].firstNoiseZ());
+    }
+
+    @Test
+    void directExternalSlotClassificationFallsBackForInvalidFlatCacheArray() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{1.0D, 2.0D, 3.0D}, 2, 0, 0));
+
+        DfcOpenClRuntime.ExternalInputClassification classification =
+                DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
+
+        assertTrue(classification.requiresCpuFallback());
+        assertEquals(DfcOpenClRuntime.ExternalInputKind.CPU_FALLBACK, classification.slots()[0].kind());
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
@@ -1502,6 +1548,27 @@ class DfcOpenClGeneratedNoiseSourceTest {
         int iz = plane % request.cellWidth();
         int cellZ = cell >> 5;
         return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan openClPlanWithOneExternal(DensityFunction extern) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
+                "one-external",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[3],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false},
+                new int[]{-1, 0, -1},
+                new DensityFunction[]{extern},
+                null);
     }
 
     private record TestExternalDensityFunction(double baseValue) implements DensityFunction.SimpleFunction {
