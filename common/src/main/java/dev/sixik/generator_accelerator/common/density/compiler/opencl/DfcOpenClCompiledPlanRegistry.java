@@ -337,23 +337,27 @@ public final class DfcOpenClCompiledPlanRegistry {
         if (externIndex < 0 || externIndex >= externs.length) {
             return null;
         }
-        DensityFunction extern = externs[externIndex];
-        if (!(extern instanceof DensityFunctions.MarkerOrMarked marker)) {
+        DensityFunction candidate = externs[externIndex];
+        boolean markerWrapped = false;
+        if (candidate instanceof DensityFunctions.MarkerOrMarked marker) {
+            candidate = marker.wrapped();
+            markerWrapped = true;
+        }
+        if (candidate == null || (!markerWrapped && !(candidate instanceof CompiledDensityFunction))) {
             return null;
         }
-        DensityFunction wrapped = marker.wrapped();
-        if (wrapped == null || seen.put(wrapped, Boolean.TRUE) != null) {
+        if (seen.put(candidate, Boolean.TRUE) != null) {
             return null;
         }
         try {
             DfcOpenClRuntime.OpenClCompiledPlan childPlan = null;
-            if (wrapped instanceof CompiledDensityFunction compiled) {
+            if (candidate instanceof CompiledDensityFunction compiled) {
                 Entry entry = lookup(compiled);
                 if (entry.available()) {
                     childPlan = entry.plan();
                 }
             } else {
-                Compiler.Result result = Compiler.compileWithDetail(wrapped);
+                Compiler.Result result = Compiler.compileWithDetail(candidate);
                 if (result != null) {
                     Entry entry = lookup(result.compiled());
                     if (entry.available()) {
@@ -365,7 +369,7 @@ public final class DfcOpenClCompiledPlanRegistry {
         } catch (Throwable ignored) {
             return null;
         } finally {
-            seen.remove(wrapped);
+            seen.remove(candidate);
         }
     }
 

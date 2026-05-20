@@ -1804,6 +1804,23 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void registryExpansionInlinesDirectCompiledDensityFunctionExterns() throws ReflectiveOperationException {
+        DfcOpenClCompiledPlanRegistry.clear();
+        TestCompiledDensityFunction child = new TestCompiledDensityFunction(new DensityFunction[0]);
+        Map<CompiledDensityFunction, DfcOpenClCompiledPlanRegistry.Entry> plans = registeredOpenClPlans();
+        plans.put(child, DfcOpenClCompiledPlanRegistry.Entry.available(openClPlanWithNoiseRoot("child")));
+
+        DfcOpenClRuntime.OpenClCompiledPlan expanded = DfcOpenClCompiledPlanRegistry.expandMarkerSlots(
+                openClPlanWithExternalRoot("parent", child), 3);
+
+        assertEquals(2, expanded.specs().length);
+        assertFalse(expanded.externalSlots()[0]);
+        assertEquals(-1, expanded.markerExternIndices()[0]);
+        assertNotNull(expanded.computedSlots()[0]);
+        assertArrayEquals(new byte[]{2, 1}, expanded.computedSlots()[0].slabProgram());
+    }
+
+    @Test
     void slabProgramSlotDependenciesContainOnlyReferencedRootSlots() {
         byte[] program = new byte[]{
                 2, 3,
@@ -1966,6 +1983,50 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 new boolean[]{false, true, false},
                 new int[]{-1, 0, -1},
                 new DensityFunction[]{extern},
+                null);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan openClPlanWithExternalRoot(
+            String label,
+            DensityFunction extern) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
+                label,
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[1],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{true},
+                new int[]{0},
+                new DensityFunction[]{extern},
+                null);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan openClPlanWithNoiseRoot(String label) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
+                label,
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[1],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false},
+                new int[]{-1},
+                new DensityFunction[0],
                 null);
     }
 
