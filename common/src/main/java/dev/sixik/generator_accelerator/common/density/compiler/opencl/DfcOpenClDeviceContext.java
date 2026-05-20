@@ -1203,6 +1203,146 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
     }
 
+    synchronized SlabVmResult evalGeneratedNoiseKernelWavesToFinalOutput(GeneratedNoiseKernel[] waveKernels,
+                                                                          boolean[][] waves,
+                                                                          GeneratedNoiseKernel finalKernel,
+                                                                          SlabVmNoiseCellGridRequest request,
+                                                                          int slotBufferSlotCount,
+                                                                          boolean uploadInputs,
+                                                                          double[] initialSlotBuffer,
+                                                                          boolean readOutput) {
+        assertOpen();
+        validateNoiseCellGridRequest(request);
+        finalKernel.assertOpen();
+        if (slotBufferSlotCount <= 0) {
+            throw new IllegalArgumentException("slotBufferSlotCount must be positive");
+        }
+        int slotValues = Math.multiplyExact(request.n, slotBufferSlotCount);
+        if (initialSlotBuffer != null && initialSlotBuffer.length < slotValues) {
+            throw new IllegalArgumentException("initialSlotBuffer is shorter than n * slotBufferSlotCount");
+        }
+
+        ByteBuffer permutationsHost = null;
+        DoubleBuffer outHost = null;
+        long started = System.nanoTime();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer err = stack.callocInt(1);
+            boolean writeInputs = uploadInputs
+                    || !bufferReady(this.noisePermutationsBuffer, request.permutations.length, CL12.CL_MEM_READ_ONLY);
+            if (writeInputs) {
+                permutationsHost = MemoryUtil.memAlloc(request.permutations.length);
+                permutationsHost.put(request.permutations).flip();
+            }
+            if (readOutput) {
+                outHost = ensureHostDoubleBuffer(this.gridOutHostBuffer, request.n);
+            }
+
+            long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
+                    CL12.CL_MEM_READ_ONLY, err, "generated final output permutations");
+            long slotBufferBytes = doubleBytes(slotValues);
+            boolean writeInitialSlots = initialSlotBuffer != null
+                    && (uploadInputs || !bufferReady(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE));
+            long slotBuffer = ensureBuffer(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE, err, "generated final output slots");
+            long outBuffer = ensureBuffer(this.gridOutBuffer,
+                    doubleBytes(request.n), CL12.CL_MEM_WRITE_ONLY, err, "generated final output");
+            if (writeInputs) {
+                check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
+                        null, null), "clEnqueueWriteBuffer(generated final output permutations)");
+            }
+            if (writeInitialSlots) {
+                writeDoubleArray(slotBuffer, initialSlotBuffer,
+                        "clEnqueueWriteBuffer(generated final output initial slots)");
+            }
+
+            PointerBuffer globalWorkSize = stack.callocPointer(1);
+            globalWorkSize.put(0, request.n);
+            for (boolean[] wave : waves) {
+                if (wave == null) {
+                    continue;
+                }
+                int limit = Math.min(wave.length, waveKernels.length);
+                for (int chunk = 0; chunk < limit; chunk++) {
+                    if (!wave[chunk]) {
+                        continue;
+                    }
+                    GeneratedNoiseKernel generated = waveKernels[chunk];
+                    if (generated == null) {
+                        throw new IllegalArgumentException("missing generated kernel for chunk " + chunk);
+                    }
+                    generated.assertOpen();
+                    int arg = 0;
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, permutationsBuffer),
+                            "clSetKernelArg(generated final wave permutations)");
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                            "clSetKernelArg(generated final wave external slots)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockX),
+                            "clSetKernelArg(generated final wave first x)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockY),
+                            "clSetKernelArg(generated final wave first y)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockZ),
+                            "clSetKernelArg(generated final wave first z)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellWidth),
+                            "clSetKernelArg(generated final wave cell width)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellHeight),
+                            "clSetKernelArg(generated final wave cell height)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
+                            "clSetKernelArg(generated final wave cells)");
+                    check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
+                            "clSetKernelArg(generated final wave hoist)");
+                    check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                            "clSetKernelArg(generated final wave output slots)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg, request.n),
+                            "clSetKernelArg(generated final wave n)");
+                    check(CL12.clEnqueueNDRangeKernel(this.queue, generated.kernel, 1,
+                            null, globalWorkSize, null, null, null),
+                            "clEnqueueNDRangeKernel(generated final wave)");
+                }
+            }
+
+            int arg = 0;
+            check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, permutationsBuffer),
+                    "clSetKernelArg(generated final output permutations)");
+            check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, slotBuffer),
+                    "clSetKernelArg(generated final output external slots)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockX),
+                    "clSetKernelArg(generated final output first x)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockY),
+                    "clSetKernelArg(generated final output first y)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockZ),
+                    "clSetKernelArg(generated final output first z)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cellWidth),
+                    "clSetKernelArg(generated final output cell width)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cellHeight),
+                    "clSetKernelArg(generated final output cell height)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cells),
+                    "clSetKernelArg(generated final output cells)");
+            check(CL12.clSetKernelArg1d(finalKernel.kernel, arg++, request.hoistBase),
+                    "clSetKernelArg(generated final output hoist)");
+            check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, outBuffer),
+                    "clSetKernelArg(generated final output output)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg, request.n),
+                    "clSetKernelArg(generated final output n)");
+            check(CL12.clEnqueueNDRangeKernel(this.queue, finalKernel.kernel, 1,
+                    null, globalWorkSize, null, null, null),
+                    "clEnqueueNDRangeKernel(generated final output)");
+
+            if (readOutput) {
+                outHost.clear();
+                outHost.limit(request.n);
+                check(CL12.clEnqueueReadBuffer(this.queue, outBuffer, true, 0L, outHost, null, null),
+                        "clEnqueueReadBuffer(generated final output)");
+                outHost.position(0);
+                outHost.get(request.out, 0, request.n);
+            }
+            check(CL12.clFinish(this.queue), "clFinish(generated final output)");
+            return new SlabVmResult(System.nanoTime() - started);
+        } finally {
+            free(permutationsHost);
+        }
+    }
+
     DfcOpenClDeviceInfo deviceInfo() {
         return this.candidate.info();
     }

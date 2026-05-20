@@ -33,6 +33,14 @@ import java.util.WeakHashMap;
 public final class DfcOpenClCompiledPlanRegistry {
     private static final Map<CompiledDensityFunction, Entry> PLANS =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final String NOISE_CHUNK_DENSITY_FUNCTION =
+            "net.minecraft.world.level.levelgen.NoiseChunk$NoiseChunkDensityFunction";
+    private static final String BEARDIFIER_OR_MARKER =
+            "net.minecraft.world.level.levelgen.DensityFunctions$BeardifierOrMarker";
+    private static final String MARKER_OR_MARKED =
+            "net.minecraft.world.level.levelgen.DensityFunctions$MarkerOrMarked";
+    private static final String IMMUTABLE_MARKER =
+            "net.minecraft.world.level.levelgen.DensityFunctions$Marker";
     private static final double[] FLAT_SIMPLEX_GRAD = new double[]{
             1.0D, 1.0D, 0.0D, 0.0D,
             -1.0D, 1.0D, 0.0D, 0.0D,
@@ -62,7 +70,11 @@ public final class DfcOpenClCompiledPlanRegistry {
         }
         Entry entry;
         try {
-            entry = Entry.available(build("compiled", root, pool, extracted));
+            DfcOpenClRuntime.OpenClCompiledPlan plan = build("compiled", root, pool, extracted);
+            entry = planExternsRetainable(plan.externs())
+                    ? Entry.available(plan)
+                    : Entry.unavailable(
+                    "OpenCL plan externs are NoiseChunk-local; not retained to avoid leaking chunk state");
         } catch (Throwable throwable) {
             entry = Entry.unavailable(errorMessage(throwable));
         }
@@ -92,6 +104,11 @@ public final class DfcOpenClCompiledPlanRegistry {
             PLANS.put(rebound, entry);
             return;
         }
+        if (!planExternsRetainable(reboundExterns)) {
+            PLANS.put(rebound, Entry.unavailable(
+                    "rebound OpenCL plan externs are NoiseChunk-local; not retained to avoid leaking chunk state"));
+            return;
+        }
         DfcOpenClRuntime.OpenClCompiledPlan plan = entry.plan();
         PLANS.put(rebound, Entry.available(new DfcOpenClRuntime.OpenClCompiledPlan(
                 plan.label(),
@@ -111,6 +128,58 @@ public final class DfcOpenClCompiledPlanRegistry {
                 plan.markerExternIndices(),
                 reboundExterns == null ? plan.externs() : reboundExterns.clone(),
                 plan.computedSlots())));
+    }
+
+    static boolean planExternsRetainable(DensityFunction[] externs) {
+        if (externs == null) {
+            return true;
+        }
+        for (DensityFunction extern : externs) {
+            if (!reboundExternRetainable(extern)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean reboundExternRetainable(DensityFunction extern) {
+        if (extern == null) {
+            return true;
+        }
+        Class<?> externClass = extern.getClass();
+        return reboundExternTypeRetainable(externClass.getName(), interfaceNames(externClass));
+    }
+
+    static boolean reboundExternTypeRetainable(String className, List<String> interfaceNames) {
+        if (interfaceNames != null) {
+            if (interfaceNames.contains(NOISE_CHUNK_DENSITY_FUNCTION)) {
+                return false;
+            }
+            if (interfaceNames.contains(BEARDIFIER_OR_MARKER)) {
+                return false;
+            }
+            if (interfaceNames.contains(MARKER_OR_MARKED) && !IMMUTABLE_MARKER.equals(className)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<String> interfaceNames(Class<?> type) {
+        List<String> out = new ArrayList<>();
+        collectInterfaceNames(type, out);
+        return out;
+    }
+
+    private static void collectInterfaceNames(Class<?> type, List<String> out) {
+        if (type == null) {
+            return;
+        }
+        for (Class<?> iface : type.getInterfaces()) {
+            out.add(iface.getName());
+            collectInterfaceNames(iface, out);
+        }
+        collectInterfaceNames(type.getSuperclass(), out);
     }
 
     public static void clear() {

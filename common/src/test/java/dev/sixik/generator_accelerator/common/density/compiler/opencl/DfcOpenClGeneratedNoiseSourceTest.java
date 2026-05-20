@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -87,6 +88,181 @@ class DfcOpenClGeneratedNoiseSourceTest {
         assertTrue(source.source().contains("slot1 + bx"));
         assertTrue(source.source().contains("out[0 * n + gid] = slot1;"));
         assertTrue(source.source().contains("out[1 * n + gid] = slot2;"));
+    }
+
+    @Test
+    void allWavesFinalOutputSourceReadsExternalInputsRowMajorAndWritesFinalOutput() {
+        DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(4, 1);
+        boolean[] rootSlots = new boolean[]{false, true, true, false};
+        boolean[] externalInputs = new boolean[]{false, false, true, false};
+        String[] coordX = new String[]{"bx", "bx", "bx", "bx"};
+        String[] coordY = new String[]{"by", "by", "by", "by"};
+        String[] coordZ = new String[]{"bz", "bz", "bz", "bz"};
+
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesFinalOutput(
+                        descriptor,
+                        rootSlots,
+                        new byte[]{2, 1, 2, 2, 32},
+                        new double[0],
+                        "0.0",
+                        coordX,
+                        coordY,
+                        coordZ,
+                        externalInputs,
+                        null,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+
+        assertTrue(source.source().contains("double slot2 = external_slots[gid * 4 + 2];"));
+        assertTrue(source.source().contains("stk[sp++] = slot1;"));
+        assertTrue(source.source().contains("stk[sp++] = slot2;"));
+        assertTrue(source.source().contains("out[gid] = sp == 1 ? stk[0] : 0.0;"));
+    }
+
+    @Test
+    void finalOutputFromSlotBufferReadsStagedSlotsSlotMajorAndExpandsResidualComputedSlots() {
+        DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(5, 1);
+        boolean[] rootSlots = new boolean[]{false, false, false, false, true};
+        boolean[] slotBufferInputs = new boolean[]{false, true, false, true, false};
+        int[] slotBufferIndices = new int[]{-1, 0, -1, 1, -1};
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[]{
+                null,
+                null,
+                null,
+                null,
+                new DfcOpenClRuntime.ComputedSlot(
+                        new byte[]{2, 1, 2, 3, 32}, new double[0], null, null, "slot4")
+        };
+
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildCompiledPlanFinalOutputFromSlotBuffer(
+                        descriptor,
+                        rootSlots,
+                        new byte[]{2, 4},
+                        new double[0],
+                        "0.0",
+                        null,
+                        null,
+                        null,
+                        slotBufferInputs,
+                        computedSlots,
+                        slotBufferIndices,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+
+        assertTrue(source.source().contains("double slot1 = external_slots[0 * n + gid];"));
+        assertTrue(source.source().contains("double slot3 = external_slots[1 * n + gid];"));
+        assertTrue(source.source().contains("double slot4_stk[DFC_SLAB_STACK];"));
+        assertTrue(source.source().contains("stk[sp++] = slot4;"));
+    }
+
+    @Test
+    void finalOutputExternalInputsOnlyIncludeReachableMarkerExterns() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "reachable",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0, 2, 4, 32},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, false, false, true, false},
+                null,
+                null,
+                new DfcOpenClRuntime.ComputedSlot[]{
+                        null,
+                        null,
+                        null,
+                        null,
+                        new DfcOpenClRuntime.ComputedSlot(
+                                new byte[]{2, 1, 2, 3, 32}, new double[0], null, null, "slot4")
+                });
+
+        boolean[] inputs = DfcOpenClRuntime.compiledPlanFinalOutputExternalInputs(plan, 5);
+
+        assertFalse(inputs[0]);
+        assertFalse(inputs[1]);
+        assertFalse(inputs[2]);
+        assertTrue(inputs[3]);
+        assertFalse(inputs[4]);
+    }
+
+    @Test
+    void finalOutputComputedSlotsIncludeReachableComputedRoots() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[]{
+                null,
+                null,
+                null,
+                null,
+                new DfcOpenClRuntime.ComputedSlot(
+                        new byte[]{2, 1, 2, 3, 32}, new double[0], null, null, "slot4")
+        };
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "reachable",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 4},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                computedSlots);
+
+        DfcOpenClRuntime.ComputedSlot[] finalOutputComputed =
+                DfcOpenClRuntime.compiledPlanFinalOutputComputedSlots(plan, 5);
+
+        assertTrue(finalOutputComputed[4] == computedSlots[4]);
+    }
+
+    @Test
+    void finalOutputCpuInputsStageOnlyUnscheduledOutputRoots() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "stage-roots",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[6],
+                new byte[]{2, 1, 2, 4, 32},
+                new double[0],
+                "slot5",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, false, true, false, false, false},
+                new int[]{-1, -1, 0, -1, -1, -1},
+                null,
+                new DfcOpenClRuntime.ComputedSlot[]{
+                        null,
+                        null,
+                        null,
+                        null,
+                        new DfcOpenClRuntime.ComputedSlot(
+                                new byte[]{2, 1, 2, 2, 32}, new double[0], null, null, "slot4"),
+                        null
+                });
+        boolean[] scheduledSlots = new boolean[]{false, true, false, false, false, false};
+
+        boolean[] cpuInputs = DfcOpenClRuntime.compiledPlanFinalOutputCpuInputSlots(plan, scheduledSlots, 6);
+
+        assertFalse(cpuInputs[1]);
+        assertFalse(cpuInputs[2]);
+        assertTrue(cpuInputs[4]);
+        assertTrue(cpuInputs[5]);
     }
 
     @Test
@@ -221,10 +397,12 @@ class DfcOpenClGeneratedNoiseSourceTest {
         String oldMin = System.getProperty("dfc.opencl.finalDensityHybridMinSlotValues");
         try {
             System.clearProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+            assertFalse(DfcOpenClRuntime.runtimeHybridCellValuesCanReachMinimum(128));
             assertFalse(DfcOpenClRuntime.runtimeHybridSlotValuesMeetMinimum(54 * 128));
             assertTrue(DfcOpenClRuntime.runtimeHybridSlotValuesMeetMinimum(16_384));
 
             System.setProperty("dfc.opencl.finalDensityHybridMinSlotValues", "4096");
+            assertTrue(DfcOpenClRuntime.runtimeHybridCellValuesCanReachMinimum(128));
             assertTrue(DfcOpenClRuntime.runtimeHybridSlotValuesMeetMinimum(54 * 128));
         } finally {
             if (oldMin == null) {
@@ -241,6 +419,25 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 "tryFillFinalDensityHybrid", CompiledDensityFunction.class, double[].class, NoiseChunk.class)
                 .getModifiers();
         assertFalse(Modifier.isSynchronized(modifiers));
+    }
+
+    @Test
+    void runtimeHybridDoesNotCachePlansThatRetainRuntimeExterns() {
+        assertFalse(DfcOpenClRuntime.runtimeHybridPlanCacheable(true));
+        assertTrue(DfcOpenClRuntime.runtimeHybridPlanCacheable(false));
+    }
+
+    @Test
+    void slabProgramSlotDependenciesContainOnlyReferencedRootSlots() {
+        byte[] program = new byte[]{
+                2, 3,
+                2, 1,
+                32,
+                2, 3,
+                34
+        };
+
+        assertArrayEquals(new int[]{1, 3}, DfcOpenClRuntime.slotDependencies(program, 5));
     }
 
     private static double testCellBlockX(int element,
