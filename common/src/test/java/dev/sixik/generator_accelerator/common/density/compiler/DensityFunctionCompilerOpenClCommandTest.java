@@ -70,6 +70,35 @@ class DensityFunctionCompilerOpenClCommandTest {
         assertNotNull(openClCommand(dispatcher, "compiledfinaldensityallwavesoutputbench").getChild("cells"));
     }
 
+    @Test
+    void finalDensityAllWavesOutputCommandsAllowLargerBatchBenchmarks() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        DensityFunctionCompiler.registerCommands(dispatcher);
+
+        assertEquals(512, integerArgument(openClCommand(dispatcher,
+                "compiledfinaldensityallwavesoutputcheck").getChild("cells")).getMaximum());
+        assertEquals(512, integerArgument(openClCommand(dispatcher,
+                "compiledfinaldensityallwavesoutputbench").getChild("cells")).getMaximum());
+    }
+
+    @Test
+    void finalDensityAllWavesOutputNoReadBenchAllowsLargerBatchBenchmarks() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        DensityFunctionCompiler.registerCommands(dispatcher);
+
+        assertEquals(512, integerArgument(openClCommand(dispatcher,
+                "compiledfinaldensityallwavesoutputnoreadbench").getChild("cells")).getMaximum());
+    }
+
+    @Test
+    void finalDensityAllWavesOutputTraceBenchAllowsLargerBatchBenchmarks() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        DensityFunctionCompiler.registerCommands(dispatcher);
+
+        assertEquals(512, integerArgument(openClCommand(dispatcher,
+                "compiledfinaldensityallwavesoutputtracebench").getChild("cells")).getMaximum());
+    }
+
     private static CommandNode<CommandSourceStack> openClCommand(CommandDispatcher<CommandSourceStack> dispatcher,
                                                                  String name) {
         return dispatcher.getRoot()

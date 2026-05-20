@@ -61,7 +61,7 @@ public final class DensityFunctionCompiler {
     private static final int OPENCL_FINAL_DENSITY_READ_BENCH_DEFAULT_CELLS = 16;
     private static final int OPENCL_FINAL_DENSITY_HYBRID_BENCH_CELLS = 1;
     private static final int OPENCL_FINAL_DENSITY_OUTPUT_BENCH_DEFAULT_CELLS = 16;
-    private static final int OPENCL_FINAL_DENSITY_OUTPUT_BENCH_MAX_CELLS = 64;
+    private static final int OPENCL_FINAL_DENSITY_OUTPUT_BENCH_MAX_CELLS = 512;
     private static final int OPENCL_FINAL_DENSITY_BENCH_MAX_CELLS = 8192;
 
     private static volatile boolean initialized;
@@ -840,6 +840,25 @@ public final class DensityFunctionCompiler {
                                         .executes(context -> runOpenClCompiledFinalDensityAllWavesOutputBench(
                                                 context.getSource(), 4, 8,
                                                 IntegerArgumentType.getInteger(context, "cells"), 8, 2))))
+                        .then(Commands.literal("compiledfinaldensityallwavesoutputnoreadbench")
+                                .executes(context -> runOpenClCompiledFinalDensityAllWavesOutputBench(
+                                        context.getSource(), 4, 8,
+                                        OPENCL_FINAL_DENSITY_OUTPUT_BENCH_DEFAULT_CELLS, 8, 2, false))
+                                .then(Commands.argument("cells", IntegerArgumentType.integer(
+                                                1, OPENCL_FINAL_DENSITY_OUTPUT_BENCH_MAX_CELLS))
+                                        .executes(context -> runOpenClCompiledFinalDensityAllWavesOutputBench(
+                                                context.getSource(), 4, 8,
+                                                IntegerArgumentType.getInteger(context, "cells"), 8, 2, false))))
+                        .then(Commands.literal("compiledfinaldensityallwavesoutputtracebench")
+                                .executes(context -> runOpenClCompiledFinalDensityAllWavesOutputBench(
+                                        context.getSource(), 4, 8,
+                                        OPENCL_FINAL_DENSITY_OUTPUT_BENCH_DEFAULT_CELLS, 8, 2, false, true))
+                                .then(Commands.argument("cells", IntegerArgumentType.integer(
+                                                1, OPENCL_FINAL_DENSITY_OUTPUT_BENCH_MAX_CELLS))
+                                        .executes(context -> runOpenClCompiledFinalDensityAllWavesOutputBench(
+                                                context.getSource(), 4, 8,
+                                                IntegerArgumentType.getInteger(context, "cells"), 8, 2,
+                                                false, true))))
                         .then(Commands.literal("compiledfinaldensitychunkcompile")
                                 .then(Commands.argument("chunk", IntegerArgumentType.integer(0, 255))
                                         .executes(context -> runOpenClCompiledFinalDensityChunkCompileProbe(
@@ -2132,12 +2151,31 @@ public final class DensityFunctionCompiler {
     private static int runOpenClCompiledFinalDensityAllWavesOutputBench(CommandSourceStack source, int cellWidth,
                                                                         int cellHeight, int cells, int iterations,
                                                                         int warmups) {
+        return runOpenClCompiledFinalDensityAllWavesOutputBench(
+                source, cellWidth, cellHeight, cells, iterations, warmups, true);
+    }
+
+    private static int runOpenClCompiledFinalDensityAllWavesOutputBench(CommandSourceStack source, int cellWidth,
+                                                                        int cellHeight, int cells, int iterations,
+                                                                        int warmups, boolean readback) {
+        return runOpenClCompiledFinalDensityAllWavesOutputBench(
+                source, cellWidth, cellHeight, cells, iterations, warmups, readback, false);
+    }
+
+    private static int runOpenClCompiledFinalDensityAllWavesOutputBench(CommandSourceStack source, int cellWidth,
+                                                                        int cellHeight, int cells, int iterations,
+                                                                        int warmups, boolean readback,
+                                                                        boolean traceStages) {
         DfcOpenClRuntime.OpenClCompiledPlan plan;
         List<OpenClCompiledPlanChunk> chunks;
         OpenClChunkWavePlan wavePlan;
         int[] chunkStartSlots;
         int[] chunkEndSlots;
-        String label = "finalDensity all waves output bench";
+        String label = traceStages
+                ? "finalDensity all waves output trace bench"
+                : readback
+                ? "finalDensity all waves output bench"
+                : "finalDensity all waves output no-read bench";
         try {
             plan = collectOpenClCompiledFinalDensityPlan(source);
             chunks = new ArrayList<>();
@@ -2169,10 +2207,15 @@ public final class DensityFunctionCompiler {
         int stalledChunks = countTrue(wavePlan.stalledChunks());
         return runOpenClDiagnostic(source, label, () -> {
             DfcOpenClRuntime.SlabVmCellBenchmark result =
-                    DfcOpenClRuntime.compiledPlanChunkAllWavesFusedFinalOutputBenchmark(
+                    traceStages
+                            ? DfcOpenClRuntime.compiledPlanChunkAllWavesFusedFinalOutputTraceBenchmark(
                             plan, chunkStartSlots, chunkEndSlots, waves,
                             directBlockedChunks, stalledChunks,
-                            cellWidth, cellHeight, cells, iterations, warmups);
+                            cellWidth, cellHeight, cells, iterations, warmups)
+                            : DfcOpenClRuntime.compiledPlanChunkAllWavesFusedFinalOutputBenchmark(
+                            plan, chunkStartSlots, chunkEndSlots, waves,
+                            directBlockedChunks, stalledChunks,
+                            cellWidth, cellHeight, cells, iterations, warmups, readback);
             return Component.literal(
                     "DFC OpenCL " + label + ": passed=" + result.passed()
                             + ", waves=" + waves.length

@@ -308,6 +308,61 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void finalOutputStageTraceListsTopGeneratedDependencyStages() {
+        DfcOpenClRuntime.FinalOutputTraceStageInfo[] infos = new DfcOpenClRuntime.FinalOutputTraceStageInfo[]{
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("wave", "wave:slotBuffer/src=10", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:5:foo/gen/src=100", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:6:bar/gen/src=100", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:7:baz/gen/src=100", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("root", "root:0:out/gen/src=100", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:19:vm/vm/bc=4/consts=2/buf=1", true)
+        };
+        long millis = 1_000_000L;
+
+        String trace = DfcOpenClRuntime.describeFinalOutputStageTraceTimes(
+                infos,
+                new long[]{10L * millis, 5L * millis, 30L * millis, 20L * millis, 7L * millis, 11L * millis},
+                4L * millis,
+                0L,
+                2);
+
+        assertTrue(trace.contains("generatedDepTop=3[dep:6:bar/gen/src=100=15.000; "
+                + "dep:7:baz/gen/src=100=10.000; dep:5:foo/gen/src=100=2.500]"));
+        assertTrue(trace.contains("generatedRootTop=1[root:0:out/gen/src=100=3.500]"));
+        assertTrue(trace.contains("vmStages=1[dep:19:vm/vm/bc=4/consts=2/buf=1=5.500]"));
+    }
+
+    @Test
+    void residualDependencyNoiseBatchOnlySelectsUnresolvedNoiseSlots() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[6];
+        computedSlots[4] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 1}, new double[0], null, null, "computed4");
+
+        boolean[] batch = DfcOpenClRuntime.residualDependencyNoiseBatchSlots(
+                new boolean[]{false, true, true, true, true, false},
+                new boolean[]{false, false, true, false, false, false},
+                computedSlots,
+                6);
+
+        assertArrayEquals(new boolean[]{false, true, false, true, false, false}, batch);
+    }
+
+    @Test
+    void finalOutputWaveTargetsFoldResidualNoiseDependencies() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[6];
+        computedSlots[4] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 1}, new double[0], null, null, "computed4");
+
+        boolean[] targets = DfcOpenClRuntime.finalOutputWaveTargetsWithResidualNoise(
+                new boolean[]{false, true, false, false, false, false},
+                new boolean[]{false, false, true, true, true, false},
+                computedSlots,
+                6);
+
+        assertArrayEquals(new boolean[]{false, true, true, true, false, false}, targets);
+    }
+
+    @Test
     void finalOutputExternalInputsOnlyIncludeReachableMarkerExterns() {
         DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
                 "reachable",

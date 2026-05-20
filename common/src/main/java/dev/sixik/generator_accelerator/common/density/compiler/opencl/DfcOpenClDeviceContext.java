@@ -1438,6 +1438,106 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
     }
 
+    synchronized FinalOutputTraceResult evalFinalOutputStagesToFinalOutputTrace(FinalOutputStage[] stages,
+                                                                                GeneratedNoiseKernel finalKernel,
+                                                                                SlabVmNoiseCellGridRequest request,
+                                                                                int slotBufferSlotCount,
+                                                                                boolean uploadInputs,
+                                                                                double[] initialSlotBuffer,
+                                                                                boolean readOutput) {
+        assertOpen();
+        validateNoiseCellGridRequest(request);
+        finalKernel.assertOpen();
+        if (slotBufferSlotCount <= 0) {
+            throw new IllegalArgumentException("slotBufferSlotCount must be positive");
+        }
+        int slotValues = Math.multiplyExact(request.n, slotBufferSlotCount);
+        if (initialSlotBuffer != null && initialSlotBuffer.length < slotValues) {
+            throw new IllegalArgumentException("initialSlotBuffer is shorter than n * slotBufferSlotCount");
+        }
+
+        ByteBuffer permutationsHost = null;
+        DoubleBuffer outHost = null;
+        int stageCount = stages == null ? 0 : stages.length;
+        long[] stageNanos = new long[stageCount];
+        long finalKernelNanos = 0L;
+        long readbackNanos = 0L;
+        long started = System.nanoTime();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer err = stack.callocInt(1);
+            boolean writeInputs = uploadInputs
+                    || !bufferReady(this.noisePermutationsBuffer, request.permutations.length, CL12.CL_MEM_READ_ONLY);
+            if (writeInputs) {
+                permutationsHost = MemoryUtil.memAlloc(request.permutations.length);
+                permutationsHost.put(request.permutations).flip();
+            }
+            if (readOutput) {
+                outHost = ensureHostDoubleBuffer(this.gridOutHostBuffer, request.n);
+            }
+
+            long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
+                    CL12.CL_MEM_READ_ONLY, err, "generated final output trace permutations");
+            long slotBufferBytes = doubleBytes(slotValues);
+            boolean writeInitialSlots = initialSlotBuffer != null
+                    && (uploadInputs || !bufferReady(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE));
+            long slotBuffer = ensureBuffer(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE, err, "generated final output trace slots");
+            long outBuffer = ensureBuffer(this.gridOutBuffer,
+                    doubleBytes(request.n), CL12.CL_MEM_WRITE_ONLY, err, "generated final output trace");
+            if (writeInputs) {
+                check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
+                        null, null), "clEnqueueWriteBuffer(generated final output trace permutations)");
+            }
+            if (writeInitialSlots) {
+                writeDoubleArray(slotBuffer, initialSlotBuffer,
+                        "clEnqueueWriteBuffer(generated final output trace initial slots)");
+            }
+
+            PointerBuffer globalWorkSize = stack.callocPointer(1);
+            globalWorkSize.put(0, request.n);
+            if (stages != null) {
+                for (int i = 0; i < stages.length; i++) {
+                    FinalOutputStage stage = stages[i];
+                    if (stage == null) {
+                        continue;
+                    }
+                    long stageStarted = System.nanoTime();
+                    if (stage.generated()) {
+                        enqueueGeneratedFinalOutputStage(stage.generatedKernel(), request,
+                                permutationsBuffer, slotBuffer, globalWorkSize);
+                    } else {
+                        enqueueSlabVmFinalOutputStage(stage, request, slotBufferSlotCount, slotBuffer,
+                                globalWorkSize, err);
+                    }
+                    check(CL12.clFinish(this.queue), "clFinish(generated final output trace stage)");
+                    stageNanos[i] = System.nanoTime() - stageStarted;
+                }
+            }
+
+            long finalStarted = System.nanoTime();
+            enqueueGeneratedFinalOutputKernel(finalKernel, request, permutationsBuffer, slotBuffer,
+                    outBuffer, globalWorkSize);
+            check(CL12.clFinish(this.queue), "clFinish(generated final output trace final)");
+            finalKernelNanos = System.nanoTime() - finalStarted;
+
+            if (readOutput) {
+                long readStarted = System.nanoTime();
+                outHost.clear();
+                outHost.limit(request.n);
+                check(CL12.clEnqueueReadBuffer(this.queue, outBuffer, true, 0L, outHost, null, null),
+                        "clEnqueueReadBuffer(generated final output trace)");
+                outHost.position(0);
+                outHost.get(request.out, 0, request.n);
+                readbackNanos = System.nanoTime() - readStarted;
+            }
+            return new FinalOutputTraceResult(
+                    System.nanoTime() - started, stageNanos, finalKernelNanos, readbackNanos);
+        } finally {
+            free(permutationsHost);
+        }
+    }
+
     private void enqueueGeneratedFinalOutputStage(GeneratedNoiseKernel generated,
                                                   SlabVmNoiseCellGridRequest request,
                                                   long permutationsBuffer,
@@ -2117,6 +2217,13 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     }
 
     record SlabVmResult(long elapsedNanos) {
+    }
+
+    record FinalOutputTraceResult(
+            long elapsedNanos,
+            long[] stageNanos,
+            long finalKernelNanos,
+            long readbackNanos) {
     }
 
     static final class FinalOutputStage implements AutoCloseable {
