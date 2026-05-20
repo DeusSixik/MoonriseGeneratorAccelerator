@@ -3,14 +3,14 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.litho
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
-import dev.worldgen.lithostitched.worldgen.bandlands.Bandlands;
-import net.minecraft.world.level.block.Block;
+import dev.worldgen.lithostitched.impl.worldgen.bandlands.Bandlands;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.BitSet;
 
 public class VectorBandlandsRule implements VectorRule {
     private final Bandlands bandlands;
+
     public VectorBandlandsRule(Bandlands bandlands) {
         this.bandlands = bandlands;
     }

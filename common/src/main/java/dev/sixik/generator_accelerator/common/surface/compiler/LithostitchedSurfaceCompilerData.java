@@ -2,7 +2,7 @@ package dev.sixik.generator_accelerator.common.surface.compiler;
 
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
-import dev.worldgen.lithostitched.worldgen.bandlands.Bandlands;
+import dev.worldgen.lithostitched.impl.worldgen.bandlands.Bandlands;
 import dev.worldgen.lithostitched.worldgen.surface.condition.AllOfCondition;
 import dev.worldgen.lithostitched.worldgen.surface.condition.AnyOfCondition;
 import dev.worldgen.lithostitched.worldgen.surface.condition.BiomeCondition;
@@ -27,12 +27,13 @@ final class LithostitchedSurfaceCompilerData {
     @Nullable
     static SurfaceRuleNode compileRule(SurfaceRules.RuleSource ruleSource, SurfaceCompilerContext compiler) {
         if (ruleSource instanceof TransientMergedRule mergedRule) {
-            if (mergedRule.sequence().size() == 1) {
-                return compiler.compileRule(mergedRule.sequence().getFirst());
+            List<SurfaceRules.RuleSource> rules = mergedRule.rules();
+            if (rules.size() == 1) {
+                return compiler.compileRule(rules.getFirst());
             }
 
-            List<SurfaceRuleNode> compiledList = new ArrayList<>(mergedRule.sequence().size() + 1);
-            for (SurfaceRules.RuleSource childRule : mergedRule.sequence()) {
+            List<SurfaceRuleNode> compiledList = new ArrayList<>(rules.size() + 1);
+            for (SurfaceRules.RuleSource childRule : rules) {
                 compiledList.add(compiler.compileRule(childRule));
             }
             compiledList.add(compiler.compileRule(mergedRule.original()));
