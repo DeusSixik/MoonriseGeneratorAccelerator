@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -945,6 +946,42 @@ class DfcOpenClGeneratedNoiseSourceTest {
         assertArrayEquals(new int[]{-1}, prefill.tableFirstNoiseX());
         assertArrayEquals(new int[]{5}, prefill.tableFirstNoiseZ());
         assertEquals(1, prefill.slotCount());
+    }
+
+    @Test
+    void finalOutputDirectExternalSlotBufferUsesFlatCache2dPrefillInsteadOfCpuCopy() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, 2, 0, 0));
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        3, 0, 0, 0, 64, 0, 4, 2, 1,
+                        0.0D, new double[0], 32);
+        double[] originalExternalSlotValues = new double[request.n() * request.slotCount()];
+        Arrays.fill(originalExternalSlotValues, 99.0D);
+
+        DfcOpenClRuntime.FinalOutputSlotBufferInputs inputs =
+                DfcOpenClRuntime.fillFinalOutputSlotBufferInputsForTest(
+                        plan, request, new boolean[]{false, true, false},
+                        originalExternalSlotValues, new int[]{-1, 0, -1}, 1);
+
+        assertNotNull(inputs.flatCache2dPrefill());
+        assertArrayEquals(new double[request.n()], inputs.values());
+        assertEquals("", inputs.flatCache2dFallbackReason());
+    }
+
+    @Test
+    void directExternalSlotBufferInputsConstantIsFalseWhenFlatCache2dUploadIsNeeded() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(
+                new FlatCache2dDensityFunction(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, 2, 0, 0));
+
+        assertFalse(DfcOpenClRuntime.directExternalSlotBufferInputsConstant(plan, new int[]{1}));
     }
 
     @Test

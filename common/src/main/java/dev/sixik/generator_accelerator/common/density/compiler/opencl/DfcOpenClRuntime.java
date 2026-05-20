@@ -2136,6 +2136,8 @@ public final class DfcOpenClRuntime {
                     slotBufferIndices, slotBufferSlotCount, traceStages);
             double[] initialSlotBuffer = initialInputs.values();
             FinalOutputExternalPrefillTrace externalPrefillTrace = initialInputs.trace();
+            DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill = initialInputs.flatCache2dPrefill();
+            String flatCache2dFallbackReason = initialInputs.flatCache2dFallbackReason();
             long externalPrefillNanos = System.nanoTime() - externalPrefillStarted;
 
             long compileStarted = System.nanoTime();
@@ -2149,10 +2151,27 @@ public final class DfcOpenClRuntime {
                 addFinalOutputStage(context, residualSource, finalOutputStages, stageKernels);
             }
             finalKernel = context.compileGeneratedNoiseKernel(finalSource.source());
+            DfcOpenClDeviceContext.GeneratedNoiseKernel flatCache2dKernel = null;
+            if (flatCache2dPrefill != null) {
+                try {
+                    flatCache2dKernel = context.compileGeneratedNoiseKernelCached(
+                            DfcOpenClGeneratedNoiseSource.buildFlatCache2dSlotBufferPrefill().source());
+                } catch (Throwable throwable) {
+                    flatCache2dFallbackReason = "FlatCache 2D prefill compile failed: " + errorMessage(throwable);
+                    long fallbackStarted = System.nanoTime();
+                    initialInputs = fillFinalOutputSlotBufferInputsCpuFallback(
+                            plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
+                            slotBufferIndices, slotBufferSlotCount, traceStages, flatCache2dFallbackReason);
+                    initialSlotBuffer = initialInputs.values();
+                    externalPrefillTrace = initialInputs.trace();
+                    flatCache2dPrefill = null;
+                    externalPrefillNanos += System.nanoTime() - fallbackStarted;
+                }
+            }
             long compileNanos = System.nanoTime() - compileStarted;
             DfcOpenClDeviceContext.FinalOutputStage[] outputStages =
                     finalOutputStages.toArray(new DfcOpenClDeviceContext.FinalOutputStage[0]);
-            int kernelsCompiled = stageKernels.size() + 1;
+            int kernelsCompiled = stageKernels.size() + 1 + (flatCache2dKernel == null ? 0 : 1);
             int deviceVmStages = countDeviceVmStages(outputStages);
             String deviceVmStageList = describeDeviceVmStageBuilds(
                     plan, residualDependencySources, residualSources, 8);
@@ -2164,10 +2183,30 @@ public final class DfcOpenClRuntime {
             if (checkOnly) {
                 DfcOpenClStats.recordSlabAttempt(out.length);
                 DfcOpenClStats.recordSlabSubmitted();
-                DfcOpenClDeviceContext.SlabVmResult validationRun =
-                        context.evalFinalOutputStagesToFinalOutput(
-                                outputStages, finalKernel, request,
-                                slotBufferSlotCount, true, initialSlotBuffer, null, null, true);
+                DfcOpenClDeviceContext.SlabVmResult validationRun;
+                try {
+                    validationRun = context.evalFinalOutputStagesToFinalOutput(
+                            outputStages, finalKernel, request,
+                            slotBufferSlotCount, true, initialSlotBuffer,
+                            flatCache2dKernel, flatCache2dPrefill, true);
+                } catch (Throwable throwable) {
+                    if (flatCache2dPrefill == null) {
+                        throw new IllegalStateException(errorMessage(throwable), throwable);
+                    }
+                    flatCache2dFallbackReason = "FlatCache 2D prefill dispatch failed: " + errorMessage(throwable);
+                    long fallbackStarted = System.nanoTime();
+                    initialInputs = fillFinalOutputSlotBufferInputsCpuFallback(
+                            plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
+                            slotBufferIndices, slotBufferSlotCount, traceStages, flatCache2dFallbackReason);
+                    initialSlotBuffer = initialInputs.values();
+                    externalPrefillTrace = initialInputs.trace();
+                    externalPrefillNanos += System.nanoTime() - fallbackStarted;
+                    flatCache2dPrefill = null;
+                    flatCache2dKernel = null;
+                    validationRun = context.evalFinalOutputStagesToFinalOutput(
+                            outputStages, finalKernel, request,
+                            slotBufferSlotCount, true, initialSlotBuffer, null, null, true);
+                }
                 DfcOpenClStats.recordSlabSuccess(validationRun.elapsedNanos());
                 FinalOutputValidation validation = validateCompiledPlanFinalOutput(
                         out, request, descriptor, plan, originalExternalSlotValues, slotCount, 257);
@@ -2256,40 +2295,63 @@ public final class DfcOpenClRuntime {
                 DfcOpenClStats.recordSlabSubmitted();
                 boolean runReadOutput = readOutput || i == 0;
                 long elapsedNanos;
-                if (traceStages && i >= measuredStart) {
-                    DfcOpenClDeviceContext.FinalOutputTraceResult trace =
-                            context.evalFinalOutputStagesToFinalOutputTrace(
-                                    outputStages, finalKernel, request,
-                                    slotBufferSlotCount, false, initialSlotBuffer, null, null, runReadOutput);
-                    elapsedNanos = trace.elapsedNanos();
-                    long[] stageNanos = trace.stageNanos();
-                    for (int stage = 0; stage < Math.min(traceStageNanos.length, stageNanos.length); stage++) {
-                        traceStageNanos[stage] += stageNanos[stage];
+                try {
+                    if (traceStages && i >= measuredStart) {
+                        DfcOpenClDeviceContext.FinalOutputTraceResult trace =
+                                context.evalFinalOutputStagesToFinalOutputTrace(
+                                        outputStages, finalKernel, request,
+                                        slotBufferSlotCount, false, initialSlotBuffer,
+                                        flatCache2dKernel, flatCache2dPrefill, runReadOutput);
+                        elapsedNanos = trace.elapsedNanos();
+                        long[] stageNanos = trace.stageNanos();
+                        for (int stage = 0; stage < Math.min(traceStageNanos.length, stageNanos.length); stage++) {
+                            traceStageNanos[stage] += stageNanos[stage];
+                        }
+                        long[] stageSubmitNanos = trace.stageSubmitNanos();
+                        for (int stage = 0; stage < Math.min(traceStageSubmitNanos.length,
+                                stageSubmitNanos.length); stage++) {
+                            traceStageSubmitNanos[stage] += stageSubmitNanos[stage];
+                        }
+                        long[] stageWaitNanos = trace.stageWaitNanos();
+                        for (int stage = 0; stage < Math.min(traceStageWaitNanos.length,
+                                stageWaitNanos.length); stage++) {
+                            traceStageWaitNanos[stage] += stageWaitNanos[stage];
+                        }
+                        traceInputWriteNanos += trace.inputWriteNanos();
+                        traceInitialSlotWriteNanos += trace.initialSlotWriteNanos();
+                        traceFinalKernelNanos += trace.finalKernelNanos();
+                        traceFinalSubmitNanos += trace.finalSubmitNanos();
+                        traceFinalWaitNanos += trace.finalWaitNanos();
+                        traceReadbackNanos += trace.readbackNanos();
+                    } else {
+                        DfcOpenClDeviceContext.SlabVmResult result = i == 0
+                                ? context.evalFinalOutputStagesToFinalOutput(
+                                outputStages, finalKernel, request,
+                                slotBufferSlotCount, true, initialSlotBuffer,
+                                flatCache2dKernel, flatCache2dPrefill, runReadOutput)
+                                : context.evalFinalOutputStagesToFinalOutput(
+                                outputStages, finalKernel, request,
+                                slotBufferSlotCount, false, initialSlotBuffer,
+                                flatCache2dKernel, flatCache2dPrefill, runReadOutput);
+                        elapsedNanos = result.elapsedNanos();
                     }
-                    long[] stageSubmitNanos = trace.stageSubmitNanos();
-                    for (int stage = 0; stage < Math.min(traceStageSubmitNanos.length,
-                            stageSubmitNanos.length); stage++) {
-                        traceStageSubmitNanos[stage] += stageSubmitNanos[stage];
+                } catch (Throwable throwable) {
+                    if (flatCache2dPrefill == null) {
+                        throw new IllegalStateException(errorMessage(throwable), throwable);
                     }
-                    long[] stageWaitNanos = trace.stageWaitNanos();
-                    for (int stage = 0; stage < Math.min(traceStageWaitNanos.length,
-                            stageWaitNanos.length); stage++) {
-                        traceStageWaitNanos[stage] += stageWaitNanos[stage];
-                    }
-                    traceInputWriteNanos += trace.inputWriteNanos();
-                    traceInitialSlotWriteNanos += trace.initialSlotWriteNanos();
-                    traceFinalKernelNanos += trace.finalKernelNanos();
-                    traceFinalSubmitNanos += trace.finalSubmitNanos();
-                    traceFinalWaitNanos += trace.finalWaitNanos();
-                    traceReadbackNanos += trace.readbackNanos();
-                } else {
-                    DfcOpenClDeviceContext.SlabVmResult result = i == 0
-                            ? context.evalFinalOutputStagesToFinalOutput(
+                    flatCache2dFallbackReason = "FlatCache 2D prefill dispatch failed: " + errorMessage(throwable);
+                    long fallbackStarted = System.nanoTime();
+                    initialInputs = fillFinalOutputSlotBufferInputsCpuFallback(
+                            plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
+                            slotBufferIndices, slotBufferSlotCount, traceStages, flatCache2dFallbackReason);
+                    initialSlotBuffer = initialInputs.values();
+                    externalPrefillTrace = initialInputs.trace();
+                    externalPrefillNanos += System.nanoTime() - fallbackStarted;
+                    flatCache2dPrefill = null;
+                    flatCache2dKernel = null;
+                    DfcOpenClDeviceContext.SlabVmResult result = context.evalFinalOutputStagesToFinalOutput(
                             outputStages, finalKernel, request,
-                            slotBufferSlotCount, true, initialSlotBuffer, null, null, runReadOutput)
-                            : context.evalFinalOutputStagesToFinalOutput(
-                            outputStages, finalKernel, request,
-                            slotBufferSlotCount, false, initialSlotBuffer, null, null, runReadOutput);
+                            slotBufferSlotCount, true, initialSlotBuffer, null, null, runReadOutput);
                     elapsedNanos = result.elapsedNanos();
                 }
                 DfcOpenClStats.recordSlabSuccess(elapsedNanos);
@@ -4792,6 +4854,22 @@ public final class DfcOpenClRuntime {
             int[] slotBufferIndices,
             int slotBufferSlotCount,
             boolean traceTimings) {
+        return fillFinalOutputSlotBufferInputs(
+                plan, request, descriptor, inputSlots, originalExternalSlotValues, slotBufferIndices,
+                slotBufferSlotCount, traceTimings, true, "");
+    }
+
+    private static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputs(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            boolean[] inputSlots,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount,
+            boolean traceTimings,
+            boolean allowFlatCache2dPrefill,
+            String flatCache2dFallbackReason) {
         long totalStarted = traceTimings ? System.nanoTime() : 0L;
         long classifyStarted = traceTimings ? totalStarted : 0L;
         int[] directExternalInputSlots = finalOutputDirectExternalInputSlots(
@@ -4800,7 +4878,8 @@ public final class DfcOpenClRuntime {
         if (directExternalInputSlots != null) {
             return fillFinalOutputDirectExternalSlotBufferInputs(
                     plan, request, originalExternalSlotValues, slotBufferIndices, slotBufferSlotCount,
-                    directExternalInputSlots, traceTimings, totalStarted, classifyNanos);
+                    directExternalInputSlots, traceTimings, totalStarted, classifyNanos,
+                    allowFlatCache2dPrefill, flatCache2dFallbackReason);
         }
         if (traceTimings) {
             return fillFinalOutputSlotBufferInputsTrace(
@@ -4833,6 +4912,33 @@ public final class DfcOpenClRuntime {
             }
         }
         return new FinalOutputSlotBufferInputs(values, null);
+    }
+
+    static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputsForTest(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            boolean[] inputSlots,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount) {
+        return fillFinalOutputSlotBufferInputs(
+                plan, request, null, inputSlots, originalExternalSlotValues,
+                slotBufferIndices, slotBufferSlotCount, false);
+    }
+
+    private static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputsCpuFallback(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            boolean[] inputSlots,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount,
+            boolean traceTimings,
+            String fallbackReason) {
+        return fillFinalOutputSlotBufferInputs(
+                plan, request, descriptor, inputSlots, originalExternalSlotValues,
+                slotBufferIndices, slotBufferSlotCount, traceTimings, false, fallbackReason);
     }
 
     private static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputsTrace(
@@ -4932,7 +5038,9 @@ public final class DfcOpenClRuntime {
             int[] directExternalInputSlots,
             boolean traceTimings,
             long totalStarted,
-            long classifyNanos) {
+            long classifyNanos,
+            boolean allowFlatCache2dPrefill,
+            String flatCache2dFallbackReason) {
         long allocateStarted = traceTimings ? System.nanoTime() : 0L;
         double[] values = new double[Math.multiplyExact(request.n(), slotBufferSlotCount)];
         long allocateNanos = traceTimings ? System.nanoTime() - allocateStarted : 0L;
@@ -4950,8 +5058,18 @@ public final class DfcOpenClRuntime {
         if (traceTimings) {
             indexNanos = System.nanoTime() - indexStarted;
         }
-        boolean directCompute = directExternalSlotBufferInputsConstant(plan, directExternalInputSlots);
-        if (traceTimings) {
+        ExternalInputClassification classification = allowFlatCache2dPrefill
+                ? classifyDirectExternalSlotBufferInputs(plan, directExternalInputSlots, compactIndices)
+                : null;
+        DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill = null;
+        boolean cpuFallback = classification == null || classification.requiresCpuFallback();
+        if (!cpuFallback) {
+            flatCache2dPrefill = flatCache2dPrefill(classification);
+        } else if (classification != null && (flatCache2dFallbackReason == null || flatCache2dFallbackReason.isEmpty())) {
+            flatCache2dFallbackReason = externalInputFallbackReason(classification);
+        }
+        if (traceTimings && cpuFallback) {
+            boolean directCompute = directExternalSlotBufferInputsConstant(plan, directExternalInputSlots);
             for (int slotIndex = 0; slotIndex < directExternalInputSlots.length; slotIndex++) {
                 int slot = directExternalInputSlots[slotIndex];
                 long slotStarted = System.nanoTime();
@@ -4969,19 +5087,38 @@ public final class DfcOpenClRuntime {
                     slotValues[slot] += request.n();
                 }
             }
-        } else if (directCompute) {
-            fillDirectExternalSlotBufferInputs(
-                    plan, request, values, directExternalInputSlots, compactIndices);
+        } else if (cpuFallback) {
+            if (directExternalSlotBufferInputsConstant(plan, directExternalInputSlots)) {
+                fillDirectExternalSlotBufferInputs(
+                        plan, request, values, directExternalInputSlots, compactIndices);
+            } else {
+                copyDirectExternalSlotBufferInputs(
+                        request, originalExternalSlotValues, values, directExternalInputSlots, compactIndices);
+            }
         } else {
-            copyDirectExternalSlotBufferInputs(
-                    request, originalExternalSlotValues, values, directExternalInputSlots, compactIndices);
+            for (ExternalInputSlot slot : classification.slots()) {
+                long slotStarted = traceTimings ? System.nanoTime() : 0L;
+                if (slot.kind() == ExternalInputKind.CONSTANT) {
+                    fillConstantDirectExternalSlotBufferInput(request, values, slot.constantValue(),
+                            slot.compactIndex());
+                }
+                if (traceTimings) {
+                    long slotElapsed = System.nanoTime() - slotStarted;
+                    copyNanos += slotElapsed;
+                    if (slot.slot() >= 0 && slot.slot() < slotNanos.length) {
+                        slotNanos[slot.slot()] += slotElapsed;
+                        slotValues[slot.slot()] += request.n();
+                    }
+                }
+            }
         }
         FinalOutputExternalPrefillTrace trace = traceTimings
                 ? new FinalOutputExternalPrefillTrace(
                 System.nanoTime() - totalStarted, classifyNanos, allocateNanos, traceAllocateNanos,
                 0L, 0L, 0L, 0L, indexNanos, copyNanos, slotNanos, slotValues)
                 : null;
-        return new FinalOutputSlotBufferInputs(values, trace);
+        return new FinalOutputSlotBufferInputs(values, trace, flatCache2dPrefill,
+                flatCache2dFallbackReason == null ? "" : flatCache2dFallbackReason);
     }
 
     static boolean directExternalSlotBufferInputsConstant(OpenClCompiledPlan plan, int[] slots) {
@@ -5199,9 +5336,7 @@ public final class DfcOpenClRuntime {
         int targetIndex = Math.multiplyExact(compactIndex, n);
         double constantValue = constantDensityFunctionValue(extern);
         if (!Double.isNaN(constantValue)) {
-            if (constantValue != 0.0D) {
-                Arrays.fill(values, targetIndex, targetIndex + n, constantValue);
-            }
+            fillConstantDirectExternalSlotBufferInput(request, values, constantValue, compactIndex);
             return;
         }
         MutableFunctionContext context = new MutableFunctionContext();
@@ -5212,6 +5347,29 @@ public final class DfcOpenClRuntime {
             context.set(bx, by, bz);
             values[targetIndex + element] = extern.compute(context);
         }
+    }
+
+    private static void fillConstantDirectExternalSlotBufferInput(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] values,
+            double constantValue,
+            int compactIndex) {
+        int n = request.n();
+        int targetIndex = Math.multiplyExact(compactIndex, n);
+        if (constantValue != 0.0D) {
+            Arrays.fill(values, targetIndex, targetIndex + n, constantValue);
+        }
+    }
+
+    private static String externalInputFallbackReason(ExternalInputClassification classification) {
+        for (ExternalInputSlot slot : classification.slots()) {
+            if (slot.kind() == ExternalInputKind.CPU_FALLBACK
+                    && slot.fallbackReason() != null
+                    && !slot.fallbackReason().isEmpty()) {
+                return "slot " + slot.slot() + ": " + slot.fallbackReason();
+            }
+        }
+        return "";
     }
 
     static void copyDirectExternalSlotBufferInputs(
@@ -7612,7 +7770,13 @@ public final class DfcOpenClRuntime {
     private record FinalOutputExternalPrefillSlotTime(int slot, String label, long nanos, int values) {
     }
 
-    private record FinalOutputSlotBufferInputs(double[] values, FinalOutputExternalPrefillTrace trace) {
+    record FinalOutputSlotBufferInputs(double[] values,
+                                       FinalOutputExternalPrefillTrace trace,
+                                       DfcOpenClDeviceContext.FlatCache2dPrefill flatCache2dPrefill,
+                                       String flatCache2dFallbackReason) {
+        FinalOutputSlotBufferInputs(double[] values, FinalOutputExternalPrefillTrace trace) {
+            this(values, trace, null, "");
+        }
     }
 
     enum ExternalInputKind {
