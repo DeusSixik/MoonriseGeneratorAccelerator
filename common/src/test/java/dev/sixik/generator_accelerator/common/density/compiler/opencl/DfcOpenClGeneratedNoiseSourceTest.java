@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.junit.jupiter.api.Test;
 
@@ -656,11 +658,81 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void directExternalSlotBufferCopyGathersRowMajorInputsIntoSlotMajorCompactBuffer() {
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        5, 0, 0,
+                        0, 0, 0,
+                        1, 1, 1,
+                        0.0D, new double[0], 3);
+        double[] rowMajorExternalValues = new double[]{
+                0.0D, 1.0D, 2.0D, 3.0D, 4.0D,
+                10.0D, 11.0D, 12.0D, 13.0D, 14.0D,
+                20.0D, 21.0D, 22.0D, 23.0D, 24.0D
+        };
+        double[] compactSlotMajorValues = new double[6];
+
+        DfcOpenClRuntime.copyDirectExternalSlotBufferInputs(
+                request, rowMajorExternalValues, compactSlotMajorValues,
+                new int[]{1, 4}, new int[]{0, 1});
+
+        assertArrayEquals(
+                new double[]{1.0D, 11.0D, 21.0D, 4.0D, 14.0D, 24.0D},
+                compactSlotMajorValues);
+    }
+
+    @Test
     void compiledPlanExternalSlotIndicesRespectUsedSlotLimit() {
         assertArrayEquals(new int[]{0, 2}, DfcOpenClRuntime.compiledPlanExternalSlotIndices(
                 new boolean[]{true, false, true, true}, 3));
         assertArrayEquals(new int[0], DfcOpenClRuntime.compiledPlanExternalSlotIndices(
                 new boolean[]{true, false, true}, 0));
+    }
+
+    @Test
+    void externalSlotPrefillComputesOnlyMarkerExternalSlotsInRowMajorOrder() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "external-prefill",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, true, false},
+                new int[]{-1, 0, -1, 1, -1},
+                new DensityFunction[]{
+                        new TestExternalDensityFunction(1_000.0D),
+                        new TestExternalDensityFunction(2_000.0D)
+                },
+                null);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        5, 0, 0,
+                        2, 10, 30,
+                        1, 2, 1,
+                        0.0D, new double[0], 2);
+
+        double[] values = DfcOpenClRuntime.fillExternalSlots(plan, request, 5);
+
+        assertArrayEquals(new double[]{
+                0.0D, 4_112.0D, 0.0D, 5_112.0D, 0.0D,
+                0.0D, 4_102.0D, 0.0D, 5_102.0D, 0.0D
+        }, values);
     }
 
     @Test
@@ -1220,5 +1292,27 @@ class DfcOpenClGeneratedNoiseSourceTest {
         int iz = plane % request.cellWidth();
         int cellZ = cell >> 5;
         return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
+    }
+
+    private record TestExternalDensityFunction(double baseValue) implements DensityFunction.SimpleFunction {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            return this.baseValue + context.blockX() + context.blockY() * 10.0D + context.blockZ() * 100.0D;
+        }
+
+        @Override
+        public double minValue() {
+            return -1_000_000.0D;
+        }
+
+        @Override
+        public double maxValue() {
+            return 1_000_000.0D;
+        }
+
+        @Override
+        public net.minecraft.util.KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            return DensityFunctions.zero().codec();
+        }
     }
 }
