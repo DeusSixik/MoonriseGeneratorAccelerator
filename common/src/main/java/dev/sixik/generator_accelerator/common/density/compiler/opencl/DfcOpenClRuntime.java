@@ -5079,6 +5079,33 @@ public final class DfcOpenClRuntime {
         return values[0];
     }
 
+    static void fillFlatCache2dSlotBufferInputsForTest(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            ExternalInputClassification classification,
+            double[] values) {
+        int n = request.n();
+        for (ExternalInputSlot slot : classification.slots()) {
+            if (slot.kind() != ExternalInputKind.FLAT_CACHE_2D) {
+                continue;
+            }
+            FlatCache2dTable table = classification.flatTables()[slot.tableIndex()];
+            int targetIndex = Math.multiplyExact(slot.compactIndex(), n);
+            if (values.length < targetIndex + n) {
+                throw new IllegalArgumentException("FlatCache 2D output buffer is too small");
+            }
+            for (int element = 0; element < n; element++) {
+                int blockX = (int) cellBlockX(element, request);
+                int blockZ = (int) cellBlockZ(element, request);
+                int localX = (blockX >> 2) - table.firstNoiseX();
+                int localZ = (blockZ >> 2) - table.firstNoiseZ();
+                if (localX < 0 || localZ < 0 || localX >= table.side() || localZ >= table.side()) {
+                    continue;
+                }
+                values[targetIndex + element] = table.values()[localX * table.side() + localZ];
+            }
+        }
+    }
+
     static void fillDirectExternalSlotBufferInputs(
             OpenClCompiledPlan plan,
             DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,

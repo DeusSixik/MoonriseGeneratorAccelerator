@@ -901,6 +901,32 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void flatCache2dCpuPrefillMatchesExistingExternalComputePath() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        FlatCache2dDensityFunction extern = new FlatCache2dDensityFunction(
+                new double[]{10.0D, 11.0D, 12.0D, 13.0D}, 2, 0, 7);
+        DfcOpenClRuntime.OpenClCompiledPlan plan = openClPlanWithOneExternal(extern);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        3, 0, 0, 0, 64, 28, 4, 2, 1,
+                        0.0D, new double[0], 32);
+        DfcOpenClRuntime.ExternalInputClassification classification =
+                DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
+        double[] actual = new double[request.n()];
+
+        DfcOpenClRuntime.fillFlatCache2dSlotBufferInputsForTest(request, classification, actual);
+
+        double[] rowMajor = DfcOpenClRuntime.fillExternalSlots(plan, request, 3);
+        double[] expected = new double[request.n()];
+        DfcOpenClRuntime.copyDirectExternalSlotBufferInputs(request, rowMajor, expected, new int[]{1}, new int[]{0});
+        assertArrayEquals(expected, actual);
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
