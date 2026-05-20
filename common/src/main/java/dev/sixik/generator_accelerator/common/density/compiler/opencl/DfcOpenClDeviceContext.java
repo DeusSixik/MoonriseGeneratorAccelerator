@@ -22,6 +22,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private final long slabVmKernel;
     private final long slabVmCoordsKernel;
     private final long slabVmCellGridKernel;
+    private final long slabVmCellGridSlotBufferKernel;
     private final long slabVmFillDemoSlotsKernel;
     private final long slabVmFillNoiseSlotsKernel;
     private final long slabVmFillNoiseSlotsBySlotKernel;
@@ -61,6 +62,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     private DfcOpenClDeviceContext(DfcOpenClDeviceEnumerator.Candidate candidate, String buildLog,
                                    long context, long queue, long program, long slabVmKernel,
                                    long slabVmCoordsKernel, long slabVmCellGridKernel,
+                                   long slabVmCellGridSlotBufferKernel,
                                    long slabVmFillDemoSlotsKernel, long slabVmFillNoiseSlotsKernel,
                                    long slabVmFillNoiseSlotsBySlotKernel, long slabVmDirectDemoKernel,
                                    long slabVmDirectNoiseKernel) {
@@ -72,6 +74,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         this.slabVmKernel = slabVmKernel;
         this.slabVmCoordsKernel = slabVmCoordsKernel;
         this.slabVmCellGridKernel = slabVmCellGridKernel;
+        this.slabVmCellGridSlotBufferKernel = slabVmCellGridSlotBufferKernel;
         this.slabVmFillDemoSlotsKernel = slabVmFillDemoSlotsKernel;
         this.slabVmFillNoiseSlotsKernel = slabVmFillNoiseSlotsKernel;
         this.slabVmFillNoiseSlotsBySlotKernel = slabVmFillNoiseSlotsBySlotKernel;
@@ -87,6 +90,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         long slabVmKernel = 0L;
         long slabVmCoordsKernel = 0L;
         long slabVmCellGridKernel = 0L;
+        long slabVmCellGridSlotBufferKernel = 0L;
         long slabVmFillDemoSlotsKernel = 0L;
         long slabVmFillNoiseSlotsKernel = 0L;
         long slabVmFillNoiseSlotsBySlotKernel = 0L;
@@ -123,6 +127,9 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             check(err.get(0), "clCreateKernel(dfc_slab_vm_eval_coords)");
             slabVmCellGridKernel = CL12.clCreateKernel(program, "dfc_slab_vm_eval_cell_grid", err);
             check(err.get(0), "clCreateKernel(dfc_slab_vm_eval_cell_grid)");
+            slabVmCellGridSlotBufferKernel = CL12.clCreateKernel(program,
+                    "dfc_slab_vm_eval_cell_grid_slot_buffer", err);
+            check(err.get(0), "clCreateKernel(dfc_slab_vm_eval_cell_grid_slot_buffer)");
             slabVmFillDemoSlotsKernel = CL12.clCreateKernel(program, "dfc_slab_vm_fill_demo_slots", err);
             check(err.get(0), "clCreateKernel(dfc_slab_vm_fill_demo_slots)");
             slabVmFillNoiseSlotsKernel = CL12.clCreateKernel(program, "dfc_slab_vm_fill_noise_slots", err);
@@ -136,7 +143,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             check(err.get(0), "clCreateKernel(dfc_slab_vm_eval_cell_grid_direct_noise)");
 
             return new DfcOpenClDeviceContext(candidate, trimBuildLog(buildLog), context, queue, program, slabVmKernel,
-                    slabVmCoordsKernel, slabVmCellGridKernel, slabVmFillDemoSlotsKernel,
+                    slabVmCoordsKernel, slabVmCellGridKernel, slabVmCellGridSlotBufferKernel, slabVmFillDemoSlotsKernel,
                     slabVmFillNoiseSlotsKernel, slabVmFillNoiseSlotsBySlotKernel, slabVmDirectDemoKernel,
                     slabVmDirectNoiseKernel);
         } catch (Throwable throwable) {
@@ -145,6 +152,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             releaseKernel(slabVmFillNoiseSlotsBySlotKernel);
             releaseKernel(slabVmFillNoiseSlotsKernel);
             releaseKernel(slabVmFillDemoSlotsKernel);
+            releaseKernel(slabVmCellGridSlotBufferKernel);
             releaseKernel(slabVmCellGridKernel);
             releaseKernel(slabVmCoordsKernel);
             releaseKernel(slabVmKernel);
@@ -1343,6 +1351,250 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
     }
 
+    synchronized SlabVmResult evalFinalOutputStagesToFinalOutput(FinalOutputStage[] stages,
+                                                                 GeneratedNoiseKernel finalKernel,
+                                                                 SlabVmNoiseCellGridRequest request,
+                                                                 int slotBufferSlotCount,
+                                                                 boolean uploadInputs,
+                                                                 double[] initialSlotBuffer,
+                                                                 boolean readOutput) {
+        assertOpen();
+        validateNoiseCellGridRequest(request);
+        finalKernel.assertOpen();
+        if (slotBufferSlotCount <= 0) {
+            throw new IllegalArgumentException("slotBufferSlotCount must be positive");
+        }
+        int slotValues = Math.multiplyExact(request.n, slotBufferSlotCount);
+        if (initialSlotBuffer != null && initialSlotBuffer.length < slotValues) {
+            throw new IllegalArgumentException("initialSlotBuffer is shorter than n * slotBufferSlotCount");
+        }
+
+        ByteBuffer permutationsHost = null;
+        DoubleBuffer outHost = null;
+        long started = System.nanoTime();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer err = stack.callocInt(1);
+            boolean writeInputs = uploadInputs
+                    || !bufferReady(this.noisePermutationsBuffer, request.permutations.length, CL12.CL_MEM_READ_ONLY);
+            if (writeInputs) {
+                permutationsHost = MemoryUtil.memAlloc(request.permutations.length);
+                permutationsHost.put(request.permutations).flip();
+            }
+            if (readOutput) {
+                outHost = ensureHostDoubleBuffer(this.gridOutHostBuffer, request.n);
+            }
+
+            long permutationsBuffer = ensureBuffer(this.noisePermutationsBuffer, request.permutations.length,
+                    CL12.CL_MEM_READ_ONLY, err, "generated final output permutations");
+            long slotBufferBytes = doubleBytes(slotValues);
+            boolean writeInitialSlots = initialSlotBuffer != null
+                    && (uploadInputs || !bufferReady(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE));
+            long slotBuffer = ensureBuffer(this.generatedSlotBuffer, slotBufferBytes,
+                    CL12.CL_MEM_READ_WRITE, err, "generated final output slots");
+            long outBuffer = ensureBuffer(this.gridOutBuffer,
+                    doubleBytes(request.n), CL12.CL_MEM_WRITE_ONLY, err, "generated final output");
+            if (writeInputs) {
+                check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
+                        null, null), "clEnqueueWriteBuffer(generated final output permutations)");
+            }
+            if (writeInitialSlots) {
+                writeDoubleArray(slotBuffer, initialSlotBuffer,
+                        "clEnqueueWriteBuffer(generated final output initial slots)");
+            }
+
+            PointerBuffer globalWorkSize = stack.callocPointer(1);
+            globalWorkSize.put(0, request.n);
+            if (stages != null) {
+                for (FinalOutputStage stage : stages) {
+                    if (stage == null) {
+                        continue;
+                    }
+                    if (stage.generated()) {
+                        enqueueGeneratedFinalOutputStage(stage.generatedKernel(), request,
+                                permutationsBuffer, slotBuffer, globalWorkSize);
+                    } else {
+                        enqueueSlabVmFinalOutputStage(stage, request, slotBufferSlotCount, slotBuffer,
+                                globalWorkSize, err);
+                    }
+                }
+            }
+
+            enqueueGeneratedFinalOutputKernel(finalKernel, request, permutationsBuffer, slotBuffer,
+                    outBuffer, globalWorkSize);
+
+            if (readOutput) {
+                outHost.clear();
+                outHost.limit(request.n);
+                check(CL12.clEnqueueReadBuffer(this.queue, outBuffer, true, 0L, outHost, null, null),
+                        "clEnqueueReadBuffer(generated final output)");
+                outHost.position(0);
+                outHost.get(request.out, 0, request.n);
+            }
+            check(CL12.clFinish(this.queue), "clFinish(generated final output)");
+            return new SlabVmResult(System.nanoTime() - started);
+        } finally {
+            free(permutationsHost);
+        }
+    }
+
+    private void enqueueGeneratedFinalOutputStage(GeneratedNoiseKernel generated,
+                                                  SlabVmNoiseCellGridRequest request,
+                                                  long permutationsBuffer,
+                                                  long slotBuffer,
+                                                  PointerBuffer globalWorkSize) {
+        generated.assertOpen();
+        int arg = 0;
+        check(CL12.clSetKernelArg1p(generated.kernel, arg++, permutationsBuffer),
+                "clSetKernelArg(generated final wave permutations)");
+        check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                "clSetKernelArg(generated final wave external slots)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockX),
+                "clSetKernelArg(generated final wave first x)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockY),
+                "clSetKernelArg(generated final wave first y)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.firstBlockZ),
+                "clSetKernelArg(generated final wave first z)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellWidth),
+                "clSetKernelArg(generated final wave cell width)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cellHeight),
+                "clSetKernelArg(generated final wave cell height)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
+                "clSetKernelArg(generated final wave cells)");
+        check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
+                "clSetKernelArg(generated final wave hoist)");
+        check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
+                "clSetKernelArg(generated final wave output slots)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg, request.n),
+                "clSetKernelArg(generated final wave n)");
+        check(CL12.clEnqueueNDRangeKernel(this.queue, generated.kernel, 1,
+                null, globalWorkSize, null, null, null),
+                "clEnqueueNDRangeKernel(generated final wave)");
+    }
+
+    private void enqueueSlabVmFinalOutputStage(FinalOutputStage stage,
+                                               SlabVmNoiseCellGridRequest request,
+                                               int slotBufferSlotCount,
+                                               long slotBuffer,
+                                               PointerBuffer globalWorkSize,
+                                               IntBuffer err) {
+        if (stage.bytecode() == null || stage.bytecode().length == 0) {
+            throw new IllegalArgumentException("final output VM stage bytecode is empty");
+        }
+        if (stage.targetSlotBufferIndex() < 0 || stage.targetSlotBufferIndex() >= slotBufferSlotCount) {
+            throw new IllegalArgumentException("final output VM target slot " + stage.targetSlotBufferIndex()
+                    + " outside compact slot count " + slotBufferSlotCount);
+        }
+        double[] constants = stage.constants() == null ? new double[0] : stage.constants();
+        ensureFinalOutputVmStageBuffers(stage, constants, err);
+
+        int arg = 0;
+        check(CL12.clSetKernelArg1p(this.slabVmCellGridSlotBufferKernel, arg++, stage.bytecodeBuffer()),
+                "clSetKernelArg(final VM bytecode)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, stage.bytecode().length),
+                "clSetKernelArg(final VM bytecode length)");
+        check(CL12.clSetKernelArg1p(this.slabVmCellGridSlotBufferKernel, arg++, stage.constantsBuffer()),
+                "clSetKernelArg(final VM constants)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, constants.length),
+                "clSetKernelArg(final VM constant count)");
+        check(CL12.clSetKernelArg1p(this.slabVmCellGridSlotBufferKernel, arg++, slotBuffer),
+                "clSetKernelArg(final VM slots)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, slotBufferSlotCount),
+                "clSetKernelArg(final VM slot count)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.n),
+                "clSetKernelArg(final VM row stride)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.firstBlockX),
+                "clSetKernelArg(final VM first x)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.firstBlockY),
+                "clSetKernelArg(final VM first y)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.firstBlockZ),
+                "clSetKernelArg(final VM first z)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.cellWidth),
+                "clSetKernelArg(final VM cell width)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.cellHeight),
+                "clSetKernelArg(final VM cell height)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.cells),
+                "clSetKernelArg(final VM cells)");
+        check(CL12.clSetKernelArg1d(this.slabVmCellGridSlotBufferKernel, arg++, request.hoistBase),
+                "clSetKernelArg(final VM hoist)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, stage.targetSlotBufferIndex()),
+                "clSetKernelArg(final VM target slot)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg, request.n),
+                "clSetKernelArg(final VM n)");
+        check(CL12.clEnqueueNDRangeKernel(this.queue, this.slabVmCellGridSlotBufferKernel, 1,
+                null, globalWorkSize, null, null, null),
+                "clEnqueueNDRangeKernel(dfc_slab_vm_eval_cell_grid_slot_buffer)");
+    }
+
+    private void ensureFinalOutputVmStageBuffers(FinalOutputStage stage, double[] constants, IntBuffer err) {
+        if (stage.vmBuffersUploaded()) {
+            return;
+        }
+        ByteBuffer bytecodeHost = null;
+        DoubleBuffer constantsHost = null;
+        long bytecodeBuffer = 0L;
+        long constantsBuffer = 0L;
+        try {
+            bytecodeHost = MemoryUtil.memAlloc(stage.bytecode().length);
+            bytecodeHost.put(stage.bytecode()).flip();
+            bytecodeBuffer = CL12.clCreateBuffer(this.context,
+                    CL12.CL_MEM_READ_ONLY | CL12.CL_MEM_COPY_HOST_PTR, bytecodeHost, err);
+            check(err.get(0), "clCreateBuffer(generated final output VM bytecode)");
+            if (constants.length == 0) {
+                constantsBuffer = CL12.clCreateBuffer(this.context, CL12.CL_MEM_READ_ONLY, 1L, err);
+                check(err.get(0), "clCreateBuffer(generated final output VM empty constants)");
+            } else {
+                constantsHost = MemoryUtil.memAllocDouble(constants.length);
+                constantsHost.put(constants).flip();
+                constantsBuffer = CL12.clCreateBuffer(this.context,
+                        CL12.CL_MEM_READ_ONLY | CL12.CL_MEM_COPY_HOST_PTR, constantsHost, err);
+                check(err.get(0), "clCreateBuffer(generated final output VM constants)");
+            }
+            stage.setVmBuffers(bytecodeBuffer, constantsBuffer);
+        } catch (RuntimeException exception) {
+            releaseMem(bytecodeBuffer);
+            releaseMem(constantsBuffer);
+            throw exception;
+        } finally {
+            free(bytecodeHost);
+            free(constantsHost);
+        }
+    }
+
+    private void enqueueGeneratedFinalOutputKernel(GeneratedNoiseKernel finalKernel,
+                                                   SlabVmNoiseCellGridRequest request,
+                                                   long permutationsBuffer,
+                                                   long slotBuffer,
+                                                   long outBuffer,
+                                                   PointerBuffer globalWorkSize) {
+        int arg = 0;
+        check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, permutationsBuffer),
+                "clSetKernelArg(generated final output permutations)");
+        check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, slotBuffer),
+                "clSetKernelArg(generated final output external slots)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockX),
+                "clSetKernelArg(generated final output first x)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockY),
+                "clSetKernelArg(generated final output first y)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.firstBlockZ),
+                "clSetKernelArg(generated final output first z)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cellWidth),
+                "clSetKernelArg(generated final output cell width)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cellHeight),
+                "clSetKernelArg(generated final output cell height)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cells),
+                "clSetKernelArg(generated final output cells)");
+        check(CL12.clSetKernelArg1d(finalKernel.kernel, arg++, request.hoistBase),
+                "clSetKernelArg(generated final output hoist)");
+        check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, outBuffer),
+                "clSetKernelArg(generated final output output)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg, request.n),
+                "clSetKernelArg(generated final output n)");
+        check(CL12.clEnqueueNDRangeKernel(this.queue, finalKernel.kernel, 1,
+                null, globalWorkSize, null, null, null),
+                "clEnqueueNDRangeKernel(generated final output)");
+    }
+
     DfcOpenClDeviceInfo deviceInfo() {
         return this.candidate.info();
     }
@@ -1375,6 +1627,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         releaseKernel(this.slabVmFillNoiseSlotsBySlotKernel);
         releaseKernel(this.slabVmFillNoiseSlotsKernel);
         releaseKernel(this.slabVmFillDemoSlotsKernel);
+        releaseKernel(this.slabVmCellGridSlotBufferKernel);
         releaseKernel(this.slabVmCellGridKernel);
         releaseKernel(this.slabVmCoordsKernel);
         releaseKernel(this.slabVmKernel);
@@ -1864,6 +2117,89 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
     }
 
     record SlabVmResult(long elapsedNanos) {
+    }
+
+    static final class FinalOutputStage implements AutoCloseable {
+        private final GeneratedNoiseKernel generatedKernel;
+        private final byte[] bytecode;
+        private final double[] constants;
+        private final int targetSlotBufferIndex;
+        private long bytecodeBuffer;
+        private long constantsBuffer;
+        private boolean closed;
+
+        private FinalOutputStage(GeneratedNoiseKernel generatedKernel,
+                                 byte[] bytecode,
+                                 double[] constants,
+                                 int targetSlotBufferIndex) {
+            this.generatedKernel = generatedKernel;
+            this.bytecode = bytecode;
+            this.constants = constants;
+            this.targetSlotBufferIndex = targetSlotBufferIndex;
+        }
+
+        static FinalOutputStage generated(GeneratedNoiseKernel kernel) {
+            return new FinalOutputStage(kernel, null, null, -1);
+        }
+
+        static FinalOutputStage slabVmSlot(byte[] bytecode, double[] constants, int targetSlotBufferIndex) {
+            return new FinalOutputStage(null, bytecode, constants, targetSlotBufferIndex);
+        }
+
+        GeneratedNoiseKernel generatedKernel() {
+            return this.generatedKernel;
+        }
+
+        byte[] bytecode() {
+            return this.bytecode;
+        }
+
+        double[] constants() {
+            return this.constants;
+        }
+
+        int targetSlotBufferIndex() {
+            return this.targetSlotBufferIndex;
+        }
+
+        boolean generated() {
+            return this.generatedKernel != null;
+        }
+
+        boolean vmBuffersUploaded() {
+            return this.bytecodeBuffer != 0L && this.constantsBuffer != 0L;
+        }
+
+        long vmUploadBytes() {
+            int bytecodeBytes = this.bytecode == null ? 0 : this.bytecode.length;
+            int constantCount = this.constants == null ? 0 : this.constants.length;
+            return bytecodeBytes + (long) constantCount * Double.BYTES;
+        }
+
+        long bytecodeBuffer() {
+            return this.bytecodeBuffer;
+        }
+
+        long constantsBuffer() {
+            return this.constantsBuffer;
+        }
+
+        void setVmBuffers(long bytecodeBuffer, long constantsBuffer) {
+            this.bytecodeBuffer = bytecodeBuffer;
+            this.constantsBuffer = constantsBuffer;
+        }
+
+        @Override
+        public void close() {
+            if (this.closed) {
+                return;
+            }
+            this.closed = true;
+            releaseMem(this.bytecodeBuffer);
+            releaseMem(this.constantsBuffer);
+            this.bytecodeBuffer = 0L;
+            this.constantsBuffer = 0L;
+        }
     }
 
     static final class GeneratedNoiseKernel implements AutoCloseable {

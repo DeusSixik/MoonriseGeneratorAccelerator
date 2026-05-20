@@ -484,6 +484,130 @@ final class DfcOpenClGeneratedNoiseSource {
         return new BuildResult(source.toString(), scaleTempCount, scaleRefCount);
     }
 
+    static BuildResult buildCompiledPlanComputedSlotFromSlotBuffer(DfcOpenClNoiseDescriptor descriptor,
+                                                                   int targetSlot,
+                                                                   DfcOpenClRuntime.ComputedSlot computed,
+                                                                   boolean[] slotBufferInputSlots,
+                                                                   int[] slotBufferIndices) {
+        if (computed == null) {
+            throw new IllegalArgumentException("computed slot is required");
+        }
+        int safeUsedSlots = descriptor.slotCount;
+        if (targetSlot < 0 || targetSlot >= safeUsedSlots) {
+            throw new IllegalArgumentException("computed target slot " + targetSlot
+                    + " is outside slot count " + safeUsedSlots);
+        }
+
+        boolean[] dependencies = computedSlotStagedDependencies(computed, targetSlot, safeUsedSlots);
+        StringBuilder source = new StringBuilder(4096 + computed.slabProgram().length * 56);
+        source.append('\n')
+                .append("__kernel void ").append(KERNEL_NAME)
+                .append("(DFC_NOISE_MEM const uchar *permutations, ")
+                .append("__global const double *external_slots, ")
+                .append("int first_block_x, int first_block_y, int first_block_z, ")
+                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("__global double *out, int n) {\n")
+                .append("    int gid = (int) get_global_id(0);\n")
+                .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
+                .append("    double bx;\n")
+                .append("    double by;\n")
+                .append("    double bz;\n")
+                .append("    int cell;\n")
+                .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
+                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+        for (int slot = 0; slot < dependencies.length; slot++) {
+            if (!dependencies[slot]) {
+                continue;
+            }
+            if (!isExternalSlot(slotBufferInputSlots, slot)) {
+                throw new IllegalArgumentException("computed target slot " + targetSlot
+                        + " dependency slot " + slot + " is not staged");
+            }
+            source.append("    double slot").append(slot).append(" = ");
+            appendExternalSlotRead(source, ExternalSlotLayout.SLOT_MAJOR, safeUsedSlots, slotBufferIndices, slot);
+            source.append(";\n");
+        }
+        boolean usesHoist = DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram());
+        String hoistVar = usesHoist ? "slot" + targetSlot + "_hoist" : "0.0";
+        if (usesHoist) {
+            source.append("    double ").append(hoistVar).append(" = ")
+                    .append(computed.hoistExpression() == null ? "0.0" : computed.hoistExpression())
+                    .append(";\n");
+        }
+        appendCompactSlabProgramToVariable(source, computed.slabProgram(), computed.slabConstants(),
+                safeUsedSlots, hoistVar, "slot" + targetSlot, "slot" + targetSlot + "_", "    ");
+        source.append("    out[").append(slotBufferIndex(slotBufferIndices, targetSlot))
+                .append(" * n + gid] = slot").append(targetSlot).append(";\n")
+                .append("}\n");
+        return new BuildResult(source.toString(), 0, 0);
+    }
+
+    static BuildResult buildCompiledPlanComputedSlotVmFromSlotBuffer(DfcOpenClNoiseDescriptor descriptor,
+                                                                     int targetSlot,
+                                                                     DfcOpenClRuntime.ComputedSlot computed,
+                                                                     boolean[] slotBufferInputSlots,
+                                                                     int[] slotBufferIndices) {
+        if (computed == null) {
+            throw new IllegalArgumentException("computed slot is required");
+        }
+        int safeUsedSlots = descriptor.slotCount;
+        if (targetSlot < 0 || targetSlot >= safeUsedSlots) {
+            throw new IllegalArgumentException("computed target slot " + targetSlot
+                    + " is outside slot count " + safeUsedSlots);
+        }
+
+        boolean[] dependencies = computedSlotStagedDependencies(computed, targetSlot, safeUsedSlots);
+        for (int slot = 0; slot < dependencies.length; slot++) {
+            if (dependencies[slot] && !isExternalSlot(slotBufferInputSlots, slot)) {
+                throw new IllegalArgumentException("computed target slot " + targetSlot
+                        + " dependency slot " + slot + " is not staged");
+            }
+        }
+
+        StringBuilder source = new StringBuilder(4096
+                + computed.slabProgram().length * 8
+                + computed.slabConstants().length * 32);
+        source.append('\n');
+        appendByteArrayLiteral(source, "dfc_generated_bc", computed.slabProgram(), "__constant ", "");
+        appendDoubleArrayLiteral(source, "dfc_generated_consts", computed.slabConstants(), "__constant ", "");
+        source.append("__kernel void ").append(KERNEL_NAME)
+                .append("(DFC_NOISE_MEM const uchar *permutations, ")
+                .append("__global const double *external_slots, ")
+                .append("int first_block_x, int first_block_y, int first_block_z, ")
+                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("__global double *out, int n) {\n")
+                .append("    int gid = (int) get_global_id(0);\n")
+                .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
+                .append("    double bx;\n")
+                .append("    double by;\n")
+                .append("    double bz;\n")
+                .append("    int cell;\n")
+                .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
+                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+        boolean usesHoist = DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram());
+        source.append("    double y_hoist = ")
+                .append(usesHoist
+                        ? computed.hoistExpression() == null ? "0.0" : computed.hoistExpression()
+                        : "0.0")
+                .append(";\n")
+                .append("    double stk[DFC_SLAB_STACK];\n")
+                .append("    int sp = 0;\n")
+                .append("    int pc = 0;\n")
+                .append("    const int bc_len = ").append(computed.slabProgram().length).append(";\n")
+                .append("    const int nconst = ").append(computed.slabConstants().length).append(";\n")
+                .append("    while (pc < bc_len) {\n")
+                .append("        int op = (int) dfc_generated_bc[pc++];\n")
+                .append("        switch (op) {\n");
+        appendVmSwitch(source, dependencies, slotBufferIndices);
+        source.append("            default: return;\n")
+                .append("        }\n")
+                .append("    }\n")
+                .append("    out[").append(slotBufferIndex(slotBufferIndices, targetSlot))
+                .append(" * n + gid] = sp == 1 ? stk[0] : 0.0;\n")
+                .append("}\n");
+        return new BuildResult(source.toString(), 0, 0);
+    }
+
     private static void appendBody(StringBuilder source, DfcOpenClNoiseDescriptor descriptor, int safeUsedSlots,
                                    Map<Long, ScaleUse> scaleUses, boolean wrapAxis, String indent) {
         for (ScaleUse use : scaleUses.values()) {
@@ -606,21 +730,27 @@ final class DfcOpenClGeneratedNoiseSource {
             }
 
             if (computed != null) {
+                boolean usesHoist = DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram());
                 for (int dependency : slotDependencies(computed.slabProgram(), safeUsedSlots)) {
                     appendSlotLocal(source, descriptor, safeUsedSlots, scaleUses, wrapAxis, indent,
                             slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
                             externalSlots, computedSlots, externalSlotLayout, slotBufferIndices,
                             emitted, visiting, dependency);
                 }
-                for (int dependency : slotExpressionDependencies(computed.hoistExpression(), slot, safeUsedSlots)) {
-                    appendSlotLocal(source, descriptor, safeUsedSlots, scaleUses, wrapAxis, indent,
-                            slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
-                            externalSlots, computedSlots, externalSlotLayout, slotBufferIndices,
-                            emitted, visiting, dependency);
+                if (usesHoist) {
+                    for (int dependency : slotExpressionDependencies(computed.hoistExpression(), slot, safeUsedSlots)) {
+                        appendSlotLocal(source, descriptor, safeUsedSlots, scaleUses, wrapAxis, indent,
+                                slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                                externalSlots, computedSlots, externalSlotLayout, slotBufferIndices,
+                                emitted, visiting, dependency);
+                    }
                 }
-                String hoistVar = "slot" + slot + "_hoist";
-                source.append(indent).append("double ").append(hoistVar).append(" = ")
-                        .append(computed.hoistExpression() == null ? "0.0" : computed.hoistExpression()).append(";\n");
+                String hoistVar = usesHoist ? "slot" + slot + "_hoist" : "0.0";
+                if (usesHoist) {
+                    source.append(indent).append("double ").append(hoistVar).append(" = ")
+                            .append(computed.hoistExpression() == null ? "0.0" : computed.hoistExpression())
+                            .append(";\n");
+                }
                 appendSlabProgramToVariable(source, computed.slabProgram(), computed.slabConstants(),
                         safeUsedSlots, hoistVar, "slot" + slot, "slot" + slot + "_", indent);
                 emitted[slot] = true;
@@ -839,6 +969,100 @@ final class DfcOpenClGeneratedNoiseSource {
         appendSlabProgram(source, program, constants, slotCount, hoistVar, outputVar, prefix, indent);
     }
 
+    private static void appendCompactSlabProgramToVariable(StringBuilder source, byte[] program, double[] constants,
+                                                           int slotCount, String hoistVar, String outputVar,
+                                                           String prefix, String indent) {
+        appendCompactSlabProgram(source, program, constants, slotCount, hoistVar, outputVar, prefix, indent);
+    }
+
+    private static void appendCompactSlabProgram(StringBuilder source, byte[] program, double[] constants,
+                                                 int slotCount, String hoistVar, String outputTarget,
+                                                 String prefix, String indent) {
+        String stk = prefix + "stk";
+        String sp = prefix + "sp";
+        source.append(indent).append("double ").append(stk).append("[DFC_SLAB_STACK];\n")
+                .append(indent).append("int ").append(sp).append("=0;\n")
+                .append("#define DFC_STK ").append(stk).append("\n")
+                .append("#define DFC_SP ").append(sp).append("\n");
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST -> {
+                    int idx = readU16(program, pc);
+                    pc += 2;
+                    requireConst(constants, idx);
+                    source.append(indent).append("DFC_STK[DFC_SP++]=").append(d(constants[idx])).append(";\n");
+                }
+                case OP_PUSH_SLOT -> {
+                    int slot = program[pc++] & 0xFF;
+                    if (slot < 0 || slot >= slotCount) {
+                        throw new IllegalArgumentException("compiled slab program references missing slot " + slot);
+                    }
+                    source.append(indent).append("DFC_STK[DFC_SP++]=slot").append(slot).append(";\n");
+                }
+                case OP_COND_NEG_SCALE -> {
+                    int idx = readU16(program, pc);
+                    pc += 2;
+                    requireConst(constants, idx);
+                    source.append(indent)
+                            .append("DFC_STK[DFC_SP-1]=DFC_STK[DFC_SP-1]>0.0?DFC_STK[DFC_SP-1]:DFC_STK[DFC_SP-1]*")
+                            .append(d(constants[idx])).append(";\n");
+                }
+                case OP_Y_CLAMPED_GRADIENT -> {
+                    int fromY = readU16(program, pc); pc += 2;
+                    int toY = readU16(program, pc); pc += 2;
+                    int fromValue = readU16(program, pc); pc += 2;
+                    int toValue = readU16(program, pc); pc += 2;
+                    requireConst(constants, fromY);
+                    requireConst(constants, toY);
+                    requireConst(constants, fromValue);
+                    requireConst(constants, toValue);
+                    source.append(indent).append("DFC_STK[DFC_SP++]=dfc_clamped_map(by,")
+                            .append(d(constants[fromY])).append(',')
+                            .append(d(constants[toY])).append(',')
+                            .append(d(constants[fromValue])).append(',')
+                            .append(d(constants[toValue])).append(");\n");
+                }
+                case OP_RANGE_CHOICE -> {
+                    int min = readU16(program, pc); pc += 2;
+                    int max = readU16(program, pc); pc += 2;
+                    requireConst(constants, min);
+                    requireConst(constants, max);
+                    source.append(indent)
+                            .append("DFC_STK[DFC_SP-3]=DFC_STK[DFC_SP-3]>=")
+                            .append(d(constants[min]))
+                            .append("&&DFC_STK[DFC_SP-3]<")
+                            .append(d(constants[max]))
+                            .append("?DFC_STK[DFC_SP-2]:DFC_STK[DFC_SP-1];\n")
+                            .append(indent).append("DFC_SP-=2;\n");
+                }
+                case OP_BLOCK_X -> source.append(indent).append("DFC_STK[DFC_SP++]=bx;\n");
+                case OP_BLOCK_Y -> source.append(indent).append("DFC_STK[DFC_SP++]=by;\n");
+                case OP_BLOCK_Z -> source.append(indent).append("DFC_STK[DFC_SP++]=bz;\n");
+                case OP_HOIST -> source.append(indent).append("DFC_STK[DFC_SP++]=").append(hoistVar).append(";\n");
+                case OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX -> {
+                    source.append(indent).append("DFC_STK[DFC_SP-2]=");
+                    appendCompactBinary(source, op, "DFC_STK[DFC_SP-2]", "DFC_STK[DFC_SP-1]");
+                    source.append(";\n").append(indent).append("DFC_SP--;\n");
+                }
+                case OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                    source.append(indent).append("DFC_STK[DFC_SP-1]=");
+                    appendUnary(source, op, "DFC_STK[DFC_SP-1]");
+                    source.append(";\n");
+                }
+                default -> throw new IllegalArgumentException("unsupported compiled slab opcode " + op);
+            }
+        }
+        source.append("#undef DFC_STK\n")
+                .append("#undef DFC_SP\n")
+                .append(indent);
+        if (isSimpleIdentifier(outputTarget)) {
+            source.append("double ");
+        }
+        source.append(outputTarget).append(" = ").append(sp).append(" == 1 ? ")
+                .append(stk).append("[0] : 0.0;\n");
+    }
+
     private static void appendSlabProgram(StringBuilder source, byte[] program, double[] constants, int slotCount,
                                           String hoistVar, String outputTarget, String prefix, String indent) {
         String stk = prefix + "stk";
@@ -946,6 +1170,153 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append(stk).append("[0] : 0.0;\n");
     }
 
+    private static void appendVmSwitch(StringBuilder source, boolean[] dependencies, int[] slotBufferIndices) {
+        source.append("            case ").append(OP_PUSH_CONST).append(": {\n")
+                .append("                if (pc + 2 > bc_len) return;\n")
+                .append("                int idx = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]);\n")
+                .append("                pc += 2;\n")
+                .append("                if (idx < 0 || idx >= nconst || sp >= DFC_SLAB_STACK) return;\n")
+                .append("                stk[sp++] = dfc_generated_consts[idx];\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_PUSH_SLOT).append(": {\n")
+                .append("                if (pc >= bc_len || sp >= DFC_SLAB_STACK) return;\n")
+                .append("                int src_slot = (int) dfc_generated_bc[pc++];\n")
+                .append("                int compact = -1;\n")
+                .append("                switch (src_slot) {\n");
+        for (int slot = 0; slot < dependencies.length; slot++) {
+            if (dependencies[slot]) {
+                source.append("                    case ").append(slot).append(": compact = ")
+                        .append(slotBufferIndex(slotBufferIndices, slot)).append("; break;\n");
+            }
+        }
+        source.append("                    default: break;\n")
+                .append("                }\n")
+                .append("                if (compact < 0) return;\n")
+                .append("                stk[sp++] = external_slots[compact * n + gid];\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_COND_NEG_SCALE).append(": {\n")
+                .append("                if (pc + 2 > bc_len || sp < 1) return;\n")
+                .append("                int idx = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]);\n")
+                .append("                pc += 2;\n")
+                .append("                if (idx < 0 || idx >= nconst) return;\n")
+                .append("                double x = stk[--sp];\n")
+                .append("                stk[sp++] = x > 0.0 ? x : x * dfc_generated_consts[idx];\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_Y_CLAMPED_GRADIENT).append(": {\n")
+                .append("                if (pc + 8 > bc_len || sp >= DFC_SLAB_STACK) return;\n")
+                .append("                int from_y = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                int to_y = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                int from_value = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                int to_value = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                if (from_y < 0 || from_y >= nconst || to_y < 0 || to_y >= nconst\n")
+                .append("                        || from_value < 0 || from_value >= nconst\n")
+                .append("                        || to_value < 0 || to_value >= nconst) return;\n")
+                .append("                stk[sp++] = dfc_clamped_map(by, dfc_generated_consts[from_y], dfc_generated_consts[to_y],\n")
+                .append("                        dfc_generated_consts[from_value], dfc_generated_consts[to_value]);\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_RANGE_CHOICE).append(": {\n")
+                .append("                if (pc + 4 > bc_len || sp < 3) return;\n")
+                .append("                int min_idx = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                int max_idx = (((int) dfc_generated_bc[pc]) << 8) | ((int) dfc_generated_bc[pc + 1]); pc += 2;\n")
+                .append("                if (min_idx < 0 || min_idx >= nconst || max_idx < 0 || max_idx >= nconst) return;\n")
+                .append("                double when_out = stk[--sp];\n")
+                .append("                double when_in = stk[--sp];\n")
+                .append("                double input = stk[--sp];\n")
+                .append("                stk[sp++] = input >= dfc_generated_consts[min_idx] && input < dfc_generated_consts[max_idx] ? when_in : when_out;\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_BLOCK_X).append(": if (sp >= DFC_SLAB_STACK) return; stk[sp++] = bx; break;\n")
+                .append("            case ").append(OP_BLOCK_Y).append(": if (sp >= DFC_SLAB_STACK) return; stk[sp++] = by; break;\n")
+                .append("            case ").append(OP_BLOCK_Z).append(": if (sp >= DFC_SLAB_STACK) return; stk[sp++] = bz; break;\n")
+                .append("            case ").append(OP_HOIST).append(": if (sp >= DFC_SLAB_STACK) return; stk[sp++] = y_hoist; break;\n");
+        appendVmBinaryCase(source, OP_ADD, "+");
+        appendVmBinaryCase(source, OP_SUB, "-");
+        appendVmBinaryCase(source, OP_MUL, "*");
+        appendVmBinaryCase(source, OP_DIV, "/");
+        source.append("            case ").append(OP_MIN).append(": {\n")
+                .append("                if (sp < 2) return;\n")
+                .append("                double r = stk[--sp];\n")
+                .append("                double l = stk[--sp];\n")
+                .append("                stk[sp++] = dfc_java_min(l, r);\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_MAX).append(": {\n")
+                .append("                if (sp < 2) return;\n")
+                .append("                double r = stk[--sp];\n")
+                .append("                double l = stk[--sp];\n")
+                .append("                stk[sp++] = dfc_java_max(l, r);\n")
+                .append("                break;\n")
+                .append("            }\n")
+                .append("            case ").append(OP_NEG).append(": if (sp < 1) return; stk[sp - 1] = -stk[sp - 1]; break;\n")
+                .append("            case ").append(OP_ABS).append(": if (sp < 1) return; stk[sp - 1] = fabs(stk[sp - 1]); break;\n")
+                .append("            case ").append(OP_SQUARE).append(": if (sp < 1) return; stk[sp - 1] = stk[sp - 1] * stk[sp - 1]; break;\n")
+                .append("            case ").append(OP_SQUEEZE).append(": if (sp < 1) return; stk[sp - 1] = dfc_squeeze(stk[sp - 1]); break;\n");
+    }
+
+    private static void appendVmBinaryCase(StringBuilder source, int op, String operator) {
+        source.append("            case ").append(op).append(": {\n")
+                .append("                if (sp < 2) return;\n")
+                .append("                double r = stk[--sp];\n")
+                .append("                double l = stk[--sp];\n")
+                .append("                stk[sp++] = l ").append(operator).append(" r;\n")
+                .append("                break;\n")
+                .append("            }\n");
+    }
+
+    private static void appendCompactBinary(StringBuilder source, int op, String left, String right) {
+        switch (op) {
+            case OP_ADD -> source.append(left).append('+').append(right);
+            case OP_SUB -> source.append(left).append('-').append(right);
+            case OP_MUL -> source.append(left).append('*').append(right);
+            case OP_DIV -> source.append(left).append('/').append(right);
+            case OP_MIN -> source.append("dfc_java_min(").append(left).append(',').append(right).append(')');
+            case OP_MAX -> source.append("dfc_java_max(").append(left).append(',').append(right).append(')');
+            default -> throw new IllegalArgumentException("unsupported binary opcode " + op);
+        }
+    }
+
+    private static void appendByteArrayLiteral(StringBuilder source, String name, byte[] values,
+                                               String storage, String indent) {
+        String qualifier = storage == null ? "" : storage;
+        String typeConst = qualifier.isBlank() ? "const " : "";
+        if (values == null || values.length == 0) {
+            source.append(indent).append(qualifier).append(typeConst).append("uchar ")
+                    .append(name).append("[] = {0};\n");
+            return;
+        }
+        source.append(indent).append(qualifier).append(typeConst).append("uchar ").append(name).append("[] = {");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                source.append(", ");
+            }
+            source.append(values[i] & 0xFF);
+        }
+        source.append("};\n");
+    }
+
+    private static void appendDoubleArrayLiteral(StringBuilder source, String name, double[] values,
+                                                 String storage, String indent) {
+        String qualifier = storage == null ? "" : storage;
+        String typeConst = qualifier.isBlank() ? "const " : "";
+        if (values == null || values.length == 0) {
+            source.append(indent).append(qualifier).append(typeConst).append("double ")
+                    .append(name).append("[] = {0.0};\n");
+            return;
+        }
+        source.append(indent).append(qualifier).append(typeConst).append("double ").append(name).append("[] = {");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                source.append(", ");
+            }
+            source.append(d(values[i]));
+        }
+        source.append("};\n");
+    }
+
     private static void appendBinary(StringBuilder source, int op, String left, String right) {
         switch (op) {
             case OP_ADD -> source.append(left).append(" + ").append(right);
@@ -971,6 +1342,25 @@ final class DfcOpenClGeneratedNoiseSource {
     private static DfcOpenClRuntime.ComputedSlot computedSlot(DfcOpenClRuntime.ComputedSlot[] computedSlots,
                                                               int slot) {
         return computedSlots != null && slot >= 0 && slot < computedSlots.length ? computedSlots[slot] : null;
+    }
+
+    private static boolean[] computedSlotStagedDependencies(DfcOpenClRuntime.ComputedSlot computed,
+                                                            int targetSlot,
+                                                            int slotCount) {
+        boolean[] dependencies = new boolean[Math.max(0, slotCount)];
+        for (int dependency : slotDependencies(computed.slabProgram(), dependencies.length)) {
+            dependencies[dependency] = true;
+        }
+        if (DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram())) {
+            for (int dependency : slotExpressionDependencies(computed.hoistExpression(), targetSlot,
+                    dependencies.length)) {
+                dependencies[dependency] = true;
+            }
+        }
+        if (targetSlot >= 0 && targetSlot < dependencies.length) {
+            dependencies[targetSlot] = false;
+        }
+        return dependencies;
     }
 
     private static int[] slotDependencies(byte[] program, int slotCount) {

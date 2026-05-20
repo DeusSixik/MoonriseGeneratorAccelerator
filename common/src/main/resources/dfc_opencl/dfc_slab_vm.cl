@@ -6,6 +6,8 @@
 #define DFC_OP_COND_NEG_SCALE 3
 #define DFC_OP_Y_CLAMPED_GRADIENT 4
 #define DFC_OP_RANGE_CHOICE 5
+#define DFC_OP_RANGE_CHOICE_JUMP 6
+#define DFC_OP_JUMP 7
 #define DFC_OP_BLOCK_X 16
 #define DFC_OP_BLOCK_Y 17
 #define DFC_OP_BLOCK_Z 18
@@ -27,6 +29,13 @@
 
 inline ushort dfc_read_u16(__global const uchar *bc, int pc) {
     return (ushort) bc[pc] | (ushort) ((ushort) bc[pc + 1] << 8);
+}
+
+inline int dfc_read_i32(__global const uchar *bc, int pc) {
+    return ((int) bc[pc])
+            | (((int) bc[pc + 1]) << 8)
+            | (((int) bc[pc + 2]) << 16)
+            | (((int) bc[pc + 3]) << 24);
 }
 
 inline double dfc_java_min(double l, double r) {
@@ -123,6 +132,62 @@ inline double dfc_perlin_sample(DFC_NOISE_MEM const uchar *permutations,
             delta_x, delta_y, z1);
     double n101 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy10 + iz + 1),
             x1, delta_y, z1);
+    double n011 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy01 + iz + 1),
+            delta_x, y1, z1);
+    double n111 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy11 + iz + 1),
+            x1, y1, z1);
+
+    return dfc_lerp3(dfc_perlin_fade(delta_x), dfc_perlin_fade(delta_y), dfc_perlin_fade(delta_z),
+            n000, n100, n010, n110, n001, n101, n011, n111);
+}
+
+inline double dfc_perlin_sample_5(DFC_NOISE_MEM const uchar *permutations,
+                                  double origin_x, double origin_y, double origin_z,
+                                  double x, double y, double z,
+                                  double y_scale, double y_max) {
+    double input_x = x + origin_x;
+    double input_y = y + origin_y;
+    double input_z = z + origin_z;
+
+    int grid_x = dfc_java_floor(input_x);
+    int grid_y = dfc_java_floor(input_y);
+    int grid_z = dfc_java_floor(input_z);
+
+    double delta_x = input_x - (double) grid_x;
+    double delta_y = input_y - (double) grid_y;
+    double delta_z = input_z - (double) grid_z;
+    double shifted_delta_y = delta_y;
+    if (y_scale != 0.0) {
+        double max_shift = y_max >= 0.0 && y_max < delta_y ? y_max : delta_y;
+        shifted_delta_y = delta_y - floor(max_shift / y_scale + 1.0E-7) * y_scale;
+    }
+
+    double x1 = delta_x - 1.0;
+    double y1 = shifted_delta_y - 1.0;
+    double z1 = delta_z - 1.0;
+
+    int ix = grid_x & 255;
+    int iy = grid_y & 255;
+    int iz = grid_z & 255;
+    int px0 = dfc_perm_512(permutations, ix);
+    int px1 = dfc_perm_512(permutations, ix + 1);
+    int pxy00 = dfc_perm_512(permutations, px0 + iy);
+    int pxy10 = dfc_perm_512(permutations, px1 + iy);
+    int pxy01 = dfc_perm_512(permutations, px0 + iy + 1);
+    int pxy11 = dfc_perm_512(permutations, px1 + iy + 1);
+
+    double n000 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy00 + iz),
+            delta_x, shifted_delta_y, delta_z);
+    double n100 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy10 + iz),
+            x1, shifted_delta_y, delta_z);
+    double n010 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy01 + iz),
+            delta_x, y1, delta_z);
+    double n110 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy11 + iz),
+            x1, y1, delta_z);
+    double n001 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy00 + iz + 1),
+            delta_x, shifted_delta_y, z1);
+    double n101 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy10 + iz + 1),
+            x1, shifted_delta_y, z1);
     double n011 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy01 + iz + 1),
             delta_x, y1, z1);
     double n111 = dfc_perlin_grad_from_hash(dfc_perm_512(permutations, pxy11 + iz + 1),
@@ -330,6 +395,27 @@ inline int dfc_slab_vm_eval_one(__global const uchar *bc, int bc_len,
                 if (!dfc_push(stk, &sp, input >= consts[min_idx] && input < consts[max_idx] ? when_in : when_out)) return 0;
                 break;
             }
+            case DFC_OP_RANGE_CHOICE_JUMP: {
+                if (pc + 12 > bc_len || sp < 1) return 0;
+                int min_idx = (int) dfc_read_u16(bc, pc); pc += 2;
+                int max_idx = (int) dfc_read_u16(bc, pc); pc += 2;
+                int when_in_pc = dfc_read_i32(bc, pc); pc += 4;
+                int when_out_pc = dfc_read_i32(bc, pc); pc += 4;
+                if (min_idx < 0 || min_idx >= nconst || max_idx < 0 || max_idx >= nconst
+                        || when_in_pc < 0 || when_in_pc >= bc_len
+                        || when_out_pc < 0 || when_out_pc >= bc_len) return 0;
+                double input;
+                if (!dfc_pop(stk, &sp, &input)) return 0;
+                pc = input >= consts[min_idx] && input < consts[max_idx] ? when_in_pc : when_out_pc;
+                break;
+            }
+            case DFC_OP_JUMP: {
+                if (pc + 4 > bc_len) return 0;
+                int jump_pc = dfc_read_i32(bc, pc);
+                if (jump_pc < 0 || jump_pc > bc_len) return 0;
+                pc = jump_pc;
+                break;
+            }
             case DFC_OP_BLOCK_X:
                 if (!dfc_push(stk, &sp, bx)) return 0;
                 break;
@@ -468,6 +554,35 @@ __kernel void dfc_slab_vm_eval_cell_grid(__global const uchar *bc, int bc_len,
     int ok = dfc_slab_vm_eval_one(bc, bc_len, consts, nconst, slot_rows_flat,
             n_slots, slot_row_stride, bx, by, bz, y_hoist, gid, &value);
     out[gid] = ok ? value : 0.0;
+}
+
+__kernel void dfc_slab_vm_eval_cell_grid_slot_buffer(__global const uchar *bc, int bc_len,
+                                                     __global const double *consts, int nconst,
+                                                     __global double *slot_rows_flat,
+                                                     int n_slots, int slot_row_stride,
+                                                     int first_block_x, int first_block_y, int first_block_z,
+                                                     int cell_w, int cell_h, int cells, double hoist_base,
+                                                     int target_slot, int n) {
+    int gid = (int) get_global_id(0);
+    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0
+            || target_slot < 0 || target_slot >= n_slots || slot_row_stride <= 0) {
+        return;
+    }
+
+    double bx;
+    double by;
+    double bz;
+    int cell;
+    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
+            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+        return;
+    }
+    double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
+
+    double value;
+    int ok = dfc_slab_vm_eval_one(bc, bc_len, consts, nconst, slot_rows_flat,
+            n_slots, slot_row_stride, bx, by, bz, y_hoist, gid, &value);
+    slot_rows_flat[target_slot * slot_row_stride + gid] = ok ? value : 0.0;
 }
 
 __kernel void dfc_slab_vm_fill_demo_slots(__global double *slot_rows_flat, int n) {

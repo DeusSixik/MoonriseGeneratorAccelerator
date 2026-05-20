@@ -32,6 +32,8 @@ public final class DfcOpenClRuntime {
     private static final int OP_COND_NEG_SCALE = 3;
     private static final int OP_Y_CLAMPED_GRADIENT = 4;
     private static final int OP_RANGE_CHOICE = 5;
+    private static final int OP_RANGE_CHOICE_JUMP = 6;
+    private static final int OP_JUMP = 7;
     private static final int OP_BLOCK_X = 16;
     private static final int OP_BLOCK_Y = 17;
     private static final int OP_BLOCK_Z = 18;
@@ -1778,25 +1780,32 @@ public final class DfcOpenClRuntime {
         }
         boolean[] scheduledSlots = waveTargetSlots(scheduledChunks, chunkStartSlots, chunkEndSlots, slotCount);
         boolean[] rootSlots = compiledPlanFinalOutputRootSlots(plan, slotCount);
-        boolean[] finalCpuInputSlots = compiledPlanFinalOutputCpuInputSlots(plan, scheduledSlots, slotCount);
+        boolean[] finalResidualCandidateSlots = compiledPlanFinalOutputResidualGpuInputSlots(
+                plan, scheduledSlots, slotCount);
+        boolean[] markerExternalInputs = compiledPlanFinalOutputExternalInputs(plan, slotCount);
         boolean[] allWaveExternalInputs = waveExternalInputs(plan, scheduledChunks,
                 chunkStartSlots, chunkEndSlots, scheduledSlots);
-        boolean[] initialInputSlots = unionSlots(finalCpuInputSlots, allWaveExternalInputs, slotCount);
-        boolean[] slotBufferSlots = unionSlots(scheduledSlots, initialInputSlots, slotCount);
+        boolean[] residualExternalInputs = unionSlots(scheduledSlots,
+                unionSlots(markerExternalInputs, allWaveExternalInputs, slotCount), slotCount);
+        boolean[] residualDependencyCandidateSlots = compiledPlanFinalOutputResidualDependencySlots(
+                plan, finalResidualCandidateSlots, scheduledSlots, markerExternalInputs, slotCount);
+        boolean[] slotBufferSlots = unionSlots(scheduledSlots,
+                unionSlots(residualExternalInputs,
+                        unionSlots(finalResidualCandidateSlots, residualDependencyCandidateSlots, slotCount),
+                        slotCount), slotCount);
         int slotBufferSlotCount = countTrue(slotBufferSlots);
         if (slotBufferSlotCount <= 0) {
             return SlabVmCellBenchmark.failed(status.selectedDevice(), "final output slot buffer has no slots");
         }
         int[] slotBufferIndices = compactSlotBufferIndices(slotBufferSlots, slotCount);
-        ComputedSlot[] computedSlots = null;
-        int finalCpuInputSlotCount = countTrue(finalCpuInputSlots);
+        ComputedSlot[] computedSlots = compiledPlanFinalOutputComputedSlots(plan, slotCount);
         int waveExternalInputSlotCount = countTrue(allWaveExternalInputs);
-        int initialInputSlotCount = countTrue(initialInputSlots);
         long outputBytes = Math.multiplyExact(elements, (long) Double.BYTES);
         long slotBufferBytes = Math.multiplyExact(Math.multiplyExact(elements, slotBufferSlotCount),
                 (long) Double.BYTES);
 
-        DfcOpenClDeviceContext.GeneratedNoiseKernel waveKernel = null;
+        List<DfcOpenClDeviceContext.GeneratedNoiseKernel> stageKernels = new ArrayList<>();
+        List<DfcOpenClDeviceContext.FinalOutputStage> finalOutputStages = new ArrayList<>();
         DfcOpenClDeviceContext.GeneratedNoiseKernel finalKernel = null;
         try {
             DfcOpenClDeviceContext context = ensureActiveContext();
@@ -1819,11 +1828,167 @@ public final class DfcOpenClRuntime {
                                 + ", split waves before native OpenCL build");
             }
 
+            List<FinalOutputStageBuild> residualSources = new ArrayList<>();
+            List<FinalOutputStageBuild> residualDependencySources = new ArrayList<>();
+            boolean[] finalResidualDependencySlots = new boolean[slotCount];
+            boolean[] finalResidualDependencyCpuSlots = new boolean[slotCount];
+            boolean[] finalGpuInputSlots = new boolean[slotCount];
+            int residualDependencySourceChars = 0;
+            long residualDependencyRejectedSourceChars = 0L;
+            int residualSourceChars = 0;
+            int maxResidualSourceChars = 0;
+            boolean acceptedDependency;
+            long[] residualDependencyRejectedSourceCharsBySlot = new long[slotCount];
+            do {
+                acceptedDependency = false;
+                boolean[] dependencyInputs = unionSlots(residualExternalInputs,
+                        unionSlots(finalResidualDependencySlots, finalResidualDependencyCpuSlots, slotCount),
+                        slotCount);
+                int unresolvedDependencySlots = 0;
+                for (int slot = 0; slot < residualDependencyCandidateSlots.length; slot++) {
+                    if (!residualDependencyCandidateSlots[slot]
+                            || finalResidualDependencySlots[slot]) {
+                        continue;
+                    }
+                    unresolvedDependencySlots++;
+                    boolean[] targetSlot = singleSlotMask(slot, slotCount);
+                    boolean[] stageInputs = slotsExcept(dependencyInputs, slot, slotCount);
+                    ComputedSlot computed = computedSlot(computedSlots, slot);
+                    FinalOutputStageBuild dependencyStage;
+                    if (computed != null) {
+                        if (!computedSlotDependenciesStaged(computed, stageInputs, slot, slotCount)) {
+                            continue;
+                        }
+                        dependencyStage = buildComputedSlotStage(
+                                descriptor, slot, computed, stageInputs, slotBufferIndices);
+                    } else {
+                        DfcOpenClGeneratedNoiseSource.BuildResult dependencySource =
+                                DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                descriptor, targetSlot,
+                                plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                plan.slotCoordZExpressions(),
+                                stageInputs, computedSlots, slotBufferIndices,
+                                DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                        dependencyStage = FinalOutputStageBuild.generated(slot, dependencySource);
+                    }
+                    int sourceChars = dependencyStage.sourceChars();
+                    if (!dependencyStage.deviceVm()
+                            && sourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                        residualDependencyRejectedSourceCharsBySlot[slot] = sourceChars;
+                        continue;
+                    }
+                    residualDependencySources.add(dependencyStage);
+                    finalResidualDependencySlots[slot] = true;
+                    finalResidualDependencyCpuSlots[slot] = false;
+                    residualDependencySourceChars += sourceChars;
+                    maxResidualSourceChars = Math.max(maxResidualSourceChars, sourceChars);
+                    acceptedDependency = true;
+                }
+                if (!acceptedDependency && unresolvedDependencySlots > 0) {
+                    int cpuSlot = residualDependencyCpuFallbackSlot(
+                            residualDependencyCandidateSlots, finalResidualDependencySlots,
+                            finalResidualDependencyCpuSlots, residualDependencyRejectedSourceCharsBySlot);
+                    if (cpuSlot >= 0) {
+                        finalResidualDependencyCpuSlots[cpuSlot] = true;
+                        acceptedDependency = true;
+                    }
+                }
+            } while (acceptedDependency);
+            for (int slot = 0; slot < Math.min(finalResidualDependencyCpuSlots.length,
+                    residualDependencyRejectedSourceCharsBySlot.length); slot++) {
+                if (finalResidualDependencyCpuSlots[slot]) {
+                    residualDependencyRejectedSourceChars += residualDependencyRejectedSourceCharsBySlot[slot];
+                }
+            }
+            boolean[] residualStageInputs = unionSlots(residualExternalInputs,
+                    unionSlots(finalResidualDependencySlots, finalResidualDependencyCpuSlots, slotCount),
+                    slotCount);
+            boolean acceptedResidual;
+            do {
+                acceptedResidual = false;
+                boolean[] residualRootInputs = unionSlots(residualStageInputs, finalGpuInputSlots, slotCount);
+                for (int slot = 0; slot < finalResidualCandidateSlots.length; slot++) {
+                    if (!finalResidualCandidateSlots[slot] || finalGpuInputSlots[slot]) {
+                        continue;
+                    }
+                    boolean[] targetSlot = singleSlotMask(slot, slotCount);
+                    boolean[] stageInputs = slotsExcept(residualRootInputs, slot, slotCount);
+                    ComputedSlot computed = computedSlot(computedSlots, slot);
+                    FinalOutputStageBuild residualStage;
+                    if (computed != null) {
+                        if (!computedSlotDependenciesStaged(computed, stageInputs, slot, slotCount)) {
+                            continue;
+                        }
+                        residualStage = buildComputedSlotStage(
+                                descriptor, slot, computed, stageInputs, slotBufferIndices);
+                    } else {
+                        DfcOpenClGeneratedNoiseSource.BuildResult residualSource =
+                                DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                descriptor, targetSlot,
+                                plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                plan.slotCoordZExpressions(),
+                                stageInputs, computedSlots, slotBufferIndices,
+                                DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                        residualStage = FinalOutputStageBuild.generated(slot, residualSource);
+                    }
+                    int sourceChars = residualStage.sourceChars();
+                    if (!residualStage.deviceVm()
+                            && sourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                        continue;
+                    }
+                    residualSources.add(residualStage);
+                    finalGpuInputSlots[slot] = true;
+                    residualSourceChars += sourceChars;
+                    maxResidualSourceChars = Math.max(maxResidualSourceChars, sourceChars);
+                    acceptedResidual = true;
+                }
+            } while (acceptedResidual);
+            boolean[] residualRejectedSlots = Arrays.copyOf(finalResidualCandidateSlots,
+                    finalResidualCandidateSlots.length);
+            long residualRejectedSourceChars = 0L;
+            int residualRejectedSlotCount = 0;
+            boolean[] residualRejectedInputs = unionSlots(residualStageInputs, finalGpuInputSlots, slotCount);
+            for (int slot = 0; slot < residualRejectedSlots.length; slot++) {
+                if (!residualRejectedSlots[slot] || finalGpuInputSlots[slot]) {
+                    residualRejectedSlots[slot] = false;
+                    continue;
+                }
+                boolean[] targetSlot = singleSlotMask(slot, slotCount);
+                boolean[] stageInputs = slotsExcept(residualRejectedInputs, slot, slotCount);
+                ComputedSlot computed = computedSlot(computedSlots, slot);
+                if (computed != null && computedSlotDependenciesStaged(computed, stageInputs, slot, slotCount)) {
+                    FinalOutputStageBuild residualStage =
+                            buildComputedSlotStage(descriptor, slot, computed, stageInputs, slotBufferIndices);
+                    residualRejectedSourceChars += residualStage.sourceChars();
+                } else if (computed == null) {
+                    DfcOpenClGeneratedNoiseSource.BuildResult residualSource =
+                            DfcOpenClGeneratedNoiseSource.buildCompiledPlanAllWavesCompactSlotBuffer(
+                                    descriptor, targetSlot,
+                                    plan.slotCoordXExpressions(), plan.slotCoordYExpressions(),
+                                    plan.slotCoordZExpressions(),
+                                    stageInputs, computedSlots, slotBufferIndices,
+                                    DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+                    residualRejectedSourceChars += residualSource.source().length();
+                } else {
+                    residualRejectedSourceChars += COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS + 1L;
+                }
+                residualRejectedSlotCount++;
+            }
+
+            boolean[] finalCpuInputSlots = compiledPlanFinalOutputCpuInputSlots(
+                    plan, scheduledSlots, finalGpuInputSlots, finalResidualDependencyCpuSlots, slotCount);
+            boolean[] initialInputSlots = unionSlots(finalCpuInputSlots, allWaveExternalInputs, slotCount);
+            int finalGpuInputSlotCount = countTrue(finalGpuInputSlots);
+            int finalCpuInputSlotCount = countTrue(finalCpuInputSlots);
+            int finalResidualDependencySlotCount = countTrue(finalResidualDependencySlots);
+            int finalResidualDependencyCpuSlotCount = countTrue(finalResidualDependencyCpuSlots);
+            int initialInputSlotCount = countTrue(initialInputSlots);
+
             DfcOpenClGeneratedNoiseSource.BuildResult finalSource =
                     DfcOpenClGeneratedNoiseSource.buildCompiledPlanFinalOutputFromSlotBuffer(
                             descriptor, rootSlots, plan.slabProgram(), plan.slabConstants(), plan.hoistExpression(),
                             plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
-                            slotBufferSlots, computedSlots, slotBufferIndices,
+                            slotBufferSlots, null, slotBufferIndices,
                             DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
             if (finalSource.source().length() > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
                 return SlabVmCellBenchmark.failed(status.selectedDevice(),
@@ -1831,8 +1996,12 @@ public final class DfcOpenClRuntime {
                                 + ">" + COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS
                                 + ", split waves before native OpenCL build");
             }
-            int totalSourceChars = waveSource.source().length() + finalSource.source().length();
-            int maxSourceChars = Math.max(waveSource.source().length(), finalSource.source().length());
+            int totalSourceChars = waveSource.source().length()
+                    + residualDependencySourceChars
+                    + residualSourceChars
+                    + finalSource.source().length();
+            int maxSourceChars = Math.max(Math.max(waveSource.source().length(), maxResidualSourceChars),
+                    finalSource.source().length());
 
             long originalPrefillStarted = System.nanoTime();
             double[] originalExternalSlotValues = externalSlotCount(plan.externalSlots(), slotCount) == 0
@@ -1847,19 +2016,31 @@ public final class DfcOpenClRuntime {
             long externalPrefillNanos = System.nanoTime() - externalPrefillStarted;
 
             long compileStarted = System.nanoTime();
-            waveKernel = context.compileGeneratedNoiseKernel(waveSource.source());
+            DfcOpenClDeviceContext.GeneratedNoiseKernel waveKernel =
+                    context.compileGeneratedNoiseKernel(waveSource.source());
+            stageKernels.add(waveKernel);
+            finalOutputStages.add(DfcOpenClDeviceContext.FinalOutputStage.generated(waveKernel));
+            for (FinalOutputStageBuild residualDependencySource : residualDependencySources) {
+                addFinalOutputStage(context, residualDependencySource, finalOutputStages, stageKernels);
+            }
+            for (FinalOutputStageBuild residualSource : residualSources) {
+                addFinalOutputStage(context, residualSource, finalOutputStages, stageKernels);
+            }
             finalKernel = context.compileGeneratedNoiseKernel(finalSource.source());
             long compileNanos = System.nanoTime() - compileStarted;
-            DfcOpenClDeviceContext.GeneratedNoiseKernel[] waveKernels =
-                    new DfcOpenClDeviceContext.GeneratedNoiseKernel[]{waveKernel};
-            boolean[][] waveSchedule = identityWaves(1);
+            DfcOpenClDeviceContext.FinalOutputStage[] outputStages =
+                    finalOutputStages.toArray(new DfcOpenClDeviceContext.FinalOutputStage[0]);
+            int kernelsCompiled = stageKernels.size() + 1;
+            int deviceVmStages = countDeviceVmStages(outputStages);
+            String deviceVmStageList = describeDeviceVmStageBuilds(
+                    plan, residualDependencySources, residualSources, 8);
 
             if (checkOnly) {
                 DfcOpenClStats.recordSlabAttempt(out.length);
                 DfcOpenClStats.recordSlabSubmitted();
                 DfcOpenClDeviceContext.SlabVmResult validationRun =
-                        context.evalGeneratedNoiseKernelWavesToFinalOutput(
-                                waveKernels, waveSchedule, finalKernel, request,
+                        context.evalFinalOutputStagesToFinalOutput(
+                                outputStages, finalKernel, request,
                                 slotBufferSlotCount, true, initialSlotBuffer, true);
                 DfcOpenClStats.recordSlabSuccess(validationRun.elapsedNanos());
                 FinalOutputValidation validation = validateCompiledPlanFinalOutput(
@@ -1882,13 +2063,38 @@ public final class DfcOpenClRuntime {
                                 + ", finalOutput=true"
                                 + ", waves=" + waves.length
                                 + ", chunks=" + scheduledChunkCount + "/" + chunkStartSlots.length
-                                + ", kernelsCompiled=2"
+                                + ", kernelsCompiled=" + kernelsCompiled
                                 + ", slotsComputed=" + scheduledSlotCount + "/" + slotCount
                                 + ", directBlockedChunks=" + directBlockedChunks
                                 + ", stalledChunks=" + stalledChunks
                                 + ", externalInputSlots=" + initialInputSlotCount
                                 + ", finalCpuInputSlots=" + finalCpuInputSlotCount
+                                + ", finalGpuInputSlots=" + finalGpuInputSlotCount
                                 + ", waveExternalInputSlots=" + waveExternalInputSlotCount
+                                + ", finalCpuSlotList="
+                                + describeFinalOutputInputSlots(plan, finalCpuInputSlots, 12)
+                                + ", finalGpuSlotList="
+                                + describeFinalOutputInputSlots(plan, finalGpuInputSlots, 12)
+                                + ", markerSlotList="
+                                + describeFinalOutputInputSlots(plan, markerExternalInputs, 12)
+                                + ", residualDependencySlots=" + finalResidualDependencySlotCount
+                                + ", residualDependencySlotList="
+                                + describeFinalOutputInputSlots(plan, finalResidualDependencySlots, 12)
+                                + ", residualDependencyCpuSlots=" + finalResidualDependencyCpuSlotCount
+                                + ", residualDependencyCpuSlotList="
+                                + describeFinalOutputInputSlots(plan, finalResidualDependencyCpuSlots, 12)
+                                + ", residualDependencyKernels=" + residualDependencySources.size()
+                                + ", deviceVmStages=" + deviceVmStages
+                                + ", deviceVmStageList=" + deviceVmStageList
+                                + ", residualDependencySourceChars=" + residualDependencySourceChars
+                                + ", residualDependencyRejectedSourceChars=" + residualDependencyRejectedSourceChars
+                                + ", residualGpuKernels=" + residualSources.size()
+                                + ", residualRejectedSlots=" + residualRejectedSlotCount
+                                + ", residualRejectedSlotList="
+                                + describeFinalOutputInputSlots(plan, residualRejectedSlots, 12)
+                                + ", residualRejectedSourceChars=" + residualRejectedSourceChars
+                                + ", residualSourceChars=" + residualSourceChars
+                                + ", maxResidualSourceChars=" + maxResidualSourceChars
                                 + ", checkedElements=" + validation.checkedElements()
                                 + ", maxAbsError=" + formatDecimal(validation.maxAbsError())
                                 + ", totalNoiseOctaves=" + descriptor.totalOctaves
@@ -1912,11 +2118,11 @@ public final class DfcOpenClRuntime {
                 DfcOpenClStats.recordSlabAttempt(out.length);
                 DfcOpenClStats.recordSlabSubmitted();
                 DfcOpenClDeviceContext.SlabVmResult result = i == 0
-                        ? context.evalGeneratedNoiseKernelWavesToFinalOutput(
-                        waveKernels, waveSchedule, finalKernel, request,
+                        ? context.evalFinalOutputStagesToFinalOutput(
+                        outputStages, finalKernel, request,
                         slotBufferSlotCount, true, initialSlotBuffer, true)
-                        : context.evalGeneratedNoiseKernelWavesToFinalOutput(
-                        waveKernels, waveSchedule, finalKernel, request,
+                        : context.evalFinalOutputStagesToFinalOutput(
+                        outputStages, finalKernel, request,
                         slotBufferSlotCount, false, initialSlotBuffer, true);
                 DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
                 if (i == 0) {
@@ -1954,13 +2160,38 @@ public final class DfcOpenClRuntime {
                             + ", finalOutput=true"
                             + ", waves=" + waves.length
                             + ", chunks=" + scheduledChunkCount + "/" + chunkStartSlots.length
-                            + ", kernelsCompiled=2"
+                            + ", kernelsCompiled=" + kernelsCompiled
                             + ", slotsComputed=" + scheduledSlotCount + "/" + slotCount
                             + ", directBlockedChunks=" + directBlockedChunks
                             + ", stalledChunks=" + stalledChunks
                             + ", externalInputSlots=" + initialInputSlotCount
                             + ", finalCpuInputSlots=" + finalCpuInputSlotCount
+                            + ", finalGpuInputSlots=" + finalGpuInputSlotCount
                             + ", waveExternalInputSlots=" + waveExternalInputSlotCount
+                            + ", finalCpuSlotList="
+                            + describeFinalOutputInputSlots(plan, finalCpuInputSlots, 12)
+                            + ", finalGpuSlotList="
+                            + describeFinalOutputInputSlots(plan, finalGpuInputSlots, 12)
+                            + ", markerSlotList="
+                            + describeFinalOutputInputSlots(plan, markerExternalInputs, 12)
+                            + ", residualDependencySlots=" + finalResidualDependencySlotCount
+                            + ", residualDependencySlotList="
+                            + describeFinalOutputInputSlots(plan, finalResidualDependencySlots, 12)
+                            + ", residualDependencyCpuSlots=" + finalResidualDependencyCpuSlotCount
+                            + ", residualDependencyCpuSlotList="
+                            + describeFinalOutputInputSlots(plan, finalResidualDependencyCpuSlots, 12)
+                            + ", residualDependencyKernels=" + residualDependencySources.size()
+                            + ", deviceVmStages=" + deviceVmStages
+                            + ", deviceVmStageList=" + deviceVmStageList
+                            + ", residualDependencySourceChars=" + residualDependencySourceChars
+                            + ", residualDependencyRejectedSourceChars=" + residualDependencyRejectedSourceChars
+                            + ", residualGpuKernels=" + residualSources.size()
+                            + ", residualRejectedSlots=" + residualRejectedSlotCount
+                            + ", residualRejectedSlotList="
+                            + describeFinalOutputInputSlots(plan, residualRejectedSlots, 12)
+                            + ", residualRejectedSourceChars=" + residualRejectedSourceChars
+                            + ", residualSourceChars=" + residualSourceChars
+                            + ", maxResidualSourceChars=" + maxResidualSourceChars
                             + ", validationCheckedElements=" + validation.checkedElements()
                             + ", validationMaxAbsError=" + formatDecimal(validation.maxAbsError())
                             + ", totalNoiseOctaves=" + descriptor.totalOctaves
@@ -1982,8 +2213,15 @@ public final class DfcOpenClRuntime {
             closeActiveContext();
             return SlabVmCellBenchmark.failed(status.selectedDevice(), errorMessage(throwable));
         } finally {
-            if (waveKernel != null) {
-                waveKernel.close();
+            for (DfcOpenClDeviceContext.FinalOutputStage stage : finalOutputStages) {
+                if (stage != null) {
+                    stage.close();
+                }
+            }
+            for (DfcOpenClDeviceContext.GeneratedNoiseKernel kernel : stageKernels) {
+                if (kernel != null) {
+                    kernel.close();
+                }
             }
             if (finalKernel != null) {
                 finalKernel.close();
@@ -4022,8 +4260,8 @@ public final class DfcOpenClRuntime {
         return slots[slot];
     }
 
-    private static double evalCompiledPlanProgram(byte[] program, double[] constants, double[] slots,
-                                                  double bx, double by, double bz, double hoist) {
+    static double evalCompiledPlanProgram(byte[] program, double[] constants, double[] slots,
+                                          double bx, double by, double bz, double hoist) {
         double[] stack = new double[192];
         int sp = 0;
         for (int pc = 0; pc < program.length;) {
@@ -4057,6 +4295,15 @@ public final class DfcOpenClRuntime {
                     double input = stack[--sp];
                     stack[sp++] = input >= constants[min] && input < constants[max] ? whenIn : whenOut;
                 }
+                case OP_RANGE_CHOICE_JUMP -> {
+                    int min = readU16(program, pc); pc += 2;
+                    int max = readU16(program, pc); pc += 2;
+                    int whenInPc = readI32(program, pc); pc += 4;
+                    int whenOutPc = readI32(program, pc); pc += 4;
+                    double input = stack[--sp];
+                    pc = input >= constants[min] && input < constants[max] ? whenInPc : whenOutPc;
+                }
+                case OP_JUMP -> pc = readI32(program, pc);
                 case OP_BLOCK_X -> stack[sp++] = bx;
                 case OP_BLOCK_Y -> stack[sp++] = by;
                 case OP_BLOCK_Z -> stack[sp++] = bz;
@@ -4325,6 +4572,73 @@ public final class DfcOpenClRuntime {
         return out;
     }
 
+    private static boolean[] singleSlotMask(int targetSlot, int slotCount) {
+        boolean[] out = new boolean[Math.max(0, slotCount)];
+        if (targetSlot >= 0 && targetSlot < out.length) {
+            out[targetSlot] = true;
+        }
+        return out;
+    }
+
+    private static boolean[] slotsExcept(boolean[] slots, int excludedSlot, int slotCount) {
+        boolean[] out = new boolean[Math.max(0, slotCount)];
+        int limit = Math.min(out.length, slots == null ? 0 : slots.length);
+        for (int slot = 0; slot < limit; slot++) {
+            out[slot] = slots[slot] && slot != excludedSlot;
+        }
+        return out;
+    }
+
+    static String describeFinalOutputInputSlots(OpenClCompiledPlan plan, boolean[] slots, int limit) {
+        int count = countTrue(slots);
+        StringBuilder out = new StringBuilder();
+        out.append(count).append('[');
+        int emitted = 0;
+        int safeLimit = Math.max(0, limit);
+        if (slots != null) {
+            for (int slot = 0; slot < slots.length; slot++) {
+                if (!slots[slot]) {
+                    continue;
+                }
+                if (emitted > 0) {
+                    out.append("; ");
+                }
+                if (emitted >= safeLimit) {
+                    out.append('+').append(count - emitted);
+                    break;
+                }
+                out.append(slot).append(':').append(finalOutputSlotKind(plan, slot));
+                emitted++;
+            }
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    private static String finalOutputSlotKind(OpenClCompiledPlan plan, int slot) {
+        if (isExternalSlot(plan.externalSlots(), slot)) {
+            StringBuilder out = new StringBuilder("external#");
+            try {
+                int externIndex = markerExternIndex(plan, slot);
+                out.append(externIndex).append(':');
+                DensityFunction[] externs = plan.externs();
+                out.append(externs != null && externIndex >= 0 && externIndex < externs.length
+                        ? shortClassName(externs[externIndex])
+                        : "missing");
+            } catch (RuntimeException exception) {
+                out.append("invalid");
+            }
+            return out.toString();
+        }
+        ComputedSlot computed = computedSlot(plan.computedSlots(), slot);
+        if (computed != null) {
+            return computed.label() == null || computed.label().isBlank()
+                    ? "computed"
+                    : "computed:" + computed.label();
+        }
+        return "noise";
+    }
+
     private static boolean[] slabProgramRootSlots(byte[] program, int slotCount) {
         boolean[] roots = new boolean[Math.max(0, slotCount)];
         for (int slot : slotDependencies(program, roots.length)) {
@@ -4335,17 +4649,384 @@ public final class DfcOpenClRuntime {
 
     static boolean[] compiledPlanFinalOutputRootSlots(OpenClCompiledPlan plan, int slotCount) {
         boolean[] roots = slabProgramRootSlots(plan.slabProgram(), slotCount);
-        markSlotExpressionDependencies(plan.hoistExpression(), roots, dependency -> roots[dependency] = true);
+        if (slabProgramUsesHoist(plan.slabProgram())) {
+            markSlotExpressionDependencies(plan.hoistExpression(), roots, dependency -> roots[dependency] = true);
+        }
         return roots;
+    }
+
+    static boolean[] compiledPlanFinalOutputResidualGpuInputSlots(OpenClCompiledPlan plan,
+                                                                  boolean[] scheduledSlots,
+                                                                  int slotCount) {
+        boolean[] roots = compiledPlanFinalOutputRootSlots(plan, slotCount);
+        boolean[] gpuInputs = new boolean[Math.max(0, slotCount)];
+        for (int slot = 0; slot < gpuInputs.length; slot++) {
+            boolean scheduled = scheduledSlots != null && slot < scheduledSlots.length && scheduledSlots[slot];
+            if (roots[slot] && !scheduled && !isExternalSlot(plan.externalSlots(), slot)) {
+                gpuInputs[slot] = true;
+            }
+        }
+        return gpuInputs;
+    }
+
+    static boolean[] compiledPlanFinalOutputResidualDependencySlots(OpenClCompiledPlan plan,
+                                                                    boolean[] residualCandidateSlots,
+                                                                    boolean[] scheduledSlots,
+                                                                    boolean[] markerExternalInputs,
+                                                                    int slotCount) {
+        int length = Math.max(0, slotCount);
+        boolean[] dependencies = new boolean[length];
+        if (residualCandidateSlots == null) {
+            return dependencies;
+        }
+        boolean[] visited = new boolean[length];
+        boolean[] visiting = new boolean[length];
+        int limit = Math.min(length, residualCandidateSlots.length);
+        for (int slot = 0; slot < limit; slot++) {
+            if (!residualCandidateSlots[slot]) {
+                continue;
+            }
+            ComputedSlot computed = computedSlot(plan.computedSlots(), slot);
+            if (computed == null) {
+                continue;
+            }
+            for (int dependency : slotDependencies(computed.slabProgram(), length)) {
+                collectResidualDependencySlot(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                        markerExternalInputs, visited, visiting, dependency);
+            }
+            if (slabProgramUsesHoist(computed.slabProgram())) {
+                markSlotExpressionDependencies(computed.hoistExpression(), dependencies, dependency -> {
+                    collectResidualDependencySlot(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                            markerExternalInputs, visited, visiting, dependency);
+                });
+            }
+        }
+        return dependencies;
+    }
+
+    private static void collectResidualDependencySlot(OpenClCompiledPlan plan,
+                                                      boolean[] dependencies,
+                                                      boolean[] residualCandidateSlots,
+                                                      boolean[] scheduledSlots,
+                                                      boolean[] markerExternalInputs,
+                                                      boolean[] visited,
+                                                      boolean[] visiting,
+                                                      int slot) {
+        if (slot < 0 || slot >= dependencies.length) {
+            return;
+        }
+        if (residualCandidateSlots != null && slot < residualCandidateSlots.length && residualCandidateSlots[slot]) {
+            return;
+        }
+        if (scheduledSlots != null && slot < scheduledSlots.length && scheduledSlots[slot]) {
+            return;
+        }
+        if (markerExternalInputs != null && slot < markerExternalInputs.length && markerExternalInputs[slot]) {
+            return;
+        }
+        if (isExternalSlot(plan.externalSlots(), slot)) {
+            return;
+        }
+        dependencies[slot] = true;
+        if (visited[slot]) {
+            return;
+        }
+        if (visiting[slot]) {
+            throw new IllegalStateException("cyclic residual dependency slot at " + slot);
+        }
+        visiting[slot] = true;
+        try {
+            ComputedSlot computed = computedSlot(plan.computedSlots(), slot);
+            if (computed != null) {
+                for (int dependency : slotDependencies(computed.slabProgram(), dependencies.length)) {
+                    collectResidualDependencySlot(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                            markerExternalInputs, visited, visiting, dependency);
+                }
+                if (slabProgramUsesHoist(computed.slabProgram())) {
+                    markSlotExpressionDependencies(computed.hoistExpression(), dependencies, dependency -> {
+                        collectResidualDependencySlot(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                                markerExternalInputs, visited, visiting, dependency);
+                    });
+                }
+            } else {
+                collectResidualCoordinateDependencySlots(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                        markerExternalInputs, visited, visiting, slot);
+            }
+        } finally {
+            visiting[slot] = false;
+        }
+        visited[slot] = true;
+    }
+
+    private static void collectResidualCoordinateDependencySlots(OpenClCompiledPlan plan,
+                                                                 boolean[] dependencies,
+                                                                 boolean[] residualCandidateSlots,
+                                                                 boolean[] scheduledSlots,
+                                                                 boolean[] markerExternalInputs,
+                                                                 boolean[] visited,
+                                                                 boolean[] visiting,
+                                                                 int slot) {
+        collectResidualExpressionDependencySlots(expressionAt(plan.slotCoordXExpressions(), slot),
+                plan, dependencies, residualCandidateSlots, scheduledSlots, markerExternalInputs, visited, visiting);
+        collectResidualExpressionDependencySlots(expressionAt(plan.slotCoordYExpressions(), slot),
+                plan, dependencies, residualCandidateSlots, scheduledSlots, markerExternalInputs, visited, visiting);
+        collectResidualExpressionDependencySlots(expressionAt(plan.slotCoordZExpressions(), slot),
+                plan, dependencies, residualCandidateSlots, scheduledSlots, markerExternalInputs, visited, visiting);
+    }
+
+    private static void collectResidualExpressionDependencySlots(String expression,
+                                                                 OpenClCompiledPlan plan,
+                                                                 boolean[] dependencies,
+                                                                 boolean[] residualCandidateSlots,
+                                                                 boolean[] scheduledSlots,
+                                                                 boolean[] markerExternalInputs,
+                                                                 boolean[] visited,
+                                                                 boolean[] visiting) {
+        markSlotExpressionDependencies(expression, dependencies, dependency -> {
+            collectResidualDependencySlot(plan, dependencies, residualCandidateSlots, scheduledSlots,
+                    markerExternalInputs, visited, visiting, dependency);
+        });
+    }
+
+    static int residualDependencyCpuFallbackSlot(boolean[] candidates,
+                                                 boolean[] gpuSlots,
+                                                 boolean[] cpuSlots,
+                                                 long[] rejectedSourceChars) {
+        if (candidates == null || rejectedSourceChars == null) {
+            return -1;
+        }
+        int fallbackSlot = -1;
+        long fallbackChars = Long.MAX_VALUE;
+        int limit = Math.min(candidates.length, rejectedSourceChars.length);
+        for (int slot = 0; slot < limit; slot++) {
+            if (!candidates[slot]
+                    || (gpuSlots != null && slot < gpuSlots.length && gpuSlots[slot])
+                    || (cpuSlots != null && slot < cpuSlots.length && cpuSlots[slot])) {
+                continue;
+            }
+            long chars = rejectedSourceChars[slot];
+            if (chars <= 0L) {
+                continue;
+            }
+            if (chars < fallbackChars) {
+                fallbackChars = chars;
+                fallbackSlot = slot;
+            }
+        }
+        return fallbackSlot;
+    }
+
+    static boolean computedSlotDependenciesStaged(ComputedSlot computed,
+                                                  boolean[] stagedInputs,
+                                                  int targetSlot,
+                                                  int slotCount) {
+        if (computed == null || stagedInputs == null) {
+            return false;
+        }
+        int length = Math.max(0, slotCount);
+        for (int dependency : slotDependencies(computed.slabProgram(), length)) {
+            if (dependency != targetSlot && !slotInputStaged(stagedInputs, dependency)) {
+                return false;
+            }
+        }
+        if (slabProgramUsesHoist(computed.slabProgram())) {
+            boolean[] bounds = new boolean[length];
+            boolean[] staged = new boolean[]{true};
+            markSlotExpressionDependencies(computed.hoistExpression(), bounds, dependency -> {
+                if (dependency != targetSlot && !slotInputStaged(stagedInputs, dependency)) {
+                    staged[0] = false;
+                }
+            });
+            return staged[0];
+        }
+        return true;
+    }
+
+    private static FinalOutputStageBuild buildComputedSlotStage(
+            DfcOpenClNoiseDescriptor descriptor,
+            int targetSlot,
+            ComputedSlot computed,
+            boolean[] stagedInputs,
+            int[] slotBufferIndices) {
+        if (computedSlotUnrolledSourceLikelyFits(computed)) {
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanComputedSlotFromSlotBuffer(
+                            descriptor, targetSlot, computed, stagedInputs, slotBufferIndices);
+            if (source.source().length() <= COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                return FinalOutputStageBuild.generated(targetSlot, source);
+            }
+        }
+        if (computedSlotVmSourceLikelyFits(computed)) {
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanComputedSlotVmFromSlotBuffer(
+                            descriptor, targetSlot, computed, stagedInputs, slotBufferIndices);
+            if (source.source().length() <= COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
+                return FinalOutputStageBuild.generated(targetSlot, source);
+            }
+        }
+        if (computedSlotUsesDeviceVmStage(computed)) {
+            byte[] lazyProgram = lazySlabProgram(computed.slabProgram());
+            return FinalOutputStageBuild.deviceVm(
+                    targetSlot, lazyProgram, computed.slabConstants(),
+                    slotBufferIndex(slotBufferIndices, targetSlot));
+        }
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildCompiledPlanComputedSlotVmFromSlotBuffer(
+                        descriptor, targetSlot, computed, stagedInputs, slotBufferIndices);
+        return FinalOutputStageBuild.generated(targetSlot, source);
+    }
+
+    static boolean computedSlotUnrolledSourceLikelyFits(ComputedSlot computed) {
+        if (computed == null || computed.slabProgram() == null) {
+            return false;
+        }
+        long hoistChars = slabProgramUsesHoist(computed.slabProgram()) && computed.hoistExpression() != null
+                ? computed.hoistExpression().length()
+                : 0L;
+        long estimatedChars = 4096L + computed.slabProgram().length * 56L + hoistChars;
+        return estimatedChars <= COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS;
+    }
+
+    static boolean computedSlotVmSourceLikelyFits(ComputedSlot computed) {
+        if (computed == null || computed.slabProgram() == null || computed.slabConstants() == null) {
+            return false;
+        }
+        long hoistChars = slabProgramUsesHoist(computed.slabProgram()) && computed.hoistExpression() != null
+                ? computed.hoistExpression().length()
+                : 0L;
+        long estimatedChars = 4096L
+                + computed.slabProgram().length * 8L
+                + computed.slabConstants().length * 32L
+                + hoistChars;
+        return estimatedChars <= COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS;
+    }
+
+    static boolean computedSlotUsesDeviceVmStage(ComputedSlot computed) {
+        return computed != null
+                && computed.slabProgram() != null
+                && !slabProgramUsesHoist(computed.slabProgram())
+                && !computedSlotVmSourceLikelyFits(computed);
+    }
+
+    private static void addFinalOutputStage(DfcOpenClDeviceContext context,
+                                            FinalOutputStageBuild build,
+                                            List<DfcOpenClDeviceContext.FinalOutputStage> stages,
+                                            List<DfcOpenClDeviceContext.GeneratedNoiseKernel> stageKernels) {
+        if (build.deviceVm()) {
+            stages.add(DfcOpenClDeviceContext.FinalOutputStage.slabVmSlot(
+                    build.bytecode(), build.constants(), build.targetSlotBufferIndex()));
+            return;
+        }
+        DfcOpenClDeviceContext.GeneratedNoiseKernel kernel =
+                context.compileGeneratedNoiseKernel(build.source().source());
+        stageKernels.add(kernel);
+        stages.add(DfcOpenClDeviceContext.FinalOutputStage.generated(kernel));
+    }
+
+    private static int countDeviceVmStages(DfcOpenClDeviceContext.FinalOutputStage[] stages) {
+        int count = 0;
+        if (stages != null) {
+            for (DfcOpenClDeviceContext.FinalOutputStage stage : stages) {
+                if (stage != null && !stage.generated()) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static String describeDeviceVmStageBuilds(OpenClCompiledPlan plan,
+                                                      List<FinalOutputStageBuild> dependencyStages,
+                                                      List<FinalOutputStageBuild> residualStages,
+                                                      int limit) {
+        int count = countDeviceVmStageBuilds(dependencyStages) + countDeviceVmStageBuilds(residualStages);
+        StringBuilder out = new StringBuilder();
+        out.append(count).append('[');
+        int emitted = appendDeviceVmStageBuilds(out, plan, dependencyStages, "dep", 0, count, limit);
+        appendDeviceVmStageBuilds(out, plan, residualStages, "root", emitted, count, limit);
+        out.append(']');
+        return out.toString();
+    }
+
+    private static int appendDeviceVmStageBuilds(StringBuilder out,
+                                                 OpenClCompiledPlan plan,
+                                                 List<FinalOutputStageBuild> stages,
+                                                 String group,
+                                                 int emitted,
+                                                 int count,
+                                                 int limit) {
+        if (stages == null) {
+            return emitted;
+        }
+        int safeLimit = Math.max(0, limit);
+        for (FinalOutputStageBuild stage : stages) {
+            if (stage == null || !stage.deviceVm()) {
+                continue;
+            }
+            if (emitted > 0) {
+                out.append("; ");
+            }
+            if (emitted >= safeLimit) {
+                out.append('+').append(count - emitted);
+                return count;
+            }
+            int bytecodeLength = stage.bytecode() == null ? 0 : stage.bytecode().length;
+            int constantCount = stage.constants() == null ? 0 : stage.constants().length;
+            out.append(group)
+                    .append(':')
+                    .append(stage.targetSlot())
+                    .append(':')
+                    .append(finalOutputSlotKind(plan, stage.targetSlot()))
+                    .append("/bc=")
+                    .append(bytecodeLength)
+                    .append("/consts=")
+                    .append(constantCount)
+                    .append("/lazy=")
+                    .append(slabProgramUsesLazyBranch(stage.bytecode()))
+                    .append("/buf=")
+                    .append(stage.targetSlotBufferIndex());
+            emitted++;
+        }
+        return emitted;
+    }
+
+    private static int countDeviceVmStageBuilds(List<FinalOutputStageBuild> stages) {
+        int count = 0;
+        if (stages != null) {
+            for (FinalOutputStageBuild stage : stages) {
+                if (stage != null && stage.deviceVm()) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static boolean slotInputStaged(boolean[] stagedInputs, int slot) {
+        return stagedInputs != null && slot >= 0 && slot < stagedInputs.length && stagedInputs[slot];
     }
 
     static boolean[] compiledPlanFinalOutputCpuInputSlots(OpenClCompiledPlan plan,
                                                           boolean[] scheduledSlots,
+                                                          boolean[] residualGpuInputSlots,
+                                                          boolean[] residualDependencyCpuSlots,
                                                           int slotCount) {
-        boolean[] roots = compiledPlanFinalOutputRootSlots(plan, slotCount);
-        boolean[] inputs = new boolean[Math.max(0, slotCount)];
-        for (int slot = 0; slot < inputs.length; slot++) {
-            if (roots[slot] && (scheduledSlots == null || slot >= scheduledSlots.length || !scheduledSlots[slot])) {
+        int length = Math.max(0, slotCount);
+        boolean[] inputs = compiledPlanFinalOutputExternalInputs(plan, length);
+        if (residualDependencyCpuSlots != null) {
+            for (int slot = 0; slot < Math.min(length, residualDependencyCpuSlots.length); slot++) {
+                if (residualDependencyCpuSlots[slot]) {
+                    inputs[slot] = true;
+                }
+            }
+        }
+        boolean[] roots = compiledPlanFinalOutputRootSlots(plan, length);
+        for (int slot = 0; slot < length; slot++) {
+            boolean scheduled = scheduledSlots != null && slot < scheduledSlots.length && scheduledSlots[slot];
+            boolean gpuResidual = residualGpuInputSlots != null
+                    && slot < residualGpuInputSlots.length
+                    && residualGpuInputSlots[slot];
+            if (roots[slot] && !scheduled && !gpuResidual) {
                 inputs[slot] = true;
             }
         }
@@ -4399,9 +5080,11 @@ public final class DfcOpenClRuntime {
                 for (int dependency : slotDependencies(computed.slabProgram(), inputs.length)) {
                     collectFinalOutputExternalInputs(plan, dependency, inputs, visited, visiting);
                 }
-                markSlotExpressionDependencies(computed.hoistExpression(), inputs, dependency -> {
-                    collectFinalOutputExternalInputs(plan, dependency, inputs, visited, visiting);
-                });
+                if (slabProgramUsesHoist(computed.slabProgram())) {
+                    markSlotExpressionDependencies(computed.hoistExpression(), inputs, dependency -> {
+                        collectFinalOutputExternalInputs(plan, dependency, inputs, visited, visiting);
+                    });
+                }
             } else {
                 collectFinalOutputSlotCoordinateInputs(plan, slot, inputs, visited, visiting);
             }
@@ -4731,9 +5414,11 @@ public final class DfcOpenClRuntime {
                 for (int dependency : slotDependencies(computed.slabProgram(), inputs.length)) {
                     collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
                 }
-                markSlotExpressionDependencies(computed.hoistExpression(), inputs, dependency -> {
-                    collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
-                });
+                if (slabProgramUsesHoist(computed.slabProgram())) {
+                    markSlotExpressionDependencies(computed.hoistExpression(), inputs, dependency -> {
+                        collectChunkExternalInputs(plan, dependency, startSlot, endSlot, inputs, visited, visiting);
+                    });
+                }
             } else {
                 collectChunkSlotCoordinateInputs(plan, slot, startSlot, endSlot, inputs, visited, visiting);
             }
@@ -4820,6 +5505,125 @@ public final class DfcOpenClRuntime {
         return count;
     }
 
+    static byte[] lazySlabProgram(byte[] program) {
+        if (program == null || program.length == 0 || !slabProgramUsesRangeChoice(program)) {
+            return program;
+        }
+        LazySlabNode root = parseLazySlabProgram(program);
+        LazyBytecodeWriter out = new LazyBytecodeWriter(program.length + Math.min(program.length, 4096));
+        root.emitLazy(out);
+        return out.toByteArray();
+    }
+
+    static boolean slabProgramUsesLazyBranch(byte[] program) {
+        if (program == null) {
+            return false;
+        }
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST, OP_COND_NEG_SCALE -> pc += 2;
+                case OP_PUSH_SLOT -> pc++;
+                case OP_Y_CLAMPED_GRADIENT -> pc += 8;
+                case OP_RANGE_CHOICE -> pc += 4;
+                case OP_RANGE_CHOICE_JUMP -> {
+                    return true;
+                }
+                case OP_JUMP -> {
+                    return true;
+                }
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST,
+                     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
+                     OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        return false;
+    }
+
+    private static boolean slabProgramUsesRangeChoice(byte[] program) {
+        if (program == null) {
+            return false;
+        }
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST, OP_COND_NEG_SCALE -> pc += 2;
+                case OP_PUSH_SLOT -> pc++;
+                case OP_Y_CLAMPED_GRADIENT -> pc += 8;
+                case OP_RANGE_CHOICE -> {
+                    return true;
+                }
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST,
+                     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
+                     OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        return false;
+    }
+
+    private static LazySlabNode parseLazySlabProgram(byte[] program) {
+        List<LazySlabNode> stack = new ArrayList<>();
+        for (int pc = 0; pc < program.length;) {
+            int start = pc;
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST -> {
+                    pc += 2;
+                    stack.add(new LazyRawNode(Arrays.copyOfRange(program, start, pc)));
+                }
+                case OP_PUSH_SLOT -> {
+                    pc++;
+                    stack.add(new LazyRawNode(Arrays.copyOfRange(program, start, pc)));
+                }
+                case OP_COND_NEG_SCALE -> {
+                    pc += 2;
+                    stack.add(new LazyUnaryNode(popLazyNode(stack), Arrays.copyOfRange(program, start, pc)));
+                }
+                case OP_Y_CLAMPED_GRADIENT -> {
+                    pc += 8;
+                    stack.add(new LazyRawNode(Arrays.copyOfRange(program, start, pc)));
+                }
+                case OP_RANGE_CHOICE -> {
+                    int min = readU16(program, pc);
+                    pc += 2;
+                    int max = readU16(program, pc);
+                    pc += 2;
+                    LazySlabNode whenOut = popLazyNode(stack);
+                    LazySlabNode whenIn = popLazyNode(stack);
+                    LazySlabNode input = popLazyNode(stack);
+                    stack.add(new LazyRangeNode(input, whenIn, whenOut, min, max));
+                }
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST -> {
+                    stack.add(new LazyRawNode(Arrays.copyOfRange(program, start, pc)));
+                }
+                case OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX -> {
+                    LazySlabNode right = popLazyNode(stack);
+                    LazySlabNode left = popLazyNode(stack);
+                    stack.add(new LazyBinaryNode(left, right, op));
+                }
+                case OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                    stack.add(new LazyUnaryNode(popLazyNode(stack), new byte[]{(byte) op}));
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        if (stack.size() != 1) {
+            throw new IllegalStateException("compiled plan program ended with stack depth " + stack.size());
+        }
+        return stack.get(0);
+    }
+
+    private static LazySlabNode popLazyNode(List<LazySlabNode> stack) {
+        if (stack.isEmpty()) {
+            throw new IllegalStateException("compiled plan program underflow");
+        }
+        return stack.remove(stack.size() - 1);
+    }
+
     static int[] slotDependencies(byte[] program, int slotCount) {
         boolean[] seen = new boolean[slotCount];
         int count = 0;
@@ -4839,6 +5643,8 @@ public final class DfcOpenClRuntime {
                 }
                 case OP_Y_CLAMPED_GRADIENT -> pc += 8;
                 case OP_RANGE_CHOICE -> pc += 4;
+                case OP_RANGE_CHOICE_JUMP -> pc += 12;
+                case OP_JUMP -> pc += 4;
                 case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST,
                      OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
                      OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
@@ -4854,6 +5660,32 @@ public final class DfcOpenClRuntime {
             }
         }
         return dependencies;
+    }
+
+    static boolean slabProgramUsesHoist(byte[] program) {
+        if (program == null) {
+            return false;
+        }
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            switch (op) {
+                case OP_PUSH_CONST, OP_COND_NEG_SCALE -> pc += 2;
+                case OP_PUSH_SLOT -> pc++;
+                case OP_Y_CLAMPED_GRADIENT -> pc += 8;
+                case OP_RANGE_CHOICE -> pc += 4;
+                case OP_RANGE_CHOICE_JUMP -> pc += 12;
+                case OP_JUMP -> pc += 4;
+                case OP_HOIST -> {
+                    return true;
+                }
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z,
+                     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
+                     OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                }
+                default -> throw new IllegalStateException("unsupported compiled plan opcode " + op);
+            }
+        }
+        return false;
     }
 
     private static String expressionAt(String[] expressions, int slot) {
@@ -4907,6 +5739,13 @@ public final class DfcOpenClRuntime {
 
     private static int readU16(byte[] bytes, int offset) {
         return (bytes[offset] & 0xFF) | ((bytes[offset + 1] & 0xFF) << 8);
+    }
+
+    private static int readI32(byte[] bytes, int offset) {
+        return (bytes[offset] & 0xFF)
+                | ((bytes[offset + 1] & 0xFF) << 8)
+                | ((bytes[offset + 2] & 0xFF) << 16)
+                | ((bytes[offset + 3] & 0xFF) << 24);
     }
 
     private static double cellBlockX(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
@@ -5083,6 +5922,160 @@ public final class DfcOpenClRuntime {
     public record FinalOutputValidation(
             int checkedElements,
             double maxAbsError) {
+    }
+
+    private interface LazySlabNode {
+        void emitLazy(LazyBytecodeWriter out);
+    }
+
+    private record LazyRawNode(byte[] bytes) implements LazySlabNode {
+        @Override
+        public void emitLazy(LazyBytecodeWriter out) {
+            out.write(this.bytes);
+        }
+    }
+
+    private record LazyUnaryNode(LazySlabNode input, byte[] opBytes) implements LazySlabNode {
+        @Override
+        public void emitLazy(LazyBytecodeWriter out) {
+            this.input.emitLazy(out);
+            out.write(this.opBytes);
+        }
+    }
+
+    private record LazyBinaryNode(LazySlabNode left, LazySlabNode right, int op) implements LazySlabNode {
+        @Override
+        public void emitLazy(LazyBytecodeWriter out) {
+            this.left.emitLazy(out);
+            this.right.emitLazy(out);
+            out.write(this.op);
+        }
+    }
+
+    private record LazyRangeNode(
+            LazySlabNode input,
+            LazySlabNode whenIn,
+            LazySlabNode whenOut,
+            int minConst,
+            int maxConst) implements LazySlabNode {
+        @Override
+        public void emitLazy(LazyBytecodeWriter out) {
+            this.input.emitLazy(out);
+            out.write(OP_RANGE_CHOICE_JUMP);
+            out.writeU16(this.minConst);
+            out.writeU16(this.maxConst);
+            int inPatch = out.position();
+            out.writeI32(0);
+            int outPatch = out.position();
+            out.writeI32(0);
+
+            int inStart = out.position();
+            this.whenIn.emitLazy(out);
+            out.write(OP_JUMP);
+            int endPatch = out.position();
+            out.writeI32(0);
+
+            int outStart = out.position();
+            this.whenOut.emitLazy(out);
+            int end = out.position();
+            out.patchI32(inPatch, inStart);
+            out.patchI32(outPatch, outStart);
+            out.patchI32(endPatch, end);
+        }
+    }
+
+    private static final class LazyBytecodeWriter {
+        private byte[] bytes;
+        private int position;
+
+        private LazyBytecodeWriter(int initialCapacity) {
+            this.bytes = new byte[Math.max(32, initialCapacity)];
+        }
+
+        int position() {
+            return this.position;
+        }
+
+        void write(int value) {
+            ensureCapacity(this.position + 1);
+            this.bytes[this.position++] = (byte) value;
+        }
+
+        void write(byte[] values) {
+            if (values == null || values.length == 0) {
+                return;
+            }
+            ensureCapacity(this.position + values.length);
+            System.arraycopy(values, 0, this.bytes, this.position, values.length);
+            this.position += values.length;
+        }
+
+        void writeU16(int value) {
+            write(value & 0xFF);
+            write((value >>> 8) & 0xFF);
+        }
+
+        void writeI32(int value) {
+            write(value & 0xFF);
+            write((value >>> 8) & 0xFF);
+            write((value >>> 16) & 0xFF);
+            write((value >>> 24) & 0xFF);
+        }
+
+        void patchI32(int offset, int value) {
+            if (offset < 0 || offset + 3 >= this.position) {
+                throw new IllegalArgumentException("invalid lazy bytecode patch offset " + offset);
+            }
+            this.bytes[offset] = (byte) value;
+            this.bytes[offset + 1] = (byte) (value >>> 8);
+            this.bytes[offset + 2] = (byte) (value >>> 16);
+            this.bytes[offset + 3] = (byte) (value >>> 24);
+        }
+
+        byte[] toByteArray() {
+            return Arrays.copyOf(this.bytes, this.position);
+        }
+
+        private void ensureCapacity(int needed) {
+            if (needed <= this.bytes.length) {
+                return;
+            }
+            int next = this.bytes.length;
+            while (next < needed) {
+                next = Math.max(next + 1, next * 2);
+            }
+            this.bytes = Arrays.copyOf(this.bytes, next);
+        }
+    }
+
+    private record FinalOutputStageBuild(
+            int targetSlot,
+            DfcOpenClGeneratedNoiseSource.BuildResult source,
+            byte[] bytecode,
+            double[] constants,
+            int targetSlotBufferIndex) {
+        static FinalOutputStageBuild generated(DfcOpenClGeneratedNoiseSource.BuildResult source) {
+            return generated(-1, source);
+        }
+
+        static FinalOutputStageBuild generated(int targetSlot, DfcOpenClGeneratedNoiseSource.BuildResult source) {
+            return new FinalOutputStageBuild(targetSlot, source, null, null, -1);
+        }
+
+        static FinalOutputStageBuild deviceVm(int targetSlot,
+                                              byte[] bytecode,
+                                              double[] constants,
+                                              int targetSlotBufferIndex) {
+            return new FinalOutputStageBuild(targetSlot, null, bytecode, constants, targetSlotBufferIndex);
+        }
+
+        boolean deviceVm() {
+            return this.source == null;
+        }
+
+        int sourceChars() {
+            return this.source == null ? 0 : this.source.source().length();
+        }
     }
 
     public record GeneratedSourceCompileProbe(
