@@ -31,7 +31,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Map;
 
-@Mixin(value = StructureCheck.class, priority = 0)
+@Mixin(value = StructureCheck.class, priority = 997)
 public abstract class MixinStructureCheck {
 
     @Unique

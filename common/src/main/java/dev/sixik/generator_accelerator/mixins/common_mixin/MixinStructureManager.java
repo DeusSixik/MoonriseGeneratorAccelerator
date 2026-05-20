@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-@Mixin(value = StructureManager.class, priority = 999)
+@Mixin(value = StructureManager.class, priority = 997)
 public abstract class MixinStructureManager implements GA$StructureManagerExtension {
     @Unique
     private static final ThreadLocal<StructureStartCollector> GA$START_COLLECTOR =

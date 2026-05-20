@@ -20,7 +20,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import java.util.Optional;
 import java.util.function.Predicate;
 
-@Mixin(Structure.class)
+@Mixin(value = Structure.class, priority = 997)
 public abstract class MixinStructure$generation_hot_path {
 
     @Shadow

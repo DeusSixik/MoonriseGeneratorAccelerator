@@ -23,7 +23,7 @@ import org.spongepowered.asm.mixin.Unique;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
-@Mixin(SinglePoolElement.class)
+@Mixin(value = SinglePoolElement.class, priority = 997)
 public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends StructurePoolElement implements StructurePoolElementCache {
 
     @Unique

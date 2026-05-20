@@ -44,7 +44,7 @@ import org.spongepowered.asm.mixin.Unique;
 import java.util.List;
 import java.util.Optional;
 
-@Mixin(targets = "net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement$Placer")
+@Mixin(targets = "net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement$Placer", priority = 997)
 public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
     @Unique
     private static final Logger GA$LOGGER = LogUtils.getLogger();

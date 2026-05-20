@@ -13,7 +13,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-@Mixin(StructurePiecesBuilder.class)
+@Mixin(value = StructurePiecesBuilder.class, priority = 997)
 public abstract class MixinStructurePiecesBuilder$collision_index {
 
     @Unique
