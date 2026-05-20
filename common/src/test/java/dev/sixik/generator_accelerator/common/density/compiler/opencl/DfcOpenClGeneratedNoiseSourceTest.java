@@ -193,6 +193,17 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void flatCache2dPrefillSourceUsesFloorQuartCoordinatesAndSlotMajorOutput() {
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildFlatCache2dSlotBufferPrefill();
+
+        assertTrue(source.source().contains("dfc_floor_div4"));
+        assertTrue(source.source().contains("int quart_x = dfc_floor_div4(block_x);"));
+        assertTrue(source.source().contains("int flat_index = local_x * side + local_z;"));
+        assertTrue(source.source().contains("slot_buffer[compact_index * n + gid]"));
+    }
+
+    @Test
     void computedSlotSourceSkipsUnusedHoistExpression() {
         DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(2, 1);
         boolean[] targetSlots = new boolean[]{false, true};

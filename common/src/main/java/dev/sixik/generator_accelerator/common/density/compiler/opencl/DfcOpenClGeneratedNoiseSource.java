@@ -72,6 +72,54 @@ final class DfcOpenClGeneratedNoiseSource {
         return new BuildResult(source.toString(), 0, 0);
     }
 
+    static BuildResult buildFlatCache2dSlotBufferPrefill() {
+        StringBuilder source = new StringBuilder(2048);
+        source.append('\n')
+                .append("static int dfc_floor_div4(int v) {\n")
+                .append("    return v >= 0 ? (v >> 2) : -(((-v) + 3) >> 2);\n")
+                .append("}\n\n")
+                .append("__kernel void ").append(KERNEL_NAME).append("(\n")
+                .append("    __global const double *flat_cache_values,\n")
+                .append("    __global const int *slot_compact_indices,\n")
+                .append("    __global const int *slot_table_indices,\n")
+                .append("    __global const int *table_offsets,\n")
+                .append("    __global const int *table_sides,\n")
+                .append("    __global const int *table_first_x,\n")
+                .append("    __global const int *table_first_z,\n")
+                .append("    __global double *slot_buffer,\n")
+                .append("    int firstBlockX, int firstBlockY, int firstBlockZ,\n")
+                .append("    int cellWidth, int cellHeight, int cells, int slot_count, int n) {\n")
+                .append("    (void) firstBlockY;\n")
+                .append("    int gid = (int) get_global_id(0);\n")
+                .append("    if (gid >= n || cellWidth <= 0 || cellHeight <= 0 || cells <= 0 || slot_count <= 0) return;\n")
+                .append("    int cell_volume = cellWidth * cellWidth * cellHeight;\n")
+                .append("    int cell = gid / cell_volume;\n")
+                .append("    int in_cell = gid - cell * cell_volume;\n")
+                .append("    int plane = in_cell % (cellWidth * cellWidth);\n")
+                .append("    int in_x = plane / cellWidth;\n")
+                .append("    int in_z = plane - in_x * cellWidth;\n")
+                .append("    int cell_x = cell & 31;\n")
+                .append("    int cell_z = cell >> 5;\n")
+                .append("    int block_x = firstBlockX + cell_x * cellWidth + in_x;\n")
+                .append("    int block_z = firstBlockZ + cell_z * cellWidth + in_z;\n")
+                .append("    int quart_x = dfc_floor_div4(block_x);\n")
+                .append("    int quart_z = dfc_floor_div4(block_z);\n")
+                .append("    for (int i = 0; i < slot_count; i++) {\n")
+                .append("        int table = slot_table_indices[i];\n")
+                .append("        if (table < 0) continue;\n")
+                .append("        int side = table_sides[table];\n")
+                .append("        if (side <= 0) continue;\n")
+                .append("        int local_x = quart_x - table_first_x[table];\n")
+                .append("        int local_z = quart_z - table_first_z[table];\n")
+                .append("        if (local_x < 0 || local_z < 0 || local_x >= side || local_z >= side) continue;\n")
+                .append("        int flat_index = local_x * side + local_z;\n")
+                .append("        int compact_index = slot_compact_indices[i];\n")
+                .append("        slot_buffer[compact_index * n + gid] = flat_cache_values[table_offsets[table] + flat_index];\n")
+                .append("    }\n")
+                .append("}\n");
+        return new BuildResult(source.toString(), 0, 0);
+    }
+
     static BuildResult build(DfcOpenClNoiseDescriptor descriptor, int usedSlotCount) {
         return build(descriptor, usedSlotCount, WrapMode.WRAP);
     }
