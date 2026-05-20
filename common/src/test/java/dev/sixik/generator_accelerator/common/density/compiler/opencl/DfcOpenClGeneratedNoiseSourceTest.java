@@ -205,6 +205,17 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void generatedSourcesPassCellGridLayout() {
+        String generated = DfcOpenClGeneratedNoiseSource.build(DfcOpenClNoiseDescriptor.synthetic(1, 1), 1).source();
+        String flat = DfcOpenClGeneratedNoiseSource.buildFlatCache2dSlotBufferPrefill().source();
+
+        assertTrue(generated.contains("int layout"));
+        assertTrue(generated.contains("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell"));
+        assertTrue(flat.contains("int layout"));
+        assertTrue(flat.contains("cellWidth, cellHeight, cells, layout"));
+    }
+
+    @Test
     void computedSlotSourceSkipsUnusedHoistExpression() {
         DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(2, 1);
         boolean[] targetSlots = new boolean[]{false, true};
@@ -683,6 +694,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         5, 0, 0,
                         0, 0, 0,
                         1, 1, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 3);
         double[] rowMajorExternalValues = new double[]{
                 0.0D, 1.0D, 2.0D, 3.0D, 4.0D,
@@ -733,6 +745,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         5, 0, 0,
                         2, 10, 30,
                         1, 3, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 3);
         double[] compactSlotMajorValues = new double[6];
 
@@ -778,6 +791,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         5, 0, 0,
                         0, 0, 0,
                         1, 1, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 3);
         double[] compactSlotMajorValues = new double[6];
 
@@ -826,6 +840,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         3, 0, 0,
                         2, 10, 30,
                         1, 3, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 3);
         double[] compactSlotMajorValues = new double[3];
 
@@ -914,6 +929,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         new byte[0], new double[0], new double[0], new double[0],
                         new int[0], new int[0], new double[0], new double[0],
                         3, 0, 0, 0, 64, 28, 4, 2, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 32);
         DfcOpenClRuntime.ExternalInputClassification classification =
                 DfcOpenClRuntime.classifyDirectExternalSlotBufferInputs(plan, new int[]{1}, new int[]{0});
@@ -960,6 +976,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         new byte[0], new double[0], new double[0], new double[0],
                         new int[0], new int[0], new double[0], new double[0],
                         3, 0, 0, 0, 64, 0, 4, 2, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 32);
         double[] originalExternalSlotValues = new double[request.n() * request.slotCount()];
         Arrays.fill(originalExternalSlotValues, 99.0D);
@@ -1090,6 +1107,7 @@ class DfcOpenClGeneratedNoiseSourceTest {
                         5, 0, 0,
                         2, 10, 30,
                         1, 2, 1,
+                        DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                         0.0D, new double[0], 2);
 
         double[] values = DfcOpenClRuntime.fillExternalSlots(plan, request, 5);
@@ -1651,6 +1669,33 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeCellGridCoordsKeepSyntheticXzLayout() {
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                testRequestWithLayout(DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ, 100, 40, 200, 4, 8, 64);
+
+        assertEquals(100.0D, DfcOpenClRuntime.runtimeCellGridBlockX(0, request));
+        assertEquals(47.0D, DfcOpenClRuntime.runtimeCellGridBlockY(0, request));
+        assertEquals(200.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(0, request));
+        assertEquals(104.0D, DfcOpenClRuntime.runtimeCellGridBlockX(128, request));
+        assertEquals(200.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(128, request));
+        assertEquals(100.0D, DfcOpenClRuntime.runtimeCellGridBlockX(32 * 128, request));
+        assertEquals(204.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(32 * 128, request));
+    }
+
+    @Test
+    void runtimeCellGridCoordsMapYColumnLayout() {
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                testRequestWithLayout(DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_COLUMN, 100, -64, 200, 4, 8, 32);
+
+        assertEquals(100.0D, DfcOpenClRuntime.runtimeCellGridBlockX(0, request));
+        assertEquals(-57.0D, DfcOpenClRuntime.runtimeCellGridBlockY(0, request));
+        assertEquals(200.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(0, request));
+        assertEquals(100.0D, DfcOpenClRuntime.runtimeCellGridBlockX(128, request));
+        assertEquals(-49.0D, DfcOpenClRuntime.runtimeCellGridBlockY(128, request));
+        assertEquals(203.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(255, request));
+    }
+
+    @Test
     void runtimeHybridFastSkipPathIsNotGloballySynchronized() throws NoSuchMethodException {
         int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
                 "tryFillFinalDensityHybrid", CompiledDensityFunction.class, double[].class, NoiseChunk.class)
@@ -1729,6 +1774,36 @@ class DfcOpenClGeneratedNoiseSourceTest {
         int iz = plane % request.cellWidth();
         int cellZ = cell >> 5;
         return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
+    }
+
+    private static DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest testRequestWithLayout(
+            int layout, int firstBlockX, int firstBlockY, int firstBlockZ,
+            int cellWidth, int cellHeight, int cells) {
+        int n = cellWidth * cellWidth * cellHeight * cells;
+        return new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                DfcOpenClSlabVmSmoke.bytecode(),
+                DfcOpenClSlabVmSmoke.constants(),
+                new byte[0],
+                new double[0],
+                new double[0],
+                new double[0],
+                new int[0],
+                new int[0],
+                new double[0],
+                new double[0],
+                0,
+                0,
+                0,
+                firstBlockX,
+                firstBlockY,
+                firstBlockZ,
+                cellWidth,
+                cellHeight,
+                cells,
+                layout,
+                0.0D,
+                new double[n],
+                n);
     }
 
     private static DfcOpenClRuntime.OpenClCompiledPlan openClPlanWithOneExternal(DensityFunction extern) {

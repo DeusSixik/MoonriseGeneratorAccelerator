@@ -412,6 +412,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(grid cell height)");
             check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, request.cells),
                     "clSetKernelArg(grid cells)");
+            check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ),
+                    "clSetKernelArg(grid layout)");
             check(CL12.clSetKernelArg1d(this.slabVmCellGridKernel, arg++, request.hoistBase),
                     "clSetKernelArg(grid hoist)");
             check(CL12.clSetKernelArg1p(this.slabVmCellGridKernel, arg++, outBuffer),
@@ -507,6 +509,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(generated grid cell height)");
             check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, request.cells),
                     "clSetKernelArg(generated grid cells)");
+            check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ),
+                    "clSetKernelArg(generated grid layout)");
             check(CL12.clSetKernelArg1d(this.slabVmCellGridKernel, arg++, request.hoistBase),
                     "clSetKernelArg(generated grid hoist)");
             check(CL12.clSetKernelArg1p(this.slabVmCellGridKernel, arg++, outBuffer),
@@ -669,8 +673,10 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(noise cell width)");
             check(CL12.clSetKernelArg1i(fillKernel, fillArg++, request.cellHeight),
                     "clSetKernelArg(noise cell height)");
-            check(CL12.clSetKernelArg1i(fillKernel, fillArg, request.cells),
+            check(CL12.clSetKernelArg1i(fillKernel, fillArg++, request.cells),
                     "clSetKernelArg(noise cells)");
+            check(CL12.clSetKernelArg1i(fillKernel, fillArg, request.layout),
+                    "clSetKernelArg(noise layout)");
 
             PointerBuffer fillWorkSize = stack.callocPointer(1);
             long fillItems = bySlotFill ? (long) request.n * request.slotCount : request.n;
@@ -706,6 +712,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(noise grid cell height)");
             check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, request.cells),
                     "clSetKernelArg(noise grid cells)");
+            check(CL12.clSetKernelArg1i(this.slabVmCellGridKernel, arg++, request.layout),
+                    "clSetKernelArg(noise grid layout)");
             check(CL12.clSetKernelArg1d(this.slabVmCellGridKernel, arg++, request.hoistBase),
                     "clSetKernelArg(noise grid hoist)");
             check(CL12.clSetKernelArg1p(this.slabVmCellGridKernel, arg++, outBuffer),
@@ -765,6 +773,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(direct demo cell height)");
             check(CL12.clSetKernelArg1i(this.slabVmDirectDemoKernel, arg++, request.cells),
                     "clSetKernelArg(direct demo cells)");
+            check(CL12.clSetKernelArg1i(this.slabVmDirectDemoKernel, arg++, DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ),
+                    "clSetKernelArg(direct demo layout)");
             check(CL12.clSetKernelArg1d(this.slabVmDirectDemoKernel, arg++, request.hoistBase),
                     "clSetKernelArg(direct demo hoist)");
             check(CL12.clSetKernelArg1p(this.slabVmDirectDemoKernel, arg++, outBuffer),
@@ -905,6 +915,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(direct noise cell height)");
             check(CL12.clSetKernelArg1i(this.slabVmDirectNoiseKernel, arg++, request.cells),
                     "clSetKernelArg(direct noise cells)");
+            check(CL12.clSetKernelArg1i(this.slabVmDirectNoiseKernel, arg++, request.layout),
+                    "clSetKernelArg(direct noise layout)");
             check(CL12.clSetKernelArg1d(this.slabVmDirectNoiseKernel, arg++, request.hoistBase),
                     "clSetKernelArg(direct noise hoist)");
             check(CL12.clSetKernelArg1p(this.slabVmDirectNoiseKernel, arg++, outBuffer),
@@ -1083,6 +1095,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(generated source noise cell height)");
             check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
                     "clSetKernelArg(generated source noise cells)");
+            check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.layout),
+                    "clSetKernelArg(generated source noise layout)");
             check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
                     "clSetKernelArg(generated source noise hoist)");
             check(CL12.clSetKernelArg1p(generated.kernel, arg++, outBuffer),
@@ -1192,6 +1206,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                             "clSetKernelArg(generated wave cell height)");
                     check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
                             "clSetKernelArg(generated wave cells)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.layout),
+                            "clSetKernelArg(generated wave layout)");
                     check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
                             "clSetKernelArg(generated wave hoist)");
                     check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
@@ -1304,6 +1320,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                             "clSetKernelArg(generated final wave cell height)");
                     check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
                             "clSetKernelArg(generated final wave cells)");
+                    check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.layout),
+                            "clSetKernelArg(generated final wave layout)");
                     check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
                             "clSetKernelArg(generated final wave hoist)");
                     check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
@@ -1333,6 +1351,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                     "clSetKernelArg(generated final output cell height)");
             check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cells),
                     "clSetKernelArg(generated final output cells)");
+            check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.layout),
+                    "clSetKernelArg(generated final output layout)");
             check(CL12.clSetKernelArg1d(finalKernel.kernel, arg++, request.hoistBase),
                     "clSetKernelArg(generated final output hoist)");
             check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, outBuffer),
@@ -1650,6 +1670,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                 "clSetKernelArg(FlatCache 2D cell height)");
         check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.cells),
                 "clSetKernelArg(FlatCache 2D cells)");
+        check(CL12.clSetKernelArg1i(kernel.kernel, arg++, request.layout),
+                "clSetKernelArg(FlatCache 2D layout)");
         check(CL12.clSetKernelArg1i(kernel.kernel, arg++, prefill.slotCount()),
                 "clSetKernelArg(FlatCache 2D slot count)");
         check(CL12.clSetKernelArg1i(kernel.kernel, arg, request.n),
@@ -1682,6 +1704,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                 "clSetKernelArg(generated final wave cell height)");
         check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.cells),
                 "clSetKernelArg(generated final wave cells)");
+        check(CL12.clSetKernelArg1i(generated.kernel, arg++, request.layout),
+                "clSetKernelArg(generated final wave layout)");
         check(CL12.clSetKernelArg1d(generated.kernel, arg++, request.hoistBase),
                 "clSetKernelArg(generated final wave hoist)");
         check(CL12.clSetKernelArg1p(generated.kernel, arg++, slotBuffer),
@@ -1736,6 +1760,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                 "clSetKernelArg(final VM cell height)");
         check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.cells),
                 "clSetKernelArg(final VM cells)");
+        check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, request.layout),
+                "clSetKernelArg(final VM layout)");
         check(CL12.clSetKernelArg1d(this.slabVmCellGridSlotBufferKernel, arg++, request.hoistBase),
                 "clSetKernelArg(final VM hoist)");
         check(CL12.clSetKernelArg1i(this.slabVmCellGridSlotBufferKernel, arg++, stage.targetSlotBufferIndex()),
@@ -1805,6 +1831,8 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                 "clSetKernelArg(generated final output cell height)");
         check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.cells),
                 "clSetKernelArg(generated final output cells)");
+        check(CL12.clSetKernelArg1i(finalKernel.kernel, arg++, request.layout),
+                "clSetKernelArg(generated final output layout)");
         check(CL12.clSetKernelArg1d(finalKernel.kernel, arg++, request.hoistBase),
                 "clSetKernelArg(generated final output hoist)");
         check(CL12.clSetKernelArg1p(finalKernel.kernel, arg++, outBuffer),
@@ -2003,6 +2031,10 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         }
         if (request.cellWidth <= 0 || request.cellHeight <= 0 || request.cells <= 0) {
             throw new IllegalArgumentException("invalid cell grid dimensions");
+        }
+        if (request.layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ
+                && request.layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_COLUMN) {
+            throw new IllegalArgumentException("unknown cell grid layout " + request.layout);
         }
         long expectedN = (long) request.cellWidth * request.cellWidth * request.cellHeight * request.cells;
         if (expectedN > Integer.MAX_VALUE || request.n != (int) expectedN) {
@@ -2346,6 +2378,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             int cellWidth,
             int cellHeight,
             int cells,
+            int layout,
             double hoistBase,
             double[] out,
             int n) {

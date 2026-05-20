@@ -275,8 +275,11 @@ inline double dfc_noise_slot_sample(DFC_NOISE_MEM const uchar *permutations,
     return value * slot_value_factors[slot];
 }
 
+#define DFC_CELL_GRID_LAYOUT_XZ 0
+#define DFC_CELL_GRID_LAYOUT_Y_COLUMN 1
+
 inline int dfc_cell_grid_coords(int gid, int first_block_x, int first_block_y, int first_block_z,
-                                int cell_w, int cell_h, int cells,
+                                int cell_w, int cell_h, int cells, int layout,
                                 __private double *bx, __private double *by, __private double *bz,
                                 __private int *cell_out) {
     if (gid < 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
@@ -308,11 +311,17 @@ inline int dfc_cell_grid_coords(int gid, int first_block_x, int first_block_y, i
         iz = plane - ix * cell_w;
     }
 
-    int cell_x = cell & 31;
-    int cell_z = cell >> 5;
-    *bx = (double) (first_block_x + cell_x * cell_w + ix);
-    *by = (double) (first_block_y + (cell_h - 1 - y_index));
-    *bz = (double) (first_block_z + cell_z * cell_w + iz);
+    if (layout == DFC_CELL_GRID_LAYOUT_Y_COLUMN) {
+        *bx = (double) (first_block_x + ix);
+        *by = (double) (first_block_y + cell * cell_h + (cell_h - 1 - y_index));
+        *bz = (double) (first_block_z + iz);
+    } else {
+        int cell_x = cell & 31;
+        int cell_z = cell >> 5;
+        *bx = (double) (first_block_x + cell_x * cell_w + ix);
+        *by = (double) (first_block_y + (cell_h - 1 - y_index));
+        *bz = (double) (first_block_z + cell_z * cell_w + iz);
+    }
     *cell_out = cell;
     return 1;
 }
@@ -533,7 +542,7 @@ __kernel void dfc_slab_vm_eval_cell_grid(__global const uchar *bc, int bc_len,
                                          __global const double *slot_rows_flat,
                                          int n_slots, int slot_row_stride,
                                          int first_block_x, int first_block_y, int first_block_z,
-                                         int cell_w, int cell_h, int cells, double hoist_base,
+                                         int cell_w, int cell_h, int cells, int layout, double hoist_base,
                                          __global double *out, int n) {
     int gid = (int) get_global_id(0);
     if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
@@ -545,7 +554,7 @@ __kernel void dfc_slab_vm_eval_cell_grid(__global const uchar *bc, int bc_len,
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
     double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
@@ -561,7 +570,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_slot_buffer(__global const uchar *bc, i
                                                      __global double *slot_rows_flat,
                                                      int n_slots, int slot_row_stride,
                                                      int first_block_x, int first_block_y, int first_block_z,
-                                                     int cell_w, int cell_h, int cells, double hoist_base,
+                                                     int cell_w, int cell_h, int cells, int layout, double hoist_base,
                                                      int target_slot, int n) {
     int gid = (int) get_global_id(0);
     if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0
@@ -574,7 +583,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_slot_buffer(__global const uchar *bc, i
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
     double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;
@@ -606,7 +615,7 @@ __kernel void dfc_slab_vm_fill_noise_slots(__global double *slot_rows_flat, int 
                                            int slot_count, int branches_per_slot,
                                            int octaves_per_branch,
                                            int first_block_x, int first_block_y, int first_block_z,
-                                           int cell_w, int cell_h, int cells) {
+                                           int cell_w, int cell_h, int cells, int layout) {
     int gid = (int) get_global_id(0);
     if (gid >= n || slot_count <= 0 || branches_per_slot <= 0
             || octaves_per_branch <= 0 || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
@@ -618,7 +627,7 @@ __kernel void dfc_slab_vm_fill_noise_slots(__global double *slot_rows_flat, int 
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
 
@@ -641,7 +650,7 @@ __kernel void dfc_slab_vm_fill_noise_slots_by_slot(__global double *slot_rows_fl
                                                    int slot_count, int branches_per_slot,
                                                    int octaves_per_branch,
                                                    int first_block_x, int first_block_y, int first_block_z,
-                                                   int cell_w, int cell_h, int cells) {
+                                                   int cell_w, int cell_h, int cells, int layout) {
     int flat = (int) get_global_id(0);
     int total = n * slot_count;
     if (flat >= total || n <= 0 || slot_count <= 0 || branches_per_slot <= 0
@@ -656,7 +665,7 @@ __kernel void dfc_slab_vm_fill_noise_slots_by_slot(__global double *slot_rows_fl
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
 
@@ -676,7 +685,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_direct_noise(DFC_NOISE_MEM const uchar 
                                                       int slot_count, int branches_per_slot,
                                                       int octaves_per_branch, int used_slot_count,
                                                       int first_block_x, int first_block_y, int first_block_z,
-                                                      int cell_w, int cell_h, int cells, double hoist_base,
+                                                      int cell_w, int cell_h, int cells, int layout, double hoist_base,
                                                       __global double *out, int n) {
     int gid = (int) get_global_id(0);
     if (gid >= n || slot_count <= 0 || branches_per_slot <= 0 || used_slot_count <= 0
@@ -689,7 +698,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_direct_noise(DFC_NOISE_MEM const uchar 
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
     int slots_to_use = used_slot_count < slot_count ? used_slot_count : slot_count;
@@ -705,7 +714,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_direct_noise(DFC_NOISE_MEM const uchar 
 }
 
 __kernel void dfc_slab_vm_eval_cell_grid_direct_demo(int first_block_x, int first_block_y, int first_block_z,
-                                                     int cell_w, int cell_h, int cells, double hoist_base,
+                                                     int cell_w, int cell_h, int cells, int layout, double hoist_base,
                                                      __global double *out, int n) {
     int gid = (int) get_global_id(0);
     if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) {
@@ -717,7 +726,7 @@ __kernel void dfc_slab_vm_eval_cell_grid_direct_demo(int first_block_x, int firs
     double bz;
     int cell;
     if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z,
-            cell_w, cell_h, cells, &bx, &by, &bz, &cell)) {
+            cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) {
         return;
     }
 

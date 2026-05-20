@@ -52,7 +52,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    (void) external_slots;\n")
                 .append("    int gid = (int) get_global_id(0);\n")
@@ -62,7 +62,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n")
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n")
                 .append("    double value = 0.0;\n");
         for (int sample = 0; sample < safeSamples; sample++) {
             appendPerlinHelperMicrobenchSample(source, sample, sample5);
@@ -88,20 +88,17 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    __global const int *table_first_z,\n")
                 .append("    __global double *slot_buffer,\n")
                 .append("    int firstBlockX, int firstBlockY, int firstBlockZ,\n")
-                .append("    int cellWidth, int cellHeight, int cells, int slot_count, int n) {\n")
-                .append("    (void) firstBlockY;\n")
+                .append("    int cellWidth, int cellHeight, int cells, int layout, int slot_count, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cellWidth <= 0 || cellHeight <= 0 || cells <= 0 || slot_count <= 0) return;\n")
-                .append("    int cell_volume = cellWidth * cellWidth * cellHeight;\n")
-                .append("    int cell = gid / cell_volume;\n")
-                .append("    int in_cell = gid - cell * cell_volume;\n")
-                .append("    int plane = in_cell % (cellWidth * cellWidth);\n")
-                .append("    int in_x = plane / cellWidth;\n")
-                .append("    int in_z = plane - in_x * cellWidth;\n")
-                .append("    int cell_x = cell & 31;\n")
-                .append("    int cell_z = cell >> 5;\n")
-                .append("    int block_x = firstBlockX + cell_x * cellWidth + in_x;\n")
-                .append("    int block_z = firstBlockZ + cell_z * cellWidth + in_z;\n")
+                .append("    double bx = 0.0;\n")
+                .append("    double by = 0.0;\n")
+                .append("    double bz = 0.0;\n")
+                .append("    int cell = 0;\n")
+                .append("    if (!dfc_cell_grid_coords(gid, firstBlockX, firstBlockY, firstBlockZ, ")
+                .append("cellWidth, cellHeight, cells, layout, &bx, &by, &bz, &cell)) return;\n")
+                .append("    int block_x = (int) bx;\n")
+                .append("    int block_z = (int) bz;\n")
                 .append("    int quart_x = dfc_floor_div4(block_x);\n")
                 .append("    int quart_z = dfc_floor_div4(block_z);\n")
                 .append("    for (int i = 0; i < slot_count; i++) {\n")
@@ -145,7 +142,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -154,7 +151,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n")
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n")
                 .append("    double value = 0.0;\n");
         appendBody(source, descriptor, safeUsedSlots, scaleUses, wrapMode == WrapMode.WRAP, "    ");
         source.append("    double y_hoist = hoist_base + (double) (cell & 7) * 0.03125;\n")
@@ -192,7 +189,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -201,7 +198,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, safeUsedSlots, scaleUses, wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
                 customCoords ? slotCoordYExpressions : null,
@@ -243,7 +240,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -252,7 +249,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, safeStartSlot, safeEndSlot, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -300,7 +297,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -309,7 +306,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, safeStartSlot, safeEndSlot, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -356,7 +353,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -365,7 +362,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, safeStartSlot, safeEndSlot, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -410,7 +407,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -419,7 +416,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, targetSlots, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -483,7 +480,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -492,7 +489,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, rootSlots, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -538,7 +535,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -547,7 +544,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         appendSlotLocals(source, descriptor, rootSlots, safeUsedSlots, scaleUses,
                 wrapMode == WrapMode.WRAP, "    ",
                 customCoords ? slotCoordXExpressions : null,
@@ -584,7 +581,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -593,7 +590,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         for (int slot = 0; slot < dependencies.length; slot++) {
             if (!dependencies[slot]) {
                 continue;
@@ -653,7 +650,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("(DFC_NOISE_MEM const uchar *permutations, ")
                 .append("__global const double *external_slots, ")
                 .append("int first_block_x, int first_block_y, int first_block_z, ")
-                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("int cell_w, int cell_h, int cells, int layout, double hoist_base, ")
                 .append("__global double *out, int n) {\n")
                 .append("    int gid = (int) get_global_id(0);\n")
                 .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
@@ -662,7 +659,7 @@ final class DfcOpenClGeneratedNoiseSource {
                 .append("    double bz;\n")
                 .append("    int cell;\n")
                 .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
-                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n");
+                .append("cell_w, cell_h, cells, layout, &bx, &by, &bz, &cell)) return;\n");
         boolean usesHoist = DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram());
         source.append("    double y_hoist = ")
                 .append(usesHoist

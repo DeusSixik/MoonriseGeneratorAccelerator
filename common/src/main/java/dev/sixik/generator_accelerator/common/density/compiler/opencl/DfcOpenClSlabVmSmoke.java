@@ -249,6 +249,7 @@ final class DfcOpenClSlabVmSmoke {
                 safeCellWidth,
                 safeCellHeight,
                 safeCells,
+                DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ,
                 3.25D,
                 out,
                 n);

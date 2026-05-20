@@ -4057,6 +4057,7 @@ public final class DfcOpenClRuntime {
                 cellWidth,
                 cellHeight,
                 1,
+                CELL_GRID_LAYOUT_XZ,
                 0.0D,
                 out,
                 n);
@@ -4160,9 +4161,9 @@ public final class DfcOpenClRuntime {
         int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), descriptor.slotCount);
         for (int check = 0; check < checks; check++) {
             int i = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
-            double bx = cellBlockX(i, request);
-            double by = cellBlockY(i, request);
-            double bz = cellBlockZ(i, request);
+            double bx = runtimeCellGridBlockX(i, request);
+            double by = runtimeCellGridBlockY(i, request);
+            double bz = runtimeCellGridBlockZ(i, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             for (int slot = 0; slot < safeUsedSlots; slot++) {
@@ -4197,9 +4198,9 @@ public final class DfcOpenClRuntime {
         double maxAbsError = 0.0D;
         for (int check = 0; check < checks; check++) {
             int i = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
-            double bx = cellBlockX(i, request);
-            double by = cellBlockY(i, request);
-            double bz = cellBlockZ(i, request);
+            double bx = runtimeCellGridBlockX(i, request);
+            double by = runtimeCellGridBlockY(i, request);
+            double bz = runtimeCellGridBlockZ(i, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             for (int slot = 0; slot < safeUsedSlots; slot++) {
@@ -4245,9 +4246,9 @@ public final class DfcOpenClRuntime {
         int safeEnd = Math.max(safeStart, Math.min(endSlot, safeUsedSlots - 1));
         for (int check = 0; check < checks; check++) {
             int i = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
-            double bx = cellBlockX(i, request);
-            double by = cellBlockY(i, request);
-            double bz = cellBlockZ(i, request);
+            double bx = runtimeCellGridBlockX(i, request);
+            double by = runtimeCellGridBlockY(i, request);
+            double bz = runtimeCellGridBlockZ(i, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             double expected = 0.0D;
@@ -4285,9 +4286,9 @@ public final class DfcOpenClRuntime {
         double maxAbsError = 0.0D;
         for (int check = 0; check < checks; check++) {
             int element = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
-            double bx = cellBlockX(element, request);
-            double by = cellBlockY(element, request);
-            double bz = cellBlockZ(element, request);
+            double bx = runtimeCellGridBlockX(element, request);
+            double by = runtimeCellGridBlockY(element, request);
+            double bz = runtimeCellGridBlockZ(element, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             for (int slot = 0; slot < safeUsedSlots; slot++) {
@@ -4333,9 +4334,9 @@ public final class DfcOpenClRuntime {
         int stagedReads = 0;
         for (int check = 0; check < checks; check++) {
             int element = checks == 1 ? 0 : (int) ((long) check * (n - 1) / (checks - 1));
-            double bx = cellBlockX(element, request);
-            double by = cellBlockY(element, request);
-            double bz = cellBlockZ(element, request);
+            double bx = runtimeCellGridBlockX(element, request);
+            double by = runtimeCellGridBlockY(element, request);
+            double bz = runtimeCellGridBlockZ(element, request);
 
             double[] referenceSlots = new double[safeUsedSlots];
             boolean[] referenceResolved = new boolean[safeUsedSlots];
@@ -4404,9 +4405,9 @@ public final class DfcOpenClRuntime {
             Arrays.fill(visitingSlots, false);
             stagedReads[0] = 0;
 
-            double bx = cellBlockX(element, request);
-            double by = cellBlockY(element, request);
-            double bz = cellBlockZ(element, request);
+            double bx = runtimeCellGridBlockX(element, request);
+            double by = runtimeCellGridBlockY(element, request);
+            double bz = runtimeCellGridBlockZ(element, request);
             externalContext.set((int) bx, (int) by, (int) bz);
 
             for (int slot : rootSlots) {
@@ -4769,9 +4770,9 @@ public final class DfcOpenClRuntime {
                     continue;
                 }
                 if (!contextSet) {
-                    int bx = (int) cellBlockX(i, request);
-                    int by = (int) cellBlockY(i, request);
-                    int bz = (int) cellBlockZ(i, request);
+                    int bx = (int) runtimeCellGridBlockX(i, request);
+                    int by = (int) runtimeCellGridBlockY(i, request);
+                    int bz = (int) runtimeCellGridBlockZ(i, request);
                     context.set(bx, by, bz);
                     contextSet = true;
                 }
@@ -4841,9 +4842,9 @@ public final class DfcOpenClRuntime {
         int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), request.slotCount());
         double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
         for (int i = 0; i < request.n(); i++) {
-            double bx = cellBlockX(i, request);
-            double by = cellBlockY(i, request);
-            double bz = cellBlockZ(i, request);
+            double bx = runtimeCellGridBlockX(i, request);
+            double by = runtimeCellGridBlockY(i, request);
+            double bz = runtimeCellGridBlockZ(i, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             for (int slot = 0; slot < safeUsedSlots; slot++) {
@@ -4869,9 +4870,9 @@ public final class DfcOpenClRuntime {
         int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), request.slotCount());
         double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
         for (int i = 0; i < request.n(); i++) {
-            double bx = cellBlockX(i, request);
-            double by = cellBlockY(i, request);
-            double bz = cellBlockZ(i, request);
+            double bx = runtimeCellGridBlockX(i, request);
+            double by = runtimeCellGridBlockY(i, request);
+            double bz = runtimeCellGridBlockZ(i, request);
             double[] slots = new double[safeUsedSlots];
             boolean[] resolvedSlots = new boolean[safeUsedSlots];
             for (int slot = 0; slot < safeUsedSlots; slot++) {
@@ -4935,9 +4936,9 @@ public final class DfcOpenClRuntime {
         }
         int slotLimit = Math.min(inputSlots.length, request.slotCount());
         for (int element = 0; element < request.n(); element++) {
-            double bx = cellBlockX(element, request);
-            double by = cellBlockY(element, request);
-            double bz = cellBlockZ(element, request);
+            double bx = runtimeCellGridBlockX(element, request);
+            double by = runtimeCellGridBlockY(element, request);
+            double bz = runtimeCellGridBlockZ(element, request);
             double[] slots = new double[slotLimit];
             boolean[] resolvedSlots = new boolean[slotLimit];
             for (int slot = 0; slot < slotLimit; slot++) {
@@ -5011,9 +5012,9 @@ public final class DfcOpenClRuntime {
             for (int element = 0; element < request.n(); element++) {
                 long setupStarted = System.nanoTime();
                 long coordinateStarted = setupStarted;
-                double bx = cellBlockX(element, request);
-                double by = cellBlockY(element, request);
-                double bz = cellBlockZ(element, request);
+                double bx = runtimeCellGridBlockX(element, request);
+                double by = runtimeCellGridBlockY(element, request);
+                double bz = runtimeCellGridBlockZ(element, request);
                 coordinateNanos += System.nanoTime() - coordinateStarted;
                 long localAllocateStarted = System.nanoTime();
                 double[] slots = new double[slotLimit];
@@ -5274,8 +5275,8 @@ public final class DfcOpenClRuntime {
                 throw new IllegalArgumentException("FlatCache 2D output buffer is too small");
             }
             for (int element = 0; element < n; element++) {
-                int blockX = (int) cellBlockX(element, request);
-                int blockZ = (int) cellBlockZ(element, request);
+                int blockX = (int) runtimeCellGridBlockX(element, request);
+                int blockZ = (int) runtimeCellGridBlockZ(element, request);
                 int localX = (blockX >> 2) - table.firstNoiseX();
                 int localZ = (blockZ >> 2) - table.firstNoiseZ();
                 if (localX < 0 || localZ < 0 || localX >= table.side() || localZ >= table.side()) {
@@ -5384,9 +5385,9 @@ public final class DfcOpenClRuntime {
         }
         MutableFunctionContext context = new MutableFunctionContext();
         for (int element = 0; element < n; element++) {
-            int bx = (int) cellBlockX(element, request);
-            int by = (int) cellBlockY(element, request);
-            int bz = (int) cellBlockZ(element, request);
+            int bx = (int) runtimeCellGridBlockX(element, request);
+            int by = (int) runtimeCellGridBlockY(element, request);
+            int bz = (int) runtimeCellGridBlockZ(element, request);
             context.set(bx, by, bz);
             values[targetIndex + element] = extern.compute(context);
         }
@@ -7409,29 +7410,38 @@ public final class DfcOpenClRuntime {
                 | ((bytes[offset + 3] & 0xFF) << 24);
     }
 
-    private static double cellBlockX(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+    static double runtimeCellGridBlockX(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
         int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
         int cell = element / cellVolume;
         int inCell = element - cell * cellVolume;
         int plane = inCell % (request.cellWidth() * request.cellWidth());
         int ix = plane / request.cellWidth();
+        if (request.layout() == CELL_GRID_LAYOUT_Y_COLUMN) {
+            return request.firstBlockX() + ix;
+        }
         int cellX = cell & 31;
         return request.firstBlockX() + cellX * request.cellWidth() + ix;
     }
 
-    private static double cellBlockY(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+    static double runtimeCellGridBlockY(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+        int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
+        int cell = element / cellVolume;
         int planeSize = request.cellWidth() * request.cellWidth();
-        int inCell = element % (planeSize * request.cellHeight());
+        int inCell = element - cell * cellVolume;
         int yIndex = inCell / planeSize;
-        return request.firstBlockY() + (request.cellHeight() - 1 - yIndex);
+        int cellYOffset = request.layout() == CELL_GRID_LAYOUT_Y_COLUMN ? cell * request.cellHeight() : 0;
+        return request.firstBlockY() + cellYOffset + (request.cellHeight() - 1 - yIndex);
     }
 
-    private static double cellBlockZ(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
+    static double runtimeCellGridBlockZ(int element, DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
         int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
         int cell = element / cellVolume;
         int inCell = element - cell * cellVolume;
         int plane = inCell % (request.cellWidth() * request.cellWidth());
         int iz = plane % request.cellWidth();
+        if (request.layout() == CELL_GRID_LAYOUT_Y_COLUMN) {
+            return request.firstBlockZ() + iz;
+        }
         int cellZ = cell >> 5;
         return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
     }
