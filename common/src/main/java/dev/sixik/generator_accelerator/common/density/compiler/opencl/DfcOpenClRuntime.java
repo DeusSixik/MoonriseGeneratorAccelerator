@@ -51,6 +51,8 @@ public final class DfcOpenClRuntime {
     private static final int COMPILED_PLAN_CHUNK_SOURCE_COMPILE_MAX_CHARS = 16_384;
     private static final int COMPILED_PLAN_FUSED_WAVE_SOURCE_COMPILE_MAX_CHARS = 131_072;
     private static final int COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS = 196_608;
+    private static final int COMPILED_PLAN_FINAL_OUTPUT_RESIDUAL_NOISE_FOLD_MAX_SOURCE_CHARS = 12_288;
+    private static final int COMPILED_PLAN_FINAL_OUTPUT_RESIDUAL_NOISE_DEFOLD_MIN_ELEMENTS = 65_536;
     private static final int RUNTIME_FINAL_CHUNK_MAX_SLOTS = 8;
     private static final int RUNTIME_FINAL_CHUNK_MAX_OCTAVES = 16;
     private static final int RUNTIME_FINAL_CHUNK_MAX_COMPUTED = 2;
@@ -1870,8 +1872,11 @@ public final class DfcOpenClRuntime {
                     DfcOpenClSlabVmSmoke.noiseCellGridRequest(out, safeCellWidth, safeCellHeight, safeCells,
                             descriptor);
 
-            boolean[] foldedWaveResidualNoiseSlots = residualDependencyNoiseBatchSlots(
+            boolean[] residualDependencyNoiseSlots = residualDependencyNoiseBatchSlots(
                     residualDependencyCandidateSlots, null, computedSlots, slotCount);
+            boolean[] foldedWaveResidualNoiseSlots = finalOutputFoldedWaveResidualNoiseSlots(
+                    descriptor, plan, waves, chunkStartSlots, chunkEndSlots, residualDependencyNoiseSlots,
+                    markerExternalInputs, slotBufferIndices, slotCount, request.n());
             List<FinalOutputStageBuild> waveSources = buildFinalOutputSplitWaveSources(
                     descriptor, plan, waves, chunkStartSlots, chunkEndSlots, foldedWaveResidualNoiseSlots,
                     markerExternalInputs, slotBufferIndices, slotCount, traceStages);
@@ -4926,6 +4931,11 @@ public final class DfcOpenClRuntime {
                 slotCount);
     }
 
+    static boolean shouldFoldFinalOutputResidualNoiseIntoWave(int singleSlotSourceChars, int elements) {
+        return elements < COMPILED_PLAN_FINAL_OUTPUT_RESIDUAL_NOISE_DEFOLD_MIN_ELEMENTS
+                || singleSlotSourceChars <= COMPILED_PLAN_FINAL_OUTPUT_RESIDUAL_NOISE_FOLD_MAX_SOURCE_CHARS;
+    }
+
     static boolean[][] finalOutputSplitWaveTargetSlots(boolean[][] waves,
                                                        int[] chunkStartSlots,
                                                        int[] chunkEndSlots,
@@ -4942,6 +4952,45 @@ public final class DfcOpenClRuntime {
             }
         }
         return targets;
+    }
+
+    private static boolean[] finalOutputFoldedWaveResidualNoiseSlots(
+            DfcOpenClNoiseDescriptor descriptor,
+            OpenClCompiledPlan plan,
+            boolean[][] waves,
+            int[] chunkStartSlots,
+            int[] chunkEndSlots,
+            boolean[] residualNoiseSlots,
+            boolean[] markerExternalInputs,
+            int[] slotBufferIndices,
+            int slotCount,
+            int elements) {
+        boolean[] foldedSlots = Arrays.copyOf(residualNoiseSlots, Math.max(0, slotCount));
+        if (countTrue(foldedSlots) == 0) {
+            return foldedSlots;
+        }
+        boolean[][] targetSlots = finalOutputSplitWaveTargetSlots(
+                waves, chunkStartSlots, chunkEndSlots, residualNoiseSlots, slotCount);
+        for (int wave = 0; wave < targetSlots.length; wave++) {
+            if (!intersects(targetSlots[wave], residualNoiseSlots)) {
+                continue;
+            }
+            boolean[] externalInputs = waveExternalInputs(
+                    plan, waves[wave], chunkStartSlots, chunkEndSlots, targetSlots[wave]);
+            externalInputs = unionSlots(externalInputs, markerExternalInputs, slotCount);
+            ComputedSlot[] computedSlots = waveComputedSlots(plan, targetSlots[wave]);
+            for (int slot = 0; slot < Math.min(foldedSlots.length, targetSlots[wave].length); slot++) {
+                if (!foldedSlots[slot] || !targetSlots[wave][slot]) {
+                    continue;
+                }
+                int sourceChars = finalOutputWaveStageSingleSlotSourceChars(
+                        descriptor, plan, slot, slotCount, externalInputs, computedSlots, slotBufferIndices);
+                if (!shouldFoldFinalOutputResidualNoiseIntoWave(sourceChars, elements)) {
+                    foldedSlots[slot] = false;
+                }
+            }
+        }
+        return foldedSlots;
     }
 
     private static List<FinalOutputStageBuild> buildFinalOutputSplitWaveSources(
@@ -4998,16 +5047,28 @@ public final class DfcOpenClRuntime {
             if (!targetSlots[slot]) {
                 continue;
             }
-            DfcOpenClGeneratedNoiseSource.BuildResult source =
-                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
-                            descriptor, singleSlotMask(slot, slotCount),
-                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
-                            externalInputs, computedSlots, slotBufferIndices,
-                            DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            int sourceChars = finalOutputWaveStageSingleSlotSourceChars(
+                    descriptor, plan, slot, slotCount, externalInputs, computedSlots, slotBufferIndices);
             String label = slot + ":" + finalOutputSlotKind(plan, slot);
-            slotSources.add(new FinalOutputTraceStageTime(label, source.source().length()));
+            slotSources.add(new FinalOutputTraceStageTime(label, sourceChars));
         }
         return "slotTop=" + describeTopFinalOutputStageSizes(slotSources, limit, "src");
+    }
+
+    private static int finalOutputWaveStageSingleSlotSourceChars(DfcOpenClNoiseDescriptor descriptor,
+                                                                 OpenClCompiledPlan plan,
+                                                                 int slot,
+                                                                 int slotCount,
+                                                                 boolean[] externalInputs,
+                                                                 ComputedSlot[] computedSlots,
+                                                                 int[] slotBufferIndices) {
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
+                        descriptor, singleSlotMask(slot, slotCount),
+                        plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                        externalInputs, computedSlots, slotBufferIndices,
+                        DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+        return source.source().length();
     }
 
     private static boolean intersects(boolean[] left, boolean[] right) {

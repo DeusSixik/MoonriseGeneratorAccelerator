@@ -523,6 +523,15 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void finalOutputResidualNoiseFoldPolicyStagesHugeNoiseClosures() {
+        assertTrue(DfcOpenClRuntime.shouldFoldFinalOutputResidualNoiseIntoWave(14_167, 32_768));
+        assertFalse(DfcOpenClRuntime.shouldFoldFinalOutputResidualNoiseIntoWave(14_167, 65_536));
+        assertTrue(DfcOpenClRuntime.shouldFoldFinalOutputResidualNoiseIntoWave(8_154, 65_536));
+        assertTrue(DfcOpenClRuntime.shouldFoldFinalOutputResidualNoiseIntoWave(12_288, 65_536));
+        assertFalse(DfcOpenClRuntime.shouldFoldFinalOutputResidualNoiseIntoWave(12_289, 65_536));
+    }
+
+    @Test
     void finalOutputSplitWaveTargetsFoldResidualNoiseIntoFirstNonEmptyWave() {
         boolean[][] targets = DfcOpenClRuntime.finalOutputSplitWaveTargetSlots(
                 new boolean[][]{
