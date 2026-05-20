@@ -66,6 +66,26 @@ class StructurePlacementShufflerTest {
     }
 
     @Test
+    void materializedDeferredTemplateShuffleSurvivesNextScratchUse() {
+        StructurePoolElement[] primary = elements(8);
+        StructurePoolElement[] fallback = elements(7);
+        RandomSource expectedRandom = RandomSource.create(42L);
+        RandomSource actualRandom = RandomSource.create(42L);
+
+        List<StructurePoolElement> expectedPrimary = Util.shuffledCopy(primary, expectedRandom);
+        List<StructurePoolElement> expectedFallback = Util.shuffledCopy(fallback, expectedRandom);
+
+        List<StructurePoolElement> actualPrimary = StructurePlacementShuffler.shuffledTemplates(primary, actualRandom);
+        StructurePlacementShuffler.materializeTemplates(actualPrimary);
+        List<StructurePoolElement> actualFallback = StructurePlacementShuffler.shuffledTemplates(fallback, actualRandom);
+        StructurePlacementShuffler.materializeTemplates(actualFallback);
+
+        assertSameOrder(expectedPrimary, actualPrimary, "primary");
+        assertSameOrder(expectedFallback, actualFallback, "fallback");
+        assertEquals(expectedRandom.nextLong(), actualRandom.nextLong(), "random state drift");
+    }
+
+    @Test
     void printsShuffleHotPathMetrics() {
         int warmup = Integer.getInteger("ga.test.structureShuffleWarmup", 20_000);
         int iterations = Integer.getInteger("ga.test.structureShuffleIterations", 100_000);

@@ -25,6 +25,8 @@ public final class StructureGenerationHotPath {
     private static final ThreadLocal<WorldgenRandom> SHARED_RANDOM =
             ThreadLocal.withInitial(() -> new WorldgenRandom(new LegacyRandomSource(0L)));
 
+    private static final int MAX_VALID_BIOME_PREDICATE_CACHE_SIZE = 4096;
+
     private static final Map<Structure, Predicate<Holder<Biome>>> VALID_BIOME_PREDICATES = new ConcurrentHashMap<>();
 
     private StructureGenerationHotPath() {
@@ -97,15 +99,23 @@ public final class StructureGenerationHotPath {
         ChunkGenerator chunkGenerator = context.chunkGenerator();
         LevelHeightAccessor heightAccessor = context.heightAccessor();
         RandomState randomState = context.randomState();
-        return (
+        int sum =
                 chunkGenerator.getFirstOccupiedHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
                         + chunkGenerator.getFirstOccupiedHeight(x, z + depth, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
                         + chunkGenerator.getFirstOccupiedHeight(x + width, z, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
-                        + chunkGenerator.getFirstOccupiedHeight(x + width, z + depth, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState)
-        ) >> 2;
+                        + chunkGenerator.getFirstOccupiedHeight(x + width, z + depth, Heightmap.Types.WORLD_SURFACE_WG, heightAccessor, randomState);
+        // Keep Java /4 truncation for negative heights while using a shift.
+        return (sum + ((sum >> 31) & 3)) >> 2;
     }
 
     private static Predicate<Holder<Biome>> validBiomePredicate(Structure structure) {
+        Predicate<Holder<Biome>> cached = VALID_BIOME_PREDICATES.get(structure);
+        if (cached != null) {
+            return cached;
+        }
+        if (VALID_BIOME_PREDICATES.size() > MAX_VALID_BIOME_PREDICATE_CACHE_SIZE) {
+            VALID_BIOME_PREDICATES.clear();
+        }
         return VALID_BIOME_PREDICATES.computeIfAbsent(structure, key -> {
             var biomes = key.biomes();
             return biomes::contains;

@@ -34,6 +34,9 @@ import static org.mockito.ArgumentMatchers.eq;
 
 class StructureStartReferenceFanoutTest {
     private static volatile int sink;
+    private static final int DEFAULT_BENCHMARK_REFERENCES = 64;
+    private static final int DEFAULT_BENCHMARK_WARMUP = 256;
+    private static final int DEFAULT_BENCHMARK_ITERATIONS = 1_000;
 
     @BeforeAll
     static void bootstrap() {
@@ -55,17 +58,20 @@ class StructureStartReferenceFanoutTest {
 
     @Test
     void printsStructureStartFanoutMetrics() {
-        int warmup = Integer.getInteger("ga.test.structureStartFanoutWarmup", 12_000);
-        int iterations = Integer.getInteger("ga.test.structureStartFanoutIterations", 50_000);
-        TestCase testCase = createCase(256);
+        int warmup = Integer.getInteger("ga.test.structureStartFanoutWarmup", DEFAULT_BENCHMARK_WARMUP);
+        int iterations = Integer.getInteger("ga.test.structureStartFanoutIterations", DEFAULT_BENCHMARK_ITERATIONS);
+        int references = Integer.getInteger("ga.test.structureStartFanoutReferences", DEFAULT_BENCHMARK_REFERENCES);
+        TestCase testCase = createCase(references);
 
+        System.out.println("StructureManager reference fan-out benchmark");
+        System.out.println("warmup=" + warmup + ", iterations=" + iterations + ", references=" + testCase.references.size());
+        // Keep common:test responsive: this harness uses Mockito-backed Minecraft objects,
+        // so large local benchmark runs must opt in via the ga.test.structureStartFanout* properties.
         runVanilla(testCase, warmup);
         runOptimized(testCase, warmup);
         long vanillaNanos = timeVanilla(testCase, iterations);
         long optimizedNanos = timeOptimized(testCase, iterations);
 
-        System.out.println("StructureManager reference fan-out benchmark");
-        System.out.println("warmup=" + warmup + ", iterations=" + iterations + ", references=" + testCase.references.size());
         printMetric("fill-starts", vanillaNanos, optimizedNanos, iterations);
     }
 

@@ -383,7 +383,7 @@ class StructureGenerationHotPathTest {
         }
 
         private static int sampleHeight(int x, int z) {
-            return 72 + Math.floorMod(x * 13 + z * 7, 41);
+            return -72 + Math.floorMod(x * 13 + z * 7, 41);
         }
     }
 }

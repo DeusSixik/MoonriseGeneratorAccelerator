@@ -25,15 +25,30 @@ public class MixinStructureTemplatePool$cache_templates implements StructureTemp
 
     @Override
     public List<StructurePoolElement> bts$getCachedShuffledTemplates(RandomSource random) {
-        StructurePoolElement[] array = this.bts$templateArray;
-        if (array == null) {
-            array = this.templates.toArray(new StructurePoolElement[0]);
-            this.bts$templateArray = array;
-        }
+        int size = this.templates.size();
         // Large weighted pools are faster on vanilla ObjectArrayList bulk copy; keep the fast path bounded.
-        if (!StructurePlacementShuffler.shouldUseDeferredTemplateShuffle(array.length)) {
+        if (!StructurePlacementShuffler.shouldUseDeferredTemplateShuffle(size)) {
             return Util.shuffledCopy(this.templates, random);
         }
+
+        StructurePoolElement[] array = this.bts$templateArray;
+        if (!this.ga$templateArrayMatches(array, size)) {
+            array = this.templates.toArray(new StructurePoolElement[size]);
+            this.bts$templateArray = array;
+        }
         return StructurePlacementShuffler.shuffledTemplates(array, random);
+    }
+
+    @Unique
+    private boolean ga$templateArrayMatches(StructurePoolElement[] array, int size) {
+        if (array == null || array.length != size) {
+            return false;
+        }
+        for (int i = 0; i < size; i++) {
+            if (array[i] != this.templates.get(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

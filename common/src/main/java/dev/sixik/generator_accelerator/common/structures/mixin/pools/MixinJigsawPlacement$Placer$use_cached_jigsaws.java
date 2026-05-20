@@ -52,6 +52,9 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
     @Unique
     private final Object2IntMap<ResourceKey<StructureTemplatePool>> ga$poolMaxSizeCache = ga$createPoolMaxSizeCache();
 
+    @Unique
+    private int ga$surfaceHeight = -1;
+
     @Shadow
     @Final
     private Registry<StructureTemplatePool> pools;
@@ -127,7 +130,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
             BlockPos parentJigsawPos = parentJigsaw.pos();
             BlockPos childAnchorPos = parentJigsawPos.relative(frontFacing);
             int parentYOffset = parentJigsawPos.getY() - parentMinY;
-            int[] surfaceHeight = {-1};
+            this.ga$surfaceHeight = -1;
 
             ResourceKey<StructureTemplatePool> poolKey = readPoolKey(parentJigsaw, aliasLookup);
             Optional<Holder.Reference<StructureTemplatePool>> primaryHolder = this.pools.getHolder(poolKey);
@@ -163,8 +166,15 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
             }
 
             int placementPriority = parentJigsaw.nbt() != null ? parentJigsaw.nbt().getInt("placement_priority") : 0;
+            List<StructurePoolElement> primaryTemplates = null;
             if (depth != this.maxDepth) {
-                List<StructurePoolElement> primaryTemplates = ((StructureTemplatePoolCache) primaryPool).bts$getCachedShuffledTemplates(this.random);
+                primaryTemplates = ((StructureTemplatePoolCache) primaryPool).bts$getCachedShuffledTemplates(this.random);
+                StructurePlacementShuffler.materializeTemplates(primaryTemplates);
+            }
+            List<StructurePoolElement> fallbackTemplates = ((StructureTemplatePoolCache) fallbackPool).bts$getCachedShuffledTemplates(this.random);
+            StructurePlacementShuffler.materializeTemplates(fallbackTemplates);
+
+            if (primaryTemplates != null) {
                 if (this.ga$tryTemplates(
                         primaryTemplates,
                         parentPiece,
@@ -182,14 +192,12 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                         randomState,
                         aliasLookup,
                         liquidSettings,
-                        placementPriority,
-                        surfaceHeight
+                        placementPriority
                 )) {
                     continue;
                 }
             }
 
-            List<StructurePoolElement> fallbackTemplates = ((StructureTemplatePoolCache) fallbackPool).bts$getCachedShuffledTemplates(this.random);
             if (this.ga$tryTemplates(
                     fallbackTemplates,
                     parentPiece,
@@ -207,8 +215,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     randomState,
                     aliasLookup,
                     liquidSettings,
-                    placementPriority,
-                    surfaceHeight
+                    placementPriority
             )) {
                 continue outer;
             }
@@ -233,8 +240,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
             RandomState randomState,
             PoolAliasLookup aliasLookup,
             LiquidSettings liquidSettings,
-            int placementPriority,
-            int[] surfaceHeight
+            int placementPriority
     ) {
         for (int templateIndex = 0, templateCount = templates.size(); templateIndex < templateCount; templateIndex++) {
             StructurePoolElement candidate = templates.get(templateIndex);
@@ -284,7 +290,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     if (parentRigid && candidateRigid) {
                         groundY = parentMinY + junctionYOffset;
                     } else {
-                        groundY = this.ga$getSurfaceHeight(surfaceHeight, parentJigsaw.pos(), heightAccessor, randomState) - candidateJigsawY;
+                        groundY = this.ga$getSurfaceHeight(parentJigsaw.pos(), heightAccessor, randomState) - candidateJigsawY;
                     }
 
                     int verticalShift = groundY - baseMinY;
@@ -321,7 +327,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     } else if (candidateRigid) {
                         junctionY = groundY + candidateJigsawY;
                     } else {
-                        junctionY = this.ga$getSurfaceHeight(surfaceHeight, parentJigsaw.pos(), heightAccessor, randomState) + junctionYOffset / 2;
+                        junctionY = this.ga$getSurfaceHeight(parentJigsaw.pos(), heightAccessor, randomState) + junctionYOffset / 2;
                     }
 
                     BlockPos parentJigsawPos = parentJigsaw.pos();
@@ -380,8 +386,8 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
     }
 
     @Unique
-    private int ga$getSurfaceHeight(int[] surfaceHeight, BlockPos pos, LevelHeightAccessor heightAccessor, RandomState randomState) {
-        int cached = surfaceHeight[0];
+    private int ga$getSurfaceHeight(BlockPos pos, LevelHeightAccessor heightAccessor, RandomState randomState) {
+        int cached = this.ga$surfaceHeight;
         if (cached != -1) {
             return cached;
         }
@@ -393,7 +399,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                 heightAccessor,
                 randomState
         );
-        surfaceHeight[0] = resolved;
+        this.ga$surfaceHeight = resolved;
         return resolved;
     }
 

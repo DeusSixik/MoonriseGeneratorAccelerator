@@ -21,15 +21,13 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 @Mixin(SinglePoolElement.class)
 public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends StructurePoolElement implements StructurePoolElementCache {
 
     @Unique
-    private final Map<Rotation, StructureJigsawConnectorPlan> bts$jigsawPlans = new ConcurrentHashMap<>(4);
+    private final AtomicReferenceArray<StructureJigsawConnectorPlan> bts$jigsawPlans = new AtomicReferenceArray<>(4);
     @Unique
     private final AtomicReferenceArray<Vec3i> bts$cachedSizes = new AtomicReferenceArray<>(4);
     @Unique
@@ -50,7 +48,8 @@ public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends Structur
             RandomSource random
     ) {
         Rotation safeRotation = bts$safeRotation(rotation);
-        StructureJigsawConnectorPlan plan = this.bts$jigsawPlans.get(safeRotation);
+        int index = safeRotation.ordinal();
+        StructureJigsawConnectorPlan plan = this.bts$jigsawPlans.get(index);
         if (plan == null) {
             StructureTemplate template = this.getTemplate(manager);
             ObjectArrayList<StructureTemplate.StructureBlockInfo> blocks = template.filterBlocks(
@@ -60,8 +59,11 @@ public abstract class MixinSinglePoolElement$cache_jigsawBlocks extends Structur
                     true
             );
             StructureJigsawConnectorPlan compiled = StructureJigsawConnectorPlan.compile(blocks);
-            StructureJigsawConnectorPlan raced = this.bts$jigsawPlans.putIfAbsent(safeRotation, compiled);
-            plan = raced == null ? compiled : raced;
+            if (this.bts$jigsawPlans.compareAndSet(index, null, compiled)) {
+                plan = compiled;
+            } else {
+                plan = this.bts$jigsawPlans.get(index);
+            }
         }
 
         return plan.shuffled(pos, random);

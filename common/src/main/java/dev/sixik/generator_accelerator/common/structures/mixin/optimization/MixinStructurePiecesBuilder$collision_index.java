@@ -9,6 +9,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -19,7 +20,8 @@ public abstract class MixinStructurePiecesBuilder$collision_index {
     private static final int generator_accelerator$collisionIndexThreshold = 12;
 
     @Unique
-    private final StructurePieceCollisionIndex generator_accelerator$collisionIndex = new StructurePieceCollisionIndex();
+    @Nullable
+    private StructurePieceCollisionIndex generator_accelerator$collisionIndex;
 
     @Shadow
     @Final
@@ -32,7 +34,10 @@ public abstract class MixinStructurePiecesBuilder$collision_index {
     @Overwrite
     public void addPiece(StructurePiece piece) {
         this.pieces.add(piece);
-        this.generator_accelerator$collisionIndex.add(piece);
+        StructurePieceCollisionIndex collisionIndex = this.generator_accelerator$collisionIndex;
+        if (collisionIndex != null) {
+            collisionIndex.add(piece);
+        }
     }
 
     /**
@@ -44,7 +49,7 @@ public abstract class MixinStructurePiecesBuilder$collision_index {
         if (this.pieces.size() <= generator_accelerator$collisionIndexThreshold) {
             return StructurePiece.findCollisionPiece(this.pieces, box);
         }
-        return this.generator_accelerator$collisionIndex.findCollision(box);
+        return this.generator_accelerator$getCollisionIndex().findCollision(box);
     }
 
     /**
@@ -54,6 +59,21 @@ public abstract class MixinStructurePiecesBuilder$collision_index {
     @Overwrite
     public void clear() {
         this.pieces.clear();
-        this.generator_accelerator$collisionIndex.clear();
+        this.generator_accelerator$collisionIndex = null;
+    }
+
+    @Unique
+    private StructurePieceCollisionIndex generator_accelerator$getCollisionIndex() {
+        StructurePieceCollisionIndex collisionIndex = this.generator_accelerator$collisionIndex;
+        if (collisionIndex != null) {
+            return collisionIndex;
+        }
+
+        collisionIndex = new StructurePieceCollisionIndex();
+        for (int i = 0, size = this.pieces.size(); i < size; i++) {
+            collisionIndex.add(this.pieces.get(i));
+        }
+        this.generator_accelerator$collisionIndex = collisionIndex;
+        return collisionIndex;
     }
 }

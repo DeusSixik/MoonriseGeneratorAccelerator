@@ -7,6 +7,7 @@ import net.minecraft.world.level.levelgen.structure.pools.StructurePoolElement;
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 /**
@@ -25,8 +26,8 @@ public final class StructurePlacementShuffler {
 
     private static final ThreadLocal<ReusableShuffledList<Rotation>> ROTATION_SCRATCH =
             ThreadLocal.withInitial(ReusableShuffledList::new);
-    private static final ThreadLocal<DeferredShuffledList<StructurePoolElement>> TEMPLATE_SCRATCH =
-            ThreadLocal.withInitial(DeferredShuffledList::new);
+    private static final ThreadLocal<TemplateShuffleScratch<StructurePoolElement>> TEMPLATE_SCRATCH =
+            ThreadLocal.withInitial(TemplateShuffleScratch::new);
 
     private StructurePlacementShuffler() {
     }
@@ -36,11 +37,17 @@ public final class StructurePlacementShuffler {
     }
 
     public static ListView<StructurePoolElement> shuffledTemplates(StructurePoolElement[] templates, RandomSource random) {
-        return TEMPLATE_SCRATCH.get().reset(templates, random);
+        return TEMPLATE_SCRATCH.get().next().reset(templates, random);
     }
 
     public static boolean shouldUseDeferredTemplateShuffle(int size) {
         return size <= DEFERRED_TEMPLATE_SHUFFLE_MAX_SIZE;
+    }
+
+    public static void materializeTemplates(List<StructurePoolElement> templates) {
+        if (templates instanceof DeferredShuffledList<?> deferred) {
+            deferred.materialize();
+        }
     }
 
     public abstract static class ListView<T> extends AbstractList<T> {
@@ -105,6 +112,16 @@ public final class StructurePlacementShuffler {
             this.random = null;
             this.shuffled = result;
             return result;
+        }
+    }
+
+    private static final class TemplateShuffleScratch<T> {
+        private final DeferredShuffledList<T> first = new DeferredShuffledList<>();
+        private final DeferredShuffledList<T> second = new DeferredShuffledList<>();
+        private int cursor;
+
+        private DeferredShuffledList<T> next() {
+            return (this.cursor++ & 1) == 0 ? this.first : this.second;
         }
     }
 
