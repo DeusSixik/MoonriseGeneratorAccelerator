@@ -1717,6 +1717,17 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridColumnDispatchDoesNotHoldGlobalMonitor() throws ReflectiveOperationException {
+        int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
+                "dispatchFinalDensityHybridColumn",
+                double[].class, NoiseChunk.class, int.class, int.class,
+                int.class, int.class, int.class,
+                Class.forName(DfcOpenClRuntime.class.getName() + "$RuntimeHybridPlan"), int.class)
+                .getModifiers();
+        assertFalse(Modifier.isSynchronized(modifiers));
+    }
+
+    @Test
     void runtimeHybridColumnRecordsDisabledSkipWithoutDispatch() {
         String oldHybrid = System.getProperty("dfc.opencl.finalDensityHybrid");
         try {

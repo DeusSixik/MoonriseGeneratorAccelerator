@@ -348,18 +348,47 @@ public final class DfcOpenClRuntime {
         }
     }
 
-    private static synchronized boolean dispatchFinalDensityHybridColumn(double[] out,
-                                                                         NoiseChunk chunk,
-                                                                         int baseCellY,
-                                                                         int cellCountY,
-                                                                         int cellWidth,
-                                                                         int cellHeight,
-                                                                         int n,
-                                                                         RuntimeHybridPlan runtimePlan,
-                                                                         int slotValues) {
+    private static boolean dispatchFinalDensityHybridColumn(double[] out,
+                                                            NoiseChunk chunk,
+                                                            int baseCellY,
+                                                            int cellCountY,
+                                                            int cellWidth,
+                                                            int cellHeight,
+                                                            int n,
+                                                            RuntimeHybridPlan runtimePlan,
+                                                            int slotValues) {
+        RuntimeHybridColumnGpuResult gpuResult;
+        try {
+            gpuResult = dispatchFinalDensityHybridColumnGpu(
+                    chunk, baseCellY, cellCountY, cellWidth, cellHeight, n, runtimePlan, slotValues);
+        } catch (Throwable throwable) {
+            return failFinalDensityHybridColumnDispatch(throwable, true);
+        }
+        if (gpuResult == null) {
+            return false;
+        }
+        try {
+            fillRuntimeHybridFinalDensityColumn(
+                    out, chunk, baseCellY, cellCountY, gpuResult.request(), runtimePlan, gpuResult.slotBuffer());
+            DfcOpenClStats.recordHybridBatchSuccess(cellCountY, n);
+            return true;
+        } catch (Throwable throwable) {
+            return failFinalDensityHybridColumnDispatch(throwable, false);
+        }
+    }
+
+    private static synchronized RuntimeHybridColumnGpuResult dispatchFinalDensityHybridColumnGpu(
+            NoiseChunk chunk,
+            int baseCellY,
+            int cellCountY,
+            int cellWidth,
+            int cellHeight,
+            int n,
+            RuntimeHybridPlan runtimePlan,
+            int slotValues) {
         if (finalDensityHybridBroken) {
             DfcOpenClStats.recordHybridBatchSkipped("broken");
-            return false;
+            return null;
         }
         Status status = cachedStatus;
         if (!status.probed() || !status.available() || selectedCandidate == null) {
@@ -368,42 +397,45 @@ public final class DfcOpenClRuntime {
         if (!status.available() || selectedCandidate == null) {
             DfcOpenClStats.recordHybridBatchSkipped(
                     status.error() == null ? "no available OpenCL device" : status.error());
-            return false;
+            return null;
         }
-        try {
-            DfcOpenClDeviceContext context = ensureActiveContext();
-            DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
-                    new DfcOpenClDeviceContext.GeneratedNoiseKernel[runtimePlan.waveSources().length];
-            for (int wave = 0; wave < runtimePlan.waveSources().length; wave++) {
-                kernels[wave] = context.compileGeneratedNoiseKernelCached(runtimePlan.waveSources()[wave]);
-            }
 
-            double[] requestOut = new double[n];
-            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
-                    runtimeNoiseColumnCellGridRequest(
-                            requestOut, cellWidth, cellHeight, chunk, baseCellY, cellCountY,
-                            runtimePlan.descriptor());
-            double[] slotBuffer = new double[slotValues];
+        DfcOpenClDeviceContext context = ensureActiveContext();
+        DfcOpenClDeviceContext.GeneratedNoiseKernel[] kernels =
+                new DfcOpenClDeviceContext.GeneratedNoiseKernel[runtimePlan.waveSources().length];
+        for (int wave = 0; wave < runtimePlan.waveSources().length; wave++) {
+            kernels[wave] = context.compileGeneratedNoiseKernelCached(runtimePlan.waveSources()[wave]);
+        }
 
-            DfcOpenClStats.recordHybridBatchAttempt(cellCountY, n);
-            DfcOpenClStats.recordSlabAttempt(slotValues);
-            DfcOpenClStats.recordSlabSubmitted();
-            DfcOpenClDeviceContext.SlabVmResult result = context.evalGeneratedNoiseKernelWavesToSlotBuffer(
-                    kernels, runtimePlan.kernelWaves(), request, runtimePlan.scheduledSlotCount(), true, slotBuffer);
-            DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+        double[] requestOut = new double[n];
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                runtimeNoiseColumnCellGridRequest(
+                        requestOut, cellWidth, cellHeight, chunk, baseCellY, cellCountY,
+                        runtimePlan.descriptor());
+        double[] slotBuffer = new double[slotValues];
 
-            fillRuntimeHybridFinalDensityColumn(out, chunk, baseCellY, cellCountY, request, runtimePlan, slotBuffer);
-            DfcOpenClStats.recordHybridBatchSuccess(cellCountY, n);
-            return true;
-        } catch (Throwable throwable) {
-            DfcOpenClStats.recordHybridBatchFailure(errorMessage(throwable));
+        DfcOpenClStats.recordHybridBatchAttempt(cellCountY, n);
+        DfcOpenClStats.recordSlabAttempt(slotValues);
+        DfcOpenClStats.recordSlabSubmitted();
+        DfcOpenClDeviceContext.SlabVmResult result = context.evalGeneratedNoiseKernelWavesToSlotBuffer(
+                kernels, runtimePlan.kernelWaves(), request, runtimePlan.scheduledSlotCount(), true, slotBuffer);
+        DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+
+        return new RuntimeHybridColumnGpuResult(request, slotBuffer);
+    }
+
+    private static boolean failFinalDensityHybridColumnDispatch(Throwable throwable, boolean slabFailure) {
+        DfcOpenClStats.recordHybridBatchFailure(errorMessage(throwable));
+        if (slabFailure) {
             DfcOpenClStats.recordSlabFailure();
+        }
+        synchronized (DfcOpenClRuntime.class) {
             finalDensityHybridBroken = true;
             closeActiveContext();
-            LOGGER.warn("DFC OpenCL: finalDensity hybrid column dispatch failed; disabling hybrid dispatch for this session: {}",
-                    errorMessage(throwable), throwable);
-            return false;
         }
+        LOGGER.warn("DFC OpenCL: finalDensity hybrid column dispatch failed; disabling hybrid dispatch for this session: {}",
+                errorMessage(throwable), throwable);
+        return false;
     }
 
     public static synchronized boolean tryEvalSlabInner(byte[] bytecode, double[] constants, double[] packedSlotRows,
@@ -8095,6 +8127,11 @@ public final class DfcOpenClRuntime {
     }
 
     private record RuntimeWavePlan(boolean[][] waves, boolean[] scheduledChunks, boolean[] directBlockedChunks) {
+    }
+
+    private record RuntimeHybridColumnGpuResult(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] slotBuffer) {
     }
 
     private record RuntimeHybridPlan(
