@@ -19,6 +19,11 @@ import net.minecraft.world.level.levelgen.structure.pools.alias.PoolAliasLookup;
 import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.BooleanOp;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import org.apache.commons.lang3.mutable.MutableObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -72,19 +77,117 @@ class JigsawPlacementHotPathTest {
     }
 
     @Test
+    void optimizedOuterFreeSpaceTrackerMatchesVoxelShapePath() {
+        BoundingBox root = new BoundingBox(-48, 0, -48, 48, 64, 48);
+        BoundingBox initialOccupied = new BoundingBox(-4, 0, -4, 4, 18, 4);
+        CollisionCase testCase = createCollisionCase(root, initialOccupied, 80);
+
+        VoxelShape vanillaFree = Shapes.join(
+                Shapes.create(AABB.of(root)),
+                Shapes.create(AABB.of(initialOccupied)),
+                BooleanOp.ONLY_FIRST
+        );
+        JigsawFreeSpaceTracker tracker = new JigsawFreeSpaceTracker(root, initialOccupied);
+
+        assertCollisionParity(testCase, vanillaFree, tracker);
+    }
+
+    @Test
+    void optimizedInnerFreeSpaceTrackerMatchesVoxelShapePath() {
+        BoundingBox parentBox = new BoundingBox(-12, 10, -12, 12, 28, 12);
+        CollisionCase testCase = createCollisionCase(parentBox, null, 48);
+
+        VoxelShape vanillaFree = Shapes.create(AABB.of(parentBox));
+        JigsawFreeSpaceTracker tracker = new JigsawFreeSpaceTracker(parentBox);
+
+        assertCollisionParity(testCase, vanillaFree, tracker);
+    }
+
+    @Test
+    void optimizedFreeSpaceTrackerMatchesVoxelShapeAtBoundaryEdges() {
+        BoundingBox root = new BoundingBox(-16, 0, -16, 16, 16, 16);
+        BoundingBox initialOccupied = new BoundingBox(-1, 0, -1, 1, 3, 1);
+        CollisionCase testCase = new CollisionCase(root, initialOccupied, List.of(
+                new BoundingBox(-16, 0, -16, -14, 2, -14),
+                new BoundingBox(-17, 0, 0, -15, 2, 2),
+                new BoundingBox(16, 0, 0, 16, 2, 2),
+                new BoundingBox(17, 0, 0, 17, 2, 2),
+                new BoundingBox(2, 0, -1, 4, 3, 1),
+                new BoundingBox(1, 0, -1, 3, 3, 1),
+                new BoundingBox(-20, 4, -20, -17, 7, -17),
+                new BoundingBox(14, 14, 14, 16, 16, 16)
+        ));
+
+        VoxelShape vanillaFree = Shapes.join(
+                Shapes.create(AABB.of(root)),
+                Shapes.create(AABB.of(initialOccupied)),
+                BooleanOp.ONLY_FIRST
+        );
+        JigsawFreeSpaceTracker tracker = new JigsawFreeSpaceTracker(root, initialOccupied);
+
+        assertCollisionParity(testCase, vanillaFree, tracker);
+    }
+
+    @Test
+    void optimizedFreeSpaceStateMaterializesShapeForFallbackReaders() {
+        BoundingBox root = new BoundingBox(-32, 4, -32, 32, 40, 32);
+        BoundingBox initialOccupied = new BoundingBox(-3, 4, -3, 3, 12, 3);
+        CollisionCase testCase = createCollisionCase(root, initialOccupied, 64);
+        VoxelShape expectedFree = Shapes.join(
+                Shapes.create(AABB.of(root)),
+                Shapes.create(AABB.of(initialOccupied)),
+                BooleanOp.ONLY_FIRST
+        );
+        JigsawFreeSpaceTracker.State state = JigsawFreeSpaceTracker.ensureOuterState(
+                new MutableObject<>(expectedFree),
+                initialOccupied
+        );
+
+        for (int i = 0; i < testCase.candidates.size(); i++) {
+            BoundingBox candidate = testCase.candidates.get(i);
+            boolean expected = JigsawFreeSpaceTracker.canPlace(expectedFree, candidate);
+            assertEquals(expected, state.canPlace(candidate), "candidate index=" + i + " box=" + candidate);
+            if (expected) {
+                state.occupy(candidate);
+                expectedFree = JigsawFreeSpaceTracker.occupy(expectedFree, candidate);
+            }
+
+            VoxelShape materialized = state.getValue();
+            for (int probeIndex = i; probeIndex < testCase.candidates.size(); probeIndex += 7) {
+                BoundingBox probe = testCase.candidates.get(probeIndex);
+                assertEquals(
+                        JigsawFreeSpaceTracker.canPlace(expectedFree, probe),
+                        JigsawFreeSpaceTracker.canPlace(materialized, probe),
+                        "materialized probe index=" + probeIndex + " box=" + probe
+                );
+            }
+        }
+    }
+
+    @Test
     void printsJigsawPlacementHotPathMetrics() {
-        int warmup = Integer.getInteger("ga.test.jigsawHotPathWarmup", 10_000);
-        int iterations = Integer.getInteger("ga.test.jigsawHotPathIterations", 60_000);
+        int warmup = Integer.getInteger("ga.test.jigsawHotPathWarmup", 64);
+        int iterations = Integer.getInteger("ga.test.jigsawHotPathIterations", 256);
         TestCase testCase = createCase(96);
+        CollisionCase outerCollisionCase = createCollisionCase(
+                new BoundingBox(-48, 0, -48, 48, 64, 48),
+                new BoundingBox(-4, 0, -4, 4, 18, 4),
+                24
+        );
 
         runVanilla(testCase, warmup);
         runOptimized(testCase, warmup);
+        runVanillaCollision(outerCollisionCase, warmup);
+        runOptimizedCollision(outerCollisionCase, warmup);
         long vanillaNanos = timeVanilla(testCase, iterations);
         long optimizedNanos = timeOptimized(testCase, iterations);
+        long vanillaCollisionNanos = timeVanillaCollision(outerCollisionCase, iterations);
+        long optimizedCollisionNanos = timeOptimizedCollision(outerCollisionCase, iterations);
 
         System.out.println("JigsawPlacement expansion benchmark");
         System.out.println("warmup=" + warmup + ", iterations=" + iterations + ", connectors=" + testCase.jigsaws.size());
         printMetric("projection-expansion", vanillaNanos, optimizedNanos, iterations);
+        printMetric("free-space-collision", vanillaCollisionNanos, optimizedCollisionNanos, iterations * outerCollisionCase.candidates.size());
     }
 
     private static long timeVanilla(TestCase testCase, int iterations) {
@@ -160,6 +263,74 @@ class JigsawPlacementHotPathTest {
         return moved;
     }
 
+    private static void assertCollisionParity(CollisionCase testCase, VoxelShape vanillaFree, JigsawFreeSpaceTracker tracker) {
+        VoxelShape free = vanillaFree;
+        for (int i = 0; i < testCase.candidates.size(); i++) {
+            BoundingBox candidate = testCase.candidates.get(i);
+            boolean expected = !Shapes.joinIsNotEmpty(
+                    free,
+                    Shapes.create(AABB.of(candidate).deflate(0.25D)),
+                    BooleanOp.ONLY_SECOND
+            );
+            boolean actual = tracker.canPlace(candidate);
+            assertEquals(expected, actual, "candidate index=" + i + " box=" + candidate);
+            if (expected) {
+                tracker.occupy(candidate);
+                free = Shapes.joinUnoptimized(free, Shapes.create(AABB.of(candidate)), BooleanOp.ONLY_FIRST);
+            }
+        }
+    }
+
+    private static long timeVanillaCollision(CollisionCase testCase, int iterations) {
+        long started = System.nanoTime();
+        runVanillaCollision(testCase, iterations);
+        return System.nanoTime() - started;
+    }
+
+    private static void runVanillaCollision(CollisionCase testCase, int iterations) {
+        int local = sink;
+        for (int i = 0; i < iterations; i++) {
+            VoxelShape free = testCase.initialOccupied == null
+                    ? Shapes.create(AABB.of(testCase.rootBounds))
+                    : Shapes.join(
+                            Shapes.create(AABB.of(testCase.rootBounds)),
+                            Shapes.create(AABB.of(testCase.initialOccupied)),
+                            BooleanOp.ONLY_FIRST
+                    );
+            for (int j = 0; j < testCase.candidates.size(); j++) {
+                BoundingBox candidate = testCase.candidates.get(j);
+                if (!Shapes.joinIsNotEmpty(free, Shapes.create(AABB.of(candidate).deflate(0.25D)), BooleanOp.ONLY_SECOND)) {
+                    free = Shapes.joinUnoptimized(free, Shapes.create(AABB.of(candidate)), BooleanOp.ONLY_FIRST);
+                    local += candidate.minX();
+                }
+            }
+        }
+        sink = local;
+    }
+
+    private static long timeOptimizedCollision(CollisionCase testCase, int iterations) {
+        long started = System.nanoTime();
+        runOptimizedCollision(testCase, iterations);
+        return System.nanoTime() - started;
+    }
+
+    private static void runOptimizedCollision(CollisionCase testCase, int iterations) {
+        int local = sink;
+        for (int i = 0; i < iterations; i++) {
+            JigsawFreeSpaceTracker tracker = testCase.initialOccupied == null
+                    ? new JigsawFreeSpaceTracker(testCase.rootBounds)
+                    : new JigsawFreeSpaceTracker(testCase.rootBounds, testCase.initialOccupied);
+            for (int j = 0; j < testCase.candidates.size(); j++) {
+                BoundingBox candidate = testCase.candidates.get(j);
+                if (tracker.canPlace(candidate)) {
+                    tracker.occupy(candidate);
+                    local += candidate.minX();
+                }
+            }
+        }
+        sink = local;
+    }
+
     private static TestCase createCase(int connectorCount) {
         StructureTemplateManager structureTemplateManager = Mockito.mock(StructureTemplateManager.class, Mockito.withSettings().stubOnly());
         @SuppressWarnings("unchecked")
@@ -207,6 +378,36 @@ class JigsawPlacementHotPathTest {
         return new TestCase(jigsaws, localBounds, PoolAliasLookup.EMPTY, pools, structureTemplateManager, cache);
     }
 
+    private static CollisionCase createCollisionCase(BoundingBox rootBounds, BoundingBox initialOccupied, int candidateCount) {
+        List<BoundingBox> candidates = new ArrayList<>(candidateCount);
+        int spanX = Math.max(1, rootBounds.getXSpan() - 12);
+        int spanY = Math.max(1, rootBounds.getYSpan() - 10);
+        int spanZ = Math.max(1, rootBounds.getZSpan() - 12);
+        for (int i = 0; i < candidateCount; i++) {
+            int minX = rootBounds.minX() + Math.floorMod(i * 7, spanX);
+            int minY = rootBounds.minY() + Math.floorMod(i * 5, spanY);
+            int minZ = rootBounds.minZ() + Math.floorMod(i * 11, spanZ);
+            int sizeX = 3 + (i % 4);
+            int sizeY = 2 + (i % 5);
+            int sizeZ = 3 + (i % 3);
+            if ((i & 3) == 0) {
+                minX -= 6;
+            }
+            if ((i & 7) == 3) {
+                minZ -= 5;
+            }
+            candidates.add(new BoundingBox(
+                    minX,
+                    minY,
+                    minZ,
+                    minX + sizeX,
+                    minY + sizeY,
+                    minZ + sizeZ
+            ));
+        }
+        return new CollisionCase(rootBounds, initialOccupied, candidates);
+    }
+
     private static BlockState jigsawState() {
         return Blocks.JIGSAW.defaultBlockState().setValue(JigsawBlock.ORIENTATION, FrontAndTop.EAST_UP);
     }
@@ -239,6 +440,13 @@ class JigsawPlacementHotPathTest {
             Registry<StructureTemplatePool> pools,
             StructureTemplateManager structureTemplateManager,
             Object2IntMap<ResourceKey<StructureTemplatePool>> poolMaxSizeCache
+    ) {
+    }
+
+    private record CollisionCase(
+            BoundingBox rootBounds,
+            BoundingBox initialOccupied,
+            List<BoundingBox> candidates
     ) {
     }
 }

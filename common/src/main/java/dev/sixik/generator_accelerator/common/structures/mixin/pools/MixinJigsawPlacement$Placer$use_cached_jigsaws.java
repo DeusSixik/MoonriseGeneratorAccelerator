@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 
 import com.mojang.logging.LogUtils;
+import dev.sixik.generator_accelerator.common.structures.JigsawFreeSpaceTracker;
 import dev.sixik.generator_accelerator.common.structures.JigsawPlacementHotPath;
 import dev.sixik.generator_accelerator.common.structures.StructurePlacementShuffler;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;
@@ -31,9 +32,6 @@ import net.minecraft.world.level.levelgen.structure.pools.alias.PoolAliasLookup;
 import net.minecraft.world.level.levelgen.structure.templatesystem.LiquidSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.shapes.BooleanOp;
-import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.apache.commons.lang3.mutable.MutableObject;
 import org.slf4j.Logger;
@@ -108,7 +106,8 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
         Rotation parentRotation = parentPiece.getRotation();
         StructureTemplatePool.Projection parentProjection = parentElement.getProjection();
         boolean parentRigid = parentProjection == StructureTemplatePool.Projection.RIGID;
-        MutableObject<VoxelShape> insideParentShape = new MutableObject<>();
+        MutableObject<VoxelShape> rootFreeShape = ga$outerFreeShape(freeShape, parentPiece.getBoundingBox(), depth);
+        MutableObject<VoxelShape> insideParentShape = null;
         BoundingBox parentBox = parentPiece.getBoundingBox();
         int parentMinY = parentBox.minY();
 
@@ -154,11 +153,12 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                 continue;
             }
 
-            MutableObject<VoxelShape> candidateFreeShape = freeShape;
+            MutableObject<VoxelShape> candidateFreeShape = rootFreeShape;
             if (parentBox.isInside(childAnchorPos)) {
                 candidateFreeShape = insideParentShape;
-                if (insideParentShape.getValue() == null) {
-                    insideParentShape.setValue(Shapes.create(AABB.of(parentBox)));
+                if (insideParentShape == null) {
+                    insideParentShape = JigsawFreeSpaceTracker.createInnerFreeShape(parentBox);
+                    candidateFreeShape = insideParentShape;
                 }
             }
 
@@ -295,13 +295,11 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                             offsetZ,
                             projectionExpansion
                     );
-                    AABB placedAabb = AABB.of(placedBounds);
-                    VoxelShape occupiedShape = freeShape.getValue();
-                    if (Shapes.joinIsNotEmpty(occupiedShape, Shapes.create(placedAabb.deflate(0.25D)), BooleanOp.ONLY_SECOND)) {
+                    if (!ga$canPlace(freeShape, placedBounds)) {
                         continue;
                     }
 
-                    freeShape.setValue(Shapes.joinUnoptimized(occupiedShape, Shapes.create(placedAabb), BooleanOp.ONLY_FIRST));
+                    ga$occupy(freeShape, placedBounds);
                     int parentGroundDelta = parentPiece.getGroundLevelDelta();
                     int candidateGroundDelta = candidateRigid
                             ? parentGroundDelta - junctionYOffset
@@ -350,6 +348,35 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
             }
         }
         return false;
+    }
+
+    @Unique
+    private static MutableObject<VoxelShape> ga$outerFreeShape(
+            MutableObject<VoxelShape> freeShape,
+            BoundingBox initialOccupied,
+            int depth
+    ) {
+        if (!JigsawFreeSpaceTracker.enabled() || (depth != 0 && !(freeShape instanceof JigsawFreeSpaceTracker.State))) {
+            return freeShape;
+        }
+        return JigsawFreeSpaceTracker.ensureOuterState(freeShape, initialOccupied);
+    }
+
+    @Unique
+    private static boolean ga$canPlace(MutableObject<VoxelShape> freeShape, BoundingBox placedBounds) {
+        if (freeShape instanceof JigsawFreeSpaceTracker.State state) {
+            return state.canPlace(placedBounds);
+        }
+        return JigsawFreeSpaceTracker.canPlace(freeShape.getValue(), placedBounds);
+    }
+
+    @Unique
+    private static void ga$occupy(MutableObject<VoxelShape> freeShape, BoundingBox placedBounds) {
+        if (freeShape instanceof JigsawFreeSpaceTracker.State state) {
+            state.occupy(placedBounds);
+            return;
+        }
+        freeShape.setValue(JigsawFreeSpaceTracker.occupy(freeShape.getValue(), placedBounds));
     }
 
     @Unique
