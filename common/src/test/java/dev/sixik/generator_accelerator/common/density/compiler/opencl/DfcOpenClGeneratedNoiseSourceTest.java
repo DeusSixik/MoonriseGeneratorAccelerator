@@ -1816,6 +1816,53 @@ class DfcOpenClGeneratedNoiseSourceTest {
         assertArrayEquals(new int[]{1, 3}, DfcOpenClRuntime.slotDependencies(program, 5));
     }
 
+    @Test
+    void runtimeHybridCpuFinishAllowsOnlyStagedAndExternalRootSlots() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 0, 2, 1, 32},
+                new boolean[]{false, true, false},
+                null);
+
+        assertTrue(DfcOpenClRuntime.runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, new boolean[]{true, false, false}, 3, false));
+    }
+
+    @Test
+    void runtimeHybridCpuFinishRejectsResidualNoiseRootSlots() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 2},
+                new boolean[]{false, false, false},
+                null);
+
+        assertFalse(DfcOpenClRuntime.runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, new boolean[]{true, true, false}, 3, false));
+    }
+
+    @Test
+    void runtimeHybridCpuFinishRejectsResidualComputedRootSlots() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[3];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 0, 2, 1, 32}, new double[0], null, null, "cpu-slot");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 2},
+                new boolean[]{false, false, false},
+                computedSlots);
+
+        assertFalse(DfcOpenClRuntime.runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, new boolean[]{true, true, false}, 3, false));
+    }
+
+    @Test
+    void runtimeHybridCpuFinishRejectsOutputLayers() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = runtimeHybridFinishPlan(
+                new byte[]{2, 0},
+                new boolean[]{false},
+                null);
+
+        assertFalse(DfcOpenClRuntime.runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, new boolean[]{true}, 1, true));
+    }
+
     private static double testCellBlockX(int element,
                                          DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request) {
         int cellVolume = request.cellWidth() * request.cellWidth() * request.cellHeight();
@@ -1895,6 +1942,30 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 new int[]{-1, 0, -1},
                 new DensityFunction[]{extern},
                 null);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan runtimeHybridFinishPlan(
+            byte[] slabProgram,
+            boolean[] externalSlots,
+            DfcOpenClRuntime.ComputedSlot[] computedSlots) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
+                "runtime-hybrid-finish",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[externalSlots.length],
+                slabProgram,
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                externalSlots,
+                new int[externalSlots.length],
+                new DensityFunction[0],
+                computedSlots);
     }
 
     @SuppressWarnings("unchecked")

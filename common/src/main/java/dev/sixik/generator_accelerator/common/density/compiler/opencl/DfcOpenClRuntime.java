@@ -3778,6 +3778,11 @@ public final class DfcOpenClRuntime {
                 compactSlotBufferIndices(chunkStartSlots, chunkEndSlots, wavePlan.scheduledChunks(), slotCount);
         boolean[] stagedSlots =
                 waveTargetSlots(wavePlan.scheduledChunks(), chunkStartSlots, chunkEndSlots, slotCount);
+        if (!runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(
+                plan, stagedSlots, slotCount, outputLayers.length > 0)) {
+            return RuntimeHybridPlan.unavailable(
+                    "runtime hybrid CPU finish has residual computed/noise slots; skip column batch");
+        }
 
         String[] waveSources = new String[wavePlan.waves().length];
         int totalSourceChars = 0;
@@ -4207,6 +4212,22 @@ public final class DfcOpenClRuntime {
     static boolean runtimeHybridBatchMeetsMinimum(int cellWidth, int cellHeight, int cellCountY, int scheduledSlots) {
         return runtimeHybridBatchSlotValues(cellWidth, cellHeight, cellCountY, scheduledSlots)
                 >= DfcOpenClConfig.finalDensityHybridMinSlotValues();
+    }
+
+    static boolean runtimeHybridCpuFinishUsesOnlyStagedOrExternalSlots(OpenClCompiledPlan plan,
+                                                                       boolean[] stagedSlots,
+                                                                       int usedSlotCount,
+                                                                       boolean hasOutputLayers) {
+        if (plan == null || hasOutputLayers || usedSlotCount <= 0 || plan.slabProgram() == null) {
+            return false;
+        }
+        boolean[] residualInputs = compiledPlanFinalOutputResidualGpuInputSlots(plan, stagedSlots, usedSlotCount);
+        for (boolean residualInput : residualInputs) {
+            if (residualInput) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static int runtimeColumnBatchElementIndex(int cellYIndex, int javaFillIndex, int cellWidth, int cellHeight) {
