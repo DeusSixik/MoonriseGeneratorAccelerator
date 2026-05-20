@@ -1603,6 +1603,54 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridColumnBatchMeetsDefaultMinimumWhenScheduledSlotsAreLargeEnough() {
+        String oldMin = System.getProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+        try {
+            System.clearProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+            assertEquals(4_096, DfcOpenClRuntime.runtimeHybridBatchCellValues(4, 8, 32));
+            assertEquals(221_184, DfcOpenClRuntime.runtimeHybridBatchSlotValues(4, 8, 32, 54));
+            assertTrue(DfcOpenClRuntime.runtimeHybridBatchMeetsMinimum(4, 8, 32, 54));
+            assertFalse(DfcOpenClRuntime.runtimeHybridBatchMeetsMinimum(4, 8, 1, 54));
+        } finally {
+            if (oldMin == null) {
+                System.clearProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+            } else {
+                System.setProperty("dfc.opencl.finalDensityHybridMinSlotValues", oldMin);
+            }
+        }
+    }
+
+    @Test
+    void runtimeColumnBatchElementIndexOffsetsCells() {
+        int cellWidth = 4;
+        int cellHeight = 8;
+        int cellVolume = cellWidth * cellWidth * cellHeight;
+        assertEquals(0, DfcOpenClRuntime.runtimeColumnBatchElementIndex(0, 0, cellWidth, cellHeight));
+        assertEquals(16, DfcOpenClRuntime.runtimeColumnBatchElementIndex(0, 1, cellWidth, cellHeight));
+        assertEquals(127, DfcOpenClRuntime.runtimeColumnBatchElementIndex(0, 127, cellWidth, cellHeight));
+        assertEquals(cellVolume, DfcOpenClRuntime.runtimeColumnBatchElementIndex(1, 0, cellWidth, cellHeight));
+        assertEquals(cellVolume + 16, DfcOpenClRuntime.runtimeColumnBatchElementIndex(1, 1, cellWidth, cellHeight));
+    }
+
+    @Test
+    void runtimeColumnBatchCopyExtractsOneJavaOrderCell() {
+        int cellWidth = 4;
+        int cellHeight = 8;
+        int cellVolume = cellWidth * cellWidth * cellHeight;
+        double[] batch = new double[cellVolume * 3];
+        for (int i = 0; i < batch.length; i++) {
+            batch[i] = 10_000.0D + i;
+        }
+        double[] cell = new double[cellVolume];
+
+        DfcOpenClRuntime.copyRuntimeColumnBatchCell(batch, 2, cell, cellWidth, cellHeight);
+
+        for (int i = 0; i < cellVolume; i++) {
+            assertEquals(10_000.0D + cellVolume * 2 + i, cell[i]);
+        }
+    }
+
+    @Test
     void runtimeHybridFastSkipPathIsNotGloballySynchronized() throws NoSuchMethodException {
         int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
                 "tryFillFinalDensityHybrid", CompiledDensityFunction.class, double[].class, NoiseChunk.class)

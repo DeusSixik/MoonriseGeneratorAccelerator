@@ -60,6 +60,8 @@ public final class DfcOpenClRuntime {
     private static final int RUNTIME_FINAL_CHUNK_MAX_OCTAVES = 16;
     private static final int RUNTIME_FINAL_CHUNK_MAX_COMPUTED = 2;
     private static final int COMPILED_PLAN_HYBRID_CPU_FINISH_MAX_CELLS = 1;
+    static final int CELL_GRID_LAYOUT_XZ = 0;
+    static final int CELL_GRID_LAYOUT_Y_COLUMN = 1;
     /*
      * The router-level finalDensity plan is much larger (~118 slots), but the real
      * NoiseChunk hot path sees it after cache/interpolator rebinding. Those wrappers
@@ -3989,6 +3991,43 @@ public final class DfcOpenClRuntime {
         }
         return Math.multiplyExact(cellValues, RUNTIME_FINAL_MIN_SLOTS)
                 >= DfcOpenClConfig.finalDensityHybridMinSlotValues();
+    }
+
+    static int runtimeHybridBatchCellValues(int cellWidth, int cellHeight, int cellCountY) {
+        if (cellWidth <= 0 || cellHeight <= 0 || cellCountY <= 0) {
+            return 0;
+        }
+        return Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth),
+                Math.multiplyExact(cellHeight, cellCountY));
+    }
+
+    static int runtimeHybridBatchSlotValues(int cellWidth, int cellHeight, int cellCountY, int scheduledSlots) {
+        if (scheduledSlots <= 0) {
+            return 0;
+        }
+        return Math.multiplyExact(runtimeHybridBatchCellValues(cellWidth, cellHeight, cellCountY), scheduledSlots);
+    }
+
+    static boolean runtimeHybridBatchMeetsMinimum(int cellWidth, int cellHeight, int cellCountY, int scheduledSlots) {
+        return runtimeHybridBatchSlotValues(cellWidth, cellHeight, cellCountY, scheduledSlots)
+                >= DfcOpenClConfig.finalDensityHybridMinSlotValues();
+    }
+
+    static int runtimeColumnBatchElementIndex(int cellYIndex, int javaFillIndex, int cellWidth, int cellHeight) {
+        int cellVolume = Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth), cellHeight);
+        return Math.addExact(Math.multiplyExact(cellYIndex, cellVolume),
+                runtimeCellFillElementIndex(javaFillIndex, cellWidth, cellHeight));
+    }
+
+    public static void copyRuntimeColumnBatchCell(double[] batchValues, int cellYIndex, double[] cellValues,
+                                                  int cellWidth, int cellHeight) {
+        int cellVolume = Math.multiplyExact(Math.multiplyExact(cellWidth, cellWidth), cellHeight);
+        if (cellYIndex < 0 || batchValues == null || cellValues == null
+                || cellValues.length < cellVolume
+                || batchValues.length < Math.multiplyExact(cellYIndex + 1, cellVolume)) {
+            throw new IllegalArgumentException("invalid runtime column batch copy arguments");
+        }
+        System.arraycopy(batchValues, Math.multiplyExact(cellYIndex, cellVolume), cellValues, 0, cellVolume);
     }
 
     private static DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest runtimeNoiseCellGridRequest(
