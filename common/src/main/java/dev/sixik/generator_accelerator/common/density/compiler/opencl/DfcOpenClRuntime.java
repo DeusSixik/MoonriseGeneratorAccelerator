@@ -2109,9 +2109,11 @@ public final class DfcOpenClRuntime {
             long originalPrefillNanos = System.nanoTime() - originalPrefillStarted;
 
             long externalPrefillStarted = System.nanoTime();
-            double[] initialSlotBuffer = fillFinalOutputSlotBufferInputs(
+            FinalOutputSlotBufferInputs initialInputs = fillFinalOutputSlotBufferInputs(
                     plan, request, descriptor, initialInputSlots, originalExternalSlotValues,
-                    slotBufferIndices, slotBufferSlotCount);
+                    slotBufferIndices, slotBufferSlotCount, traceStages);
+            double[] initialSlotBuffer = initialInputs.values();
+            FinalOutputExternalPrefillTrace externalPrefillTrace = initialInputs.trace();
             long externalPrefillNanos = System.nanoTime() - externalPrefillStarted;
 
             long compileStarted = System.nanoTime();
@@ -2326,6 +2328,10 @@ public final class DfcOpenClRuntime {
                             + ", externalPrefillMs=" + formatMillis(externalPrefillNanos)
                             + ", externalPrefillValueNs=" + formatNanosPerValue(
                             externalPrefillNanos, (long) request.n() * Math.max(1, initialInputSlotCount))
+                            + (traceStages
+                            ? ", externalPrefillTrace=" + describeFinalOutputExternalPrefillTrace(
+                            plan, initialInputSlots, externalPrefillTrace, 8)
+                            : "")
                             + ", oneShotWithPrefillMs=" + formatMillis(externalPrefillNanos + averageKernelNanos)
                             + ", slotBufferBytes=" + slotBufferBytes
                             + ", slotBufferSlots=" + slotBufferSlotCount
@@ -4479,24 +4485,34 @@ public final class DfcOpenClRuntime {
     }
 
     private static double[] fillExternalSlots(OpenClCompiledPlan plan,
-                                              DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
-                                              int usedSlotCount) {
+                                               DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+                                               int usedSlotCount) {
         int safeUsedSlots = Math.min(Math.max(1, usedSlotCount), request.slotCount());
         double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
+        int[] externalSlotIndices = compiledPlanExternalSlotIndices(plan.externalSlots(), safeUsedSlots);
         for (int i = 0; i < request.n(); i++) {
             int bx = (int) cellBlockX(i, request);
             int by = (int) cellBlockY(i, request);
             int bz = (int) cellBlockZ(i, request);
             DensityFunction.FunctionContext context = new DensityFunction.SinglePointContext(bx, by, bz);
-            for (int slot = 0; slot < safeUsedSlots; slot++) {
-                if (!isExternalSlot(plan.externalSlots(), slot)) {
-                    continue;
-                }
+            for (int slot : externalSlotIndices) {
                 DensityFunction extern = markerExtern(plan, slot);
                 values[elementSlotIndex(i, safeUsedSlots, slot)] = extern.compute(context);
             }
         }
         return values;
+    }
+
+    static int[] compiledPlanExternalSlotIndices(boolean[] externalSlots, int usedSlotCount) {
+        int limit = Math.min(externalSlots == null ? 0 : externalSlots.length, Math.max(0, usedSlotCount));
+        int[] slots = new int[limit];
+        int count = 0;
+        for (int slot = 0; slot < limit; slot++) {
+            if (externalSlots[slot]) {
+                slots[count++] = slot;
+            }
+        }
+        return Arrays.copyOf(slots, count);
     }
 
     private static double[] fillChunkExternalInputs(OpenClCompiledPlan plan,
@@ -4555,16 +4571,30 @@ public final class DfcOpenClRuntime {
         return values;
     }
 
-    private static double[] fillFinalOutputSlotBufferInputs(OpenClCompiledPlan plan,
-                                                            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
-                                                            DfcOpenClNoiseDescriptor descriptor,
-                                                            boolean[] inputSlots,
-                                                            double[] originalExternalSlotValues,
-                                                            int[] slotBufferIndices,
-                                                            int slotBufferSlotCount) {
+    private static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputs(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            boolean[] inputSlots,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount,
+            boolean traceTimings) {
+        int[] directExternalInputSlots = finalOutputDirectExternalInputSlots(
+                plan, inputSlots, request.slotCount());
+        if (directExternalInputSlots != null) {
+            return fillFinalOutputDirectExternalSlotBufferInputs(
+                    request, originalExternalSlotValues, slotBufferIndices, slotBufferSlotCount,
+                    directExternalInputSlots, traceTimings);
+        }
+        if (traceTimings) {
+            return fillFinalOutputSlotBufferInputsTrace(
+                    plan, request, descriptor, inputSlots, originalExternalSlotValues,
+                    slotBufferIndices, slotBufferSlotCount);
+        }
         double[] values = new double[Math.multiplyExact(request.n(), slotBufferSlotCount)];
         if (inputSlots == null) {
-            return values;
+            return new FinalOutputSlotBufferInputs(values, null);
         }
         int slotLimit = Math.min(inputSlots.length, request.slotCount());
         for (int element = 0; element < request.n(); element++) {
@@ -4587,7 +4617,135 @@ public final class DfcOpenClRuntime {
                                 originalExternalSlotValues, plan.externalSlots(), plan.computedSlots());
             }
         }
-        return values;
+        return new FinalOutputSlotBufferInputs(values, null);
+    }
+
+    private static FinalOutputSlotBufferInputs fillFinalOutputSlotBufferInputsTrace(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            DfcOpenClNoiseDescriptor descriptor,
+            boolean[] inputSlots,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount) {
+        long totalStarted = System.nanoTime();
+        long allocateStarted = totalStarted;
+        double[] values = new double[Math.multiplyExact(request.n(), slotBufferSlotCount)];
+        long allocateNanos = System.nanoTime() - allocateStarted;
+        int slotLimit = inputSlots == null ? 0 : Math.min(inputSlots.length, request.slotCount());
+        long[] slotNanos = new long[slotLimit];
+        int[] slotValues = new int[slotLimit];
+        long setupNanos = 0L;
+        long scanNanos = 0L;
+        if (inputSlots != null) {
+            for (int element = 0; element < request.n(); element++) {
+                long setupStarted = System.nanoTime();
+                double bx = cellBlockX(element, request);
+                double by = cellBlockY(element, request);
+                double bz = cellBlockZ(element, request);
+                double[] slots = new double[slotLimit];
+                boolean[] resolvedSlots = new boolean[slotLimit];
+                setupNanos += System.nanoTime() - setupStarted;
+
+                long scanStarted = System.nanoTime();
+                long activeSlotNanos = 0L;
+                for (int slot = 0; slot < slotLimit; slot++) {
+                    if (!inputSlots[slot]) {
+                        continue;
+                    }
+                    long slotStarted = System.nanoTime();
+                    int compactIndex = slotBufferIndex(slotBufferIndices, slot);
+                    values[Math.addExact(Math.multiplyExact(compactIndex, request.n()), element)] =
+                            resolveCompiledPlanSlot(
+                                    slot, slots, resolvedSlots, element, slotLimit, bx, by, bz,
+                                    descriptor,
+                                    plan.slotCoordXEvaluators(), plan.slotCoordYEvaluators(),
+                                    plan.slotCoordZEvaluators(),
+                                    originalExternalSlotValues, plan.externalSlots(), plan.computedSlots());
+                    long elapsed = System.nanoTime() - slotStarted;
+                    slotNanos[slot] += elapsed;
+                    slotValues[slot]++;
+                    activeSlotNanos += elapsed;
+                }
+                long scanElapsed = System.nanoTime() - scanStarted;
+                scanNanos += Math.max(0L, scanElapsed - activeSlotNanos);
+            }
+        }
+        FinalOutputExternalPrefillTrace trace = new FinalOutputExternalPrefillTrace(
+                System.nanoTime() - totalStarted, allocateNanos, setupNanos, scanNanos, slotNanos, slotValues);
+        return new FinalOutputSlotBufferInputs(values, trace);
+    }
+
+    static int[] finalOutputDirectExternalInputSlots(OpenClCompiledPlan plan, boolean[] inputSlots, int slotCount) {
+        if (inputSlots == null) {
+            return new int[0];
+        }
+        int limit = Math.min(inputSlots.length, Math.max(0, slotCount));
+        int[] slots = new int[limit];
+        int count = 0;
+        for (int slot = 0; slot < limit; slot++) {
+            if (!inputSlots[slot]) {
+                continue;
+            }
+            if (!isExternalSlot(plan.externalSlots(), slot)) {
+                return null;
+            }
+            slots[count++] = slot;
+        }
+        return Arrays.copyOf(slots, count);
+    }
+
+    private static FinalOutputSlotBufferInputs fillFinalOutputDirectExternalSlotBufferInputs(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] originalExternalSlotValues,
+            int[] slotBufferIndices,
+            int slotBufferSlotCount,
+            int[] directExternalInputSlots,
+            boolean traceTimings) {
+        long totalStarted = traceTimings ? System.nanoTime() : 0L;
+        long allocateStarted = traceTimings ? totalStarted : 0L;
+        double[] values = new double[Math.multiplyExact(request.n(), slotBufferSlotCount)];
+        long allocateNanos = traceTimings ? System.nanoTime() - allocateStarted : 0L;
+        long[] slotNanos = traceTimings ? new long[Math.max(0, request.slotCount())] : null;
+        int[] slotValues = traceTimings ? new int[Math.max(0, request.slotCount())] : null;
+        for (int slot : directExternalInputSlots) {
+            long slotStarted = traceTimings ? System.nanoTime() : 0L;
+            int compactIndex = slotBufferIndex(slotBufferIndices, slot);
+            copyDirectExternalSlotBufferInput(
+                    request, originalExternalSlotValues, values, slot, compactIndex);
+            if (traceTimings && slot >= 0 && slot < slotNanos.length) {
+                slotNanos[slot] += System.nanoTime() - slotStarted;
+                slotValues[slot] += request.n();
+            }
+        }
+        FinalOutputExternalPrefillTrace trace = traceTimings
+                ? new FinalOutputExternalPrefillTrace(
+                System.nanoTime() - totalStarted, allocateNanos, 0L, 0L, slotNanos, slotValues)
+                : null;
+        return new FinalOutputSlotBufferInputs(values, trace);
+    }
+
+    private static void copyDirectExternalSlotBufferInput(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] originalExternalSlotValues,
+            double[] values,
+            int slot,
+            int compactIndex) {
+        int n = request.n();
+        int sourceSlotCount = request.slotCount();
+        if (n > 0) {
+            int lastSourceIndex = elementSlotIndex(n - 1, sourceSlotCount, slot);
+            if (originalExternalSlotValues == null || originalExternalSlotValues.length <= lastSourceIndex) {
+                throw new IllegalStateException("OpenCL compiled plan external slot buffer is missing slot "
+                        + slot + " for element " + (n - 1));
+            }
+        }
+        int sourceIndex = slot;
+        int targetIndex = Math.multiplyExact(compactIndex, n);
+        for (int element = 0; element < n; element++) {
+            values[targetIndex + element] = originalExternalSlotValues[sourceIndex];
+            sourceIndex += sourceSlotCount;
+        }
     }
 
     private static DensityFunction markerExtern(OpenClCompiledPlan plan, int slot) {
@@ -5210,6 +5368,70 @@ public final class DfcOpenClRuntime {
             out.append(stage.label())
                     .append('=')
                     .append(formatMillis(stage.nanos() / Math.max(1, iterations)));
+        }
+        if (emitted < sorted.size()) {
+            if (emitted > 0) {
+                out.append("; ");
+            }
+            out.append('+').append(sorted.size() - emitted);
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    static String describeFinalOutputExternalPrefillTrace(OpenClCompiledPlan plan,
+                                                          boolean[] inputSlots,
+                                                          FinalOutputExternalPrefillTrace trace,
+                                                          int limit) {
+        if (trace == null) {
+            return "none";
+        }
+        List<FinalOutputExternalPrefillSlotTime> slotTimes = new ArrayList<>();
+        long slotNanos = 0L;
+        long[] traceSlotNanos = trace.slotNanos() == null ? new long[0] : trace.slotNanos();
+        int[] traceSlotValues = trace.slotValues() == null ? new int[0] : trace.slotValues();
+        int count = Math.min(inputSlots == null ? 0 : inputSlots.length, traceSlotNanos.length);
+        for (int slot = 0; slot < count; slot++) {
+            if (!inputSlots[slot]) {
+                continue;
+            }
+            long nanos = traceSlotNanos[slot];
+            int values = slot < traceSlotValues.length ? traceSlotValues[slot] : 0;
+            slotNanos += nanos;
+            slotTimes.add(new FinalOutputExternalPrefillSlotTime(
+                    slot, slot + ":" + finalOutputSlotKind(plan, slot), nanos, values));
+        }
+        long accountedNanos = trace.allocateNanos() + trace.setupNanos() + trace.scanNanos() + slotNanos;
+        long otherNanos = Math.max(0L, trace.totalNanos() - accountedNanos);
+        return "totalMs=" + formatMillis(trace.totalNanos())
+                + "/allocMs=" + formatMillis(trace.allocateNanos())
+                + "/setupMs=" + formatMillis(trace.setupNanos())
+                + "/scanMs=" + formatMillis(trace.scanNanos())
+                + "/slotMs=" + formatMillis(slotNanos)
+                + "/otherMs=" + formatMillis(otherNanos)
+                + "/slotTop=" + describeTopExternalPrefillSlotTimes(slotTimes, limit);
+    }
+
+    private static String describeTopExternalPrefillSlotTimes(List<FinalOutputExternalPrefillSlotTime> slots,
+                                                              int limit) {
+        if (slots == null || slots.isEmpty()) {
+            return "0[]";
+        }
+        List<FinalOutputExternalPrefillSlotTime> sorted = new ArrayList<>(slots);
+        sorted.sort((left, right) -> Long.compare(right.nanos(), left.nanos()));
+        int emitted = Math.min(Math.max(0, limit), sorted.size());
+        StringBuilder out = new StringBuilder();
+        out.append(sorted.size()).append('[');
+        for (int i = 0; i < emitted; i++) {
+            if (i > 0) {
+                out.append("; ");
+            }
+            FinalOutputExternalPrefillSlotTime slot = sorted.get(i);
+            out.append(slot.label())
+                    .append('=')
+                    .append(formatMillis(slot.nanos()))
+                    .append('/')
+                    .append(slot.values());
         }
         if (emitted < sorted.size()) {
             if (emitted > 0) {
@@ -6388,6 +6610,21 @@ public final class DfcOpenClRuntime {
     }
 
     private record FinalOutputTraceStageTime(String label, long nanos) {
+    }
+
+    record FinalOutputExternalPrefillTrace(
+            long totalNanos,
+            long allocateNanos,
+            long setupNanos,
+            long scanNanos,
+            long[] slotNanos,
+            int[] slotValues) {
+    }
+
+    private record FinalOutputExternalPrefillSlotTime(int slot, String label, long nanos, int values) {
+    }
+
+    private record FinalOutputSlotBufferInputs(double[] values, FinalOutputExternalPrefillTrace trace) {
     }
 
     public record GeneratedSourceCompileProbe(

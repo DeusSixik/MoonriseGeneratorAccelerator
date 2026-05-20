@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -330,6 +331,88 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 + "dep:7:baz/gen/src=100=10.000; dep:5:foo/gen/src=100=2.500]"));
         assertTrue(trace.contains("generatedRootTop=1[root:0:out/gen/src=100=3.500]"));
         assertTrue(trace.contains("vmStages=1[dep:19:vm/vm/bc=4/consts=2/buf=1=5.500]"));
+    }
+
+    @Test
+    void externalPrefillTraceListsTopInputSlotsAndUnattributedTime() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[5];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 1}, new double[0], null, null, "slot2");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "prefill-trace",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                computedSlots);
+        long millis = 1_000_000L;
+
+        String trace = DfcOpenClRuntime.describeFinalOutputExternalPrefillTrace(
+                plan,
+                new boolean[]{false, true, true, false, true},
+                new DfcOpenClRuntime.FinalOutputExternalPrefillTrace(
+                        100L * millis,
+                        3L * millis,
+                        4L * millis,
+                        5L * millis,
+                        new long[]{0L, 9L * millis, 15L * millis, 0L, 6L * millis},
+                        new int[]{0, 4, 4, 0, 2}),
+                2);
+
+        assertTrue(trace.contains("totalMs=100.000"));
+        assertTrue(trace.contains("otherMs=58.000"));
+        assertTrue(trace.contains("slotTop=3[2:computed:slot2=15.000/4; 1:noise=9.000/4; +1]"));
+    }
+
+    @Test
+    void directExternalInputSlotsOnlyAcceptsMarkerExternalInputs() {
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[5];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 1}, new double[0], null, null, "slot2");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "direct-externals",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, true, false},
+                null,
+                null,
+                computedSlots);
+
+        assertArrayEquals(new int[]{1, 3}, DfcOpenClRuntime.finalOutputDirectExternalInputSlots(
+                plan, new boolean[]{false, true, false, true, false}, 5));
+        assertNull(DfcOpenClRuntime.finalOutputDirectExternalInputSlots(
+                plan, new boolean[]{false, true, true, false, false}, 5));
+        assertNull(DfcOpenClRuntime.finalOutputDirectExternalInputSlots(
+                plan, new boolean[]{false, true, false, false, true}, 5));
+    }
+
+    @Test
+    void compiledPlanExternalSlotIndicesRespectUsedSlotLimit() {
+        assertArrayEquals(new int[]{0, 2}, DfcOpenClRuntime.compiledPlanExternalSlotIndices(
+                new boolean[]{true, false, true, true}, 3));
+        assertArrayEquals(new int[0], DfcOpenClRuntime.compiledPlanExternalSlotIndices(
+                new boolean[]{true, false, true}, 0));
     }
 
     @Test
