@@ -5424,6 +5424,7 @@ public final class DfcOpenClRuntime {
         long generatedDependencyNanos = 0L;
         long generatedRootNanos = 0L;
         List<String> vmStages = new ArrayList<>();
+        List<FinalOutputTraceStageTime> waveStages = new ArrayList<>();
         List<FinalOutputTraceStageTime> generatedDependencyStages = new ArrayList<>();
         List<FinalOutputTraceStageTime> generatedRootStages = new ArrayList<>();
         int count = Math.min(infos == null ? 0 : infos.length, stageNanos == null ? 0 : stageNanos.length);
@@ -5434,6 +5435,7 @@ public final class DfcOpenClRuntime {
                 waveNanos += nanos;
                 waveSubmitNanos += safeArrayValue(stageSubmitNanos, i);
                 waveWaitNanos += safeArrayValue(stageWaitNanos, i);
+                waveStages.add(new FinalOutputTraceStageTime(info.label(), nanos));
             } else if (info.deviceVm()) {
                 vmStages.add(info.label() + "=" + formatMillis(nanos / safeIterations));
             } else if ("dep".equals(info.group())) {
@@ -5451,6 +5453,8 @@ public final class DfcOpenClRuntime {
                 .append("/waveMs=").append(formatMillis(waveNanos / safeIterations))
                 .append("/waveSubmitMs=").append(formatMillis(waveSubmitNanos / safeIterations))
                 .append("/waveWaitMs=").append(formatMillis(waveWaitNanos / safeIterations))
+                .append("/waveTop=")
+                .append(describeTopFinalOutputStageTimes(waveStages, safeIterations, 8))
                 .append("/generatedDepMs=").append(formatMillis(generatedDependencyNanos / safeIterations))
                 .append("/generatedDepTop=")
                 .append(describeTopFinalOutputStageTimes(generatedDependencyStages, safeIterations, 8))
