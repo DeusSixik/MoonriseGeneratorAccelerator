@@ -4904,24 +4904,22 @@ public final class DfcOpenClRuntime {
         if (traceTimings) {
             indexNanos = System.nanoTime() - indexStarted;
         }
-        long copyStarted = traceTimings ? System.nanoTime() : 0L;
-        copyDirectExternalSlotBufferInputs(
-                request, originalExternalSlotValues, values, directExternalInputSlots, compactIndices);
         if (traceTimings) {
-            copyNanos = System.nanoTime() - copyStarted;
-            long slotCopyNanos = directExternalInputSlots.length == 0
-                    ? 0L
-                    : copyNanos / directExternalInputSlots.length;
-            long remainderNanos = directExternalInputSlots.length == 0
-                    ? 0L
-                    : copyNanos % directExternalInputSlots.length;
             for (int slotIndex = 0; slotIndex < directExternalInputSlots.length; slotIndex++) {
                 int slot = directExternalInputSlots[slotIndex];
+                long slotStarted = System.nanoTime();
+                copyDirectExternalSlotBufferInput(
+                        request, originalExternalSlotValues, values, slot, compactIndices[slotIndex]);
+                long slotElapsed = System.nanoTime() - slotStarted;
+                copyNanos += slotElapsed;
                 if (slot >= 0 && slot < slotNanos.length) {
-                    slotNanos[slot] += slotCopyNanos + (slotIndex < remainderNanos ? 1L : 0L);
+                    slotNanos[slot] += slotElapsed;
                     slotValues[slot] += request.n();
                 }
             }
+        } else {
+            copyDirectExternalSlotBufferInputs(
+                    request, originalExternalSlotValues, values, directExternalInputSlots, compactIndices);
         }
         FinalOutputExternalPrefillTrace trace = traceTimings
                 ? new FinalOutputExternalPrefillTrace(
@@ -4942,25 +4940,32 @@ public final class DfcOpenClRuntime {
         if (slots.length != compactIndices.length) {
             throw new IllegalArgumentException("direct external slot count does not match compact index count");
         }
-        int[] targetOffsets = new int[slots.length];
         for (int slotIndex = 0; slotIndex < slots.length; slotIndex++) {
-            int slot = slots[slotIndex];
-            if (n > 0) {
-                int lastSourceIndex = elementSlotIndex(n - 1, sourceSlotCount, slot);
-                if (originalExternalSlotValues == null || originalExternalSlotValues.length <= lastSourceIndex) {
-                    throw new IllegalStateException("OpenCL compiled plan external slot buffer is missing slot "
-                            + slot + " for element " + (n - 1));
-                }
-            }
-            targetOffsets[slotIndex] = Math.multiplyExact(compactIndices[slotIndex], n);
+            copyDirectExternalSlotBufferInput(
+                    request, originalExternalSlotValues, values, slots[slotIndex], compactIndices[slotIndex]);
         }
-        int sourceBase = 0;
-        for (int element = 0; element < n; element++) {
-            for (int slotIndex = 0; slotIndex < slots.length; slotIndex++) {
-                values[targetOffsets[slotIndex] + element] =
-                        originalExternalSlotValues[sourceBase + slots[slotIndex]];
+    }
+
+    private static void copyDirectExternalSlotBufferInput(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] originalExternalSlotValues,
+            double[] values,
+            int slot,
+            int compactIndex) {
+        int n = request.n();
+        int sourceSlotCount = request.slotCount();
+        if (n > 0) {
+            int lastSourceIndex = elementSlotIndex(n - 1, sourceSlotCount, slot);
+            if (originalExternalSlotValues == null || originalExternalSlotValues.length <= lastSourceIndex) {
+                throw new IllegalStateException("OpenCL compiled plan external slot buffer is missing slot "
+                        + slot + " for element " + (n - 1));
             }
-            sourceBase += sourceSlotCount;
+        }
+        int sourceIndex = slot;
+        int targetIndex = Math.multiplyExact(compactIndex, n);
+        for (int element = 0; element < n; element++) {
+            values[targetIndex + element] = originalExternalSlotValues[sourceIndex];
+            sourceIndex += sourceSlotCount;
         }
     }
 
