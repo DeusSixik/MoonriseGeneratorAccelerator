@@ -187,14 +187,25 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
 
                                 int stateId;
+                                boolean scheduleFluidUpdate;
                                 if (fusedTerrain != null) {
-                                    stateId = fusedTerrain.ga$sampleFusedTerrainBlockId(defaultBlockId);
-                                    if (stateId == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID) {
+                                    long packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
+                                            defaultBlockId,
+                                            blockX,
+                                            blockY,
+                                            blockZ
+                                    );
+                                    if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
                                         fusedTerrain = null;
                                         stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                        scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                    } else {
+                                        stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
+                                        scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess.ga$packedScheduleFluidUpdate(packedState);
                                     }
                                 } else {
                                     stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
                                 }
                                 if (stateId == airBlockId || debugVoidTerrain) {
                                     continue;
@@ -342,7 +353,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             & oceanFloorDone0 & oceanFloorDone1 & oceanFloorDone2 & oceanFloorDone3) == -1L;
                                 }
 
-                                if (aquifer.shouldScheduleFluidUpdate() && !FastBlockStateCache.isFluidEmpty(stateId)) {
+                                if (scheduleFluidUpdate && !FastBlockStateCache.isFluidEmpty(stateId)) {
                                     ga$addPackedPostProcessing(postProcessingLists, sectionIndex, localX, localY, localZ);
                                 }
                             }

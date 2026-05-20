@@ -6,6 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GAAquiferGridTest {
     @Test
+    void packedResultPreservesBlockIdAndScheduleBit() {
+        long airScheduled = GAAquiferPlan.pack(0, true);
+        assertEquals(0, GAAquiferPlan.packedBlockId(airScheduled));
+        assertEquals(true, GAAquiferPlan.packedScheduleFluidUpdate(airScheduled));
+
+        long solid = GAAquiferPlan.pack(GAAquiferPlan.SOLID_RESULT, false);
+        assertEquals(GAAquiferPlan.SOLID_RESULT, GAAquiferPlan.packedBlockId(solid));
+        assertEquals(false, GAAquiferPlan.packedScheduleFluidUpdate(solid));
+    }
+
+    @Test
     void nearestMatchesReferenceSearch() {
         int gridSizeX = 7;
         int gridSizeY = 6;

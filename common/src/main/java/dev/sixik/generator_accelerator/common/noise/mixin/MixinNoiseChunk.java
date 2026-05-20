@@ -326,36 +326,64 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
     @Override
     public int ga$sampleFusedTerrainBlockId(int defaultBlockId) {
+        NoiseChunk self = (NoiseChunk) (Object) this;
+        long packed = ga$sampleFusedTerrainPackedBlockId(defaultBlockId, self.blockX(), self.blockY(), self.blockZ());
+        return GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packed)
+                ? GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID
+                : GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packed);
+    }
+
+    @Override
+    public int ga$sampleFusedTerrainBlockId(int defaultBlockId, int blockX, int blockY, int blockZ) {
+        long packed = ga$sampleFusedTerrainPackedBlockId(defaultBlockId, blockX, blockY, blockZ);
+        return GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packed)
+                ? GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID
+                : GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packed);
+    }
+
+    @Override
+    public long ga$sampleFusedTerrainPackedBlockId(int defaultBlockId, int blockX, int blockY, int blockZ) {
         if (!ga$fusedTerrainAvailable()) {
-            return GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID;
+            return GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_PACKED_BLOCK_ID;
         }
         NoiseChunk self = (NoiseChunk) (Object) this;
         double density = this.ga$terrainSubstanceDensity.compute(self);
         Aquifer aquifer = this.aquifer;
+        boolean scheduleFluidUpdate;
         if (aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess) {
-            int blockId = primitiveAccess.ga$computeSubstanceId(
+            int blockId = primitiveAccess.ga$computeSubstanceIdAt(
                     self,
                     density,
-                    this.ga$terrainColumnBand(self.blockX(), self.blockZ()),
+                    blockX,
+                    blockY,
+                    blockZ,
+                    this.ga$terrainColumnBand(blockX, blockZ),
                     this.ga$terrainNearestScratch
             );
             if (blockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
-                return GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID;
+                return GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_PACKED_BLOCK_ID;
             }
+            scheduleFluidUpdate = primitiveAccess.ga$lastShouldScheduleFluidUpdate();
             if (blockId != GAAquiferPlan.SOLID_RESULT) {
-                return this.ga$checkedFusedTerrainBlockId(self, defaultBlockId, blockId);
+                return this.ga$checkedFusedTerrainPackedBlockId(self, defaultBlockId, blockId, scheduleFluidUpdate);
             }
         } else {
             BlockState aquiferState = aquifer.computeSubstance(self, density);
+            scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
             if (aquiferState != null) {
                 int blockId = GA$BlockStateExtension.get(aquiferState).bts$getFastId();
-                return this.ga$checkedFusedTerrainBlockId(self, defaultBlockId, blockId);
+                return this.ga$checkedFusedTerrainPackedBlockId(self, defaultBlockId, blockId, scheduleFluidUpdate);
             }
         }
 
         BlockState oreState = this.ga$oreVeinRule == null ? null : this.ga$oreVeinRule.calculate(self);
         int blockId = oreState == null ? defaultBlockId : GA$BlockStateExtension.get(oreState).bts$getFastId();
-        return this.ga$checkedFusedTerrainBlockId(self, defaultBlockId, blockId);
+        return this.ga$checkedFusedTerrainPackedBlockId(
+                self,
+                defaultBlockId,
+                blockId,
+                aquifer.shouldScheduleFluidUpdate()
+        );
     }
 
     @Override
@@ -380,22 +408,28 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     }
 
     @Unique
-    private int ga$checkedFusedTerrainBlockId(NoiseChunk self, int defaultBlockId, int blockId) {
+    private long ga$checkedFusedTerrainPackedBlockId(
+            NoiseChunk self,
+            int defaultBlockId,
+            int blockId,
+            boolean fusedScheduleFluidUpdate
+    ) {
         if (!GA$FUSED_TERRAIN_PARITY_CHECK) {
-            return blockId;
+            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(blockId, fusedScheduleFluidUpdate);
         }
         int mask = GA$FUSED_TERRAIN_PARITY_MASK;
         if (mask > 0 && (((int) this.interpolationCounter) & mask) != 0) {
-            return blockId;
+            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(blockId, fusedScheduleFluidUpdate);
         }
-        boolean fusedScheduleFluidUpdate = this.aquifer.shouldScheduleFluidUpdate();
         BlockState vanillaState = this.blockStateRule.calculate(self);
         boolean vanillaScheduleFluidUpdate = this.aquifer.shouldScheduleFluidUpdate();
         int vanillaBlockId = vanillaState == null
                 ? defaultBlockId
                 : GA$BlockStateExtension.get(vanillaState).bts$getFastId();
-        if (vanillaBlockId == blockId && vanillaScheduleFluidUpdate == fusedScheduleFluidUpdate) {
-            return blockId;
+        boolean scheduleRelevant = !FastBlockStateCache.isFluidEmpty(blockId)
+                || !FastBlockStateCache.isFluidEmpty(vanillaBlockId);
+        if (vanillaBlockId == blockId && (!scheduleRelevant || vanillaScheduleFluidUpdate == fusedScheduleFluidUpdate)) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(blockId, fusedScheduleFluidUpdate);
         }
         this.ga$fusedTerrainAvailable = false;
         if (!this.ga$fusedTerrainParityLogged) {
@@ -411,7 +445,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
                     vanillaScheduleFluidUpdate
             );
         }
-        return vanillaBlockId;
+        return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(vanillaBlockId, vanillaScheduleFluidUpdate);
     }
 
     @Unique

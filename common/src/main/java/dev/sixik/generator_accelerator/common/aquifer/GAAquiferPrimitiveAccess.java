@@ -12,6 +12,18 @@ public interface GAAquiferPrimitiveAccess {
             GAAquiferNearest nearest
     );
 
+    default int ga$computeSubstanceIdAt(
+            DensityFunction.FunctionContext context,
+            double density,
+            int x,
+            int y,
+            int z,
+            GAAquiferColumnBandNearest columnBand,
+            GAAquiferNearest nearest
+    ) {
+        return ga$computeSubstanceId(context, density, columnBand, nearest);
+    }
+
     boolean ga$lastShouldScheduleFluidUpdate();
 
     byte ga$globalFluidKindAt(int x, int y, int z);

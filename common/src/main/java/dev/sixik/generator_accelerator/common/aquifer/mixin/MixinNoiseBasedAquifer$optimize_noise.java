@@ -118,13 +118,17 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
     @Unique
     private boolean[] ga$globalCacheValid;
     @Unique
+    private byte[] ga$globalCacheNextSlot;
+    @Unique
     private static final BlockState ga$AIR_STATE = Blocks.AIR.defaultBlockState();
     @Unique
     private static final BlockState ga$LAVA_STATE = Blocks.LAVA.defaultBlockState();
     @Unique
-    private static final int GA$GLOBAL_CACHE_SIZE = 512;
+    private static final int GA$GLOBAL_CACHE_COLUMNS = 256;
     @Unique
-    private static final int GA$GLOBAL_CACHE_MASK = GA$GLOBAL_CACHE_SIZE - 1;
+    private static final int GA$GLOBAL_CACHE_SIZE = GA$GLOBAL_CACHE_COLUMNS * 2;
+    @Unique
+    private static final int GA$GLOBAL_CACHE_COLUMN_MASK = GA$GLOBAL_CACHE_COLUMNS - 1;
     @Unique
     private static final boolean GA$COLUMN_BAND_NEAREST = !"false".equalsIgnoreCase(System.getProperty(
             "ga.aquifer.columnBandNearest.enabled",
@@ -160,6 +164,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
         this.ga$globalCacheBlockId = new int[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheKind = new byte[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheValid = new boolean[GA$GLOBAL_CACHE_SIZE];
+        this.ga$globalCacheNextSlot = new byte[GA$GLOBAL_CACHE_COLUMNS];
         final RandomSource reusableRandom = SixikGenerationUtils.tryGetRandom(this.positionalRandomFactory);
         // index: y, z, x
         for (int y = 0; y < sizeY; y++) {
@@ -370,9 +375,28 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
             GAAquiferColumnBandNearest columnBand,
             GAAquiferNearest nearest
     ) {
-        final int x = context.blockX();
-        final int y = context.blockY();
-        final int z = context.blockZ();
+        return this.ga$computeSubstanceIdAt(
+                context,
+                density,
+                context.blockX(),
+                context.blockY(),
+                context.blockZ(),
+                columnBand,
+                nearest
+        );
+    }
+
+    @Override
+    @Unique
+    public int ga$computeSubstanceIdAt(
+            DensityFunction.FunctionContext context,
+            double density,
+            int x,
+            int y,
+            int z,
+            GAAquiferColumnBandNearest columnBand,
+            GAAquiferNearest nearest
+    ) {
         if (density > 0.0D) {
             this.shouldScheduleFluidUpdate = false;
             return GAAquiferPlan.SOLID_RESULT;
@@ -398,10 +422,17 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
 
         this.c2me$mutableDoubleThingy = Double.NaN;
         this.ga$barrierContext = context;
-        GAAquiferPlan.Result result = this.ga$result;
-        this.ga$plan.resolveCell(nearestScratch, y, density, waterOverLava, FLOWING_UPDATE_SIMULARITY, this, result);
-        this.shouldScheduleFluidUpdate = result.scheduleFluidUpdate;
-        return result.solid ? GAAquiferPlan.SOLID_RESULT : result.blockId;
+        long packed = this.ga$plan.resolvePacked(
+                nearestScratch,
+                y,
+                density,
+                waterOverLava,
+                similarity,
+                FLOWING_UPDATE_SIMULARITY,
+                this
+        );
+        this.shouldScheduleFluidUpdate = GAAquiferPlan.packedScheduleFluidUpdate(packed);
+        return GAAquiferPlan.packedBlockId(packed);
     }
 
     @Override
@@ -474,13 +505,18 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
 
     @Unique
     private int ga$pickGlobalFluid(int x, int y, int z) {
-        int slot = ga$globalCacheIndex(x, y, z);
-        if (this.ga$globalCacheValid[slot]
-                && this.ga$globalCacheX[slot] == x
-                && this.ga$globalCacheY[slot] == y
-                && this.ga$globalCacheZ[slot] == z) {
+        int column = ga$globalCacheColumn(x, z);
+        int slot = column << 1;
+        if (this.ga$globalCacheMatches(slot, x, y, z)) {
             return slot;
         }
+        int alternateSlot = slot | 1;
+        if (this.ga$globalCacheMatches(alternateSlot, x, y, z)) {
+            return alternateSlot;
+        }
+        int selected = this.ga$globalCacheNextSlot[column] ^ 1;
+        this.ga$globalCacheNextSlot[column] = (byte) selected;
+        slot |= selected;
         Aquifer.FluidStatus status = this.globalFluidPicker.computeFluid(x, y, z);
         BlockState fluidState = ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType();
         this.ga$globalCacheX[slot] = x;
@@ -494,17 +530,21 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
     }
 
     @Unique
+    private boolean ga$globalCacheMatches(int slot, int x, int y, int z) {
+        return this.ga$globalCacheValid[slot]
+                && this.ga$globalCacheX[slot] == x
+                && this.ga$globalCacheY[slot] == y
+                && this.ga$globalCacheZ[slot] == z;
+    }
+
+    @Unique
     private byte ga$kindAtGlobalSlot(int slot, int y) {
         return y < this.ga$globalCacheLevel[slot] ? this.ga$globalCacheKind[slot] : GAAquiferFluidGrid.KIND_AIR;
     }
 
     @Unique
-    private static int ga$globalCacheIndex(int x, int y, int z) {
-        int h = x * 73428767;
-        h ^= y * 91227153;
-        h ^= z * 42317861;
-        h ^= h >>> 16;
-        return h & GA$GLOBAL_CACHE_MASK;
+    private static int ga$globalCacheColumn(int x, int z) {
+        return (((z & 15) << 4) | (x & 15)) & GA$GLOBAL_CACHE_COLUMN_MASK;
     }
 
     @Unique

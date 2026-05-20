@@ -5,6 +5,7 @@ package dev.sixik.generator_accelerator.common.aquifer;
  */
 public final class GAAquiferPlan {
     public static final int SOLID_RESULT = -1;
+    public static final int PACKED_SCHEDULE_SHIFT = 32;
 
     public interface FluidLoader {
         void ga$loadAquiferFluid(int index);
@@ -94,60 +95,18 @@ public final class GAAquiferPlan {
             BarrierSampler barrierSampler,
             Result out
     ) {
-        int idx1 = nearest.idx1;
-        ensureFluid(idx1);
-        double d = similarity(nearest.dist1, nearest.dist2);
-        int blockId = blockIdAt(idx1, blockY);
-        if (d <= 0.0D) {
-            out.blockId = blockId;
-            out.solid = false;
-            out.scheduleFluidUpdate = d >= flowingUpdateSimilarity;
-            return;
-        }
-        if (waterOverLava) {
-            out.blockId = blockId;
-            out.solid = false;
-            out.scheduleFluidUpdate = true;
-            return;
-        }
-
-        int idx2 = nearest.idx2;
-        ensureFluid(idx2);
-        double e = d * pressureWithLazyBarrier(blockY, idx1, idx2, barrierSampler);
-        if (density + e > 0.0D) {
-            out.blockId = SOLID_RESULT;
-            out.solid = true;
-            out.scheduleFluidUpdate = false;
-            return;
-        }
-
-        int idx3 = nearest.idx3;
-        ensureFluid(idx3);
-        double f = similarity(nearest.dist1, nearest.dist3);
-        if (f > 0.0D) {
-            double g = d * f * pressureWithLazyBarrier(blockY, idx1, idx3, barrierSampler);
-            if (density + g > 0.0D) {
-                out.blockId = SOLID_RESULT;
-                out.solid = true;
-                out.scheduleFluidUpdate = false;
-                return;
-            }
-        }
-
-        double h = similarity(nearest.dist2, nearest.dist3);
-        if (h > 0.0D) {
-            double i = d * h * pressureWithLazyBarrier(blockY, idx2, idx3, barrierSampler);
-            if (density + i > 0.0D) {
-                out.blockId = SOLID_RESULT;
-                out.solid = true;
-                out.scheduleFluidUpdate = false;
-                return;
-            }
-        }
-
-        out.blockId = blockId;
-        out.solid = false;
-        out.scheduleFluidUpdate = true;
+        long packed = resolvePacked(
+                nearest,
+                blockY,
+                density,
+                waterOverLava,
+                similarity(nearest.dist1, nearest.dist2),
+                flowingUpdateSimilarity,
+                barrierSampler
+        );
+        out.blockId = packedBlockId(packed);
+        out.solid = out.blockId == SOLID_RESULT;
+        out.scheduleFluidUpdate = packedScheduleFluidUpdate(packed);
     }
 
     public void resolveCell(
@@ -198,16 +157,100 @@ public final class GAAquiferPlan {
         return 2.0D * (barrierNoise + q);
     }
 
+    public long resolvePacked(
+            GAAquiferNearest nearest,
+            int blockY,
+            double density,
+            boolean waterOverLava,
+            double firstSimilarity,
+            double flowingUpdateSimilarity,
+            BarrierSampler barrierSampler
+    ) {
+        int[] levels = this.fluids.level;
+        byte[] kinds = this.fluids.kind;
+        int idx1 = nearest.idx1;
+        if (kinds[idx1] == GAAquiferFluidGrid.KIND_UNKNOWN) {
+            this.fluidLoader.ga$loadAquiferFluid(idx1);
+        }
+        double d = firstSimilarity;
+        int blockId = blockY < levels[idx1] ? this.fluidBlockIds[idx1] : this.airBlockId;
+        if (d <= 0.0D) {
+            return pack(blockId, d >= flowingUpdateSimilarity);
+        }
+        if (waterOverLava) {
+            return pack(blockId, true);
+        }
+
+        int idx2 = nearest.idx2;
+        if (kinds[idx2] == GAAquiferFluidGrid.KIND_UNKNOWN) {
+            this.fluidLoader.ga$loadAquiferFluid(idx2);
+        }
+        double e = d * pressureWithLazyBarrier(blockY, idx1, idx2, levels, kinds, barrierSampler);
+        if (density + e > 0.0D) {
+            return pack(SOLID_RESULT, false);
+        }
+
+        int idx3 = nearest.idx3;
+        boolean loadedThird = false;
+        double f = similarity(nearest.dist1, nearest.dist3);
+        if (f > 0.0D) {
+            if (kinds[idx3] == GAAquiferFluidGrid.KIND_UNKNOWN) {
+                this.fluidLoader.ga$loadAquiferFluid(idx3);
+            }
+            loadedThird = true;
+            double g = d * f * pressureWithLazyBarrier(blockY, idx1, idx3, levels, kinds, barrierSampler);
+            if (density + g > 0.0D) {
+                return pack(SOLID_RESULT, false);
+            }
+        }
+
+        double h = similarity(nearest.dist2, nearest.dist3);
+        if (h > 0.0D) {
+            if (!loadedThird && kinds[idx3] == GAAquiferFluidGrid.KIND_UNKNOWN) {
+                this.fluidLoader.ga$loadAquiferFluid(idx3);
+            }
+            double i = d * h * pressureWithLazyBarrier(blockY, idx2, idx3, levels, kinds, barrierSampler);
+            if (density + i > 0.0D) {
+                return pack(SOLID_RESULT, false);
+            }
+        }
+
+        return pack(blockId, true);
+    }
+
+    public static long pack(int blockId, boolean scheduleFluidUpdate) {
+        return (blockId & 0xFFFF_FFFFL) | (scheduleFluidUpdate ? (1L << PACKED_SCHEDULE_SHIFT) : 0L);
+    }
+
+    public static int packedBlockId(long packed) {
+        return (int) packed;
+    }
+
+    public static boolean packedScheduleFluidUpdate(long packed) {
+        return ((packed >>> PACKED_SCHEDULE_SHIFT) & 1L) != 0L;
+    }
+
     private double pressureWithLazyBarrier(
             int blockY,
             int firstIndex,
             int secondIndex,
             BarrierSampler barrierSampler
     ) {
-        int firstLevel = this.fluids.level(firstIndex);
-        int secondLevel = this.fluids.level(secondIndex);
-        byte firstKind = blockY < firstLevel ? this.fluids.kind(firstIndex) : GAAquiferFluidGrid.KIND_AIR;
-        byte secondKind = blockY < secondLevel ? this.fluids.kind(secondIndex) : GAAquiferFluidGrid.KIND_AIR;
+        return pressureWithLazyBarrier(blockY, firstIndex, secondIndex, this.fluids.level, this.fluids.kind, barrierSampler);
+    }
+
+    private static double pressureWithLazyBarrier(
+            int blockY,
+            int firstIndex,
+            int secondIndex,
+            int[] levels,
+            byte[] kinds,
+            BarrierSampler barrierSampler
+    ) {
+        int firstLevel = levels[firstIndex];
+        int secondLevel = levels[secondIndex];
+        byte firstKind = blockY < firstLevel ? kinds[firstIndex] : GAAquiferFluidGrid.KIND_AIR;
+        byte secondKind = blockY < secondLevel ? kinds[secondIndex] : GAAquiferFluidGrid.KIND_AIR;
         if (isLavaWaterPair(firstKind, secondKind)) {
             return 2.0D;
         }

@@ -17,6 +17,7 @@ public final class GABeardifierKernel {
     private static volatile float[] beardSameY;
     private static final double[] BURY_HALF_Y = initBuryHalfYTable();
     private static final double[] ENCAPSULATE_HALF = initEncapsulateHalfTable();
+    private static final double[] ENCAPSULATE_HALF_0_8 = initScaledTable(ENCAPSULATE_HALF, 0.8D);
 
     private GABeardifierKernel() {
     }
@@ -56,7 +57,7 @@ public final class GABeardifierKernel {
                 }
                 case KIND_ENCAPSULATE -> {
                     int dy = distanceToRange(y, plan.pieceMinY[p], plan.pieceMaxY[p]);
-                    value += getEncapsulateContribution(dx, dy, dz) * 0.8D;
+                    value += getEncapsulateContributionScaled(dx, dy, dz);
                 }
                 default -> {
                 }
@@ -110,7 +111,7 @@ public final class GABeardifierKernel {
             int dx = distanceToRange(x, plan.pieceMinX[p], plan.pieceMaxX[p]);
             int dy = distanceToRange(y, plan.pieceMinY[p], plan.pieceMaxY[p]);
             int dz = distanceToRange(z, plan.pieceMinZ[p], plan.pieceMaxZ[p]);
-            value += getEncapsulateContribution(dx, dy, dz) * 0.8D;
+            value += getEncapsulateContributionScaled(dx, dy, dz);
         }
         active = scratch.junctions;
         for (int a = 0; a < scratch.junctionCount; a++) {
@@ -189,6 +190,14 @@ public final class GABeardifierKernel {
         return ENCAPSULATE_HALF[index];
     }
 
+    private static double getEncapsulateContributionScaled(int xDistance, int yDistance, int zDistance) {
+        if ((xDistance | yDistance | zDistance) < 0 || xDistance >= 12 || yDistance >= 12 || zDistance >= 12) {
+            return 0.0D;
+        }
+        int index = ((xDistance * 12) + yDistance) * 12 + zDistance;
+        return ENCAPSULATE_HALF_0_8[index];
+    }
+
     private static double[] initBuryHalfYTable() {
         double[] table = new double[6 * 23 * 6];
         int index = 0;
@@ -211,6 +220,14 @@ public final class GABeardifierKernel {
                     table[index++] = getBuryContribution((double) x * 0.5D, (double) y * 0.5D, (double) z * 0.5D);
                 }
             }
+        }
+        return table;
+    }
+
+    private static double[] initScaledTable(double[] source, double scale) {
+        double[] table = new double[source.length];
+        for (int i = 0; i < source.length; i++) {
+            table[i] = source[i] * scale;
         }
         return table;
     }
@@ -368,7 +385,7 @@ public final class GABeardifierKernel {
                         int blockY = startY + ly;
                         int dy = distanceToRange(blockY, plan.pieceMinY[p], plan.pieceMaxY[p]);
                         int idx = base + (cellHeight - 1 - ly);
-                        out[idx] += getEncapsulateContribution(dx, dy, dz) * 0.8D;
+                        out[idx] += getEncapsulateContributionScaled(dx, dy, dz);
                     }
                 }
             }

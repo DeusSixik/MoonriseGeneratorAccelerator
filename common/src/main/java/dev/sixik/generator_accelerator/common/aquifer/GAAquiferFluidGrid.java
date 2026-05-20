@@ -13,8 +13,8 @@ public final class GAAquiferFluidGrid {
     public static final byte KIND_LAVA = 2;
     public static final byte KIND_OTHER = 3;
 
-    private final int[] level;
-    private final byte[] kind;
+    final int[] level;
+    final byte[] kind;
 
     public GAAquiferFluidGrid(int size) {
         this.level = new int[size];
