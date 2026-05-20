@@ -59,6 +59,21 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
         }
     }
 
+    @Override
+    public int bts$getSide() {
+        return this.field_36611.noiseSizeXZ + 1;
+    }
+
+    @Override
+    public int bts$getFirstNoiseX() {
+        return this.field_36611.firstNoiseX;
+    }
+
+    @Override
+    public int bts$getFirstNoiseZ() {
+        return this.field_36611.firstNoiseZ;
+    }
+
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(NoiseChunk noiseChunk, DensityFunction densityFunction, boolean bl, CallbackInfo ci) {
         if (bl) {

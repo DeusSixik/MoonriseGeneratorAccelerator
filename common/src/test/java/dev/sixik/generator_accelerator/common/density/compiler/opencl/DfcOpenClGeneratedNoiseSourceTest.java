@@ -1,13 +1,16 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -828,6 +831,19 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void flatCacheLikeTestFixtureExposes2dMetadata() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        FlatCache2dDensityFunction function = new FlatCache2dDensityFunction(
+                new double[]{1.0D, 2.0D, 3.0D, 4.0D}, 2, -3, 7);
+
+        assertArrayEquals(new double[]{1.0D, 2.0D, 3.0D, 4.0D}, function.bts$getArray());
+        assertEquals(2, function.bts$getSide());
+        assertEquals(-3, function.bts$getFirstNoiseX());
+        assertEquals(7, function.bts$getFirstNoiseZ());
+    }
+
+    @Test
     void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
@@ -1552,6 +1568,73 @@ class DfcOpenClGeneratedNoiseSourceTest {
         @Override
         public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
             return compute(context);
+        }
+
+        @Override
+        public net.minecraft.util.KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            return DensityFunctions.zero().codec();
+        }
+    }
+
+    private record FlatCache2dDensityFunction(double[] values, int side, int firstNoiseX, int firstNoiseZ)
+            implements DensityFunction.SimpleFunction, DfcCellCacheAccess, NoiseChunk$FlatCache$FlatArray {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            int localX = (context.blockX() >> 2) - this.firstNoiseX;
+            int localZ = (context.blockZ() >> 2) - this.firstNoiseZ;
+            if (localX < 0 || localZ < 0 || localX >= this.side || localZ >= this.side) {
+                return 0.0D;
+            }
+            return this.values[localX * this.side + localZ];
+        }
+
+        @Override
+        public double minValue() {
+            return Arrays.stream(this.values).min().orElse(0.0D);
+        }
+
+        @Override
+        public double maxValue() {
+            return Arrays.stream(this.values).max().orElse(0.0D);
+        }
+
+        @Override
+        public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
+            int localX = (context.blockX() >> 2) - this.firstNoiseX;
+            int localZ = (context.blockZ() >> 2) - this.firstNoiseZ;
+            if (localX < 0 || localZ < 0 || localX >= this.side || localZ >= this.side) {
+                return DfcCacheFastPath.CACHE_MISS;
+            }
+            return this.values[localX * this.side + localZ];
+        }
+
+        @Override
+        public double[] bts$getArray() {
+            return this.values;
+        }
+
+        @Override
+        public void bts$setArray(double[] value) {
+            throw new UnsupportedOperationException("test fixture is immutable");
+        }
+
+        @Override
+        public void bts$copyFlatArrayToVanillaValues() {
+        }
+
+        @Override
+        public int bts$getSide() {
+            return this.side;
+        }
+
+        @Override
+        public int bts$getFirstNoiseX() {
+            return this.firstNoiseX;
+        }
+
+        @Override
+        public int bts$getFirstNoiseZ() {
+            return this.firstNoiseZ;
         }
 
         @Override
