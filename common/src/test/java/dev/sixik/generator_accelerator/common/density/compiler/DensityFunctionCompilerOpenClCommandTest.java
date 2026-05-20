@@ -99,6 +99,34 @@ class DensityFunctionCompilerOpenClCommandTest {
                 "compiledfinaldensityallwavesoutputtracebench").getChild("cells")).getMaximum());
     }
 
+    @Test
+    void perlinHelperBenchCommandsAcceptCellsAndSamplesArguments() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        DensityFunctionCompiler.registerCommands(dispatcher);
+
+        assertNotNull(openClCommand(dispatcher, "perlinhelpernoreadbench").getChild("cells"));
+        assertNotNull(openClCommand(dispatcher, "perlinhelper5noreadbench").getChild("cells"));
+        assertNotNull(openClCommand(dispatcher, "perlinhelpernoreadbench")
+                .getChild("cells").getChild("samples"));
+        assertNotNull(openClCommand(dispatcher, "perlinhelper5noreadbench")
+                .getChild("cells").getChild("samples"));
+    }
+
+    @Test
+    void perlinHelperBenchCommandsCapDiagnosticInputs() {
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
+        DensityFunctionCompiler.registerCommands(dispatcher);
+
+        assertEquals(8192, integerArgument(openClCommand(dispatcher,
+                "perlinhelpernoreadbench").getChild("cells")).getMaximum());
+        assertEquals(128, integerArgument(openClCommand(dispatcher,
+                "perlinhelpernoreadbench").getChild("cells").getChild("samples")).getMaximum());
+        assertEquals(8192, integerArgument(openClCommand(dispatcher,
+                "perlinhelper5noreadbench").getChild("cells")).getMaximum());
+        assertEquals(128, integerArgument(openClCommand(dispatcher,
+                "perlinhelper5noreadbench").getChild("cells").getChild("samples")).getMaximum());
+    }
+
     private static CommandNode<CommandSourceStack> openClCommand(CommandDispatcher<CommandSourceStack> dispatcher,
                                                                  String name) {
         return dispatcher.getRoot()

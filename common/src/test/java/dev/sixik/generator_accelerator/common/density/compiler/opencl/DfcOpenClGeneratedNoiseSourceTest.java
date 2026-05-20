@@ -21,6 +21,26 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void perlinHelperMicrobenchSourceCallsBaseHelperOncePerSample() {
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildPerlinHelperMicrobench(3, false);
+
+        assertTrue(source.source().contains("__kernel void " + DfcOpenClGeneratedNoiseSource.KERNEL_NAME));
+        assertEquals(3, source.source().split("dfc_perlin_sample\\(permutations \\+", -1).length - 1);
+        assertFalse(source.source().contains("dfc_perlin_sample_5("));
+    }
+
+    @Test
+    void perlinHelperMicrobenchSourceCallsSample5HelperOncePerSample() {
+        DfcOpenClGeneratedNoiseSource.BuildResult source =
+                DfcOpenClGeneratedNoiseSource.buildPerlinHelperMicrobench(4, true);
+
+        assertTrue(source.source().contains("__kernel void " + DfcOpenClGeneratedNoiseSource.KERNEL_NAME));
+        assertEquals(4, source.source().split("dfc_perlin_sample_5\\(permutations \\+", -1).length - 1);
+        assertTrue(source.source().contains(", 0.125, by)"));
+    }
+
+    @Test
     void runtimeSourceProvidesSlotBufferVmStageKernel() {
         assertTrue(DfcOpenClSources.runtimeSource().contains("dfc_slab_vm_eval_cell_grid_slot_buffer"));
     }
@@ -102,7 +122,6 @@ class DfcOpenClGeneratedNoiseSourceTest {
         assertTrue(source.source().contains("out[1 * n + gid] = slot2;"));
     }
 
-    @Test
     void allWavesFinalOutputSourceReadsExternalInputsRowMajorAndWritesFinalOutput() {
         DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(4, 1);
         boolean[] rootSlots = new boolean[]{false, true, true, false};
@@ -411,6 +430,109 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void finalOutputStageTraceListsWaveAggregateSampleCost() {
+        DfcOpenClRuntime.FinalOutputTraceStageInfo[] infos = new DfcOpenClRuntime.FinalOutputTraceStageInfo[]{
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo(
+                        "wave", "wave:0+4:noise/gen/src=100", false, null,
+                        new DfcOpenClGeneratedNoiseSource.SourceMetrics(4, 6, "feedbeef"))
+        };
+
+        String trace = DfcOpenClRuntime.describeFinalOutputStageTraceTimes(
+                infos,
+                new long[]{8_000L},
+                new long[]{0L},
+                new long[]{8_000L},
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                2,
+                100);
+
+        assertTrue(trace.contains("waveAgg=1[wave:0+4:noise/gen/src=100/oct=4/ops=6/sampleNs=10.0]"));
+    }
+
+    @Test
+    void finalOutputWaveSlotTraceReportsOctavesAndSlabOpsPerClosure() {
+        DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(3, 1);
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[3];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 0, 2, 1, 32, 50}, new double[0], null, null, "slot2");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "slot-trace",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[3],
+                new byte[]{2, 2},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                computedSlots);
+
+        String trace = DfcOpenClRuntime.finalOutputWaveStageSlotTop(
+                descriptor,
+                plan,
+                new boolean[]{false, false, true},
+                new boolean[]{false, false, false},
+                computedSlots,
+                new int[]{0, 1, 2},
+                4);
+
+        assertTrue(trace.contains("2:computed:slot2/src="));
+        assertTrue(trace.contains("/oct=4/ops=4"));
+    }
+
+    @Test
+    void finalOutputWaveSlotTraceReportsDuplicateClosureFingerprints() {
+        DfcOpenClNoiseDescriptor descriptor = DfcOpenClNoiseDescriptor.synthetic(4, 1);
+        DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[4];
+        computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 0, 2, 1, 32}, new double[0], null, null, "slot2");
+        computedSlots[3] = new DfcOpenClRuntime.ComputedSlot(
+                new byte[]{2, 0, 2, 1, 32}, new double[0], null, null, "slot3");
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "slot-fingerprint",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[4],
+                new byte[]{2, 2, 2, 3, 32},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                computedSlots);
+
+        String trace = DfcOpenClRuntime.finalOutputWaveStageSlotTop(
+                descriptor,
+                plan,
+                new boolean[]{false, false, true, true},
+                new boolean[]{true, true, false, false},
+                computedSlots,
+                new int[]{0, 1, 2, 3},
+                4);
+
+        assertTrue(trace.contains("/fp="));
+        assertTrue(trace.contains("/dup=2"));
+    }
+
+    @Test
     void externalPrefillTraceListsTopInputSlotsAndUnattributedTime() {
         DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[5];
         computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
@@ -450,6 +572,55 @@ class DfcOpenClGeneratedNoiseSourceTest {
         assertTrue(trace.contains("totalMs=100.000"));
         assertTrue(trace.contains("otherMs=58.000"));
         assertTrue(trace.contains("slotTop=3[2:computed:slot2=15.000/4; 1:noise=9.000/4; +1]"));
+    }
+
+    @Test
+    void externalPrefillTraceBreaksDownRoutingAllocationAndCopyWork() {
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "prefill-breakdown",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[3],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        long millis = 1_000_000L;
+
+        String trace = DfcOpenClRuntime.describeFinalOutputExternalPrefillTrace(
+                plan,
+                new boolean[]{true, false, true},
+                new DfcOpenClRuntime.FinalOutputExternalPrefillTrace(
+                        100L * millis,
+                        7L * millis,
+                        3L * millis,
+                        2L * millis,
+                        11L * millis,
+                        5L * millis,
+                        6L * millis,
+                        13L * millis,
+                        17L * millis,
+                        19L * millis,
+                        new long[]{23L * millis, 0L, 29L * millis},
+                        new int[]{8, 0, 8}),
+                4);
+
+        assertTrue(trace.contains("classifyMs=7.000"));
+        assertTrue(trace.contains("traceAllocMs=2.000"));
+        assertTrue(trace.contains("coordMs=5.000"));
+        assertTrue(trace.contains("localAllocMs=6.000"));
+        assertTrue(trace.contains("indexMs=17.000"));
+        assertTrue(trace.contains("copyMs=19.000"));
+        assertTrue(trace.contains("otherMs=12.000"));
     }
 
     @Test

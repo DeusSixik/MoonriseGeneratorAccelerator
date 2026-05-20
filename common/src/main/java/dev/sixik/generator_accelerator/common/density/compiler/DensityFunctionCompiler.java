@@ -63,6 +63,10 @@ public final class DensityFunctionCompiler {
     private static final int OPENCL_FINAL_DENSITY_OUTPUT_BENCH_DEFAULT_CELLS = 16;
     private static final int OPENCL_FINAL_DENSITY_OUTPUT_BENCH_MAX_CELLS = 512;
     private static final int OPENCL_FINAL_DENSITY_BENCH_MAX_CELLS = 8192;
+    private static final int OPENCL_PERLIN_HELPER_BENCH_DEFAULT_CELLS = 512;
+    private static final int OPENCL_PERLIN_HELPER_BENCH_MAX_CELLS = 8192;
+    private static final int OPENCL_PERLIN_HELPER_BENCH_DEFAULT_SAMPLES = 32;
+    private static final int OPENCL_PERLIN_HELPER_BENCH_MAX_SAMPLES = 128;
 
     private static volatile boolean initialized;
 
@@ -702,6 +706,42 @@ public final class DensityFunctionCompiler {
                                         .executes(context -> runOpenClSlabGridRealNoiseSourceAutoNoReadBench(
                                                 context.getSource(), 4, 8, 8192, 8, 2,
                                                 IntegerArgumentType.getInteger(context, "slots")))))
+                        .then(Commands.literal("perlinhelpernoreadbench")
+                                .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                        context.getSource(), 4, 8, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_CELLS,
+                                        8, 2, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_SAMPLES, false))
+                                .then(Commands.argument("cells", IntegerArgumentType.integer(
+                                                1, OPENCL_PERLIN_HELPER_BENCH_MAX_CELLS))
+                                        .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                                context.getSource(), 4, 8,
+                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                8, 2, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_SAMPLES, false))
+                                        .then(Commands.argument("samples", IntegerArgumentType.integer(
+                                                        1, OPENCL_PERLIN_HELPER_BENCH_MAX_SAMPLES))
+                                                .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                                        context.getSource(), 4, 8,
+                                                        IntegerArgumentType.getInteger(context, "cells"),
+                                                        8, 2,
+                                                        IntegerArgumentType.getInteger(context, "samples"),
+                                                        false)))))
+                        .then(Commands.literal("perlinhelper5noreadbench")
+                                .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                        context.getSource(), 4, 8, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_CELLS,
+                                        8, 2, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_SAMPLES, true))
+                                .then(Commands.argument("cells", IntegerArgumentType.integer(
+                                                1, OPENCL_PERLIN_HELPER_BENCH_MAX_CELLS))
+                                        .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                                context.getSource(), 4, 8,
+                                                IntegerArgumentType.getInteger(context, "cells"),
+                                                8, 2, OPENCL_PERLIN_HELPER_BENCH_DEFAULT_SAMPLES, true))
+                                        .then(Commands.argument("samples", IntegerArgumentType.integer(
+                                                        1, OPENCL_PERLIN_HELPER_BENCH_MAX_SAMPLES))
+                                                .executes(context -> runOpenClPerlinHelperNoReadBench(
+                                                        context.getSource(), 4, 8,
+                                                        IntegerArgumentType.getInteger(context, "cells"),
+                                                        8, 2,
+                                                        IntegerArgumentType.getInteger(context, "samples"),
+                                                        true)))))
                         .then(Commands.literal("slabgridcompiledsourceautonoreadbench")
                                 .executes(context -> runOpenClSlabGridCompiledSourceAutoNoReadBench(
                                         context.getSource(), 4, 8, 8192, 8, 2)))
@@ -1739,6 +1779,35 @@ public final class DensityFunctionCompiler {
                             + ", worstMs=" + formatNanosMillis(result.worstNanos())
                             + ", avgElemNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
                             + ", bestElemNs=" + formatAverageNanos(result.bestNanos(), result.elementsPerIteration())
+                            + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
+                            + ", message=" + result.message());
+        });
+    }
+
+    private static int runOpenClPerlinHelperNoReadBench(CommandSourceStack source, int cellWidth, int cellHeight,
+                                                        int cells, int iterations, int warmups,
+                                                        int samplesPerElement, boolean sample5) {
+        String helper = sample5 ? "sample5" : "sample";
+        String label = "perlin helper " + helper + " no-read bench";
+        return runOpenClDiagnostic(source, label, () -> {
+            DfcOpenClRuntime.SlabVmCellBenchmark result =
+                    DfcOpenClRuntime.perlinHelperNoReadBenchmark(
+                            cellWidth, cellHeight, cells, iterations, warmups, samplesPerElement, sample5);
+            return Component.literal(
+                    "DFC OpenCL " + label + ": passed=" + result.passed()
+                            + ", cellWidth=" + result.cellWidth()
+                            + ", cellHeight=" + result.cellHeight()
+                            + ", cells=" + result.cells()
+                            + ", iterations=" + result.iterations()
+                            + ", warmups=" + result.warmups()
+                            + ", samplesPerIter=" + result.elementsPerIteration()
+                            + ", totalSamples=" + result.totalElements()
+                            + ", avgMs=" + formatNanosMillis(result.averageNanos())
+                            + ", bestMs=" + formatNanosMillis(result.bestNanos())
+                            + ", worstMs=" + formatNanosMillis(result.worstNanos())
+                            + ", avgSampleNs=" + formatAverageNanos(result.totalNanos(), result.totalElements())
+                            + ", bestSampleNs=" + formatAverageNanos(
+                            result.bestNanos(), result.elementsPerIteration())
                             + ", device=" + (result.device() == null ? "none" : result.device().shortDescription())
                             + ", message=" + result.message());
         });

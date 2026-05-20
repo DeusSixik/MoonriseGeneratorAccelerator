@@ -41,6 +41,37 @@ final class DfcOpenClGeneratedNoiseSource {
     record BuildResult(String source, int coordScaleTemps, int coordScaleRefs) {
     }
 
+    record SourceMetrics(int noiseOctaves, int slabOps, String fingerprint) {
+    }
+
+    static BuildResult buildPerlinHelperMicrobench(int samplesPerElement, boolean sample5) {
+        int safeSamples = Math.max(1, samplesPerElement);
+        StringBuilder source = new StringBuilder(1024 + safeSamples * 320);
+        source.append('\n')
+                .append("__kernel void ").append(KERNEL_NAME)
+                .append("(DFC_NOISE_MEM const uchar *permutations, ")
+                .append("__global const double *external_slots, ")
+                .append("int first_block_x, int first_block_y, int first_block_z, ")
+                .append("int cell_w, int cell_h, int cells, double hoist_base, ")
+                .append("__global double *out, int n) {\n")
+                .append("    (void) external_slots;\n")
+                .append("    int gid = (int) get_global_id(0);\n")
+                .append("    if (gid >= n || cell_w <= 0 || cell_h <= 0 || cells <= 0) return;\n")
+                .append("    double bx;\n")
+                .append("    double by;\n")
+                .append("    double bz;\n")
+                .append("    int cell;\n")
+                .append("    if (!dfc_cell_grid_coords(gid, first_block_x, first_block_y, first_block_z, ")
+                .append("cell_w, cell_h, cells, &bx, &by, &bz, &cell)) return;\n")
+                .append("    double value = 0.0;\n");
+        for (int sample = 0; sample < safeSamples; sample++) {
+            appendPerlinHelperMicrobenchSample(source, sample, sample5);
+        }
+        source.append("    out[gid] = value + hoist_base * 1.0E-12 + (double) (cell & 7) * 1.0E-13;\n")
+                .append("}\n");
+        return new BuildResult(source.toString(), 0, 0);
+    }
+
     static BuildResult build(DfcOpenClNoiseDescriptor descriptor, int usedSlotCount) {
         return build(descriptor, usedSlotCount, WrapMode.WRAP);
     }
@@ -809,6 +840,36 @@ final class DfcOpenClGeneratedNoiseSource {
         return slotBufferIndices[slot];
     }
 
+    private static void appendPerlinHelperMicrobenchSample(StringBuilder source, int sample, boolean sample5) {
+        double coordScale = 1.0D / (32.0D + (sample & 7) * 4.0D);
+        double originX = 17.125D + sample * 0.73125D;
+        double originY = -43.75D + sample * 0.61875D;
+        double originZ = 101.375D - sample * 0.4175D;
+        double xOffset = sample * 0.03125D;
+        double yOffset = -sample * 0.015625D;
+        double zOffset = sample * 0.0234375D;
+        source.append("    value += ");
+        if (sample5) {
+            source.append("dfc_perlin_sample_5(permutations + ");
+        } else {
+            source.append("dfc_perlin_sample(permutations + ");
+        }
+        source.append(sample * DfcOpenClNoiseDescriptor.PERMUTATION_STRIDE)
+                .append(", ")
+                .append(d(originX)).append(", ")
+                .append(d(originY)).append(", ")
+                .append(d(originZ)).append(", ")
+                .append("(bx * ").append(d(coordScale)).append(" + ").append(d(xOffset)).append("), ")
+                .append("(by * ").append(d(coordScale)).append(" + ").append(d(yOffset)).append("), ")
+                .append("(bz * ").append(d(coordScale)).append(" + ").append(d(zOffset)).append(")");
+        if (sample5) {
+            source.append(", 0.125, by)");
+        } else {
+            source.append(")");
+        }
+        source.append(";\n");
+    }
+
     private static void appendSlot(StringBuilder source, DfcOpenClNoiseDescriptor descriptor, int slot,
                                    Map<Long, ScaleUse> scaleUses, boolean wrapAxis, String indent) {
         source.append(indent).append("value += ").append(d(descriptor.slotValueFactors[slot])).append(" * (0.0");
@@ -1425,6 +1486,289 @@ final class DfcOpenClGeneratedNoiseSource {
         return out;
     }
 
+    static SourceMetrics compiledPlanWaveSlotMetrics(DfcOpenClNoiseDescriptor descriptor,
+                                                     int slot,
+                                                     String[] slotCoordXExpressions,
+                                                     String[] slotCoordYExpressions,
+                                                     String[] slotCoordZExpressions,
+                                                     boolean[] externalSlots,
+                                                     DfcOpenClRuntime.ComputedSlot[] computedSlots) {
+        int safeUsedSlots = descriptor == null ? 0 : descriptor.slotCount;
+        MetricCounts counts = new MetricCounts();
+        collectSlotMetrics(descriptor, safeUsedSlots, slotCoordXExpressions, slotCoordYExpressions,
+                slotCoordZExpressions, externalSlots, computedSlots,
+                new boolean[Math.max(0, safeUsedSlots)], new boolean[Math.max(0, safeUsedSlots)], counts, slot);
+        return new SourceMetrics(counts.noiseOctaves, counts.slabOps, shortFingerprint(counts.signature));
+    }
+
+    static SourceMetrics compiledPlanWaveStageMetrics(DfcOpenClNoiseDescriptor descriptor,
+                                                      boolean[] targetSlots,
+                                                      String[] slotCoordXExpressions,
+                                                      String[] slotCoordYExpressions,
+                                                      String[] slotCoordZExpressions,
+                                                      boolean[] externalSlots,
+                                                      DfcOpenClRuntime.ComputedSlot[] computedSlots) {
+        int safeUsedSlots = descriptor == null ? 0 : descriptor.slotCount;
+        MetricCounts counts = new MetricCounts();
+        boolean[] emitted = new boolean[Math.max(0, safeUsedSlots)];
+        boolean[] visiting = new boolean[Math.max(0, safeUsedSlots)];
+        int limit = Math.min(targetSlots == null ? 0 : targetSlots.length, safeUsedSlots);
+        for (int slot = 0; slot < limit; slot++) {
+            if (targetSlots[slot]) {
+                collectSlotMetrics(descriptor, safeUsedSlots, slotCoordXExpressions, slotCoordYExpressions,
+                        slotCoordZExpressions, externalSlots, computedSlots, emitted, visiting, counts, slot);
+            }
+        }
+        return new SourceMetrics(counts.noiseOctaves, counts.slabOps, shortFingerprint(counts.signature));
+    }
+
+    private static void collectSlotMetrics(DfcOpenClNoiseDescriptor descriptor,
+                                           int safeUsedSlots,
+                                           String[] slotCoordXExpressions,
+                                           String[] slotCoordYExpressions,
+                                           String[] slotCoordZExpressions,
+                                           boolean[] externalSlots,
+                                           DfcOpenClRuntime.ComputedSlot[] computedSlots,
+                                           boolean[] emitted,
+                                           boolean[] visiting,
+                                           MetricCounts counts,
+                                           int slot) {
+        if (slot < 0 || slot >= safeUsedSlots || emitted[slot]) {
+            return;
+        }
+        if (visiting[slot]) {
+            throw new IllegalStateException("cyclic generated OpenCL slot dependency at slot " + slot);
+        }
+        visiting[slot] = true;
+        try {
+            if (isExternalSlot(externalSlots, slot)) {
+                counts.signature.append("E").append(slot).append(';');
+                emitted[slot] = true;
+                return;
+            }
+
+            DfcOpenClRuntime.ComputedSlot computed = computedSlot(computedSlots, slot);
+            if (computed != null) {
+                counts.signature.append("C{p=").append(fingerprintBytes(computed.slabProgram(), 0,
+                                computed.slabProgram() == null ? 0 : computed.slabProgram().length))
+                        .append(",c=").append(fingerprintDoubles(computed.slabConstants()))
+                        .append(",h=").append(computed.hoistExpression()).append('|');
+                for (int dependency : slotDependencies(computed.slabProgram(), safeUsedSlots)) {
+                    collectSlotMetrics(descriptor, safeUsedSlots,
+                            slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                            externalSlots, computedSlots, emitted, visiting, counts, dependency);
+                }
+                if (DfcOpenClRuntime.slabProgramUsesHoist(computed.slabProgram())) {
+                    for (int dependency : slotExpressionDependencies(computed.hoistExpression(), slot,
+                            safeUsedSlots)) {
+                        collectSlotMetrics(descriptor, safeUsedSlots,
+                                slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                                externalSlots, computedSlots, emitted, visiting, counts, dependency);
+                    }
+                }
+                counts.slabOps += slabInstructionCount(computed.slabProgram());
+                counts.signature.append('}');
+                emitted[slot] = true;
+                return;
+            }
+
+            for (int dependency : slotCoordinateDependencies(
+                    slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions, slot, safeUsedSlots)) {
+                collectSlotMetrics(descriptor, safeUsedSlots,
+                        slotCoordXExpressions, slotCoordYExpressions, slotCoordZExpressions,
+                        externalSlots, computedSlots, emitted, visiting, counts, dependency);
+            }
+            counts.noiseOctaves += slotNoiseOctaves(descriptor, slot);
+            appendSlotNoiseSignature(counts.signature, descriptor, slot,
+                    coordExpression(slotCoordXExpressions, slot, "bx"),
+                    coordExpression(slotCoordYExpressions, slot, "by"),
+                    coordExpression(slotCoordZExpressions, slot, "bz"));
+            emitted[slot] = true;
+        } finally {
+            visiting[slot] = false;
+        }
+    }
+
+    private static void appendSlotNoiseSignature(StringBuilder signature,
+                                                 DfcOpenClNoiseDescriptor descriptor,
+                                                 int slot,
+                                                 String coordXExpression,
+                                                 String coordYExpression,
+                                                 String coordZExpression) {
+        if (descriptor == null || slot < 0 || slot >= descriptor.slotCount) {
+            signature.append("N{}");
+            return;
+        }
+        signature.append("N{x=").append(coordXExpression)
+                .append(",y=").append(coordYExpression)
+                .append(",z=").append(coordZExpression);
+        DfcOpenClNoiseDescriptor.BlendedSlot blended = descriptor.blendedSlot(slot);
+        if (blended != null) {
+            signature.append(",blend=")
+                    .append(doubleBits(blended.xzMultiplier())).append(',')
+                    .append(doubleBits(blended.yMultiplier())).append(',')
+                    .append(doubleBits(blended.xzFactor())).append(',')
+                    .append(doubleBits(blended.yFactor())).append(',')
+                    .append(doubleBits(blended.smearScaleMultiplier()))
+                    .append(",main=");
+            appendOctaveArraySignature(signature, descriptor, blended.mainOctaves());
+            signature.append(",min=");
+            appendOctaveArraySignature(signature, descriptor, blended.minLimitOctaves());
+            signature.append(",max=");
+            appendOctaveArraySignature(signature, descriptor, blended.maxLimitOctaves());
+            signature.append('}');
+            return;
+        }
+        signature.append(",factor=").append(doubleBits(descriptor.slotValueFactors[slot]));
+        int branchBase = slot * descriptor.branchesPerSlot;
+        for (int branch = 0; branch < descriptor.branchesPerSlot; branch++) {
+            int branchIndex = branchBase + branch;
+            signature.append(",b").append(branch)
+                    .append('=').append(doubleBits(descriptor.branchCoordScales[branchIndex])).append(':');
+            int octaveOffset = descriptor.branchOctaveOffsets[branchIndex];
+            int octaveCount = descriptor.branchOctaveCounts[branchIndex];
+            for (int octave = 0; octave < octaveCount; octave++) {
+                appendOctaveSignature(signature, descriptor, octaveOffset + octave);
+            }
+        }
+        signature.append('}');
+    }
+
+    private static void appendOctaveArraySignature(StringBuilder signature,
+                                                   DfcOpenClNoiseDescriptor descriptor,
+                                                   int[] octaves) {
+        if (octaves == null) {
+            return;
+        }
+        for (int octave : octaves) {
+            if (octave >= 0) {
+                appendOctaveSignature(signature, descriptor, octave);
+            } else {
+                signature.append("empty;");
+            }
+        }
+    }
+
+    private static void appendOctaveSignature(StringBuilder signature,
+                                              DfcOpenClNoiseDescriptor descriptor,
+                                              int octave) {
+        int origin = octave * 3;
+        signature.append('o')
+                .append(doubleBits(descriptor.origins[origin])).append(',')
+                .append(doubleBits(descriptor.origins[origin + 1])).append(',')
+                .append(doubleBits(descriptor.origins[origin + 2])).append(',')
+                .append(doubleBits(descriptor.inputFactors[octave])).append(',')
+                .append(doubleBits(descriptor.ampFactors[octave])).append(',')
+                .append(fingerprintBytes(descriptor.permutations,
+                        octave * DfcOpenClNoiseDescriptor.PERMUTATION_STRIDE,
+                        DfcOpenClNoiseDescriptor.PERMUTATION_STRIDE))
+                .append(';');
+    }
+
+    private static int slotNoiseOctaves(DfcOpenClNoiseDescriptor descriptor, int slot) {
+        if (descriptor == null || slot < 0 || slot >= descriptor.slotCount) {
+            return 0;
+        }
+        DfcOpenClNoiseDescriptor.BlendedSlot blended = descriptor.blendedSlot(slot);
+        if (blended != null) {
+            return countActiveOctaves(blended.mainOctaves())
+                    + countActiveOctaves(blended.minLimitOctaves())
+                    + countActiveOctaves(blended.maxLimitOctaves());
+        }
+        int octaves = 0;
+        int branchBase = slot * descriptor.branchesPerSlot;
+        for (int branch = 0; branch < descriptor.branchesPerSlot; branch++) {
+            int branchIndex = branchBase + branch;
+            octaves += descriptor.branchOctaveCounts[branchIndex];
+        }
+        return octaves;
+    }
+
+    private static int countActiveOctaves(int[] octaves) {
+        int count = 0;
+        if (octaves != null) {
+            for (int octave : octaves) {
+                if (octave >= 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int slabInstructionCount(byte[] program) {
+        int count = 0;
+        if (program == null) {
+            return count;
+        }
+        for (int pc = 0; pc < program.length;) {
+            int op = program[pc++] & 0xFF;
+            count++;
+            switch (op) {
+                case OP_PUSH_CONST, OP_COND_NEG_SCALE -> pc += 2;
+                case OP_PUSH_SLOT -> pc += 1;
+                case OP_Y_CLAMPED_GRADIENT -> pc += 8;
+                case OP_RANGE_CHOICE -> pc += 4;
+                case OP_BLOCK_X, OP_BLOCK_Y, OP_BLOCK_Z, OP_HOIST,
+                     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX,
+                     OP_NEG, OP_ABS, OP_SQUARE, OP_SQUEEZE -> {
+                }
+                default -> throw new IllegalArgumentException("unsupported compiled slab opcode " + op);
+            }
+        }
+        return count;
+    }
+
+    private static String doubleBits(double value) {
+        return Long.toUnsignedString(Double.doubleToLongBits(value == 0.0D ? 0.0D : value), 16);
+    }
+
+    private static String fingerprintDoubles(double[] values) {
+        long hash = fnvBasis();
+        if (values != null) {
+            for (double value : values) {
+                hash = fnvUpdateLong(hash, Double.doubleToLongBits(value == 0.0D ? 0.0D : value));
+            }
+        }
+        return Long.toUnsignedString(hash, 16);
+    }
+
+    private static String fingerprintBytes(byte[] values, int offset, int length) {
+        long hash = fnvBasis();
+        if (values != null) {
+            int start = Math.max(0, offset);
+            int end = Math.min(values.length, start + Math.max(0, length));
+            for (int i = start; i < end; i++) {
+                hash ^= values[i] & 0xFFL;
+                hash *= 0x100000001b3L;
+            }
+        }
+        return Long.toUnsignedString(hash, 16);
+    }
+
+    private static String shortFingerprint(CharSequence value) {
+        long hash = fnvBasis();
+        for (int i = 0; value != null && i < value.length(); i++) {
+            hash ^= value.charAt(i);
+            hash *= 0x100000001b3L;
+        }
+        String out = Long.toUnsignedString(hash, 16);
+        return out.length() <= 8 ? out : out.substring(out.length() - 8);
+    }
+
+    private static long fnvBasis() {
+        return 0xcbf29ce484222325L;
+    }
+
+    private static long fnvUpdateLong(long hash, long value) {
+        long out = hash;
+        for (int i = 0; i < Long.BYTES; i++) {
+            out ^= (value >>> (i * 8)) & 0xFFL;
+            out *= 0x100000001b3L;
+        }
+        return out;
+    }
+
     private static int[] slotExpressionDependencies(String expression, int slot, int slotCount) {
         boolean[] seen = new boolean[slotCount];
         markSlotExpressionDependencies(expression, seen);
@@ -1607,5 +1951,11 @@ final class DfcOpenClGeneratedNoiseSource {
         ScaleUse(double scale) {
             this.scale = scale;
         }
+    }
+
+    private static final class MetricCounts {
+        int noiseOctaves;
+        int slabOps;
+        final StringBuilder signature = new StringBuilder(256);
     }
 }
