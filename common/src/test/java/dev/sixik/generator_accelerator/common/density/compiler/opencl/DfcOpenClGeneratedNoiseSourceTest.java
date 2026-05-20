@@ -334,6 +334,36 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void finalOutputStageTraceReportsInputWritesAndWaveSubmitWaitSplit() {
+        DfcOpenClRuntime.FinalOutputTraceStageInfo[] infos = new DfcOpenClRuntime.FinalOutputTraceStageInfo[]{
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("wave", "wave:slotBuffer/src=10", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:5:foo/gen/src=100", false),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("root", "root:0:out/gen/src=100", false)
+        };
+        long millis = 1_000_000L;
+
+        String trace = DfcOpenClRuntime.describeFinalOutputStageTraceTimes(
+                infos,
+                new long[]{25L * millis, 5L * millis, 7L * millis},
+                new long[]{3L * millis, 1L * millis, 2L * millis},
+                new long[]{22L * millis, 4L * millis, 5L * millis},
+                3L * millis,
+                2L * millis,
+                4L * millis,
+                2L * millis,
+                5L * millis,
+                9L * millis,
+                5);
+
+        assertTrue(trace.contains("inputWriteMs=0.600"));
+        assertTrue(trace.contains("initialSlotWriteMs=0.400"));
+        assertTrue(trace.contains("waveSubmitMs=0.600"));
+        assertTrue(trace.contains("waveWaitMs=4.400"));
+        assertTrue(trace.contains("finalSubmitMs=0.400"));
+        assertTrue(trace.contains("finalWaitMs=1.000"));
+    }
+
+    @Test
     void externalPrefillTraceListsTopInputSlotsAndUnattributedTime() {
         DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[5];
         computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
@@ -443,6 +473,24 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 6);
 
         assertArrayEquals(new boolean[]{false, true, true, true, false, false}, targets);
+    }
+
+    @Test
+    void finalOutputSplitWaveTargetsFoldResidualNoiseIntoFirstNonEmptyWave() {
+        boolean[][] targets = DfcOpenClRuntime.finalOutputSplitWaveTargetSlots(
+                new boolean[][]{
+                        new boolean[]{false, false, false},
+                        new boolean[]{true, false, false},
+                        new boolean[]{false, true, false}
+                },
+                new int[]{0, 2, 4},
+                new int[]{1, 3, 5},
+                new boolean[]{false, true, false, false, true, false},
+                6);
+
+        assertArrayEquals(new boolean[]{false, false, false, false, false, false}, targets[0]);
+        assertArrayEquals(new boolean[]{true, true, false, false, true, false}, targets[1]);
+        assertArrayEquals(new boolean[]{false, false, true, true, false, false}, targets[2]);
     }
 
     @Test

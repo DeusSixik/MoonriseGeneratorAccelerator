@@ -1460,7 +1460,13 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         DoubleBuffer outHost = null;
         int stageCount = stages == null ? 0 : stages.length;
         long[] stageNanos = new long[stageCount];
+        long[] stageSubmitNanos = new long[stageCount];
+        long[] stageWaitNanos = new long[stageCount];
+        long inputWriteNanos = 0L;
+        long initialSlotWriteNanos = 0L;
         long finalKernelNanos = 0L;
+        long finalSubmitNanos = 0L;
+        long finalWaitNanos = 0L;
         long readbackNanos = 0L;
         long started = System.nanoTime();
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -1486,12 +1492,16 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
             long outBuffer = ensureBuffer(this.gridOutBuffer,
                     doubleBytes(request.n), CL12.CL_MEM_WRITE_ONLY, err, "generated final output trace");
             if (writeInputs) {
+                long writeStarted = System.nanoTime();
                 check(CL12.clEnqueueWriteBuffer(this.queue, permutationsBuffer, true, 0L, permutationsHost,
                         null, null), "clEnqueueWriteBuffer(generated final output trace permutations)");
+                inputWriteNanos += System.nanoTime() - writeStarted;
             }
             if (writeInitialSlots) {
+                long writeStarted = System.nanoTime();
                 writeDoubleArray(slotBuffer, initialSlotBuffer,
                         "clEnqueueWriteBuffer(generated final output trace initial slots)");
+                initialSlotWriteNanos += System.nanoTime() - writeStarted;
             }
 
             PointerBuffer globalWorkSize = stack.callocPointer(1);
@@ -1503,6 +1513,7 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                         continue;
                     }
                     long stageStarted = System.nanoTime();
+                    long submitStarted = System.nanoTime();
                     if (stage.generated()) {
                         enqueueGeneratedFinalOutputStage(stage.generatedKernel(), request,
                                 permutationsBuffer, slotBuffer, globalWorkSize);
@@ -1510,15 +1521,22 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                         enqueueSlabVmFinalOutputStage(stage, request, slotBufferSlotCount, slotBuffer,
                                 globalWorkSize, err);
                     }
+                    stageSubmitNanos[i] = System.nanoTime() - submitStarted;
+                    long waitStarted = System.nanoTime();
                     check(CL12.clFinish(this.queue), "clFinish(generated final output trace stage)");
+                    stageWaitNanos[i] = System.nanoTime() - waitStarted;
                     stageNanos[i] = System.nanoTime() - stageStarted;
                 }
             }
 
             long finalStarted = System.nanoTime();
+            long finalSubmitStarted = System.nanoTime();
             enqueueGeneratedFinalOutputKernel(finalKernel, request, permutationsBuffer, slotBuffer,
                     outBuffer, globalWorkSize);
+            finalSubmitNanos = System.nanoTime() - finalSubmitStarted;
+            long finalWaitStarted = System.nanoTime();
             check(CL12.clFinish(this.queue), "clFinish(generated final output trace final)");
+            finalWaitNanos = System.nanoTime() - finalWaitStarted;
             finalKernelNanos = System.nanoTime() - finalStarted;
 
             if (readOutput) {
@@ -1532,7 +1550,9 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
                 readbackNanos = System.nanoTime() - readStarted;
             }
             return new FinalOutputTraceResult(
-                    System.nanoTime() - started, stageNanos, finalKernelNanos, readbackNanos);
+                    System.nanoTime() - started, inputWriteNanos, initialSlotWriteNanos,
+                    stageNanos, stageSubmitNanos, stageWaitNanos,
+                    finalKernelNanos, finalSubmitNanos, finalWaitNanos, readbackNanos);
         } finally {
             free(permutationsHost);
         }
@@ -2221,8 +2241,14 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
 
     record FinalOutputTraceResult(
             long elapsedNanos,
+            long inputWriteNanos,
+            long initialSlotWriteNanos,
             long[] stageNanos,
+            long[] stageSubmitNanos,
+            long[] stageWaitNanos,
             long finalKernelNanos,
+            long finalSubmitNanos,
+            long finalWaitNanos,
             long readbackNanos) {
     }
 
