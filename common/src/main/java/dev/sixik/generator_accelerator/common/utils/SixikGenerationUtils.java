@@ -4,17 +4,26 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class SixikGenerationUtils {
 
     public static @NotNull RandomSource getRandom(PositionalRandomFactory deriver) {
+        RandomSource random = tryGetRandom(deriver);
+        if (random != null) {
+            return random;
+        }
+        throw new IllegalArgumentException();
+    }
+
+    public static @Nullable RandomSource tryGetRandom(PositionalRandomFactory deriver) {
         if (deriver instanceof XoroshiroRandomSource.XoroshiroPositionalRandomFactory) {
             return new XoroshiroRandomSource(0L, 0L);
         }
         if (deriver instanceof LegacyRandomSource.LegacyPositionalRandomFactory) {
             return new SingleThreadedRandomSource(0L);
         }
-        throw new IllegalArgumentException();
+        return null;
     }
 
     public static void derive(PositionalRandomFactory deriver, RandomSource random, int x, int y, int z) {

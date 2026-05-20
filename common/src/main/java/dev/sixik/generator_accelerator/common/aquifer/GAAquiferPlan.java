@@ -38,6 +38,14 @@ public final class GAAquiferPlan {
         this.grid.nearest(x, y, z, out);
     }
 
+    public void nearestColumnBand(int x, int y, int z, GAAquiferColumnBandNearest band, GAAquiferNearest out) {
+        if (band == null) {
+            this.grid.nearest(x, y, z, out);
+            return;
+        }
+        this.grid.nearestColumnBand(x, y, z, band, out);
+    }
+
     public boolean hasFluid(int index) {
         return this.fluids.has(index);
     }
@@ -140,6 +148,34 @@ public final class GAAquiferPlan {
         out.blockId = blockId;
         out.solid = false;
         out.scheduleFluidUpdate = true;
+    }
+
+    public void resolveCell(
+            GAAquiferNearest nearest,
+            int blockY,
+            double density,
+            boolean waterOverLava,
+            double flowingUpdateSimilarity,
+            BarrierSampler barrierSampler,
+            Result out
+    ) {
+        resolve(nearest, blockY, density, waterOverLava, flowingUpdateSimilarity, barrierSampler, out);
+    }
+
+    public void resolveColumnCell(
+            int x,
+            int y,
+            int z,
+            double density,
+            GAAquiferColumnBandNearest band,
+            GAAquiferNearest nearest,
+            boolean waterOverLava,
+            double flowingUpdateSimilarity,
+            BarrierSampler barrierSampler,
+            Result out
+    ) {
+        nearestColumnBand(x, y, z, band, nearest);
+        resolve(nearest, y, density, waterOverLava, flowingUpdateSimilarity, barrierSampler, out);
     }
 
     public double pressure(int blockY, int firstIndex, int secondIndex, double barrierNoise) {

@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.common.beardifier;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GABeardifierKernelTest {
@@ -76,6 +78,50 @@ class GABeardifierKernelTest {
                 }
             }
         }
+    }
+
+    @Test
+    void kernelLookupOutOfRangeMatchesVanillaZero() throws ReflectiveOperationException {
+        GABeardifierKernel.setBeardKernel(kernel());
+        Method sameY = GABeardifierKernel.class.getDeclaredMethod(
+                "getBeardContributionSameY",
+                int.class,
+                int.class,
+                int.class
+        );
+        sameY.setAccessible(true);
+        Method unchecked = GABeardifierKernel.class.getDeclaredMethod(
+                "getBeardContributionUnchecked",
+                int.class,
+                int.class,
+                int.class,
+                int.class
+        );
+        unchecked.setAccessible(true);
+        Method buryHalfY = GABeardifierKernel.class.getDeclaredMethod(
+                "getBuryContributionHalfY",
+                int.class,
+                int.class,
+                int.class
+        );
+        buryHalfY.setAccessible(true);
+        Method encapsulate = GABeardifierKernel.class.getDeclaredMethod(
+                "getEncapsulateContribution",
+                int.class,
+                int.class,
+                int.class
+        );
+        encapsulate.setAccessible(true);
+
+        assertEquals(0.0D, (double) sameY.invoke(null, -23, 0, 0), 0.0D);
+        assertEquals(0.0D, (double) sameY.invoke(null, 0, -13, 0), 0.0D);
+        assertEquals(0.0D, (double) sameY.invoke(null, 0, 0, 12), 0.0D);
+        assertEquals(0.0D, (double) unchecked.invoke(null, 12, 0, 0, 0), 0.0D);
+        assertEquals(0.0D, (double) unchecked.invoke(null, 0, -13, 0, 0), 0.0D);
+        assertEquals(0.0D, (double) buryHalfY.invoke(null, 6, 0, 0), 0.0D);
+        assertEquals(0.0D, (double) buryHalfY.invoke(null, 0, 12, 0), 0.0D);
+        assertEquals(0.0D, (double) encapsulate.invoke(null, 12, 0, 0), 0.0D);
+        assertEquals(0.0D, (double) encapsulate.invoke(null, 14, 9, 5), 0.0D);
     }
 
     private static GABeardifierPlan densePlan() {

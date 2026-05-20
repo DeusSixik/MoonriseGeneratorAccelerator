@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
+import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.NoiseColumn;
@@ -108,6 +109,8 @@ public class MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column {
         noiseChunk.advanceCellX(0);
 
         BlockState defaultState = settings.defaultBlock();
+        GAFusedTerrainNoiseChunkAccess fusedTerrain = noiseChunk instanceof GAFusedTerrainNoiseChunkAccess access
+                && access.ga$fusedTerrainAvailable() ? access : null;
 
         for (int v = n - 1; v >= 0; --v) {
             noiseChunk.selectCellYZ(v, 0);
@@ -119,9 +122,21 @@ public class MixinNoiseBasedChunkGenerator$optimize_iterate_noise_column {
                 noiseChunk.updateForX(i, d);
                 noiseChunk.updateForZ(j, e);
 
-                BlockState blockState = noiseChunk.getInterpolatedState();
-                if (blockState == null) {
-                    blockState = defaultState;
+                BlockState blockState;
+                if (fusedTerrain != null) {
+                    blockState = fusedTerrain.ga$sampleFusedTerrainBlockState(defaultState);
+                    if (blockState == null) {
+                        fusedTerrain = null;
+                        blockState = noiseChunk.getInterpolatedState();
+                        if (blockState == null) {
+                            blockState = defaultState;
+                        }
+                    }
+                } else {
+                    blockState = noiseChunk.getInterpolatedState();
+                    if (blockState == null) {
+                        blockState = defaultState;
+                    }
                 }
 
                 if (outStates != null) {

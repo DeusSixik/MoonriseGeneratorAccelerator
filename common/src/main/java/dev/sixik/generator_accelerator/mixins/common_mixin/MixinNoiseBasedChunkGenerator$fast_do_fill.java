@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
@@ -99,7 +100,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         int cellCountZ = 16 / cellWidth;
         int topSectionIndex = chunkAccess.getSectionsCount() - 1;
         BlockState defaultBlock = this.settings.value().defaultBlock();
+        int defaultBlockId = GA$BlockStateExtension.get(defaultBlock).bts$getFastId();
         BlockState air = Blocks.AIR.defaultBlockState();
+        int airBlockId = GA$BlockStateExtension.get(air).bts$getFastId();
+        GAFusedTerrainNoiseChunkAccess fusedTerrain = noiseChunk instanceof GAFusedTerrainNoiseChunkAccess access
+                && access.ga$fusedTerrainAvailable() ? access : null;
         long worldSurfaceDone0 = 0L;
         long worldSurfaceDone1 = 0L;
         long worldSurfaceDone2 = 0L;
@@ -134,6 +139,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         boolean[] directFluidEmptyStates = directLazyAirTerrainWrites ? FastBlockStateCache.FLUID_EMPTY_STATES : null;
         boolean[] directTickingFluidStates = directLazyAirTerrainWrites ? FastBlockStateCache.RANDOM_TICKING_FLUID_STATES : null;
         boolean[] directLightStates = directLazyAirTerrainWrites ? FastBlockStateCache.LIGHT_EMITTING_STATES : null;
+        boolean[] blockMotionStates = FastBlockStateCache.IS_BLOCK_MOTION_STATES;
         boolean directStateCachesReady = directEmptyStates != null
                 && directTickingBlockStates != null
                 && directFluidEmptyStates != null
@@ -180,15 +186,20 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 int localZ = blockZ & 15;
                                 noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
 
-                                BlockState blockState = noiseChunk.getInterpolatedState();
-                                if (blockState == null) {
-                                    blockState = defaultBlock;
+                                int stateId;
+                                if (fusedTerrain != null) {
+                                    stateId = fusedTerrain.ga$sampleFusedTerrainBlockId(defaultBlockId);
+                                    if (stateId == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID) {
+                                        fusedTerrain = null;
+                                        stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                    }
+                                } else {
+                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
                                 }
-                                if (blockState == air || debugVoidTerrain) {
+                                if (stateId == airBlockId || debugVoidTerrain) {
                                     continue;
                                 }
 
-                                int stateId = GA$BlockStateExtension.get(blockState).bts$getFastId();
                                 int columnIndex = (localZ << 4) | localX;
                                 boolean wroteWorkspaceOnly = false;
                                 if (workspaceTerrainWrites) {
@@ -278,6 +289,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                     }
                                     int localIndex = (localY << 8) | (localZ << 4) | localX;
                                     if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
+                                        BlockState blockState = stateId == defaultBlockId
+                                                ? defaultBlock
+                                                : FastBlockStateCache.getBlockState(stateId);
                                         section.setBlockState(localX, localY, localZ, blockState, false);
                                     }
                                     if (GA$MIRROR_DIRECT_TERRAIN_WRITES) {
@@ -292,7 +306,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             worldSurface.setHeight(localX, localZ, blockY + 1);
                                             worldSurfaceDone0 |= columnBit;
                                         }
-                                        if ((oceanFloorDone0 & columnBit) == 0L && blockState.blocksMotion()) {
+                                        if ((oceanFloorDone0 & columnBit) == 0L && ga$isBlockMotionState(stateId, blockMotionStates)) {
                                             oceanFloor.setHeight(localX, localZ, blockY + 1);
                                             oceanFloorDone0 |= columnBit;
                                         }
@@ -301,7 +315,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             worldSurface.setHeight(localX, localZ, blockY + 1);
                                             worldSurfaceDone1 |= columnBit;
                                         }
-                                        if ((oceanFloorDone1 & columnBit) == 0L && blockState.blocksMotion()) {
+                                        if ((oceanFloorDone1 & columnBit) == 0L && ga$isBlockMotionState(stateId, blockMotionStates)) {
                                             oceanFloor.setHeight(localX, localZ, blockY + 1);
                                             oceanFloorDone1 |= columnBit;
                                         }
@@ -310,7 +324,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             worldSurface.setHeight(localX, localZ, blockY + 1);
                                             worldSurfaceDone2 |= columnBit;
                                         }
-                                        if ((oceanFloorDone2 & columnBit) == 0L && blockState.blocksMotion()) {
+                                        if ((oceanFloorDone2 & columnBit) == 0L && ga$isBlockMotionState(stateId, blockMotionStates)) {
                                             oceanFloor.setHeight(localX, localZ, blockY + 1);
                                             oceanFloorDone2 |= columnBit;
                                         }
@@ -319,7 +333,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             worldSurface.setHeight(localX, localZ, blockY + 1);
                                             worldSurfaceDone3 |= columnBit;
                                         }
-                                        if ((oceanFloorDone3 & columnBit) == 0L && blockState.blocksMotion()) {
+                                        if ((oceanFloorDone3 & columnBit) == 0L && ga$isBlockMotionState(stateId, blockMotionStates)) {
                                             oceanFloor.setHeight(localX, localZ, blockY + 1);
                                             oceanFloorDone3 |= columnBit;
                                         }
@@ -361,6 +375,19 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             workspace.markTerrainFinalized();
         }
         return chunkAccess;
+    }
+
+    @Unique
+    private static int ga$sampleInterpolatedStateId(NoiseChunk noiseChunk, int defaultBlockId) {
+        BlockState blockState = noiseChunk.getInterpolatedState();
+        return blockState == null ? defaultBlockId : GA$BlockStateExtension.get(blockState).bts$getFastId();
+    }
+
+    @Unique
+    private static boolean ga$isBlockMotionState(int stateId, boolean[] blockMotionStates) {
+        return stateId >= 0 && blockMotionStates != null && stateId < blockMotionStates.length
+                ? blockMotionStates[stateId]
+                : FastBlockStateCache.isBlockMotion(stateId);
     }
 
     @Unique

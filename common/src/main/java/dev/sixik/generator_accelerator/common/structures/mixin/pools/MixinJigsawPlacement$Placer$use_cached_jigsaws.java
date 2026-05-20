@@ -347,7 +347,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     ));
                     this.pieces.add(placedPiece);
                     if (depth + 1 <= this.maxDepth) {
-                        this.placing.add(MixinJigsawPlacement$PieceStateAccessor.ga$create(placedPiece, freeShape, depth + 1), placementPriority);
+                        this.placing.add(JigsawPieceStateFactory.ga$create(placedPiece, freeShape, depth + 1), placementPriority);
                     }
                     return true;
                 }

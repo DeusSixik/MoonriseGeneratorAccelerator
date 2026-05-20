@@ -174,11 +174,17 @@ public final class GABeardifierKernel {
     }
 
     private static double getBuryContributionHalfY(int xDistance, int yOffset, int zDistance) {
+        if (xDistance < 0 || xDistance >= 6 || zDistance < 0 || zDistance >= 6 || yOffset < -11 || yOffset > 11) {
+            return 0.0D;
+        }
         int index = ((xDistance * 23) + (yOffset + 11)) * 6 + zDistance;
         return BURY_HALF_Y[index];
     }
 
     private static double getEncapsulateContribution(int xDistance, int yDistance, int zDistance) {
+        if ((xDistance | yDistance | zDistance) < 0 || xDistance >= 12 || yDistance >= 12 || zDistance >= 12) {
+            return 0.0D;
+        }
         int index = ((xDistance * 12) + yDistance) * 12 + zDistance;
         return ENCAPSULATE_HALF[index];
     }
@@ -430,21 +436,37 @@ public final class GABeardifierKernel {
     }
 
     private static double getBeardContributionUnchecked(int xDistance, int yDistance, int zDistance, int yOffset) {
+        int xIndex = xDistance + 12;
+        int yIndex = yDistance + 12;
+        int zIndex = zDistance + 12;
+        if (outsideKernelIndex(xIndex, yIndex, zIndex)) {
+            return 0.0D;
+        }
         float[] kernel = requireKernel();
         double y = (double) yOffset + 0.5D;
         double lengthSquared = (double) xDistance * (double) xDistance + y * y + (double) zDistance * (double) zDistance;
         double contribution = -y * fastInvSqrt(lengthSquared * 0.5D) * 0.5D;
-        int index = ((zDistance + 12) * 24 + (xDistance + 12)) * 24 + (yDistance + 12);
+        int index = ((zIndex * 24) + xIndex) * 24 + yIndex;
         return contribution * (double) kernel[index];
     }
 
     private static double getBeardContributionSameY(int x, int y, int z) {
+        int xIndex = x + 12;
+        int yIndex = y + 12;
+        int zIndex = z + 12;
+        if (outsideKernelIndex(xIndex, yIndex, zIndex)) {
+            return 0.0D;
+        }
         float[] table = beardSameY;
         if (table == null) {
             table = initBeardSameYTable();
         }
-        int index = ((z + 12) * 24 + (x + 12)) * 24 + (y + 12);
+        int index = ((zIndex * 24) + xIndex) * 24 + yIndex;
         return table[index];
+    }
+
+    private static boolean outsideKernelIndex(int xIndex, int yIndex, int zIndex) {
+        return (xIndex | yIndex | zIndex) < 0 || xIndex >= 24 || yIndex >= 24 || zIndex >= 24;
     }
 
     private static float[] initBeardSameYTable() {

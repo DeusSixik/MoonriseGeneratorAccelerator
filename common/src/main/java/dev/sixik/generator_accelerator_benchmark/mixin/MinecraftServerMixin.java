@@ -97,13 +97,15 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         int ticksBetweenBatches = Integer.getInteger("ga.benchmark.ticksBetweenBatches", 40);
         int renderDistance = Integer.getInteger("ga.benchmark.renderDistance", 16);
         int maxBatches = Integer.getInteger("ga.benchmark.maxBatches", -1);
+        int startChunkX = Integer.getInteger("ga.benchmark.startChunkX", 0);
+        int startChunkZ = Integer.getInteger("ga.benchmark.startChunkZ", 0);
         boolean useSpark = Boolean.parseBoolean(System.getProperty("ga.benchmark.useSpark", "true"));
         boolean directChunkLoad = Boolean.parseBoolean(System.getProperty("ga.benchmark.directChunkLoad", "true"));
 
         if (!isProfilerStart && !benchmarkFinished && tickCounter >= startTick && server.overworld() != null) {
             this.ga$directChunkDriver = directChunkLoad;
-            this.ga$nextBatchCenterChunkX = 0;
-            this.ga$nextBatchCenterChunkZ = 0;
+            this.ga$nextBatchCenterChunkX = startChunkX;
+            this.ga$nextBatchCenterChunkZ = startChunkZ;
             this.ga$directChunkTicketRadius = 0;
             this.ga$activeChunkTickets.clear();
             this.fakePlayer = null;
@@ -139,6 +141,8 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
                     + ", ticksBetweenBatches=" + ticksBetweenBatches
                     + ", renderDistance=" + renderDistance
                     + ", maxBatches=" + maxBatches
+                    + ", startChunkX=" + startChunkX
+                    + ", startChunkZ=" + startChunkZ
                     + ", useSpark=" + useSpark
                     + ", driver=" + (this.ga$directChunkDriver ? "direct_chunk" : "fake_player"));
         }

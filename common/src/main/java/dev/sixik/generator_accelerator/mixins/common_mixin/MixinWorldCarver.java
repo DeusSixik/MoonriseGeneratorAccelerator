@@ -2,6 +2,12 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.patches.GA$CarvingMaskExtension;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferColumnBandNearest;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferFluidGrid;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferNearest;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPlan;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPrimitiveAccess;
 import dev.sixik.generator_accelerator.common.carver.CarveStateScratch;
 import dev.sixik.generator_accelerator.common.carver.CarverChunkWriter;
 import dev.sixik.generator_accelerator.common.carver.CarverReplaceableCache;
@@ -82,6 +88,12 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
 
     @Unique
     private volatile ThreadLocal<MutableFunctionContext> ga$mutableFunctionContext;
+
+    @Unique
+    private volatile ThreadLocal<GAAquiferColumnBandNearest> ga$aquiferColumnBand;
+
+    @Unique
+    private volatile ThreadLocal<GAAquiferNearest> ga$aquiferNearest;
 
     @Unique
     private volatile ThreadLocal<CarveStateScratch> ga$carveStateScratch;
@@ -267,9 +279,17 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
         }
 
         int carvedStateId = this.ga$getDirectCarveStateId(carvingContext, carverConfiguration, chunkAccess, mutableBlockPos, aquifer, carveStateScratch, debug);
+        if (carvedStateId == GA$NO_DIRECT_STATE) {
+            carvedStateId = this.ga$getPrimitiveAquiferCarveStateId(mutableBlockPos, aquifer, debug);
+            if (carvedStateId == GAAquiferPlan.SOLID_RESULT) {
+                return false;
+            }
+        }
         BlockState carvedState;
         if (carvedStateId != GA$NO_DIRECT_STATE) {
-            carvedState = carvedStateId == GA$CAVE_AIR_STATE_ID ? GA$CAVE_AIR_BLOCK : GA$LAVA_BLOCK;
+            carvedState = carvedStateId == GA$CAVE_AIR_STATE_ID ? GA$CAVE_AIR_BLOCK
+                    : carvedStateId == GA$LAVA_STATE_ID ? GA$LAVA_BLOCK
+                    : FastBlockStateCache.getBlockState(carvedStateId);
         } else {
             carvedState = this.ga$getCarveState(carvingContext, carverConfiguration, mutableBlockPos, aquifer, debug);
             if (carvedState == null) {
@@ -349,6 +369,10 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
 
     @Unique
     private static boolean ga$isBelowGlobalWaterLevel(Aquifer aquifer, BlockPos blockPos) {
+        if (aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess) {
+            return blockPos.getY() < primitiveAccess.ga$globalFluidLevelAt(blockPos.getX(), blockPos.getY(), blockPos.getZ())
+                    && primitiveAccess.ga$globalFluidKindAt(blockPos.getX(), blockPos.getY(), blockPos.getZ()) == GAAquiferFluidGrid.KIND_WATER;
+        }
         if (!(aquifer instanceof MixinNoiseBasedAquiferAccessor accessor)) {
             return false;
         }
@@ -371,6 +395,21 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
         }
 
         return surfaceY > chunkAccess.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, x, z);
+    }
+
+    @Unique
+    private int ga$getPrimitiveAquiferCarveStateId(BlockPos blockPos, Aquifer aquifer, boolean debug) {
+        if (debug || !(aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess)) {
+            return GA$NO_DIRECT_STATE;
+        }
+        MutableFunctionContext functionContext = this.ga$getMutableFunctionContext();
+        functionContext.set(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+        return primitiveAccess.ga$computeSubstanceId(
+                functionContext,
+                0.0D,
+                this.ga$getAquiferColumnBand(),
+                this.ga$getAquiferNearest()
+        );
     }
 
     @Unique
@@ -405,6 +444,36 @@ public abstract class MixinWorldCarver<C extends CarverConfiguration> {
             }
         }
         return context.get();
+    }
+
+    @Unique
+    private GAAquiferColumnBandNearest ga$getAquiferColumnBand() {
+        ThreadLocal<GAAquiferColumnBandNearest> columnBand = this.ga$aquiferColumnBand;
+        if (columnBand == null) {
+            synchronized (this) {
+                columnBand = this.ga$aquiferColumnBand;
+                if (columnBand == null) {
+                    columnBand = ThreadLocal.withInitial(GAAquiferColumnBandNearest::new);
+                    this.ga$aquiferColumnBand = columnBand;
+                }
+            }
+        }
+        return columnBand.get();
+    }
+
+    @Unique
+    private GAAquiferNearest ga$getAquiferNearest() {
+        ThreadLocal<GAAquiferNearest> nearest = this.ga$aquiferNearest;
+        if (nearest == null) {
+            synchronized (this) {
+                nearest = this.ga$aquiferNearest;
+                if (nearest == null) {
+                    nearest = ThreadLocal.withInitial(GAAquiferNearest::new);
+                    this.ga$aquiferNearest = nearest;
+                }
+            }
+        }
+        return nearest.get();
     }
 
     @Unique
