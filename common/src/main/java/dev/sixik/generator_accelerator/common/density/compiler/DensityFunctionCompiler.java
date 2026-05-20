@@ -3583,6 +3583,18 @@ public final class DensityFunctionCompiler {
                         ? ""
                         : ", lastSkip=" + stats.hybridLastSkip())),
                 false);
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL finalDensity batch: calls=" + stats.hybridBatchCalls()
+                        + ", skipped=" + stats.hybridBatchSkipped()
+                        + ", attempts=" + stats.hybridBatchAttempts()
+                        + ", succeeded=" + stats.hybridBatchSucceeded()
+                        + ", failed=" + stats.hybridBatchFailed()
+                        + ", cells=" + stats.hybridBatchCells()
+                        + ", elements=" + stats.hybridBatchElements()
+                        + (stats.hybridBatchLastSkip() == null || stats.hybridBatchLastSkip().isBlank()
+                        ? ""
+                        : ", lastSkip=" + stats.hybridBatchLastSkip())),
+                false);
     }
 
     private static String formatBucket(DfcSplineStats.BucketStats bucket) {

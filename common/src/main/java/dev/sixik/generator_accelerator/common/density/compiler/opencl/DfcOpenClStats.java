@@ -30,6 +30,14 @@ public final class DfcOpenClStats {
     private static final LongAdder HYBRID_SUCCEEDED = new LongAdder();
     private static final LongAdder HYBRID_FAILED = new LongAdder();
     private static final AtomicReference<String> HYBRID_LAST_SKIP = new AtomicReference<>("");
+    private static final LongAdder HYBRID_BATCH_CALLS = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_SKIPPED = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_ATTEMPTS = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_SUCCEEDED = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_FAILED = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_CELLS = new LongAdder();
+    private static final LongAdder HYBRID_BATCH_ELEMENTS = new LongAdder();
+    private static final AtomicReference<String> HYBRID_BATCH_LAST_SKIP = new AtomicReference<>("");
 
     private DfcOpenClStats() {
     }
@@ -132,6 +140,39 @@ public final class DfcOpenClStats {
         HYBRID_LAST_SKIP.set(reason);
     }
 
+    public static void recordHybridBatchCall() {
+        HYBRID_BATCH_CALLS.increment();
+    }
+
+    public static void recordHybridBatchSkipped(String reason) {
+        HYBRID_BATCH_SKIPPED.increment();
+        HYBRID_BATCH_LAST_SKIP.set(reason == null || reason.isBlank() ? "skipped" : reason);
+    }
+
+    public static void recordHybridBatchAttempt(int cells, int elements) {
+        HYBRID_BATCH_ATTEMPTS.increment();
+        addHybridBatchShape(cells, elements);
+    }
+
+    public static void recordHybridBatchSuccess(int cells, int elements) {
+        HYBRID_BATCH_SUCCEEDED.increment();
+        addHybridBatchShape(cells, elements);
+    }
+
+    public static void recordHybridBatchFailure(String reason) {
+        HYBRID_BATCH_FAILED.increment();
+        HYBRID_BATCH_LAST_SKIP.set(reason == null || reason.isBlank() ? "failed" : reason);
+    }
+
+    private static void addHybridBatchShape(int cells, int elements) {
+        if (cells > 0) {
+            HYBRID_BATCH_CELLS.add(cells);
+        }
+        if (elements > 0) {
+            HYBRID_BATCH_ELEMENTS.add(elements);
+        }
+    }
+
     public static Snapshot snapshot() {
         return new Snapshot(
                 SLAB_ATTEMPTS.sum(),
@@ -159,7 +200,15 @@ public final class DfcOpenClStats {
                 HYBRID_ATTEMPTS.sum(),
                 HYBRID_SUCCEEDED.sum(),
                 HYBRID_FAILED.sum(),
-                HYBRID_LAST_SKIP.get());
+                HYBRID_LAST_SKIP.get(),
+                HYBRID_BATCH_CALLS.sum(),
+                HYBRID_BATCH_SKIPPED.sum(),
+                HYBRID_BATCH_ATTEMPTS.sum(),
+                HYBRID_BATCH_SUCCEEDED.sum(),
+                HYBRID_BATCH_FAILED.sum(),
+                HYBRID_BATCH_CELLS.sum(),
+                HYBRID_BATCH_ELEMENTS.sum(),
+                HYBRID_BATCH_LAST_SKIP.get());
     }
 
     public static void reset() {
@@ -188,6 +237,14 @@ public final class DfcOpenClStats {
         HYBRID_SUCCEEDED.reset();
         HYBRID_FAILED.reset();
         HYBRID_LAST_SKIP.set("");
+        HYBRID_BATCH_CALLS.reset();
+        HYBRID_BATCH_SKIPPED.reset();
+        HYBRID_BATCH_ATTEMPTS.reset();
+        HYBRID_BATCH_SUCCEEDED.reset();
+        HYBRID_BATCH_FAILED.reset();
+        HYBRID_BATCH_CELLS.reset();
+        HYBRID_BATCH_ELEMENTS.reset();
+        HYBRID_BATCH_LAST_SKIP.set("");
     }
 
     private static void updateMax(AtomicLong target, long value) {
@@ -227,6 +284,14 @@ public final class DfcOpenClStats {
             long hybridAttempts,
             long hybridSucceeded,
             long hybridFailed,
-            String hybridLastSkip) {
+            String hybridLastSkip,
+            long hybridBatchCalls,
+            long hybridBatchSkipped,
+            long hybridBatchAttempts,
+            long hybridBatchSucceeded,
+            long hybridBatchFailed,
+            long hybridBatchCells,
+            long hybridBatchElements,
+            String hybridBatchLastSkip) {
     }
 }

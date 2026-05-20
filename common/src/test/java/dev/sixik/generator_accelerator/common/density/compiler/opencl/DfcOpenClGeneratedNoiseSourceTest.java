@@ -1665,6 +1665,30 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridBatchStatsRecordSkipAttemptSuccessAndFailure() {
+        DfcOpenClStats.reset();
+        DfcOpenClStats.recordHybridBatchCall();
+        DfcOpenClStats.recordHybridBatchSkipped("column batch disabled");
+        DfcOpenClStats.recordHybridBatchAttempt(32, 4_096);
+        DfcOpenClStats.recordHybridBatchSuccess(32, 4_096);
+        DfcOpenClStats.recordHybridBatchFailure("device lost");
+
+        DfcOpenClStats.Snapshot snapshot = DfcOpenClStats.snapshot();
+        assertEquals(1L, snapshot.hybridBatchCalls());
+        assertEquals(1L, snapshot.hybridBatchSkipped());
+        assertEquals(1L, snapshot.hybridBatchAttempts());
+        assertEquals(1L, snapshot.hybridBatchSucceeded());
+        assertEquals(1L, snapshot.hybridBatchFailed());
+        assertEquals(64L, snapshot.hybridBatchCells());
+        assertEquals(8_192L, snapshot.hybridBatchElements());
+        assertEquals("device lost", snapshot.hybridBatchLastSkip());
+
+        DfcOpenClStats.reset();
+        assertEquals(0L, DfcOpenClStats.snapshot().hybridBatchCalls());
+        assertEquals("", DfcOpenClStats.snapshot().hybridBatchLastSkip());
+    }
+
+    @Test
     void slabProgramSlotDependenciesContainOnlyReferencedRootSlots() {
         byte[] program = new byte[]{
                 2, 3,
