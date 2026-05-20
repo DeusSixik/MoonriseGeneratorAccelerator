@@ -1874,13 +1874,13 @@ public final class DfcOpenClRuntime {
                     residualDependencyCandidateSlots, null, computedSlots, slotCount);
             List<FinalOutputStageBuild> waveSources = buildFinalOutputSplitWaveSources(
                     descriptor, plan, waves, chunkStartSlots, chunkEndSlots, foldedWaveResidualNoiseSlots,
-                    markerExternalInputs, slotBufferIndices, slotCount);
+                    markerExternalInputs, slotBufferIndices, slotCount, traceStages);
             if (countTrue(foldedWaveResidualNoiseSlots) > 0 && maxSourceChars(waveSources)
                     > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
                 foldedWaveResidualNoiseSlots = new boolean[slotCount];
                 waveSources = buildFinalOutputSplitWaveSources(
                         descriptor, plan, waves, chunkStartSlots, chunkEndSlots, foldedWaveResidualNoiseSlots,
-                        markerExternalInputs, slotBufferIndices, slotCount);
+                        markerExternalInputs, slotBufferIndices, slotCount, traceStages);
             }
             int waveMaxSourceChars = maxSourceChars(waveSources);
             if (waveMaxSourceChars > COMPILED_PLAN_ALL_WAVES_FUSED_SOURCE_COMPILE_MAX_CHARS) {
@@ -4953,7 +4953,8 @@ public final class DfcOpenClRuntime {
             boolean[] foldedResidualNoiseSlots,
             boolean[] markerExternalInputs,
             int[] slotBufferIndices,
-            int slotCount) {
+            int slotCount,
+            boolean traceStageDetails) {
         List<FinalOutputStageBuild> stages = new ArrayList<>();
         boolean[][] targetSlots = finalOutputSplitWaveTargetSlots(
                 waves, chunkStartSlots, chunkEndSlots, foldedResidualNoiseSlots, slotCount);
@@ -4974,10 +4975,39 @@ public final class DfcOpenClRuntime {
                             plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
                             externalInputs, computedSlots, slotBufferIndices,
                             DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            String traceDetail = traceStageDetails
+                    ? finalOutputWaveStageSlotTop(
+                    descriptor, plan, targetSlots[wave], externalInputs, computedSlots, slotBufferIndices, 8)
+                    : null;
             stages.add(FinalOutputStageBuild.generatedBatch(
-                    firstTrueSlot(targetSlots[wave]), countTrue(targetSlots[wave]), source));
+                    firstTrueSlot(targetSlots[wave]), countTrue(targetSlots[wave]), source, traceDetail));
         }
         return stages;
+    }
+
+    static String finalOutputWaveStageSlotTop(DfcOpenClNoiseDescriptor descriptor,
+                                              OpenClCompiledPlan plan,
+                                              boolean[] targetSlots,
+                                              boolean[] externalInputs,
+                                              ComputedSlot[] computedSlots,
+                                              int[] slotBufferIndices,
+                                              int limit) {
+        List<FinalOutputTraceStageTime> slotSources = new ArrayList<>();
+        int slotCount = targetSlots == null ? 0 : targetSlots.length;
+        for (int slot = 0; slot < slotCount; slot++) {
+            if (!targetSlots[slot]) {
+                continue;
+            }
+            DfcOpenClGeneratedNoiseSource.BuildResult source =
+                    DfcOpenClGeneratedNoiseSource.buildCompiledPlanWaveCompactSlotBuffer(
+                            descriptor, singleSlotMask(slot, slotCount),
+                            plan.slotCoordXExpressions(), plan.slotCoordYExpressions(), plan.slotCoordZExpressions(),
+                            externalInputs, computedSlots, slotBufferIndices,
+                            DfcOpenClGeneratedNoiseSource.WrapMode.NOWRAP);
+            String label = slot + ":" + finalOutputSlotKind(plan, slot);
+            slotSources.add(new FinalOutputTraceStageTime(label, source.source().length()));
+        }
+        return "slotTop=" + describeTopFinalOutputStageSizes(slotSources, limit, "src");
     }
 
     private static boolean intersects(boolean[] left, boolean[] right) {
@@ -5392,7 +5422,7 @@ public final class DfcOpenClRuntime {
             } else {
                 label += "/gen/src=" + stage.sourceChars();
             }
-            out.add(new FinalOutputTraceStageInfo(group, label, stage.deviceVm()));
+            out.add(new FinalOutputTraceStageInfo(group, label, stage.deviceVm(), stage.traceDetail()));
         }
     }
 
@@ -5425,6 +5455,7 @@ public final class DfcOpenClRuntime {
         long generatedRootNanos = 0L;
         List<String> vmStages = new ArrayList<>();
         List<FinalOutputTraceStageTime> waveStages = new ArrayList<>();
+        List<FinalOutputTraceStageDetail> waveStageDetails = new ArrayList<>();
         List<FinalOutputTraceStageTime> generatedDependencyStages = new ArrayList<>();
         List<FinalOutputTraceStageTime> generatedRootStages = new ArrayList<>();
         int count = Math.min(infos == null ? 0 : infos.length, stageNanos == null ? 0 : stageNanos.length);
@@ -5436,6 +5467,9 @@ public final class DfcOpenClRuntime {
                 waveSubmitNanos += safeArrayValue(stageSubmitNanos, i);
                 waveWaitNanos += safeArrayValue(stageWaitNanos, i);
                 waveStages.add(new FinalOutputTraceStageTime(info.label(), nanos));
+                if (info.detail() != null && !info.detail().isBlank()) {
+                    waveStageDetails.add(new FinalOutputTraceStageDetail(info.label(), info.detail(), nanos));
+                }
             } else if (info.deviceVm()) {
                 vmStages.add(info.label() + "=" + formatMillis(nanos / safeIterations));
             } else if ("dep".equals(info.group())) {
@@ -5455,6 +5489,8 @@ public final class DfcOpenClRuntime {
                 .append("/waveWaitMs=").append(formatMillis(waveWaitNanos / safeIterations))
                 .append("/waveTop=")
                 .append(describeTopFinalOutputStageTimes(waveStages, safeIterations, 8))
+                .append("/waveSlotTop=")
+                .append(describeTopFinalOutputStageDetails(waveStageDetails, 4))
                 .append("/generatedDepMs=").append(formatMillis(generatedDependencyNanos / safeIterations))
                 .append("/generatedDepTop=")
                 .append(describeTopFinalOutputStageTimes(generatedDependencyStages, safeIterations, 8))
@@ -5499,6 +5535,65 @@ public final class DfcOpenClRuntime {
             out.append(stage.label())
                     .append('=')
                     .append(formatMillis(stage.nanos() / Math.max(1, iterations)));
+        }
+        if (emitted < sorted.size()) {
+            if (emitted > 0) {
+                out.append("; ");
+            }
+            out.append('+').append(sorted.size() - emitted);
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    private static String describeTopFinalOutputStageDetails(List<FinalOutputTraceStageDetail> stages,
+                                                             int limit) {
+        if (stages == null || stages.isEmpty()) {
+            return "0[]";
+        }
+        List<FinalOutputTraceStageDetail> sorted = new ArrayList<>(stages);
+        sorted.sort((left, right) -> Long.compare(right.nanos(), left.nanos()));
+        int emitted = Math.min(Math.max(0, limit), sorted.size());
+        StringBuilder out = new StringBuilder();
+        out.append(sorted.size()).append('[');
+        for (int i = 0; i < emitted; i++) {
+            if (i > 0) {
+                out.append("; ");
+            }
+            FinalOutputTraceStageDetail stage = sorted.get(i);
+            out.append(stage.label()).append('/').append(stage.detail());
+        }
+        if (emitted < sorted.size()) {
+            if (emitted > 0) {
+                out.append("; ");
+            }
+            out.append('+').append(sorted.size() - emitted);
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    private static String describeTopFinalOutputStageSizes(List<FinalOutputTraceStageTime> stages,
+                                                           int limit,
+                                                           String valueLabel) {
+        if (stages == null || stages.isEmpty()) {
+            return "0[]";
+        }
+        List<FinalOutputTraceStageTime> sorted = new ArrayList<>(stages);
+        sorted.sort((left, right) -> Long.compare(right.nanos(), left.nanos()));
+        int emitted = Math.min(Math.max(0, limit), sorted.size());
+        StringBuilder out = new StringBuilder();
+        out.append(sorted.size()).append('[');
+        for (int i = 0; i < emitted; i++) {
+            if (i > 0) {
+                out.append("; ");
+            }
+            FinalOutputTraceStageTime stage = sorted.get(i);
+            out.append(stage.label())
+                    .append('/')
+                    .append(valueLabel)
+                    .append('=')
+                    .append(stage.nanos());
         }
         if (emitted < sorted.size()) {
             if (emitted > 0) {
@@ -6705,7 +6800,8 @@ public final class DfcOpenClRuntime {
             DfcOpenClGeneratedNoiseSource.BuildResult source,
             byte[] bytecode,
             double[] constants,
-            int targetSlotBufferIndex) {
+            int targetSlotBufferIndex,
+            String traceDetail) {
         static FinalOutputStageBuild generated(DfcOpenClGeneratedNoiseSource.BuildResult source) {
             return generated(-1, source);
         }
@@ -6717,15 +6813,22 @@ public final class DfcOpenClRuntime {
         static FinalOutputStageBuild generatedBatch(int firstTargetSlot,
                                                     int targetSlotCount,
                                                     DfcOpenClGeneratedNoiseSource.BuildResult source) {
+            return generatedBatch(firstTargetSlot, targetSlotCount, source, null);
+        }
+
+        static FinalOutputStageBuild generatedBatch(int firstTargetSlot,
+                                                    int targetSlotCount,
+                                                    DfcOpenClGeneratedNoiseSource.BuildResult source,
+                                                    String traceDetail) {
             return new FinalOutputStageBuild(firstTargetSlot, Math.max(1, targetSlotCount),
-                    source, null, null, -1);
+                    source, null, null, -1, traceDetail);
         }
 
         static FinalOutputStageBuild deviceVm(int targetSlot,
-                                              byte[] bytecode,
-                                              double[] constants,
-                                              int targetSlotBufferIndex) {
-            return new FinalOutputStageBuild(targetSlot, 1, null, bytecode, constants, targetSlotBufferIndex);
+                                               byte[] bytecode,
+                                               double[] constants,
+                                               int targetSlotBufferIndex) {
+            return new FinalOutputStageBuild(targetSlot, 1, null, bytecode, constants, targetSlotBufferIndex, null);
         }
 
         boolean deviceVm() {
@@ -6737,10 +6840,16 @@ public final class DfcOpenClRuntime {
         }
     }
 
-    record FinalOutputTraceStageInfo(String group, String label, boolean deviceVm) {
+    record FinalOutputTraceStageInfo(String group, String label, boolean deviceVm, String detail) {
+        FinalOutputTraceStageInfo(String group, String label, boolean deviceVm) {
+            this(group, label, deviceVm, null);
+        }
     }
 
     private record FinalOutputTraceStageTime(String label, long nanos) {
+    }
+
+    private record FinalOutputTraceStageDetail(String label, String detail, long nanos) {
     }
 
     record FinalOutputExternalPrefillTrace(

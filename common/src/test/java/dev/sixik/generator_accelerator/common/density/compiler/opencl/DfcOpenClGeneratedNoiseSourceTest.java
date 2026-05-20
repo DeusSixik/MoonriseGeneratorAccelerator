@@ -386,6 +386,31 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void finalOutputStageTraceListsWaveSlotDetailsForSlowestWaveStages() {
+        DfcOpenClRuntime.FinalOutputTraceStageInfo[] infos = new DfcOpenClRuntime.FinalOutputTraceStageInfo[]{
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo(
+                        "wave", "wave:0+12:computed:foo/gen/src=20000", false,
+                        "slotTop=1[0:computed:foo/src=9000]"),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo(
+                        "wave", "wave:32+8:computed:bar/gen/src=12000", false,
+                        "slotTop=1[32:computed:bar/src=7000]"),
+                new DfcOpenClRuntime.FinalOutputTraceStageInfo("dep", "dep:5:foo/gen/src=100", false)
+        };
+        long millis = 1_000_000L;
+
+        String trace = DfcOpenClRuntime.describeFinalOutputStageTraceTimes(
+                infos,
+                new long[]{10L * millis, 30L * millis, 5L * millis},
+                0L,
+                0L,
+                2);
+
+        assertTrue(trace.contains("waveSlotTop=2[wave:32+8:computed:bar/gen/src=12000/"
+                + "slotTop=1[32:computed:bar/src=7000]; wave:0+12:computed:foo/gen/src=20000/"
+                + "slotTop=1[0:computed:foo/src=9000]]"));
+    }
+
+    @Test
     void externalPrefillTraceListsTopInputSlotsAndUnattributedTime() {
         DfcOpenClRuntime.ComputedSlot[] computedSlots = new DfcOpenClRuntime.ComputedSlot[5];
         computedSlots[2] = new DfcOpenClRuntime.ComputedSlot(
