@@ -685,6 +685,151 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void directExternalSlotBufferPrefillComputesMarkerExternsIntoSlotMajorCompactBuffer() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "direct-external-prefill",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, false, true},
+                new int[]{-1, 0, -1, -1, 1},
+                new DensityFunction[]{
+                        new TestExternalDensityFunction(1_000.0D),
+                        new TestExternalDensityFunction(2_000.0D)
+                },
+                null);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        5, 0, 0,
+                        2, 10, 30,
+                        1, 3, 1,
+                        0.0D, new double[0], 3);
+        double[] compactSlotMajorValues = new double[6];
+
+        DfcOpenClRuntime.fillDirectExternalSlotBufferInputs(
+                plan, request, compactSlotMajorValues, new int[]{1, 4}, new int[]{0, 1});
+
+        assertArrayEquals(new double[]{
+                4_122.0D, 4_112.0D, 4_102.0D,
+                5_122.0D, 5_112.0D, 5_102.0D
+        }, compactSlotMajorValues);
+    }
+
+    @Test
+    void externalSlotPrefillUsesConstantRangeWithoutCallingCompute() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan plan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "constant-external-prefill",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, false, true},
+                new int[]{-1, 0, -1, -1, 1},
+                new DensityFunction[]{
+                        new ConstantRangeDensityFunction(3.0D),
+                        new ConstantRangeDensityFunction(-2.0D)
+                },
+                null);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                        new byte[0], new double[0],
+                        new byte[0], new double[0], new double[0], new double[0],
+                        new int[0], new int[0], new double[0], new double[0],
+                        5, 0, 0,
+                        0, 0, 0,
+                        1, 1, 1,
+                        0.0D, new double[0], 3);
+        double[] compactSlotMajorValues = new double[6];
+
+        double[] rowMajorValues = DfcOpenClRuntime.fillExternalSlots(plan, request, 5);
+        DfcOpenClRuntime.fillDirectExternalSlotBufferInputs(
+                plan, request, compactSlotMajorValues, new int[]{1, 4}, new int[]{0, 1});
+
+        assertArrayEquals(new double[]{
+                0.0D, 3.0D, 0.0D, 0.0D, -2.0D,
+                0.0D, 3.0D, 0.0D, 0.0D, -2.0D,
+                0.0D, 3.0D, 0.0D, 0.0D, -2.0D
+        }, rowMajorValues);
+        assertArrayEquals(new double[]{3.0D, 3.0D, 3.0D, -2.0D, -2.0D, -2.0D},
+                compactSlotMajorValues);
+    }
+
+    @Test
+    void directExternalSlotBufferInputsOnlyComputeDirectlyWhenAllExternsAreConstant() {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClRuntime.OpenClCompiledPlan constantPlan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "constant-direct-externals",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, false, true},
+                new int[]{-1, 0, -1, -1, 1},
+                new DensityFunction[]{
+                        new ConstantRangeDensityFunction(3.0D),
+                        new ConstantRangeDensityFunction(-2.0D)
+                },
+                null);
+        DfcOpenClRuntime.OpenClCompiledPlan dynamicPlan = new DfcOpenClRuntime.OpenClCompiledPlan(
+                "dynamic-direct-externals",
+                new dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec[5],
+                new byte[]{2, 0},
+                new double[0],
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new boolean[]{false, true, false, false, true},
+                new int[]{-1, 0, -1, -1, 1},
+                new DensityFunction[]{
+                        new ConstantRangeDensityFunction(3.0D),
+                        new TestExternalDensityFunction(2_000.0D)
+                },
+                null);
+
+        assertTrue(DfcOpenClRuntime.directExternalSlotBufferInputsConstant(constantPlan, new int[]{1, 4}));
+        assertFalse(DfcOpenClRuntime.directExternalSlotBufferInputsConstant(dynamicPlan, new int[]{1, 4}));
+    }
+
+    @Test
     void compiledPlanExternalSlotIndicesRespectUsedSlotLimit() {
         assertArrayEquals(new int[]{0, 2}, DfcOpenClRuntime.compiledPlanExternalSlotIndices(
                 new boolean[]{true, false, true, true}, 3));
@@ -1308,6 +1453,28 @@ class DfcOpenClGeneratedNoiseSourceTest {
         @Override
         public double maxValue() {
             return 1_000_000.0D;
+        }
+
+        @Override
+        public net.minecraft.util.KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            return DensityFunctions.zero().codec();
+        }
+    }
+
+    private record ConstantRangeDensityFunction(double value) implements DensityFunction.SimpleFunction {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            throw new AssertionError("constant external prefill should not call compute()");
+        }
+
+        @Override
+        public double minValue() {
+            return this.value;
+        }
+
+        @Override
+        public double maxValue() {
+            return this.value;
         }
 
         @Override

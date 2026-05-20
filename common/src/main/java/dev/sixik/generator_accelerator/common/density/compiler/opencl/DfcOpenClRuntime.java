@@ -4647,16 +4647,28 @@ public final class DfcOpenClRuntime {
         double[] values = new double[Math.multiplyExact(request.n(), safeUsedSlots)];
         int[] externalSlotIndices = compiledPlanExternalSlotIndices(plan.externalSlots(), safeUsedSlots);
         DensityFunction[] externalFunctions = compiledPlanExternalSlotFunctions(plan, externalSlotIndices);
+        double[] externalConstants = constantDensityFunctionValues(externalFunctions);
         MutableFunctionContext context = new MutableFunctionContext();
         for (int i = 0; i < request.n(); i++) {
-            int bx = (int) cellBlockX(i, request);
-            int by = (int) cellBlockY(i, request);
-            int bz = (int) cellBlockZ(i, request);
-            context.set(bx, by, bz);
+            boolean contextSet = false;
             for (int slotIndex = 0; slotIndex < externalSlotIndices.length; slotIndex++) {
                 int slot = externalSlotIndices[slotIndex];
-                DensityFunction extern = externalFunctions[slotIndex];
-                values[elementSlotIndex(i, safeUsedSlots, slot)] = extern.compute(context);
+                double constantValue = externalConstants[slotIndex];
+                if (!Double.isNaN(constantValue)) {
+                    if (constantValue != 0.0D) {
+                        values[elementSlotIndex(i, safeUsedSlots, slot)] = constantValue;
+                    }
+                    continue;
+                }
+                if (!contextSet) {
+                    int bx = (int) cellBlockX(i, request);
+                    int by = (int) cellBlockY(i, request);
+                    int bz = (int) cellBlockZ(i, request);
+                    context.set(bx, by, bz);
+                    contextSet = true;
+                }
+                values[elementSlotIndex(i, safeUsedSlots, slot)] =
+                        externalFunctions[slotIndex].compute(context);
             }
         }
         return values;
@@ -4668,6 +4680,24 @@ public final class DfcOpenClRuntime {
             functions[i] = markerExtern(plan, slots[i]);
         }
         return functions;
+    }
+
+    private static double[] constantDensityFunctionValues(DensityFunction[] functions) {
+        double[] values = new double[functions.length];
+        Arrays.fill(values, Double.NaN);
+        for (int i = 0; i < functions.length; i++) {
+            values[i] = constantDensityFunctionValue(functions[i]);
+        }
+        return values;
+    }
+
+    private static double constantDensityFunctionValue(DensityFunction function) {
+        if (function == null) {
+            return Double.NaN;
+        }
+        double min = function.minValue();
+        double max = function.maxValue();
+        return Double.compare(min, max) == 0 ? min : Double.NaN;
     }
 
     static int[] compiledPlanExternalSlotIndices(boolean[] externalSlots, int usedSlotCount) {
@@ -4754,7 +4784,7 @@ public final class DfcOpenClRuntime {
         long classifyNanos = traceTimings ? System.nanoTime() - classifyStarted : 0L;
         if (directExternalInputSlots != null) {
             return fillFinalOutputDirectExternalSlotBufferInputs(
-                    request, originalExternalSlotValues, slotBufferIndices, slotBufferSlotCount,
+                    plan, request, originalExternalSlotValues, slotBufferIndices, slotBufferSlotCount,
                     directExternalInputSlots, traceTimings, totalStarted, classifyNanos);
         }
         if (traceTimings) {
@@ -4879,6 +4909,7 @@ public final class DfcOpenClRuntime {
     }
 
     private static FinalOutputSlotBufferInputs fillFinalOutputDirectExternalSlotBufferInputs(
+            OpenClCompiledPlan plan,
             DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
             double[] originalExternalSlotValues,
             int[] slotBufferIndices,
@@ -4904,12 +4935,18 @@ public final class DfcOpenClRuntime {
         if (traceTimings) {
             indexNanos = System.nanoTime() - indexStarted;
         }
+        boolean directCompute = directExternalSlotBufferInputsConstant(plan, directExternalInputSlots);
         if (traceTimings) {
             for (int slotIndex = 0; slotIndex < directExternalInputSlots.length; slotIndex++) {
                 int slot = directExternalInputSlots[slotIndex];
                 long slotStarted = System.nanoTime();
-                copyDirectExternalSlotBufferInput(
-                        request, originalExternalSlotValues, values, slot, compactIndices[slotIndex]);
+                if (directCompute) {
+                    fillDirectExternalSlotBufferInput(
+                            plan, request, values, slot, compactIndices[slotIndex]);
+                } else {
+                    copyDirectExternalSlotBufferInput(
+                            request, originalExternalSlotValues, values, slot, compactIndices[slotIndex]);
+                }
                 long slotElapsed = System.nanoTime() - slotStarted;
                 copyNanos += slotElapsed;
                 if (slot >= 0 && slot < slotNanos.length) {
@@ -4917,6 +4954,9 @@ public final class DfcOpenClRuntime {
                     slotValues[slot] += request.n();
                 }
             }
+        } else if (directCompute) {
+            fillDirectExternalSlotBufferInputs(
+                    plan, request, values, directExternalInputSlots, compactIndices);
         } else {
             copyDirectExternalSlotBufferInputs(
                     request, originalExternalSlotValues, values, directExternalInputSlots, compactIndices);
@@ -4927,6 +4967,63 @@ public final class DfcOpenClRuntime {
                 0L, 0L, 0L, 0L, indexNanos, copyNanos, slotNanos, slotValues)
                 : null;
         return new FinalOutputSlotBufferInputs(values, trace);
+    }
+
+    static boolean directExternalSlotBufferInputsConstant(OpenClCompiledPlan plan, int[] slots) {
+        for (int slot : slots) {
+            if (Double.isNaN(constantDensityFunctionValue(markerExtern(plan, slot)))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void fillDirectExternalSlotBufferInputs(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] values,
+            int[] slots,
+            int[] compactIndices) {
+        if (slots.length != compactIndices.length) {
+            throw new IllegalArgumentException("direct external slot count does not match compact index count");
+        }
+        DensityFunction[] externs = compiledPlanExternalSlotFunctions(plan, slots);
+        for (int slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+            fillDirectExternalSlotBufferInput(request, values, externs[slotIndex], compactIndices[slotIndex]);
+        }
+    }
+
+    private static void fillDirectExternalSlotBufferInput(
+            OpenClCompiledPlan plan,
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] values,
+            int slot,
+            int compactIndex) {
+        fillDirectExternalSlotBufferInput(request, values, markerExtern(plan, slot), compactIndex);
+    }
+
+    private static void fillDirectExternalSlotBufferInput(
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request,
+            double[] values,
+            DensityFunction extern,
+            int compactIndex) {
+        int n = request.n();
+        int targetIndex = Math.multiplyExact(compactIndex, n);
+        double constantValue = constantDensityFunctionValue(extern);
+        if (!Double.isNaN(constantValue)) {
+            if (constantValue != 0.0D) {
+                Arrays.fill(values, targetIndex, targetIndex + n, constantValue);
+            }
+            return;
+        }
+        MutableFunctionContext context = new MutableFunctionContext();
+        for (int element = 0; element < n; element++) {
+            int bx = (int) cellBlockX(element, request);
+            int by = (int) cellBlockY(element, request);
+            int bz = (int) cellBlockZ(element, request);
+            context.set(bx, by, bz);
+            values[targetIndex + element] = extern.compute(context);
+        }
     }
 
     static void copyDirectExternalSlotBufferInputs(
