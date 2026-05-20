@@ -9,8 +9,10 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -18,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -1768,6 +1771,28 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void registryLookupMaterializesNoiseChunkLocalExternsWithoutRetainingThem() throws ReflectiveOperationException {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
+        DfcOpenClCompiledPlanRegistry.clear();
+        DensityFunction localExtern = new LocalNoiseChunkDensityFunction(new TestExternalDensityFunction(0.0D));
+        TestCompiledDensityFunction source = new TestCompiledDensityFunction(new DensityFunction[0]);
+        TestCompiledDensityFunction rebound = new TestCompiledDensityFunction(new DensityFunction[]{localExtern});
+        Map<CompiledDensityFunction, DfcOpenClCompiledPlanRegistry.Entry> plans = registeredOpenClPlans();
+        plans.put(source, DfcOpenClCompiledPlanRegistry.Entry.available(
+                openClPlanWithOneExternal(new TestExternalDensityFunction(1.0D))));
+
+        DfcOpenClCompiledPlanRegistry.registerRebind(source, rebound, new DensityFunction[]{localExtern});
+
+        DfcOpenClCompiledPlanRegistry.Entry lookup = DfcOpenClCompiledPlanRegistry.lookup(rebound);
+        assertTrue(lookup.available(), lookup.unavailableReason());
+        assertSame(localExtern, lookup.plan().externs()[0]);
+        DfcOpenClCompiledPlanRegistry.Entry rawEntry = plans.get(rebound);
+        assertTrue(rawEntry.available(), rawEntry.unavailableReason());
+        assertNull(rawEntry.plan().externs());
+    }
+
+    @Test
     void slabProgramSlotDependenciesContainOnlyReferencedRootSlots() {
         byte[] program = new byte[]{
                 2, 3,
@@ -1859,6 +1884,59 @@ class DfcOpenClGeneratedNoiseSourceTest {
                 new int[]{-1, 0, -1},
                 new DensityFunction[]{extern},
                 null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<CompiledDensityFunction, DfcOpenClCompiledPlanRegistry.Entry> registeredOpenClPlans()
+            throws ReflectiveOperationException {
+        Field plans = DfcOpenClCompiledPlanRegistry.class.getDeclaredField("PLANS");
+        plans.setAccessible(true);
+        return (Map<CompiledDensityFunction, DfcOpenClCompiledPlanRegistry.Entry>) plans.get(null);
+    }
+
+    private static final class TestCompiledDensityFunction extends CompiledDensityFunction {
+        private TestCompiledDensityFunction(DensityFunction[] externs) {
+            super(new double[0],
+                    new net.minecraft.world.level.levelgen.synth.NormalNoise[0],
+                    new Object[0],
+                    new Object[0],
+                    externs,
+                    0.0D,
+                    0.0D,
+                    new java.lang.invoke.MethodHandle[0],
+                    null,
+                    null,
+                    new double[0],
+                    null);
+        }
+
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            return 0.0D;
+        }
+    }
+
+    private record LocalNoiseChunkDensityFunction(DensityFunction wrapped)
+            implements NoiseChunk.NoiseChunkDensityFunction {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            return this.wrapped.compute(context);
+        }
+
+        @Override
+        public void fillArray(double[] values, DensityFunction.ContextProvider contextProvider) {
+            this.wrapped.fillArray(values, contextProvider);
+        }
+
+        @Override
+        public DensityFunction mapAll(DensityFunction.Visitor visitor) {
+            return visitor.apply(this);
+        }
+
+        @Override
+        public net.minecraft.util.KeyDispatchDataCodec<? extends DensityFunction> codec() {
+            return this.wrapped.codec();
+        }
     }
 
     private record TestExternalDensityFunction(double baseValue) implements DensityFunction.SimpleFunction {

@@ -71,10 +71,7 @@ public final class DfcOpenClCompiledPlanRegistry {
         Entry entry;
         try {
             DfcOpenClRuntime.OpenClCompiledPlan plan = build("compiled", root, pool, extracted);
-            entry = planExternsRetainable(plan.externs())
-                    ? Entry.available(plan)
-                    : Entry.unavailable(
-                    "OpenCL plan externs are NoiseChunk-local; not retained to avoid leaking chunk state");
+            entry = Entry.available(planExternsRetainable(plan.externs()) ? plan : withoutExterns(plan));
         } catch (Throwable throwable) {
             entry = Entry.unavailable(errorMessage(throwable));
         }
@@ -86,9 +83,15 @@ public final class DfcOpenClCompiledPlanRegistry {
             return Entry.unavailable("compiled density function is null");
         }
         Entry entry = PLANS.get(compiled);
-        return entry != null ? entry : Entry.unavailable(
-                "compiled density function has no registered OpenCL plan; it may have been compiled before "
-                        + "this diagnostic registry was installed");
+        if (entry == null) {
+            return Entry.unavailable(
+                    "compiled density function has no registered OpenCL plan; it may have been compiled before "
+                            + "this diagnostic registry was installed");
+        }
+        if (!entry.available() || entry.plan().externs() != null) {
+            return entry;
+        }
+        return Entry.available(withExterns(entry.plan(), compiled.dfc$openClRuntimeExterns()));
     }
 
     public static void registerRebind(CompiledDensityFunction source, CompiledDensityFunction rebound,
@@ -104,13 +107,20 @@ public final class DfcOpenClCompiledPlanRegistry {
             PLANS.put(rebound, entry);
             return;
         }
-        if (!planExternsRetainable(reboundExterns)) {
-            PLANS.put(rebound, Entry.unavailable(
-                    "rebound OpenCL plan externs are NoiseChunk-local; not retained to avoid leaking chunk state"));
-            return;
-        }
         DfcOpenClRuntime.OpenClCompiledPlan plan = entry.plan();
-        PLANS.put(rebound, Entry.available(new DfcOpenClRuntime.OpenClCompiledPlan(
+        DensityFunction[] externs = reboundExterns == null ? plan.externs() : reboundExterns.clone();
+        PLANS.put(rebound, Entry.available(planExternsRetainable(externs)
+                ? withExterns(plan, externs)
+                : withoutExterns(plan)));
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan withoutExterns(DfcOpenClRuntime.OpenClCompiledPlan plan) {
+        return withExterns(plan, null);
+    }
+
+    private static DfcOpenClRuntime.OpenClCompiledPlan withExterns(DfcOpenClRuntime.OpenClCompiledPlan plan,
+                                                                   DensityFunction[] externs) {
+        return new DfcOpenClRuntime.OpenClCompiledPlan(
                 plan.label(),
                 plan.specs(),
                 plan.slabProgram(),
@@ -126,8 +136,8 @@ public final class DfcOpenClCompiledPlanRegistry {
                 plan.blendedSpecs(),
                 plan.externalSlots(),
                 plan.markerExternIndices(),
-                reboundExterns == null ? plan.externs() : reboundExterns.clone(),
-                plan.computedSlots())));
+                externs == null ? null : externs.clone(),
+                plan.computedSlots());
     }
 
     static boolean planExternsRetainable(DensityFunction[] externs) {

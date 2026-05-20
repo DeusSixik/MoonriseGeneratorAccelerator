@@ -270,6 +270,10 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         return this.noises == null ? new NormalNoise[0] : this.noises.clone();
     }
 
+    public final DensityFunction[] dfc$openClRuntimeExterns() {
+        return this.externs == null ? new DensityFunction[0] : this.externs.clone();
+    }
+
     public final ArrayIndexOutOfBoundsException dfc$wrapArrayIndexOutOfBounds(
             ArrayIndexOutOfBoundsException cause,
             DensityFunction.FunctionContext context,
