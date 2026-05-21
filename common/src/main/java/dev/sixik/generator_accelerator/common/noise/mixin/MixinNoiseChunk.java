@@ -294,9 +294,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
     @Unique
     private void bts$invalidateOpenClColumnBatches() {
-        if (this.bts$openClColumnBatchValues != null) {
-            Arrays.fill(this.bts$openClColumnBatchValues, null);
-        }
         if (this.bts$openClColumnBatchCellStartBlockX != null) {
             Arrays.fill(this.bts$openClColumnBatchCellStartBlockX, Integer.MIN_VALUE);
         }
@@ -309,32 +306,37 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     }
 
     @Unique
-    private boolean bts$tryOpenClColumnBatch(int cacheIndex, int yIndex, int zIndex,
-                                             DfcCellFillAccess fast, double[] values, NoiseChunk self) {
+    private boolean bts$tryOpenClSliceBatch(int cacheIndex, int yIndex, int zIndex,
+                                            DfcCellFillAccess fast, double[] values, NoiseChunk self) {
         if (!(fast instanceof CompiledDensityFunction compiled)) {
             return false;
         }
+        if (zIndex < 0 || zIndex >= this.cellCountXZ) {
+            return false;
+        }
         int cellVolume = this.cellWidth * this.cellWidth * this.cellHeight;
-        int batchLength = cellVolume * this.cellCountY;
+        int batchLength = cellVolume * this.cellCountY * this.cellCountXZ;
         double[] batch = this.bts$openClColumnBatchValues[cacheIndex];
         if (batch != null
                 && this.bts$openClColumnBatchCellStartBlockX[cacheIndex] == this.cellStartBlockX
-                && this.bts$openClColumnBatchZIndex[cacheIndex] == zIndex
+                && this.bts$openClColumnBatchZIndex[cacheIndex] == this.firstCellZ
                 && this.bts$openClColumnBatchFiller[cacheIndex] == fast
                 && batch.length >= batchLength) {
-            DfcOpenClRuntime.copyRuntimeColumnBatchCell(batch, yIndex, values, this.cellWidth, this.cellHeight);
+            DfcOpenClRuntime.copyRuntimeSliceBatchCell(batch, yIndex, zIndex, values,
+                    this.cellCountY, this.cellWidth, this.cellHeight);
             return true;
         }
         if (batch == null || batch.length < batchLength) {
             batch = new double[batchLength];
             this.bts$openClColumnBatchValues[cacheIndex] = batch;
         }
-        if (DfcOpenClRuntime.tryFillFinalDensityHybridColumn(
-                compiled, batch, self, this.cellNoiseMinY, this.cellCountY)) {
+        if (DfcOpenClRuntime.tryFillFinalDensityHybridSlice(
+                compiled, batch, self, this.cellNoiseMinY, this.cellCountY, this.firstCellZ, this.cellCountXZ)) {
             this.bts$openClColumnBatchCellStartBlockX[cacheIndex] = this.cellStartBlockX;
-            this.bts$openClColumnBatchZIndex[cacheIndex] = zIndex;
+            this.bts$openClColumnBatchZIndex[cacheIndex] = this.firstCellZ;
             this.bts$openClColumnBatchFiller[cacheIndex] = fast;
-            DfcOpenClRuntime.copyRuntimeColumnBatchCell(batch, yIndex, values, this.cellWidth, this.cellHeight);
+            DfcOpenClRuntime.copyRuntimeSliceBatchCell(batch, yIndex, zIndex, values,
+                    this.cellCountY, this.cellWidth, this.cellHeight);
             return true;
         }
         this.bts$openClColumnBatchValues[cacheIndex] = null;
@@ -398,7 +400,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
                 if (DfcCellFillStats.ENABLED) {
                     DfcCellFillStats.recordCellFill(fast, filler);
                 }
-                if (!this.bts$tryOpenClColumnBatch(i, yIndex, zIndex, fast, values, self)) {
+                if (!this.bts$tryOpenClSliceBatch(i, yIndex, zIndex, fast, values, self)) {
                     fast.dfc$fillCell(values, self);
                 }
                 if (DfcCellFillParity.isActive()) {

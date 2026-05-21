@@ -1672,6 +1672,64 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeHybridSliceBatchMeetsDefaultMinimumWhenScheduledSlotsAreLargeEnough() {
+        String oldMin = System.getProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+        try {
+            System.clearProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+            assertEquals(102_400, DfcOpenClRuntime.runtimeHybridSliceCellValues(4, 8, 32, 25));
+            assertEquals(5_529_600, DfcOpenClRuntime.runtimeHybridSliceSlotValues(4, 8, 32, 25, 54));
+            assertTrue(DfcOpenClRuntime.runtimeHybridSliceMeetsMinimum(4, 8, 32, 25, 54));
+            assertFalse(DfcOpenClRuntime.runtimeHybridSliceMeetsMinimum(4, 8, 1, 1, 32));
+        } finally {
+            if (oldMin == null) {
+                System.clearProperty("dfc.opencl.finalDensityHybridMinSlotValues");
+            } else {
+                System.setProperty("dfc.opencl.finalDensityHybridMinSlotValues", oldMin);
+            }
+        }
+    }
+
+    @Test
+    void runtimeSliceBatchElementIndexOffsetsZThenYCells() {
+        int cellWidth = 4;
+        int cellHeight = 8;
+        int cellCountY = 32;
+        int cellVolume = cellWidth * cellWidth * cellHeight;
+        assertEquals(0, DfcOpenClRuntime.runtimeSliceBatchElementIndex(0, 0, 0,
+                cellCountY, cellWidth, cellHeight));
+        assertEquals(16, DfcOpenClRuntime.runtimeSliceBatchElementIndex(0, 0, 1,
+                cellCountY, cellWidth, cellHeight));
+        assertEquals(cellVolume, DfcOpenClRuntime.runtimeSliceBatchElementIndex(0, 1, 0,
+                cellCountY, cellWidth, cellHeight));
+        assertEquals(cellVolume * cellCountY, DfcOpenClRuntime.runtimeSliceBatchElementIndex(1, 0, 0,
+                cellCountY, cellWidth, cellHeight));
+        assertEquals(cellVolume * (cellCountY + 2) + 16,
+                DfcOpenClRuntime.runtimeSliceBatchElementIndex(1, 2, 1,
+                        cellCountY, cellWidth, cellHeight));
+    }
+
+    @Test
+    void runtimeSliceBatchCopyExtractsOneJavaOrderCell() {
+        int cellWidth = 4;
+        int cellHeight = 8;
+        int cellCountY = 3;
+        int cellVolume = cellWidth * cellWidth * cellHeight;
+        double[] batch = new double[cellVolume * cellCountY * 2];
+        for (int i = 0; i < batch.length; i++) {
+            batch[i] = 20_000.0D + i;
+        }
+        double[] cell = new double[cellVolume];
+
+        DfcOpenClRuntime.copyRuntimeSliceBatchCell(batch, 2, 1, cell,
+                cellCountY, cellWidth, cellHeight);
+
+        int offset = cellVolume * (cellCountY + 2);
+        for (int i = 0; i < cellVolume; i++) {
+            assertEquals(20_000.0D + offset + i, cell[i]);
+        }
+    }
+
+    @Test
     void runtimeCellGridCoordsKeepSyntheticXzLayout() {
         DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
                 testRequestWithLayout(DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ, 100, 40, 200, 4, 8, 64);
@@ -1699,6 +1757,21 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeCellGridCoordsMapYzSliceLayout() {
+        int cellCountY = 32;
+        int layout = DfcOpenClRuntime.cellGridLayoutWithStride(
+                DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_Z_SLICE, cellCountY);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                testRequestWithLayout(layout, 100, -64, 200, 4, 8, cellCountY * 2);
+        int element = DfcOpenClRuntime.runtimeSliceBatchElementIndex(1, 2, 1,
+                cellCountY, 4, 8);
+
+        assertEquals(100.0D, DfcOpenClRuntime.runtimeCellGridBlockX(element, request));
+        assertEquals(-42.0D, DfcOpenClRuntime.runtimeCellGridBlockY(element, request));
+        assertEquals(204.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(element, request));
+    }
+
+    @Test
     void runtimeHybridFastSkipPathIsNotGloballySynchronized() throws NoSuchMethodException {
         int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
                 "tryFillFinalDensityHybrid", CompiledDensityFunction.class, double[].class, NoiseChunk.class)
@@ -1711,6 +1784,17 @@ class DfcOpenClGeneratedNoiseSourceTest {
         int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
                 "tryFillFinalDensityHybridColumn",
                 CompiledDensityFunction.class, double[].class, NoiseChunk.class, int.class, int.class)
+                .getModifiers();
+        assertTrue(Modifier.isPublic(modifiers));
+        assertFalse(Modifier.isSynchronized(modifiers));
+    }
+
+    @Test
+    void runtimeHybridSliceApiIsPublicAndNotSynchronized() throws NoSuchMethodException {
+        int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
+                "tryFillFinalDensityHybridSlice",
+                CompiledDensityFunction.class, double[].class, NoiseChunk.class,
+                int.class, int.class, int.class, int.class)
                 .getModifiers();
         assertTrue(Modifier.isPublic(modifiers));
         assertFalse(Modifier.isSynchronized(modifiers));

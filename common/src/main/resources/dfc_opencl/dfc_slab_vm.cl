@@ -277,6 +277,9 @@ inline double dfc_noise_slot_sample(DFC_NOISE_MEM const uchar *permutations,
 
 #define DFC_CELL_GRID_LAYOUT_XZ 0
 #define DFC_CELL_GRID_LAYOUT_Y_COLUMN 1
+#define DFC_CELL_GRID_LAYOUT_Y_Z_SLICE 2
+#define DFC_CELL_GRID_LAYOUT_KIND_MASK 255
+#define DFC_CELL_GRID_LAYOUT_STRIDE_SHIFT 8
 
 inline int dfc_cell_grid_coords(int gid, int first_block_x, int first_block_y, int first_block_z,
                                 int cell_w, int cell_h, int cells, int layout,
@@ -311,10 +314,21 @@ inline int dfc_cell_grid_coords(int gid, int first_block_x, int first_block_y, i
         iz = plane - ix * cell_w;
     }
 
-    if (layout == DFC_CELL_GRID_LAYOUT_Y_COLUMN) {
+    int layout_kind = layout & DFC_CELL_GRID_LAYOUT_KIND_MASK;
+    if (layout_kind == DFC_CELL_GRID_LAYOUT_Y_COLUMN) {
         *bx = (double) (first_block_x + ix);
         *by = (double) (first_block_y + cell * cell_h + (cell_h - 1 - y_index));
         *bz = (double) (first_block_z + iz);
+    } else if (layout_kind == DFC_CELL_GRID_LAYOUT_Y_Z_SLICE) {
+        int stride = layout >> DFC_CELL_GRID_LAYOUT_STRIDE_SHIFT;
+        if (stride <= 0) {
+            return 0;
+        }
+        int cell_y = cell - (cell / stride) * stride;
+        int cell_z = cell / stride;
+        *bx = (double) (first_block_x + ix);
+        *by = (double) (first_block_y + cell_y * cell_h + (cell_h - 1 - y_index));
+        *bz = (double) (first_block_z + cell_z * cell_w + iz);
     } else {
         int cell_x = cell & 31;
         int cell_z = cell >> 5;

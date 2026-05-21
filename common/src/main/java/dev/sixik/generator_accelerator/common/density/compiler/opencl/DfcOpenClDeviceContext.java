@@ -2032,9 +2032,17 @@ final class DfcOpenClDeviceContext implements AutoCloseable {
         if (request.cellWidth <= 0 || request.cellHeight <= 0 || request.cells <= 0) {
             throw new IllegalArgumentException("invalid cell grid dimensions");
         }
-        if (request.layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ
-                && request.layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_COLUMN) {
+        int layout = DfcOpenClRuntime.cellGridLayoutKind(request.layout);
+        if (layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_XZ
+                && layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_COLUMN
+                && layout != DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_Z_SLICE) {
             throw new IllegalArgumentException("unknown cell grid layout " + request.layout);
+        }
+        if (layout == DfcOpenClRuntime.CELL_GRID_LAYOUT_Y_Z_SLICE) {
+            int stride = DfcOpenClRuntime.cellGridLayoutStride(request.layout);
+            if (stride <= 0 || request.cells % stride != 0) {
+                throw new IllegalArgumentException("invalid Y/Z slice cell stride");
+            }
         }
         long expectedN = (long) request.cellWidth * request.cellWidth * request.cellHeight * request.cells;
         if (expectedN > Integer.MAX_VALUE || request.n != (int) expectedN) {
