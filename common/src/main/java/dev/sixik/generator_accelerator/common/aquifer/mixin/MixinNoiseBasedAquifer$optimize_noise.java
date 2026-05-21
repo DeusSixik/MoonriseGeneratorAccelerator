@@ -173,31 +173,35 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
         this.ga$globalCacheKind = new byte[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheValid = new boolean[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheNextSlot = new byte[GA$GLOBAL_CACHE_COLUMNS];
-        this.ga$regionalAtlasOwner = new GARegionalAquiferAtlasOwner(
-                this.positionalRandomFactory,
-                this.globalFluidPicker,
-                this.erosion,
-                this.depth,
-                this.fluidLevelFloodednessNoise,
-                this.minGridX,
-                this.minGridY,
-                this.minGridZ,
-                this.gridSizeX,
-                this.gridSizeZ
-        );
-        if (noiseChunk instanceof GAUnifiedRegionPacketAccess access) {
-            GAUnifiedRegionPacket packet = access.ga$unifiedRegionPacket();
-            if (packet != null) {
-                packet.attachAquiferOwner(this.ga$regionalAtlasOwner);
-                this.ga$regionalAtlasView = packet.aquiferView();
-            }
-        }
-        if (this.ga$regionalAtlasView == null) {
-            this.ga$regionalAtlasView = GARegionalAquiferAtlas.view(
-                    this.ga$regionalAtlasOwner,
-                    chunkPos.getMinBlockX(),
-                    chunkPos.getMinBlockZ()
+        this.ga$regionalAtlasOwner = null;
+        this.ga$regionalAtlasView = null;
+        if (GARegionalAquiferAtlas.enabled()) {
+            this.ga$regionalAtlasOwner = new GARegionalAquiferAtlasOwner(
+                    this.positionalRandomFactory,
+                    this.globalFluidPicker,
+                    this.erosion,
+                    this.depth,
+                    this.fluidLevelFloodednessNoise,
+                    this.minGridX,
+                    this.minGridY,
+                    this.minGridZ,
+                    this.gridSizeX,
+                    this.gridSizeZ
             );
+            if (noiseChunk instanceof GAUnifiedRegionPacketAccess access) {
+                GAUnifiedRegionPacket packet = access.ga$unifiedRegionPacket();
+                if (packet != null) {
+                    packet.attachAquiferOwner(this.ga$regionalAtlasOwner);
+                    this.ga$regionalAtlasView = packet.aquiferView();
+                }
+            }
+            if (this.ga$regionalAtlasView == null) {
+                this.ga$regionalAtlasView = GARegionalAquiferAtlas.view(
+                        this.ga$regionalAtlasOwner,
+                        chunkPos.getMinBlockX(),
+                        chunkPos.getMinBlockZ()
+                );
+            }
         }
         final RandomSource reusableRandom = SixikGenerationUtils.tryGetRandom(this.positionalRandomFactory);
         // index: y, z, x

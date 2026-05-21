@@ -581,6 +581,9 @@ public final class GAScheduler {
     }
 
     private static <T> T runCompileGoverned(Supplier<T> supplier) {
+        if (configSnapshot.compileWorkers() <= 1) {
+            return runMeasured(Lane.COMPILE, supplier);
+        }
         long waitStart = 0L;
         boolean throttled = false;
         for (;;) {
@@ -615,6 +618,10 @@ public final class GAScheduler {
     }
 
     private static <T> T runWorldgenGoverned(Lane lane, Supplier<T> supplier) {
+        ConfigSnapshot firstConfig = configSnapshot;
+        if (worldgenGovernorDisabled(firstConfig)) {
+            return runMeasured(lane, supplier);
+        }
         long waitStart = 0L;
         boolean throttled = false;
         for (;;) {
@@ -789,6 +796,13 @@ public final class GAScheduler {
         return (config.commitBacklogThrottleThreshold() > 0 && commitBacklog >= config.commitBacklogThrottleThreshold())
                 || (config.mailboxBacklogThrottleThreshold() > 0 && mailboxBacklog >= config.mailboxBacklogThrottleThreshold())
                 || (config.heapPressureTarget() > 0.0D && heapUsedRatio >= config.heapPressureTarget());
+    }
+
+    private static boolean worldgenGovernorDisabled(ConfigSnapshot config) {
+        return config.cpuTarget() >= 1.0D
+                && config.commitBacklogThrottleThreshold() <= 0
+                && config.mailboxBacklogThrottleThreshold() <= 0
+                && config.heapPressureTarget() <= 0.0D;
     }
 
     private static long commitBacklog() {
@@ -968,7 +982,7 @@ public final class GAScheduler {
         }
 
         static ConfigSnapshot from(GAConfig config, int processors, boolean isDev) {
-            int worldgenBudget = Math.max(2, processors);
+            int worldgenBudget = Math.max(2, (int) Math.ceil(processors * 1.5D));
             int activeWorldgenBudget = Math.max(1, worldgenBudget);
             int defaultNoise = Math.max(1, Math.round(activeWorldgenBudget * 0.60F));
             int defaultWorkspace = Math.max(1, Math.round(activeWorldgenBudget * 0.30F));

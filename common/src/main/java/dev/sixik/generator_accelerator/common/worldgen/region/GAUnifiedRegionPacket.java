@@ -108,6 +108,11 @@ public final class GAUnifiedRegionPacket {
             int minQuartY,
             int quartHeight
     ) {
+        if (!GARegionalClimateQuartRaster.enabled()) {
+            this.climateOwner = null;
+            this.climateView = null;
+            return;
+        }
         if (biomeSource == null || quartHeight <= 0) {
             return;
         }
@@ -223,11 +228,6 @@ public final class GAUnifiedRegionPacket {
             Runnable noiseBrickWarm
     ) {
         if (!GARegionalPrewarmManager.enabled()) {
-            runIfPresent(densityWarm);
-            runIfPresent(aquiferWarm);
-            runIfPresent(beardifierWarm);
-            runIfPresent(climateWarm);
-            runIfPresent(noiseBrickWarm);
             return;
         }
         Object key = new NoisePrewarmKey(
@@ -285,7 +285,6 @@ public final class GAUnifiedRegionPacket {
 
     public void requestSurfacePrewarm(Runnable surfaceWarm) {
         if (!GARegionalPrewarmManager.enabled()) {
-            runIfPresent(surfaceWarm);
             return;
         }
         Object key = new SurfacePrewarmKey(this.regionX, this.regionZ, this.surfaceSystem, this.randomState);
@@ -298,7 +297,6 @@ public final class GAUnifiedRegionPacket {
 
     public void requestClimatePrewarm(Runnable climateWarm) {
         if (!GARegionalPrewarmManager.enabled()) {
-            runIfPresent(climateWarm);
             return;
         }
         Object key = new ClimatePrewarmKey(this.regionX, this.regionZ, this.climateOwner);

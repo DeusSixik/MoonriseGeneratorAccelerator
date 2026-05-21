@@ -31,7 +31,7 @@ public final class GARegionalClimateQuartRaster {
     private static final int CLIMATE_FIELD_COUNT = 6;
     private static final boolean ENABLED = !"false".equalsIgnoreCase(System.getProperty(
             "ga.biome.regionalClimateQuartRaster.enabled",
-            "true"
+            "false"
     ));
     private static final boolean BIOME_MANAGER_ENABLED = Boolean.parseBoolean(System.getProperty(
             "ga.biome.regionalClimateQuartRaster.biomeManager.enabled",

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class GARegionalSurfaceNoiseCacheTest {
     static {
@@ -25,6 +26,7 @@ class GARegionalSurfaceNoiseCacheTest {
 
     @BeforeEach
     void clearCache() {
+        assumeTrue(GARegionalSurfaceNoiseCache.enabled());
         GARegionalSurfaceNoiseCache.clearForTests();
     }
 

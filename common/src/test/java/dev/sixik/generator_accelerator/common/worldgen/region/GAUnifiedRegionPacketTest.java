@@ -13,6 +13,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class GAUnifiedRegionPacketTest {
+    static {
+        System.setProperty("ga.aquifer.regionalAtlas.enabled", "true");
+        System.setProperty("ga.noise.regionalDensitySliceCache.enabled", "true");
+        System.setProperty("ga.biome.regionalClimateQuartRaster.enabled", "true");
+    }
+
     @Test
     void terrainBindKeepsDensityAndAquiferViewsLocalToRegion() {
         GAUnifiedRegionPacket packet = new GAUnifiedRegionPacket();

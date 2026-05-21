@@ -252,6 +252,9 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             int startY,
             int startZ
     ) {
+        if (!GARegionalBeardifierAtlas.enabled()) {
+            return ga$buildCellValues(cellW, cellH, startX, startY, startZ);
+        }
         GARegionalBeardifierAtlasOwner owner = this.ga$atlasOwner;
         if (owner == null || owner.plan() != this.ga$plan || owner.cellWidth() != cellW || owner.cellHeight() != cellH) {
             owner = new GARegionalBeardifierAtlasOwner(this.ga$plan, cellW, cellH);
