@@ -136,6 +136,10 @@ public final class GABeardifierKernel {
         accumulateCell(plan, scratch, out, cellWidth, cellHeight, startX, startY, startZ);
     }
 
+    static int cellIndex(int cellWidth, int cellHeight, int localX, int localY, int localZ) {
+        return ((localX * cellWidth) + localZ) * cellHeight + (cellHeight - 1 - localY);
+    }
+
     public static void accumulateCell(
             GABeardifierPlan plan,
             GABeardifierCellScratch scratch,

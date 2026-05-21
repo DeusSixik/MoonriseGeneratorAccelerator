@@ -293,16 +293,20 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         metricSelectCellCalls++;
                         metricSelectCellNanos += System.nanoTime() - selectStart;
                     }
+                    int directCellDensitySummary = GAFusedTerrainDirectCellSampler.SUMMARY_UNAVAILABLE;
                     if (directCellTerrain) {
                         directCellDensityValues = fusedTerrain.ga$fusedTerrainDirectCellDensityValues();
+                        directCellDensitySummary = fusedTerrain.ga$fusedTerrainDirectCellDensitySummary();
                     }
                     boolean directSolidDefaultCell = GA$DIRECT_SOLID_CELL_FAST
                             && directCellTerrain
-                            && directCellDensityValues != null
-                            && (!directCellHasOreVeinRule
-                            || directCellSkipsOreVeins
-                            || !ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight))
-                            && ga$allDensitiesPositive(directCellDensityValues);
+                            && GAFusedTerrainDirectCellSampler.cellCanUseDefaultSolid(
+                            directCellDensitySummary,
+                            cellMinBlockY,
+                            cellHeight,
+                            directCellHasOreVeinRule,
+                            directCellSkipsOreVeins
+                    );
                     if (directSolidDefaultCell && metricsEnabled) {
                         metricDirectSolidCellFastCells++;
                     }
@@ -314,8 +318,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                     } else if (GA$DIRECT_NEGATIVE_CELL_FAST
                             && directCellTerrain
                             && fusedTerrain != null
-                            && directCellDensityValues != null
-                            && ga$allDensitiesNonPositive(directCellDensityValues)) {
+                            && GAFusedTerrainDirectCellSampler.cellIsAllNonPositive(directCellDensitySummary)) {
                         if (GA$DIRECT_HIGH_AIR_CELL_FAST
                                 && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
                                 && cellMinBlockY >= seaLevel) {
@@ -1066,26 +1069,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
                 GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
         );
-    }
-
-    @Unique
-    private static boolean ga$allDensitiesPositive(double[] densityValues) {
-        for (double density : densityValues) {
-            if (density <= 0.0D) {
-                return false;
-            }
-        }
-        return densityValues.length > 0;
-    }
-
-    @Unique
-    private static boolean ga$allDensitiesNonPositive(double[] densityValues) {
-        for (double density : densityValues) {
-            if (density > 0.0D) {
-                return false;
-            }
-        }
-        return densityValues.length > 0;
     }
 
     @Unique

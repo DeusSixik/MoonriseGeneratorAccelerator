@@ -81,6 +81,37 @@ class GABeardifierKernelTest {
     }
 
     @Test
+    void cachedCellSamplingMatchesFilledLayout() {
+        GABeardifierKernel.setBeardKernel(kernel());
+        GABeardifierPlan plan = densePlan();
+        GABeardifierCellScratch scratch = new GABeardifierCellScratch();
+        int cellWidth = 4;
+        int cellHeight = 8;
+        int startX = 12;
+        int startY = 20;
+        int startZ = 16;
+        int cellValues = cellWidth * cellWidth * cellHeight;
+        double[] out = scratch.ensureCachedCellValues(cellValues);
+
+        GABeardifierKernel.fillCell(plan, scratch, out, cellWidth, cellHeight, startX, startY, startZ);
+        scratch.cacheCell(plan, cellWidth, cellHeight, startX, startY, startZ, cellValues);
+
+        for (int localX = 0; localX < cellWidth; localX++) {
+            for (int localZ = 0; localZ < cellWidth; localZ++) {
+                for (int localY = 0; localY < cellHeight; localY++) {
+                    double expected = GABeardifierKernel.computeAt(
+                            plan,
+                            startX + localX,
+                            startY + localY,
+                            startZ + localZ
+                    );
+                    assertEquals(expected, scratch.sampleCachedCell(localX, localY, localZ), 1.0E-9D);
+                }
+            }
+        }
+    }
+
+    @Test
     void kernelLookupOutOfRangeMatchesVanillaZero() throws ReflectiveOperationException {
         GABeardifierKernel.setBeardKernel(kernel());
         Method sameY = GABeardifierKernel.class.getDeclaredMethod(

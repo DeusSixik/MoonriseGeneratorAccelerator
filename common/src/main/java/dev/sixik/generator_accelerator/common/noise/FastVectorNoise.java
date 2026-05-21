@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise;
 
+import dev.sixik.generator_accelerator.common.treads.GAThreadLocal;
+
 /**
  * Векторизованный генератор шума Симплекса (Perlin/Simplex).
  * Оптимизирован для генерации вертикальных столбцов (когда X и Z постоянны, а Y меняется).
@@ -38,7 +40,7 @@ public class FastVectorNoise {
          Состояние колонки для разделения циклов (Multi-pass / Loop Fission)
          512 элементов с запасом покрывают максимальную высоту мира (384)
      */
-    private static final ThreadLocal<ColumnState> STATE = ThreadLocal.withInitial(ColumnState::new);
+    private static final GAThreadLocal<ColumnState> STATE = GAThreadLocal.withInitial(ColumnState::new);
 
     private static class ColumnState {
         final float[] dy = new float[512];

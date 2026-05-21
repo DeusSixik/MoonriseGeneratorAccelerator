@@ -167,4 +167,35 @@ class GAFusedTerrainDirectCellSamplerTest {
                 false
         ));
     }
+
+    @Test
+    void densitySummaryClassifiesPositiveNegativeAndMixedCells() {
+        assertEquals(
+                GAFusedTerrainDirectCellSampler.SUMMARY_ALL_POSITIVE,
+                GAFusedTerrainDirectCellSampler.summarizeCellDensities(new double[]{0.1D, 0.2D, 1.0D})
+        );
+        assertEquals(
+                GAFusedTerrainDirectCellSampler.SUMMARY_ALL_NON_POSITIVE,
+                GAFusedTerrainDirectCellSampler.summarizeCellDensities(new double[]{0.0D, -0.2D, -1.0D})
+        );
+        assertEquals(
+                GAFusedTerrainDirectCellSampler.SUMMARY_UNAVAILABLE,
+                GAFusedTerrainDirectCellSampler.summarizeCellDensities(new double[]{0.1D, -0.2D})
+        );
+    }
+
+    @Test
+    void summaryBackedSolidCheckMatchesArrayOverload() {
+        int summary = GAFusedTerrainDirectCellSampler.summarizeCellDensities(new double[]{0.1D, 0.2D, 1.0D});
+        assertTrue(GAFusedTerrainDirectCellSampler.cellCanUseDefaultSolid(
+                summary,
+                80,
+                4,
+                false,
+                false
+        ));
+        assertTrue(GAFusedTerrainDirectCellSampler.cellIsAllNonPositive(
+                GAFusedTerrainDirectCellSampler.summarizeCellDensities(new double[]{0.0D, -0.2D})
+        ));
+    }
 }

@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.beardifier.GABeardifierCellScratch
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierKernel;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierPlan;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.treads.GAThreadLocal;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -36,8 +37,8 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private static float[] BEARD_KERNEL;
 
     @Unique
-    private static final ThreadLocal<GABeardifierCellScratch> GA$CELL_SCRATCH =
-            ThreadLocal.withInitial(GABeardifierCellScratch::new);
+    private static final GAThreadLocal<GABeardifierCellScratch> GA$CELL_SCRATCH =
+            GAThreadLocal.withInitial(GABeardifierCellScratch::new);
 
     @Unique
     private static final boolean GA$SKIP_BEARDIFIER = Boolean.parseBoolean(System.getProperty(
@@ -132,13 +133,11 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             return 0.0D;
         }
         this.ga$ensurePlan();
-        return GABeardifierKernel.computeAt(
-                this.ga$plan,
-                GA$CELL_SCRATCH.get(),
-                context.blockX(),
-                context.blockY(),
-                context.blockZ()
-        );
+        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
+        if (context instanceof NoiseChunk chunk) {
+            return ga$sampleCachedNoiseChunkCell(scratch, chunk, context.blockX(), context.blockY(), context.blockZ());
+        }
+        return GABeardifierKernel.computeAt(this.ga$plan, scratch, context.blockX(), context.blockY(), context.blockZ());
     }
 
     @Override
@@ -219,5 +218,37 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     @WrapMethod(method = "getBuryContribution")
     private static double bts$getBuryContribution(double x, double y, double z, Operation<Double> original) {
         return GABeardifierKernel.getBuryContribution(x, y, z);
+    }
+
+    @Unique
+    private double ga$sampleCachedNoiseChunkCell(
+            GABeardifierCellScratch scratch,
+            NoiseChunk chunk,
+            int blockX,
+            int blockY,
+            int blockZ
+    ) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int startX = chunk.cellStartBlockX;
+        int startY = chunk.cellStartBlockY;
+        int startZ = chunk.cellStartBlockZ;
+        int endX = startX + cellW - 1;
+        int endY = startY + cellH - 1;
+        int endZ = startZ + cellW - 1;
+        if (blockX < startX || blockX > endX || blockY < startY || blockY > endY || blockZ < startZ || blockZ > endZ) {
+            return GABeardifierKernel.computeAt(this.ga$plan, scratch, blockX, blockY, blockZ);
+        }
+        if (this.ga$plan.outside(startX, endX, startY, endY, startZ, endZ)) {
+            return 0.0D;
+        }
+
+        int cellValues = cellW * cellW * cellH;
+        if (!scratch.hasCachedCell(this.ga$plan, cellW, cellH, startX, startY, startZ)) {
+            double[] values = scratch.ensureCachedCellValues(cellValues);
+            GABeardifierKernel.fillCell(this.ga$plan, scratch, values, cellW, cellH, startX, startY, startZ);
+            scratch.cacheCell(this.ga$plan, cellW, cellH, startX, startY, startZ, cellValues);
+        }
+        return scratch.sampleCachedCell(blockX - startX, blockY - startY, blockZ - startZ);
     }
 }

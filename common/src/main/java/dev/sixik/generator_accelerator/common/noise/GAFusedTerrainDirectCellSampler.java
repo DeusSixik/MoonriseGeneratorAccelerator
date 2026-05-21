@@ -9,6 +9,9 @@ public final class GAFusedTerrainDirectCellSampler {
     public static final int COPPER_MIN_Y = 0;
     public static final int IRON_MAX_Y = -8;
     public static final int ORE_VEIN_MAX_Y = 50;
+    public static final int SUMMARY_UNAVAILABLE = 0;
+    public static final int SUMMARY_ALL_POSITIVE = 1;
+    public static final int SUMMARY_ALL_NON_POSITIVE = 1 << 1;
 
     private GAFusedTerrainDirectCellSampler() {
     }
@@ -65,7 +68,53 @@ public final class GAFusedTerrainDirectCellSampler {
             boolean hasOreVeinRule,
             boolean skipOreVeins
     ) {
+        return cellCanUseDefaultSolid(
+                summarizeCellDensities(densityValues),
+                minBlockY,
+                cellHeight,
+                hasOreVeinRule,
+                skipOreVeins
+        );
+    }
+
+    public static int summarizeCellDensities(double[] densityValues) {
         if (densityValues == null || densityValues.length == 0) {
+            return SUMMARY_UNAVAILABLE;
+        }
+        boolean allPositive = true;
+        boolean allNonPositive = true;
+        for (double density : densityValues) {
+            if (density > 0.0D) {
+                allNonPositive = false;
+            } else {
+                allPositive = false;
+            }
+            if (!allPositive && !allNonPositive) {
+                return SUMMARY_UNAVAILABLE;
+            }
+        }
+        int summary = SUMMARY_UNAVAILABLE;
+        if (allPositive) {
+            summary |= SUMMARY_ALL_POSITIVE;
+        }
+        if (allNonPositive) {
+            summary |= SUMMARY_ALL_NON_POSITIVE;
+        }
+        return summary;
+    }
+
+    public static boolean cellIsAllNonPositive(int densitySummary) {
+        return (densitySummary & SUMMARY_ALL_NON_POSITIVE) != 0;
+    }
+
+    public static boolean cellCanUseDefaultSolid(
+            int densitySummary,
+            int minBlockY,
+            int cellHeight,
+            boolean hasOreVeinRule,
+            boolean skipOreVeins
+    ) {
+        if ((densitySummary & SUMMARY_ALL_POSITIVE) == 0) {
             return false;
         }
         if (hasOreVeinRule && !skipOreVeins) {
@@ -74,11 +123,6 @@ public final class GAFusedTerrainDirectCellSampler {
                 if (oreVeinCanReplaceAt(y)) {
                     return false;
                 }
-            }
-        }
-        for (double density : densityValues) {
-            if (density <= 0.0D) {
-                return false;
             }
         }
         return true;

@@ -19,6 +19,7 @@ import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
+import dev.sixik.generator_accelerator.common.surface.region.GARegionalPreliminarySurfaceCache;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
@@ -211,6 +212,10 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     private boolean ga$fusedTerrainAvailable;
     @Unique
     private double[] ga$terrainDensityCellValues;
+    @Unique
+    private int ga$terrainDensityCellSummaryEpoch;
+    @Unique
+    private int ga$terrainDensityCellSummary;
     @Unique
     private GAAquiferColumnBandNearest[] ga$terrainColumnBands;
     @Unique
@@ -419,6 +424,23 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     }
 
     @Override
+    public int ga$fusedTerrainDirectCellDensitySummary() {
+        if (!this.ga$fusedTerrainDirectCellAvailable()) {
+            return GAFusedTerrainDirectCellSampler.SUMMARY_UNAVAILABLE;
+        }
+        if (GA$LAZY_CELL_CACHES_ENABLED && this.ga$terrainDensityCellCacheIndex >= 0) {
+            this.ga$ensureCellCacheFilled(this.ga$terrainDensityCellCacheIndex);
+        }
+        if (this.ga$terrainDensityCellSummaryEpoch != this.ga$cellCacheEpoch) {
+            this.ga$terrainDensityCellSummary = GAFusedTerrainDirectCellSampler.summarizeCellDensities(
+                    this.ga$terrainDensityCellValues
+            );
+            this.ga$terrainDensityCellSummaryEpoch = this.ga$cellCacheEpoch;
+        }
+        return this.ga$terrainDensityCellSummary;
+    }
+
+    @Override
     public boolean ga$fusedTerrainDirectCellHasOreVeinRule() {
         return this.ga$oreVeinRule != null;
     }
@@ -436,7 +458,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     @Override
     public boolean ga$fusedTerrainDirectCellAllDefaultSolid(int minBlockY, int cellHeight) {
         return GAFusedTerrainDirectCellSampler.cellCanUseDefaultSolid(
-                this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null,
+                this.ga$fusedTerrainDirectCellDensitySummary(),
                 minBlockY,
                 cellHeight,
                 this.ga$oreVeinRule != null,
@@ -852,6 +874,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         }
         this.ga$cellCacheEpoch = next;
         this.ga$lazyCellArrayCounterOpen = false;
+        this.ga$terrainDensityCellSummaryEpoch = 0;
+        this.ga$terrainDensityCellSummary = GAFusedTerrainDirectCellSampler.SUMMARY_UNAVAILABLE;
     }
 
     @Unique
@@ -1138,12 +1162,28 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
             final int blockX = quartX << 2;
             final int blockZ = quartZ << 2;
-            final int result = bts$computeSurface(blockX, blockZ);
+            final int result = GARegionalPreliminarySurfaceCache.enabled()
+                    ? GARegionalPreliminarySurfaceCache.sample(
+                    this.initialDensityNoJaggedness,
+                    this.noiseSettings,
+                    this.cellHeight,
+                    blockX,
+                    blockZ
+            )
+                    : bts$computeSurface(blockX, blockZ);
             this.surfaceCache[cacheIndex] = result;
             return result;
         }
 
-        return bts$computeSurface(quartX << 2, quartZ << 2);
+        return GARegionalPreliminarySurfaceCache.enabled()
+                ? GARegionalPreliminarySurfaceCache.sample(
+                this.initialDensityNoJaggedness,
+                this.noiseSettings,
+                this.cellHeight,
+                quartX << 2,
+                quartZ << 2
+        )
+                : bts$computeSurface(quartX << 2, quartZ << 2);
     }
 
     @Unique

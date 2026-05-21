@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
+import dev.sixik.generator_accelerator.common.surface.GASurfaceThreadState;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceExecutor;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgram;
@@ -14,6 +15,7 @@ import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgramCac
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceRequirements;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceScratch;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
+import dev.sixik.generator_accelerator.common.treads.GAThreadLocal;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import net.minecraft.core.BlockPos;
@@ -40,20 +42,8 @@ import java.util.Arrays;
 public abstract class SurfaceSystem$new_build_surface {
 
     @Unique
-    private static final ThreadLocal<SurfaceScratch> BTS$SURFACE_SCRATCH = ThreadLocal.withInitial(SurfaceScratch::new);
-
-    @Unique
-    private static final ThreadLocal<Holder<Biome>[]> BTS$SURFACE_BIOMES = ThreadLocal.withInitial(() -> new Holder[256]);
-    @Unique
-    private static final ThreadLocal<GASurfaceChunkBiomeLookup> BTS$CHUNK_BIOME_LOOKUP = ThreadLocal.withInitial(GASurfaceChunkBiomeLookup::new);
-    @Unique
-    private static final ThreadLocal<VectorChunkContext> BTS$VECTOR_CONTEXT = new ThreadLocal<>();
-    @Unique
-    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$COLUMN_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
-    @Unique
-    private static final ThreadLocal<BlockPos.MutableBlockPos> BTS$BIOME_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
-    @Unique
-    private static final ThreadLocal<VectorBlockColumn> BTS$VECTOR_COLUMN = new ThreadLocal<>();
+    private static final GAThreadLocal<GASurfaceThreadState> GA$SURFACE_STATE =
+            GAThreadLocal.withInitial(GASurfaceThreadState::new);
 
     @Unique
     private final SurfaceSystem bts$this = (SurfaceSystem) (Object) this;
@@ -87,35 +77,36 @@ public abstract class SurfaceSystem$new_build_surface {
             return;
         }
 
-        final GASurfaceChunkBiomeLookup bts$chunkBiome = BTS$CHUNK_BIOME_LOOKUP.get();
+        final GASurfaceThreadState state = GA$SURFACE_STATE.get();
+        final GASurfaceChunkBiomeLookup bts$chunkBiome = state.chunkBiomeLookup;
         Holder<Biome>[] surfaceBiomes = null;
         VectorChunkContext ctx = null;
         VectorBlockColumn fastColumn = null;
         boolean chunkMutated = false;
         try {
-            final SurfaceScratch scratch = BTS$SURFACE_SCRATCH.get();
+            final SurfaceScratch scratch = state.surfaceScratch;
             final ChunkPos chunkpos = pChunk.getPos();
             final int minBlockX = chunkpos.getMinBlockX();
             final int minBlockZ = chunkpos.getMinBlockZ();
 
-            surfaceBiomes = BTS$SURFACE_BIOMES.get();
+            surfaceBiomes = state.surfaceBiomes;
             int defaultBlockId = GA$BlockStateExtension.get(this.defaultBlock).bts$getFastId();
-            ctx = BTS$VECTOR_CONTEXT.get();
+            ctx = state.vectorContext;
             if (ctx == null) {
                 ctx = new VectorChunkContext(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
-                BTS$VECTOR_CONTEXT.set(ctx);
+                state.vectorContext = ctx;
             } else {
                 ctx.reset(surfaceBiomes, defaultBlockId, pContext, pRandomState, bts$this);
             }
             boolean hasFrozenOcean = false;
 
             final LevelChunkSection[] sections = pChunk.getSections();
-            final BlockPos.MutableBlockPos columnPos = BTS$COLUMN_POS.get();
-            final BlockPos.MutableBlockPos biomePos = BTS$BIOME_POS.get();
-            fastColumn = BTS$VECTOR_COLUMN.get();
+            final BlockPos.MutableBlockPos columnPos = state.columnPos;
+            final BlockPos.MutableBlockPos biomePos = state.biomePos;
+            fastColumn = state.vectorColumn;
             if (fastColumn == null) {
                 fastColumn = new VectorBlockColumn(pChunk, sections, columnPos);
-                BTS$VECTOR_COLUMN.set(fastColumn);
+                state.vectorColumn = fastColumn;
             } else {
                 fastColumn.reset(pChunk, sections, columnPos);
             }

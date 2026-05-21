@@ -40,6 +40,10 @@ public interface GAFusedTerrainNoiseChunkAccess {
         return null;
     }
 
+    default int ga$fusedTerrainDirectCellDensitySummary() {
+        return GAFusedTerrainDirectCellSampler.SUMMARY_UNAVAILABLE;
+    }
+
     default boolean ga$fusedTerrainDirectCellHasOreVeinRule() {
         return false;
     }

@@ -14,6 +14,14 @@ public final class GABeardifierCellScratch {
 
     private int[] seenStamps;
     private int collectStamp;
+    private GABeardifierPlan cachedPlan;
+    private double[] cachedCellValues = new double[128];
+    private int cachedCellStartX = Integer.MIN_VALUE;
+    private int cachedCellStartY = Integer.MIN_VALUE;
+    private int cachedCellStartZ = Integer.MIN_VALUE;
+    private int cachedCellWidth;
+    private int cachedCellHeight;
+    private int cachedCellValueCount;
 
     void beginCollect() {
         this.buryCount = 0;
@@ -84,6 +92,65 @@ public final class GABeardifierCellScratch {
                 && this.boxCount == 0
                 && this.encapsulateCount == 0
                 && this.junctionCount == 0;
+    }
+
+    public double[] ensureCachedCellValues(int required) {
+        if (required > this.cachedCellValues.length) {
+            int newLength = this.cachedCellValues.length;
+            while (newLength < required) {
+                newLength <<= 1;
+            }
+            this.cachedCellValues = new double[newLength];
+        }
+        return this.cachedCellValues;
+    }
+
+    public boolean hasCachedCell(
+            GABeardifierPlan plan,
+            int cellWidth,
+            int cellHeight,
+            int startX,
+            int startY,
+            int startZ
+    ) {
+        return this.cachedPlan == plan
+                && this.cachedCellWidth == cellWidth
+                && this.cachedCellHeight == cellHeight
+                && this.cachedCellStartX == startX
+                && this.cachedCellStartY == startY
+                && this.cachedCellStartZ == startZ;
+    }
+
+    public void cacheCell(
+            GABeardifierPlan plan,
+            int cellWidth,
+            int cellHeight,
+            int startX,
+            int startY,
+            int startZ,
+            int cellValueCount
+    ) {
+        this.cachedPlan = plan;
+        this.cachedCellWidth = cellWidth;
+        this.cachedCellHeight = cellHeight;
+        this.cachedCellStartX = startX;
+        this.cachedCellStartY = startY;
+        this.cachedCellStartZ = startZ;
+        this.cachedCellValueCount = cellValueCount;
+    }
+
+    public double sampleCachedCell(int localX, int localY, int localZ) {
+        int index = GABeardifierKernel.cellIndex(
+                this.cachedCellWidth,
+                this.cachedCellHeight,
+                localX,
+                localY,
+                localZ
+        );
+        if (index < 0 || index >= this.cachedCellValueCount) {
+            throw new IndexOutOfBoundsException("beardifier cached cell index out of range: " + index);
+        }
+        return this.cachedCellValues[index];
     }
 
     private static int[] ensure(int[] array, int required) {

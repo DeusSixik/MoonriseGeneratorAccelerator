@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
+import dev.sixik.generator_accelerator.common.treads.GAThreadLocal;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 import org.spongepowered.asm.mixin.*;
@@ -8,7 +9,7 @@ import org.spongepowered.asm.mixin.*;
 @Mixin(NormalNoise.class)
 public abstract class MixinNormalNoise implements ColumnNoiseFiller {
 
-    private static final ThreadLocal<double[]> SECOND_BUFFER = ThreadLocal.withInitial(() -> new double[128]);
+    private static final GAThreadLocal<double[]> SECOND_BUFFER = GAThreadLocal.withInitial(() -> new double[128]);
 
     @Shadow
     @Final
