@@ -65,6 +65,8 @@ public final class JigsawFreeSpaceTracker {
         int maxChunkX = candidate.maxX() >> 4;
         int minChunkZ = candidate.minZ() >> 4;
         int maxChunkZ = candidate.maxZ() >> 4;
+        int[] rawVisitedMarks = this.visitedMarks.elements();
+        Object[] rawOccupied = this.occupied.elements();
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
                 IntArrayList bucket = this.buckets.get(ChunkPos.asLong(chunkX, chunkZ));
@@ -72,13 +74,14 @@ public final class JigsawFreeSpaceTracker {
                     continue;
                 }
 
+                int[] rawBucket = bucket.elements();
                 for (int i = 0, size = bucket.size(); i < size; i++) {
-                    int occupiedIndex = bucket.getInt(i);
-                    if (this.visitedMarks.getInt(occupiedIndex) == stamp) {
+                    int occupiedIndex = rawBucket[i];
+                    if (rawVisitedMarks[occupiedIndex] == stamp) {
                         continue;
                     }
-                    this.visitedMarks.set(occupiedIndex, stamp);
-                    BoundingBox box = this.occupied.get(occupiedIndex);
+                    rawVisitedMarks[occupiedIndex] = stamp;
+                    BoundingBox box = (BoundingBox) rawOccupied[occupiedIndex];
                     if (intersects(minX, minY, minZ, maxX, maxY, maxZ, box)) {
                         return false;
                     }

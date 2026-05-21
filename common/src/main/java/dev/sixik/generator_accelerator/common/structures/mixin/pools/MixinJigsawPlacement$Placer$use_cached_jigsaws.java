@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 
 import com.mojang.logging.LogUtils;
 import dev.sixik.generator_accelerator.common.structures.JigsawFreeSpaceTracker;
+import dev.sixik.generator_accelerator.common.structures.JigsawPlacementPieceStateFactory;
 import dev.sixik.generator_accelerator.common.structures.JigsawPlacementHotPath;
 import dev.sixik.generator_accelerator.common.structures.StructurePlacementShuffler;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;
@@ -347,7 +348,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     ));
                     this.pieces.add(placedPiece);
                     if (depth + 1 <= this.maxDepth) {
-                        this.placing.add(MixinJigsawPlacement$PieceStateAccessor.ga$create(placedPiece, freeShape, depth + 1), placementPriority);
+                        this.placing.add(JigsawPlacementPieceStateFactory.create(placedPiece, freeShape, depth + 1), placementPriority);
                     }
                     return true;
                 }
