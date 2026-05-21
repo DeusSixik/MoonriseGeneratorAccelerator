@@ -80,4 +80,52 @@ final class DfcOpenClChunkPipelineTest {
 
         assertFalse(request.validShape());
     }
+
+    @Test
+    void runtimeRejectsDisabledConfigWithoutThrowing() {
+        withOpenClProperties("false", "false", () -> {
+            DfcOpenClChunkStats.reset();
+            DfcOpenClChunkRuntime runtime = new DfcOpenClChunkRuntime();
+            DfcOpenClChunkRequest request = DfcOpenClChunkRequest.singleChunk(
+                    0, 0, -64, 384, 4, 8, 1 << 24, false);
+
+            assertFalse(runtime.tryEvaluateDensityPrototype(request).present());
+            assertEquals("disabled", DfcOpenClChunkStats.snapshot().lastSkip());
+        });
+    }
+
+    @Test
+    void runtimeRejectsOversizedOutputBeforeOpenCl() {
+        withOpenClProperties("true", "true", () -> {
+            DfcOpenClChunkRuntime runtime = new DfcOpenClChunkRuntime();
+            DfcOpenClChunkRequest request = DfcOpenClChunkRequest.singleChunk(
+                    0, 0, -64, 384, 4, 8, 1, false);
+
+            DfcOpenClChunkRuntime.Attempt attempt =
+                    runtime.preflight(request, DfcOpenClChunkRuntime.OutputMode.DENSITY);
+            assertFalse(attempt.allowed());
+            assertEquals("memory", attempt.reason());
+        });
+    }
+
+    private static void withOpenClProperties(String enabled, String chunkNoise, Runnable action) {
+        String oldEnabled = System.getProperty("dfc.opencl.enabled");
+        String oldChunkNoise = System.getProperty("dfc.opencl.chunkNoise");
+        System.setProperty("dfc.opencl.enabled", enabled);
+        System.setProperty("dfc.opencl.chunkNoise", chunkNoise);
+        try {
+            action.run();
+        } finally {
+            restoreProperty("dfc.opencl.enabled", oldEnabled);
+            restoreProperty("dfc.opencl.chunkNoise", oldChunkNoise);
+        }
+    }
+
+    private static void restoreProperty(String property, String value) {
+        if (value == null) {
+            System.clearProperty(property);
+        } else {
+            System.setProperty(property, value);
+        }
+    }
 }
