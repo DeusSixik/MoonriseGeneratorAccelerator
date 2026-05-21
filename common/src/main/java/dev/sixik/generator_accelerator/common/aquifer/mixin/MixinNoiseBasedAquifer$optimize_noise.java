@@ -8,7 +8,11 @@ import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGrid;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferNearest;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPlan;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPrimitiveAccess;
+import dev.sixik.generator_accelerator.common.aquifer.region.GARegionalAquiferAtlas;
+import dev.sixik.generator_accelerator.common.aquifer.region.GARegionalAquiferAtlasOwner;
+import dev.sixik.generator_accelerator.common.noise.GAUnifiedRegionPacketAccess;
 import dev.sixik.generator_accelerator.common.utils.SixikGenerationUtils;
+import dev.sixik.generator_accelerator.common.worldgen.region.GAUnifiedRegionPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -104,6 +108,10 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
     @Unique
     private GAAquiferNearest ga$externalNearestFallback;
     @Unique
+    private GARegionalAquiferAtlasOwner ga$regionalAtlasOwner;
+    @Unique
+    private GARegionalAquiferAtlas.View ga$regionalAtlasView;
+    @Unique
     private int[] ga$globalCacheX;
     @Unique
     private int[] ga$globalCacheY;
@@ -165,6 +173,32 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
         this.ga$globalCacheKind = new byte[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheValid = new boolean[GA$GLOBAL_CACHE_SIZE];
         this.ga$globalCacheNextSlot = new byte[GA$GLOBAL_CACHE_COLUMNS];
+        this.ga$regionalAtlasOwner = new GARegionalAquiferAtlasOwner(
+                this.positionalRandomFactory,
+                this.globalFluidPicker,
+                this.erosion,
+                this.depth,
+                this.fluidLevelFloodednessNoise,
+                this.minGridX,
+                this.minGridY,
+                this.minGridZ,
+                this.gridSizeX,
+                this.gridSizeZ
+        );
+        if (noiseChunk instanceof GAUnifiedRegionPacketAccess access) {
+            GAUnifiedRegionPacket packet = access.ga$unifiedRegionPacket();
+            if (packet != null) {
+                packet.attachAquiferOwner(this.ga$regionalAtlasOwner);
+                this.ga$regionalAtlasView = packet.aquiferView();
+            }
+        }
+        if (this.ga$regionalAtlasView == null) {
+            this.ga$regionalAtlasView = GARegionalAquiferAtlas.view(
+                    this.ga$regionalAtlasOwner,
+                    chunkPos.getMinBlockX(),
+                    chunkPos.getMinBlockZ()
+            );
+        }
         final RandomSource reusableRandom = SixikGenerationUtils.tryGetRandom(this.positionalRandomFactory);
         // index: y, z, x
         for (int y = 0; y < sizeY; y++) {
@@ -467,11 +501,33 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
             this.ga$populatePrimitiveFluid(index, cached);
             return cached;
         }
-        final Aquifer.FluidStatus computed = this.computeFluid(
-                this.ga$plan.sampleX(index),
-                this.ga$plan.sampleY(index),
-                this.ga$plan.sampleZ(index)
-        );
+
+        int sampleX = this.ga$plan.sampleX(index);
+        int sampleY = this.ga$plan.sampleY(index);
+        int sampleZ = this.ga$plan.sampleZ(index);
+        GARegionalAquiferAtlas.View atlasView = this.ga$regionalAtlasView;
+        if (atlasView != null && atlasView.enabled()) {
+            GARegionalAquiferAtlas.Sample regionalSample = atlasView.samplePoint(
+                    sampleX,
+                    sampleY,
+                    sampleZ,
+                    () -> {
+                        Aquifer.FluidStatus computed = this.computeFluid(sampleX, sampleY, sampleZ);
+                        BlockState fluidState = ((MixinFluidStatusAccessor) (Object) computed).ga$getFluidType();
+                        return new GARegionalAquiferAtlas.Sample(
+                                computed.fluidLevel,
+                                ga$fluidKind(fluidState),
+                                GA$BlockStateExtension.get(fluidState).bts$getFastId()
+                        );
+                    }
+            );
+            if (regionalSample != null && regionalSample != GARegionalAquiferAtlas.Sample.FALLBACK) {
+                this.ga$plan.setFluid(index, regionalSample.fluidLevel(), regionalSample.fluidKind(), regionalSample.blockId());
+                return null;
+            }
+        }
+
+        final Aquifer.FluidStatus computed = this.computeFluid(sampleX, sampleY, sampleZ);
         this.aquiferCache[index] = computed;
         this.ga$populatePrimitiveFluid(index, computed);
         return computed;
@@ -506,7 +562,11 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
 
     @Unique
     private BlockState ga$stateAtIndex(int index, int y) {
-        return y < this.ga$plan.fluidLevel(index) ? this.ga$fluidStates[index] : ga$AIR_STATE;
+        if (y >= this.ga$plan.fluidLevel(index)) {
+            return ga$AIR_STATE;
+        }
+        BlockState state = this.ga$fluidStates[index];
+        return state != null ? state : FastBlockStateCache.getBlockState(this.ga$plan.blockIdAt(index, y));
     }
 
     @Unique
@@ -523,16 +583,35 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
         int selected = this.ga$globalCacheNextSlot[column] ^ 1;
         this.ga$globalCacheNextSlot[column] = (byte) selected;
         slot |= selected;
-        Aquifer.FluidStatus status = this.globalFluidPicker.computeFluid(x, y, z);
-        BlockState fluidState = ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType();
+        GARegionalAquiferAtlas.Sample sample = this.ga$loadGlobalFluidSample(x, y, z);
         this.ga$globalCacheX[slot] = x;
         this.ga$globalCacheY[slot] = y;
         this.ga$globalCacheZ[slot] = z;
-        this.ga$globalCacheLevel[slot] = status.fluidLevel;
-        this.ga$globalCacheKind[slot] = ga$fluidKind(fluidState);
-        this.ga$globalCacheBlockId[slot] = GA$BlockStateExtension.get(fluidState).bts$getFastId();
+        this.ga$globalCacheLevel[slot] = sample.fluidLevel();
+        this.ga$globalCacheKind[slot] = sample.fluidKind();
+        this.ga$globalCacheBlockId[slot] = sample.blockId();
         this.ga$globalCacheValid[slot] = true;
         return slot;
+    }
+
+    @Unique
+    private GARegionalAquiferAtlas.Sample ga$loadGlobalFluidSample(int x, int y, int z) {
+        GARegionalAquiferAtlas.View atlasView = this.ga$regionalAtlasView;
+        if (atlasView != null && atlasView.enabled()) {
+            return atlasView.globalFluid(x, y, z, () -> this.ga$computeGlobalFluidSample(x, y, z));
+        }
+        return this.ga$computeGlobalFluidSample(x, y, z);
+    }
+
+    @Unique
+    private GARegionalAquiferAtlas.Sample ga$computeGlobalFluidSample(int x, int y, int z) {
+        Aquifer.FluidStatus status = this.globalFluidPicker.computeFluid(x, y, z);
+        BlockState fluidState = ((MixinFluidStatusAccessor) (Object) status).ga$getFluidType();
+        return new GARegionalAquiferAtlas.Sample(
+                status.fluidLevel,
+                ga$fluidKind(fluidState),
+                GA$BlockStateExtension.get(fluidState).bts$getFastId()
+        );
     }
 
     @Unique

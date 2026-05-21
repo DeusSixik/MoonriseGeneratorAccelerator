@@ -4,9 +4,15 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
+import dev.sixik.generator_accelerator.common.aquifer.region.GARegionalAquiferAtlas;
+import dev.sixik.generator_accelerator.common.beardifier.region.GARegionalBeardifierAtlas;
+import dev.sixik.generator_accelerator.common.biome.region.GARegionalBiomeSectionRaster;
+import dev.sixik.generator_accelerator.common.biome.region.GARegionalClimateQuartRaster;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalNoiseBrickCache;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalDensitySliceCache;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
@@ -18,6 +24,7 @@ import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPip
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenProfileMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.profile.WorldgenRegistryScanOrchestrator;
+import dev.sixik.generator_accelerator.common.worldgen.region.GARegionalPrewarmManager;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspacePool;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -496,6 +503,7 @@ public final class GADiagnostics {
         ));
         out.put("decorationPipeline", decorationPipelineSnapshot());
         out.put("noiseFill", noiseFillSnapshot());
+        out.put("regionalWorldgen", regionalWorldgenSnapshot());
         out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());
         return out;
@@ -566,6 +574,18 @@ public final class GADiagnostics {
         out.put("counters", counters);
         out.put("snapshot", GANoiseFillMetrics.snapshot());
         out.put("summary", GANoiseFillMetrics.summary());
+        return out;
+    }
+
+    private static Map<String, Object> regionalWorldgenSnapshot() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("densitySlices", GARegionalDensitySliceCache.snapshot());
+        out.put("aquiferAtlas", GARegionalAquiferAtlas.snapshot());
+        out.put("beardifierAtlas", GARegionalBeardifierAtlas.snapshot());
+        out.put("biomeQuartRaster", GARegionalBiomeSectionRaster.snapshot());
+        out.put("climateQuartRaster", GARegionalClimateQuartRaster.snapshot());
+        out.put("noiseBricks", GARegionalNoiseBrickCache.snapshot());
+        out.put("prewarm", GARegionalPrewarmManager.snapshot());
         return out;
     }
 

@@ -2,8 +2,9 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
+import dev.sixik.generator_accelerator.common.surface.region.GARegionalSurfaceColumnCache;
 import dev.sixik.generator_accelerator.common.surface.region.GARegionalSurfaceNoiseCache;
-import dev.sixik.generator_accelerator.common.surface.region.GARegionalSurfacePacket;
+import dev.sixik.generator_accelerator.common.worldgen.region.GAUnifiedRegionPacket;
 import net.minecraft.core.Holder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
@@ -31,7 +32,7 @@ public class VectorChunkContext {
     private BitSet[] bitSetScratch = new BitSet[8];
     private int bitSetScratchDepth;
     private int columnScratchStamp;
-    private final GARegionalSurfacePacket regionalSurfacePacket = new GARegionalSurfacePacket();
+    private final GAUnifiedRegionPacket regionalPacket = new GAUnifiedRegionPacket();
 
     public int STONE_ID;
     public int AIR_ID;
@@ -61,7 +62,7 @@ public class VectorChunkContext {
         this.worldContext = worldContext;
         this.randomState = randomState;
         this.surfaceSystem = surfaceSystem;
-        this.regionalSurfacePacket.reset();
+        this.regionalPacket.reset();
     }
 
     public void clear() {
@@ -70,13 +71,17 @@ public class VectorChunkContext {
         this.randomState = null;
         this.surfaceSystem = null;
         this.bitSetScratchDepth = 0;
-        this.regionalSurfacePacket.reset();
+        this.regionalPacket.reset();
     }
 
     public void updateForSection(int startX, int startY, int startZ) {
         this.sectionStartX = startX;
         this.sectionStartY = startY;
         this.sectionStartZ = startZ;
+    }
+
+    public GAUnifiedRegionPacket regionalPacket() {
+        return this.regionalPacket;
     }
 
     public Holder<Biome> getBiome(int xzIdx) {
@@ -143,8 +148,8 @@ public class VectorChunkContext {
         if (!GARegionalSurfaceNoiseCache.enabled()) {
             return state.getOrCreateNoise(noiseKey).getValue(globalX, 0.0, globalZ);
         }
-        this.regionalSurfacePacket.bindChunk(this.surfaceSystem, state, this.sectionStartX, this.sectionStartZ);
-        return this.regionalSurfacePacket.sampleNoise(noiseKey, globalX, globalZ);
+        this.regionalPacket.bindSurface(this.surfaceSystem, state, this.sectionStartX, this.sectionStartZ);
+        return this.regionalPacket.surfaceView().sampleNoise(noiseKey, globalX, globalZ);
     }
 
     public void buildDepthMap(ChunkAccess chunk) {
@@ -158,18 +163,25 @@ public class VectorChunkContext {
     }
 
     public void prepareNoiseCaches(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
+        this.regionalPacket.bindSurface(surfaceSystem, this.randomState, chunkMinX, chunkMinZ);
+        this.regionalPacket.requestSurfacePrewarm(() -> {
+            if (GARegionalSurfaceColumnCache.enabled()) {
+                GARegionalSurfaceColumnCache.copySurfaceDepths(surfaceSystem, chunkMinX, chunkMinZ, new int[256]);
+                GARegionalSurfaceColumnCache.copySecondarySurfaceNoises(surfaceSystem, chunkMinX, chunkMinZ, new double[256]);
+            }
+        });
         prepareSurfaceDepthCache(surfaceSystem, chunkMinX, chunkMinZ);
         prepareSecondarySurfaceNoiseCache(surfaceSystem, chunkMinX, chunkMinZ);
     }
 
     public void prepareSurfaceDepthCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
-        this.regionalSurfacePacket.bindChunk(surfaceSystem, this.randomState, chunkMinX, chunkMinZ);
-        this.regionalSurfacePacket.copySurfaceDepths(this.surfaceDepths);
+        this.regionalPacket.bindSurface(surfaceSystem, this.randomState, chunkMinX, chunkMinZ);
+        this.regionalPacket.surfaceView().copySurfaceDepths(this.surfaceDepths);
     }
 
     public void prepareSecondarySurfaceNoiseCache(SurfaceSystem surfaceSystem, int chunkMinX, int chunkMinZ) {
-        this.regionalSurfacePacket.bindChunk(surfaceSystem, this.randomState, chunkMinX, chunkMinZ);
-        this.regionalSurfacePacket.copySecondarySurfaceNoises(this.secondarySurfaceNoises);
+        this.regionalPacket.bindSurface(surfaceSystem, this.randomState, chunkMinX, chunkMinZ);
+        this.regionalPacket.surfaceView().copySecondarySurfaceNoises(this.secondarySurfaceNoises);
     }
 
     public void calculateStoneDepths(int[] rawBlockData, int[] previousSectionBottomDepths) {

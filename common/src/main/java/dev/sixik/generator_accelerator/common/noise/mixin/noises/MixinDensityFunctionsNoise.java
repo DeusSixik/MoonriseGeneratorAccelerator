@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalNoiseBrickCache;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -25,6 +26,19 @@ public class MixinDensityFunctionsNoise {
     @Shadow
     @Final
     private double xzScale;
+
+    /**
+     * @author Sixik
+     * @reason Reuse exact regional 3D noise bricks when a bound regional packet is available.
+     */
+    @Overwrite
+    public double compute(DensityFunction.FunctionContext context) {
+        NormalNoise normalNoise = this.noise.noise();
+        if (normalNoise == null) {
+            return 0.0D;
+        }
+        return GARegionalNoiseBrickCache.samplePlainNormalNoise(normalNoise, context, this.xzScale, this.yScale);
+    }
 
     /**
      * @author Sixik

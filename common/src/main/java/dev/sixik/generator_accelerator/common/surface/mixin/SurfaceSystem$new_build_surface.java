@@ -134,7 +134,9 @@ public abstract class SurfaceSystem$new_build_surface {
                     pChunk,
                     pBiomeManager,
                     minQueryY,
-                    maxQueryY
+                    maxQueryY,
+                    pRandomState,
+                    ctx.regionalPacket()
             );
 
             for (int idx = 0; idx < 256; idx++) {

@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPipeline;
+import dev.sixik.generator_accelerator.common.worldgen.region.GARegionalNoiseStagePrewarm;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.util.StaticCache2D;
@@ -25,6 +26,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
             ChunkAccess chunk,
             Operation<CompletableFuture<ChunkAccess>> original
     ) {
+        GARegionalNoiseStagePrewarm.prewarm(context, chunk);
         return ga$drainMailboxAfter(GAChunkStatusPipeline.scheduleFuture(
                 GAChunkStatusPipeline.Stage.NOISE,
                 GAScheduler.Lane.NOISE,

@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface;
 
+import dev.sixik.generator_accelerator.common.biome.region.GARegionalClimateQuartRaster;
+import dev.sixik.generator_accelerator.common.worldgen.region.GAUnifiedRegionPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
@@ -21,6 +23,7 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
     private int qMinX, qMinY, qMinZ;
     private int sizeX, sizeY, sizeZ;
     private BiomeManager fallbackManager;
+    private GARegionalClimateQuartRaster.View climateView;
 
     @SuppressWarnings("unchecked")
     public void prepare(
@@ -29,7 +32,9 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
             ChunkAccess chunk,
             BiomeManager fallback,
             int minQueryY,
-            int maxQueryY) {
+            int maxQueryY,
+            net.minecraft.world.level.levelgen.RandomState randomState,
+            GAUnifiedRegionPacket regionalPacket) {
         int chunkMinX = chunk.getPos().getMinBlockX();
         int chunkMinZ = chunk.getPos().getMinBlockZ();
 
@@ -51,6 +56,7 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
         this.sizeX = qMaxX - this.qMinX + 1;
         this.sizeY = qMaxY - this.qMinY + 1;
         this.sizeZ = qMaxZ - this.qMinZ + 1;
+        this.climateView = null;
 
         int totalCells = this.sizeX * this.sizeY * this.sizeZ;
 
@@ -60,6 +66,20 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
             this.biasY = new double[totalCells];
             this.biasZ = new double[totalCells];
             this.uniform = new boolean[totalCells];
+        }
+
+        if (regionalPacket != null && randomState != null && GARegionalClimateQuartRaster.surfaceEnabled()) {
+            regionalPacket.bindClimate(
+                    source,
+                    source,
+                    null,
+                    null,
+                    chunkMinX,
+                    chunkMinZ,
+                    this.qMinY,
+                    this.sizeY
+            );
+            this.climateView = regionalPacket.climateView();
         }
 
         boolean seenMultiple = this.fetchBiomes(source);
@@ -76,6 +96,7 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
 
     public void dispose() {
         this.fallbackManager = null;
+        this.climateView = null;
     }
 
     @Override
@@ -110,6 +131,7 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
 
     private boolean fetchBiomes(BiomeManager.NoiseBiomeSource source) {
         var biomes = this.biomes;
+        GARegionalClimateQuartRaster.View climateView = this.climateView;
         Holder<Biome> first = null;
         boolean multiple = false;
         for (int rx = 0; rx < this.sizeX; rx++) {
@@ -118,7 +140,12 @@ public class GASurfaceChunkBiomeLookup implements Function<BlockPos, Holder<Biom
                 int wz = this.qMinZ + rz;
                 for (int ry = 0; ry < this.sizeY; ry++) {
                     int wy = this.qMinY + ry;
-                    Holder<Biome> b = source.getNoiseBiome(wx, wy, wz);
+                    Holder<Biome> b = climateView == null
+                            ? source.getNoiseBiome(wx, wy, wz)
+                            : climateView.sampleNoiseBiome(wx, wy, wz);
+                    if (b == null) {
+                        b = source.getNoiseBiome(wx, wy, wz);
+                    }
                     biomes[this.index(rx, ry, rz)] = b;
                     if (first == null) {
                         first = b;

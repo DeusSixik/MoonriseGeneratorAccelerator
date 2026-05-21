@@ -15,11 +15,16 @@ import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSamp
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseChunkCellCacheAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.noise.GAUnifiedRegionPacketAccess;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkSliceProvider;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalDensityLatticeView;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalDensitySliceCache;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalDensitySliceCacheOwner;
 import dev.sixik.generator_accelerator.common.surface.region.GARegionalPreliminarySurfaceCache;
+import dev.sixik.generator_accelerator.common.worldgen.region.GAUnifiedRegionPacket;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
@@ -53,7 +58,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(NoiseChunk.class)
 public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$InterpolatorSoA,
-        GAFusedTerrainNoiseChunkAccess, GANoiseChunkCellCacheAccess {
+        GAFusedTerrainNoiseChunkAccess, GANoiseChunkCellCacheAccess, GAUnifiedRegionPacketAccess {
 
     @Shadow
     @Final
@@ -222,6 +227,14 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     private GAAquiferNearest ga$terrainNearestScratch;
     @Unique
     private boolean ga$fusedTerrainParityLogged;
+    @Unique
+    private GARegionalDensitySliceCacheOwner ga$regionalDensitySliceOwner;
+    @Unique
+    private GAUnifiedRegionPacket ga$unifiedRegionPacket;
+    @Unique
+    private int ga$chunkMinBlockX;
+    @Unique
+    private int ga$chunkMinBlockZ;
 
     @Unique
     private static final boolean GA$FUSED_TERRAIN_ENABLED = !"false".equalsIgnoreCase(System.getProperty(
@@ -273,6 +286,12 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     );
     @Unique
     private static final Set<String> GA$BROKEN_CELL_FILLER_CLASSES = ConcurrentHashMap.newKeySet();
+    @Unique
+    private static final boolean GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.noise.regionalDensitySliceCache.enabled",
+            // Keep this opt-in until the region-shared slice path is proven seam-safe.
+            "false"
+    ));
 
     @Unique
     public double bts$inverseCellWidth;
@@ -331,6 +350,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             CallbackInfo ci,
             @Local(ordinal = 0) DensityFunction terrainSubstanceDensity
     ) {
+        this.ga$chunkMinBlockX = firstBlockX;
+        this.ga$chunkMinBlockZ = firstBlockZ;
         if (!GA$FUSED_TERRAIN_ENABLED) {
             return;
         }
@@ -376,6 +397,43 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.sliceBuffer = new double[this.cellCountY + 1];
         this.ga$terrainColumnBands = new GAAquiferColumnBandNearest[256];
         this.ga$terrainNearestScratch = new GAAquiferNearest();
+        this.ga$initRegionalDensitySliceOwner();
+        this.ga$unifiedRegionPacket = new GAUnifiedRegionPacket();
+        this.ga$unifiedRegionPacket.bindTerrain(
+                this.ga$chunkMinBlockX,
+                this.ga$chunkMinBlockZ,
+                this.ga$regionalDensitySliceOwner,
+                null
+        );
+    }
+
+    @Override
+    public GAUnifiedRegionPacket ga$unifiedRegionPacket() {
+        return this.ga$unifiedRegionPacket;
+    }
+
+    @Override
+    public void ga$requestRegionalNoisePrewarm() {
+        if (!GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED) {
+            return;
+        }
+        GAUnifiedRegionPacket packet = this.ga$unifiedRegionPacket;
+        if (packet == null) {
+            return;
+        }
+        packet.requestNoisePrewarm(this::ga$prewarmRegionalDensitySlices, null, null, null, null);
+    }
+
+    @Override
+    public void ga$ensureRegionalNoiseReady() {
+        if (!GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED) {
+            return;
+        }
+        GAUnifiedRegionPacket packet = this.ga$unifiedRegionPacket;
+        if (packet == null) {
+            return;
+        }
+        packet.ensureNoiseReady(this::ga$prewarmRegionalDensitySlices, null, null, null, null);
     }
 
     @Override
@@ -765,6 +823,37 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
                 return;
             }
         }
+    }
+
+    @Unique
+    private void ga$initRegionalDensitySliceOwner() {
+        this.ga$regionalDensitySliceOwner = null;
+        if (!GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED || !GARegionalDensitySliceCache.enabled()) {
+            return;
+        }
+        NoiseChunk.NoiseInterpolator[] interpolators = this.bts$interpolatorsArray;
+        if (interpolators == null || interpolators.length == 0) {
+            return;
+        }
+        Object[] interpolatorKeys = new Object[interpolators.length];
+        for (int i = 0; i < interpolators.length; i++) {
+            NoiseChunk.NoiseInterpolator interpolator = interpolators[i];
+            if (interpolator instanceof DensityFunctions.MarkerOrMarked marker) {
+                interpolatorKeys[i] = marker.wrapped();
+            } else {
+                interpolatorKeys[i] = interpolator;
+            }
+        }
+        this.ga$regionalDensitySliceOwner = new GARegionalDensitySliceCacheOwner(
+                this.blender,
+                this.noiseSettings,
+                this.cellWidth,
+                this.cellHeight,
+                this.cellCountXZ,
+                this.cellCountY,
+                this.cellNoiseMinY,
+                interpolatorKeys
+        );
     }
 
     @Unique
@@ -1258,6 +1347,166 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
      */
     @Overwrite
     private void fillSlice(boolean pIsSlice0, int pStart) {
+        if (this.ga$tryFillRegionalSlice(pIsSlice0, pStart)) {
+            return;
+        }
+        this.ga$fillSliceLocally(pIsSlice0, pStart);
+    }
+
+    @Unique
+    private boolean ga$tryFillRegionalSlice(boolean pIsSlice0, int pStart) {
+        GARegionalDensitySliceCacheOwner owner = this.ga$regionalDensitySliceOwner;
+        if (!GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED
+                || owner == null
+                || this.cellWidth <= 0
+                || this.cellCountXZ <= 0) {
+            return false;
+        }
+
+        int sliceBlockX = pStart * this.cellWidth;
+        int chunkMinBlockZ = this.firstCellZ * this.cellWidth;
+        int regionBlockX = sliceBlockX >> GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+        int regionBlockZ = chunkMinBlockZ >> GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+        int regionMinBlockX = regionBlockX << GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+        int regionMinBlockZ = regionBlockZ << GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+
+        int localSliceX = (sliceBlockX - regionMinBlockX) / this.cellWidth;
+        int localChunkZ = (chunkMinBlockZ - regionMinBlockZ) / this.cellWidth;
+        int regionSliceCount = GARegionalDensitySliceCache.REGION_CHUNK_SIZE * this.cellCountXZ + 1;
+        int localSliceCount = this.cellCountXZ + 1;
+        int sizeY = this.cellCountY + 1;
+        if (localSliceX < 0
+                || localSliceX >= regionSliceCount
+                || localChunkZ < 0
+                || localChunkZ + localSliceCount > regionSliceCount) {
+            return false;
+        }
+
+        GARegionalDensityLatticeView densityView = this.ga$unifiedRegionPacket == null
+                ? null
+                : this.ga$unifiedRegionPacket.densityView();
+        double[] regionSlice = densityView == null
+                ? GARegionalDensitySliceCache.sliceValues(
+                owner,
+                regionBlockX,
+                regionBlockZ,
+                localSliceX,
+                () -> this.ga$buildRegionalSlice(sliceBlockX, regionMinBlockZ, regionSliceCount, sizeY)
+        )
+                : densityView.sliceValues(
+                localSliceX,
+                () -> this.ga$buildRegionalSlice(sliceBlockX, regionMinBlockZ, regionSliceCount, sizeY)
+        );
+        double[] target = pIsSlice0 ? this.bts$interpolatorSlice0Flat : this.bts$interpolatorSlice1Flat;
+        int sourcePlaneSize = regionSliceCount * sizeY;
+        int targetPlaneSize = localSliceCount * sizeY;
+        int sourceOffset = localChunkZ * sizeY;
+
+        for (int i = 0; i < this.bts$interpolatorsArray.length; i++) {
+            int sourceBase = i * sourcePlaneSize + sourceOffset;
+            int targetBase = i * targetPlaneSize;
+            for (int z = 0; z < localSliceCount; z++) {
+                System.arraycopy(regionSlice, sourceBase + z * sizeY, target, targetBase + z * sizeY, sizeY);
+            }
+        }
+
+        this.cellStartBlockX = sliceBlockX;
+        this.inCellX = 0;
+        for (int z = 0; z < localSliceCount; z++) {
+            this.cellStartBlockZ = (this.firstCellZ + z) * this.cellWidth;
+            this.inCellZ = 0;
+            this.arrayInterpolationCounter++;
+        }
+        this.arrayInterpolationCounter++;
+        return true;
+    }
+
+    @Unique
+    private void ga$prewarmRegionalDensitySlices() {
+        if (!GA$REGIONAL_DENSITY_SLICE_CACHE_ENABLED || this.ga$unifiedRegionPacket == null) {
+            return;
+        }
+        GARegionalDensityLatticeView densityView = this.ga$unifiedRegionPacket.densityView();
+        if (densityView == null) {
+            return;
+        }
+        GARegionalDensitySliceCacheOwner owner = densityView.owner();
+        int cellWidth = owner.cellWidth();
+        int sizeY = owner.cellCountY() + 1;
+        int regionSliceCount = GARegionalDensitySliceCache.REGION_CHUNK_SIZE * owner.cellCountXZ() + 1;
+        int regionMinBlockX = this.ga$unifiedRegionPacket.regionX() << GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+        int regionMinBlockZ = this.ga$unifiedRegionPacket.regionZ() << GARegionalDensitySliceCache.REGION_BLOCK_SHIFT;
+        for (int localSliceX = 0; localSliceX < regionSliceCount; localSliceX++) {
+            int sliceBlockX = regionMinBlockX + localSliceX * cellWidth;
+            densityView.sliceValues(
+                    localSliceX,
+                    () -> this.ga$buildRegionalSlice(sliceBlockX, regionMinBlockZ, regionSliceCount, sizeY)
+            );
+        }
+    }
+
+    @Unique
+    private double[] ga$buildRegionalSlice(
+            int sliceBlockX,
+            int regionMinBlockZ,
+            int regionSliceCount,
+            int sizeY
+    ) {
+        int planeSize = regionSliceCount * sizeY;
+        double[] values = new double[this.bts$interpolatorsArray.length * planeSize];
+        int previousCellStartBlockX = this.cellStartBlockX;
+        int previousCellStartBlockY = this.cellStartBlockY;
+        int previousCellStartBlockZ = this.cellStartBlockZ;
+        int previousInCellX = this.inCellX;
+        int previousInCellY = this.inCellY;
+        int previousInCellZ = this.inCellZ;
+        int previousArrayIndex = this.arrayIndex;
+        long previousArrayInterpolationCounter = this.arrayInterpolationCounter;
+        long previousInterpolationCounter = this.interpolationCounter;
+        boolean previousFillingCell = this.fillingCell;
+        long previousBlendingDataPos = this.lastBlendingDataPos;
+        Blender.BlendingOutput previousBlendingOutput = this.lastBlendingOutput;
+
+        try {
+            this.cellStartBlockX = sliceBlockX;
+            this.inCellX = 0;
+            for (int z = 0; z < regionSliceCount; z++) {
+                this.cellStartBlockZ = regionMinBlockZ + z * this.cellWidth;
+                this.inCellZ = 0;
+                this.arrayInterpolationCounter++;
+
+                int zOffset = z * sizeY;
+                for (int i = 0; i < this.bts$interpolatorsArray.length; i++) {
+                    this.bts$interpolatorsArray[i].fillArray(this.sliceBuffer, this.sliceFillingContextProvider);
+                    System.arraycopy(
+                            this.sliceBuffer,
+                            0,
+                            values,
+                            i * planeSize + zOffset,
+                            sizeY
+                    );
+                }
+            }
+            this.arrayInterpolationCounter++;
+            return values;
+        } finally {
+            this.cellStartBlockX = previousCellStartBlockX;
+            this.cellStartBlockY = previousCellStartBlockY;
+            this.cellStartBlockZ = previousCellStartBlockZ;
+            this.inCellX = previousInCellX;
+            this.inCellY = previousInCellY;
+            this.inCellZ = previousInCellZ;
+            this.arrayIndex = previousArrayIndex;
+            this.arrayInterpolationCounter = previousArrayInterpolationCounter;
+            this.interpolationCounter = previousInterpolationCounter;
+            this.fillingCell = previousFillingCell;
+            this.lastBlendingDataPos = previousBlendingDataPos;
+            this.lastBlendingOutput = previousBlendingOutput;
+        }
+    }
+
+    @Unique
+    private void ga$fillSliceLocally(boolean pIsSlice0, int pStart) {
         this.cellStartBlockX = pStart * this.cellWidth;
         this.inCellX = 0;
 

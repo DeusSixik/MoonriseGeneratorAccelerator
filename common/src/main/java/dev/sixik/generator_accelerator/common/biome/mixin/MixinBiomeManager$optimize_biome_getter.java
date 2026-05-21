@@ -131,6 +131,9 @@ public class MixinBiomeManager$optimize_biome_getter {
         final int finalY = (bestCornerIndex & 2) == 0 ? quartY : quartY + 1;
         final int finalZ = (bestCornerIndex & 1) == 0 ? quartZ : quartZ + 1;
 
+        // BiomeManager can be backed by WorldGenRegion/LevelReader implementations that only expose
+        // a narrow generation window. Building a 4x4 regional raster from arbitrary lookups can
+        // request unavailable neighbor chunks and crash worldgen, so keep this path scalar.
         return this.noiseBiomeSource.getNoiseBiome(finalX, finalY, finalZ);
     }
 

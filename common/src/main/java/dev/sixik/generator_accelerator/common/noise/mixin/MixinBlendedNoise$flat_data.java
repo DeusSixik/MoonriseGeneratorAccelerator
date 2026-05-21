@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
+import dev.sixik.generator_accelerator.common.noise.GAUnifiedRegionPacketAccess;
+import dev.sixik.generator_accelerator.common.noise.region.GARegionalNoiseBrickCache;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
@@ -133,6 +135,17 @@ public class MixinBlendedNoise$flat_data {
      */
     @Overwrite
     public double compute(net.minecraft.world.level.levelgen.DensityFunction.FunctionContext ctx) {
+        if (GARegionalNoiseBrickCache.enabled()
+                && ctx instanceof GAUnifiedRegionPacketAccess access
+                && access.ga$unifiedRegionPacket() != null) {
+            GARegionalNoiseBrickCache.View view = access.ga$unifiedRegionPacket().noiseBrickView();
+            if (view != null) {
+                double cached = view.sampleBlendedNoise((BlendedNoise) (Object) this, ctx);
+                if (!Double.isNaN(cached)) {
+                    return cached;
+                }
+            }
+        }
         double blockX = (double) ctx.blockX() * this.xzMultiplier;
         double blockY = (double) ctx.blockY() * this.yMultiplier;
         double blockZ = (double) ctx.blockZ() * this.xzMultiplier;

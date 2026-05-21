@@ -163,11 +163,15 @@ public final class Codegen {
     private static final String IMPROVED_NOISE_DESC = "L" + IMPROVED_NOISE_INTERNAL + ";";
     private static final String RUNTIME_INTERNAL =
             "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime";
+    private static final String REGIONAL_NOISE_BRICK_CACHE_INTERNAL =
+            "dev/sixik/generator_accelerator/common/noise/region/GARegionalNoiseBrickCache";
     private static final String MTH_INTERNAL = "net/minecraft/util/Mth";
     private static final String NATIVE_HANDLE_SET_INTERNAL =
             "dev/sixik/generator_accelerator/common/density/compiler/natives/NativeNoiseRegistry$HandleSet";
     private static final String NATIVE_HANDLE_SET_DESC = "L" + NATIVE_HANDLE_SET_INTERNAL + ";";
     private static final String NOISE5_DESC = "(DDDDD)D";
+    private static final String PLAIN_NORMAL_NOISE_SAMPLE_DESC =
+            "(L" + NORMAL_NOISE_INTERNAL + ";L" + FUNCTION_CONTEXT_INTERNAL + ";DD)D";
 
     /**
      * Constructor descriptor used both by {@link #emitConstructor} and by
@@ -4213,20 +4217,11 @@ public final class Codegen {
 
         private void emitNoise(IRNode.Noise n) {
             loadNoise(n.noiseIndex());
-            mv.visitVarInsn(Opcodes.ILOAD, 2);
-            mv.visitInsn(Opcodes.I2D);
+            mv.visitVarInsn(Opcodes.ALOAD, 1);
             mv.visitLdcInsn(n.xzScale());
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitVarInsn(Opcodes.ILOAD, 3);
-            mv.visitInsn(Opcodes.I2D);
             mv.visitLdcInsn(n.yScale());
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitVarInsn(Opcodes.ILOAD, 4);
-            mv.visitInsn(Opcodes.I2D);
-            mv.visitLdcInsn(n.xzScale());
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, NORMAL_NOISE_INTERNAL, "getValue",
-                    "(DDD)D", false);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, REGIONAL_NOISE_BRICK_CACHE_INTERNAL, "samplePlainNormalNoise",
+                    PLAIN_NORMAL_NOISE_SAMPLE_DESC, false);
         }
 
         private void emitShiftedNoise(IRNode.ShiftedNoise sn) {

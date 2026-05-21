@@ -3,9 +3,11 @@ package dev.sixik.generator_accelerator.common.worldgen.parallel;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$StaticCache2DExtern;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.region.GARegionalNoiseStagePrewarm;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkGenerationTaskAccessor;
+import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkMapAccessor;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinGenerationChunkHolderAccessor;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.server.level.ChunkGenerationTask;
@@ -568,6 +570,16 @@ public final class GACustomChunkGraphScheduler {
                 EMPTY_NODES_SUBMITTED.incrementAndGet();
             } else {
                 GRAPH_NODES_SUBMITTED.incrementAndGet();
+            }
+
+            if (node.status == ChunkStatus.NOISE) {
+                ChunkAccess warmChunk = node.holder.getChunkIfPresentUnchecked(ChunkStatus.EMPTY);
+                if (warmChunk != null) {
+                    GARegionalNoiseStagePrewarm.prewarm(
+                            ((MixinChunkMapAccessor) this.chunkMap).ga$getWorldGenContext(),
+                            warmChunk
+                    );
+                }
             }
 
             this.nodeStarted();

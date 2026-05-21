@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.pipeline;
 
+import dev.sixik.generator_accelerator.common.biome.region.GARegionalBiomeSectionRaster;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import net.minecraft.core.Holder;
@@ -48,6 +49,29 @@ final class DecorationReadSnapshot {
         int centerZ = context.chunkZ();
         int minBuildHeight = context.chunk().getMinBuildHeight();
         int buildHeight = context.chunk().getHeight();
+        int regionChunkX = centerX >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+        int regionChunkZ = centerZ >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+        int regionMinChunkX = regionChunkX << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+        int regionMinChunkZ = regionChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+        ChunkAccess[] regionChunks = new ChunkAccess[GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE
+                * GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE];
+        for (int localChunkZ = 0; localChunkZ < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkZ++) {
+            for (int localChunkX = 0; localChunkX < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkX++) {
+                int chunkX = regionMinChunkX + localChunkX;
+                int chunkZ = regionMinChunkZ + localChunkZ;
+                regionChunks[localChunkX | (localChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT)] =
+                        chunkX == centerX && chunkZ == centerZ
+                                ? context.chunk()
+                                : context.level().getChunk(chunkX, chunkZ);
+            }
+        }
+        GARegionalBiomeSectionRaster.View biomeRaster = GARegionalBiomeSectionRaster.capture(
+                regionMinChunkX,
+                regionMinChunkZ,
+                regionChunks,
+                minBuildHeight,
+                buildHeight
+        );
         for (int dz = -safeRadius; dz <= safeRadius; dz++) {
             for (int dx = -safeRadius; dx <= safeRadius; dx++) {
                 int chunkX = centerX + dx;
@@ -55,7 +79,15 @@ final class DecorationReadSnapshot {
                 ChunkAccess chunk = chunkX == centerX && chunkZ == centerZ
                         ? context.chunk()
                         : context.level().getChunk(chunkX, chunkZ);
-                entries[index++] = copyChunk(context.workspace(), chunk, centerX, centerZ, minBuildHeight, buildHeight);
+                entries[index++] = copyChunk(
+                        context.workspace(),
+                        chunk,
+                        centerX,
+                        centerZ,
+                        minBuildHeight,
+                        buildHeight,
+                        biomeRaster
+                );
             }
         }
         return new DecorationReadSnapshot(entries, minBuildHeight, buildHeight);
@@ -105,7 +137,8 @@ final class DecorationReadSnapshot {
             int centerX,
             int centerZ,
             int minBuildHeight,
-            int buildHeight
+            int buildHeight,
+            GARegionalBiomeSectionRaster.View biomeRaster
     ) {
         int[] blockIds;
         if (workspace != null
@@ -124,8 +157,16 @@ final class DecorationReadSnapshot {
 
         @SuppressWarnings("unchecked")
         Holder<Biome>[] biomes = new Holder[Math.max(1, QuartPos.fromBlock(buildHeight)) * 16];
-        synchronized (LIVE_SECTION_COPY_LOCK) {
-            copyLiveBiomes(chunk, biomes, minBuildHeight, buildHeight);
+        if (biomeRaster != null
+                && chunk.getPos().x >= biomeRaster.regionChunkX()
+                && chunk.getPos().x < biomeRaster.regionChunkX() + GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE
+                && chunk.getPos().z >= biomeRaster.regionChunkZ()
+                && chunk.getPos().z < biomeRaster.regionChunkZ() + GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE) {
+            biomeRaster.copyChunkBiomes(chunk.getPos().x, chunk.getPos().z, biomes);
+        } else {
+            synchronized (LIVE_SECTION_COPY_LOCK) {
+                copyLiveBiomes(chunk, biomes, minBuildHeight, buildHeight);
+            }
         }
         return new Entry(chunk.getPos().x, chunk.getPos().z, blockIds, biomes);
     }

@@ -6,6 +6,7 @@ import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSec
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSampler;
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.noise.GAUnifiedRegionPacketAccess;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
@@ -16,6 +17,7 @@ import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkAc
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.minecraft.SharedConstants;
+import net.minecraft.core.QuartPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
@@ -169,6 +171,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         ChunkPos chunkPos = chunkAccess.getPos();
         int minBlockX = chunkPos.getMinBlockX();
         int minBlockZ = chunkPos.getMinBlockZ();
+        if (noiseChunk instanceof GAUnifiedRegionPacketAccess access) {
+            access.ga$ensureRegionalNoiseReady();
+        }
         boolean debugVoidTerrain = SharedConstants.debugVoidTerrain(chunkPos);
         Aquifer aquifer = noiseChunk.aquifer();
         noiseChunk.initializeForFirstCellX();

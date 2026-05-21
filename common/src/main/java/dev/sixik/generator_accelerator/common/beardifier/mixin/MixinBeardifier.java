@@ -6,8 +6,12 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierCellScratch;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierKernel;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierPlan;
+import dev.sixik.generator_accelerator.common.beardifier.region.GARegionalBeardifierAtlas;
+import dev.sixik.generator_accelerator.common.beardifier.region.GARegionalBeardifierAtlasOwner;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.noise.GAUnifiedRegionPacketAccess;
 import dev.sixik.generator_accelerator.common.treads.GAThreadLocal;
+import dev.sixik.generator_accelerator.common.worldgen.region.GAUnifiedRegionPacket;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -48,6 +52,8 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Unique
     private GABeardifierPlan ga$plan;
+    @Unique
+    private GARegionalBeardifierAtlasOwner ga$atlasOwner;
 
     @Unique
     private void ga$initPlan() {
@@ -135,7 +141,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         this.ga$ensurePlan();
         GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
         if (context instanceof NoiseChunk chunk) {
-            return ga$sampleCachedNoiseChunkCell(scratch, chunk, context.blockX(), context.blockY(), context.blockZ());
+            return ga$sampleRegionalNoiseChunkCell(scratch, chunk, context.blockX(), context.blockY(), context.blockZ());
         }
         return GABeardifierKernel.computeAt(this.ga$plan, scratch, context.blockX(), context.blockY(), context.blockZ());
     }
@@ -164,16 +170,8 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             chunk.arrayIndex = cellValues;
             return;
         }
-        GABeardifierKernel.fillCell(
-                this.ga$plan,
-                GA$CELL_SCRATCH.get(),
-                out,
-                cellW,
-                cellH,
-                chunk.cellStartBlockX,
-                chunk.cellStartBlockY,
-                chunk.cellStartBlockZ
-        );
+        double[] cached = ga$regionCellValues(chunk, cellW, cellH, chunk.cellStartBlockX, chunk.cellStartBlockY, chunk.cellStartBlockZ);
+        System.arraycopy(cached, 0, out, 0, cellValues);
         chunk.arrayIndex = cellValues;
     }
 
@@ -198,16 +196,10 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             chunk.arrayIndex = cellValues;
             return;
         }
-        GABeardifierKernel.accumulateCell(
-                this.ga$plan,
-                GA$CELL_SCRATCH.get(),
-                out,
-                cellW,
-                cellH,
-                chunk.cellStartBlockX,
-                chunk.cellStartBlockY,
-                chunk.cellStartBlockZ
-        );
+        double[] cached = ga$regionCellValues(chunk, cellW, cellH, chunk.cellStartBlockX, chunk.cellStartBlockY, chunk.cellStartBlockZ);
+        for (int i = 0; i < cellValues; i++) {
+            out[i] += cached[i];
+        }
         chunk.arrayIndex = cellValues;
     }
 
@@ -221,7 +213,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     }
 
     @Unique
-    private double ga$sampleCachedNoiseChunkCell(
+    private double ga$sampleRegionalNoiseChunkCell(
             GABeardifierCellScratch scratch,
             NoiseChunk chunk,
             int blockX,
@@ -243,12 +235,51 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             return 0.0D;
         }
 
+        double[] cached = ga$regionCellValues(chunk, cellW, cellH, startX, startY, startZ);
+        int localX = blockX - startX;
+        int localY = blockY - startY;
+        int localZ = blockZ - startZ;
+        int index = ((localX * cellW) + localZ) * cellH + (cellH - 1 - localY);
+        return cached[index];
+    }
+
+    @Unique
+    private double[] ga$regionCellValues(
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            int startX,
+            int startY,
+            int startZ
+    ) {
+        GARegionalBeardifierAtlasOwner owner = this.ga$atlasOwner;
+        if (owner == null || owner.plan() != this.ga$plan || owner.cellWidth() != cellW || owner.cellHeight() != cellH) {
+            owner = new GARegionalBeardifierAtlasOwner(this.ga$plan, cellW, cellH);
+            this.ga$atlasOwner = owner;
+        }
+        if (chunk instanceof GAUnifiedRegionPacketAccess access) {
+            GAUnifiedRegionPacket packet = access.ga$unifiedRegionPacket();
+            if (packet != null) {
+                packet.bindBeardifier(owner, startX, startZ);
+                GARegionalBeardifierAtlas.View view = packet.beardifierView();
+                if (view != null && view.enabled()) {
+                    return view.cellValues(startX, startY, startZ, () -> ga$buildCellValues(cellW, cellH, startX, startY, startZ));
+                }
+            }
+        }
+        return ga$buildCellValues(cellW, cellH, startX, startY, startZ);
+    }
+
+    @Unique
+    private double[] ga$buildCellValues(int cellW, int cellH, int startX, int startY, int startZ) {
         int cellValues = cellW * cellW * cellH;
+        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
         if (!scratch.hasCachedCell(this.ga$plan, cellW, cellH, startX, startY, startZ)) {
             double[] values = scratch.ensureCachedCellValues(cellValues);
             GABeardifierKernel.fillCell(this.ga$plan, scratch, values, cellW, cellH, startX, startY, startZ);
             scratch.cacheCell(this.ga$plan, cellW, cellH, startX, startY, startZ, cellValues);
         }
-        return scratch.sampleCachedCell(blockX - startX, blockY - startY, blockZ - startZ);
+        double[] values = scratch.ensureCachedCellValues(cellValues);
+        return Arrays.copyOf(values, cellValues);
     }
 }
