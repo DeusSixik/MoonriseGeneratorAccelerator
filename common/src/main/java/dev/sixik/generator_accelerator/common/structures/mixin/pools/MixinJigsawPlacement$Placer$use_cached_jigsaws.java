@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 
 import com.mojang.logging.LogUtils;
 import dev.sixik.generator_accelerator.common.structures.JigsawFreeSpaceTracker;
+import dev.sixik.generator_accelerator.common.structures.JigsawPieceStateFactory;
 import dev.sixik.generator_accelerator.common.structures.JigsawPlacementHotPath;
 import dev.sixik.generator_accelerator.common.structures.StructurePlacementShuffler;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;

@@ -3,7 +3,9 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSampler;
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
+import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
@@ -34,6 +36,8 @@ import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.util.Arrays;
+
 @Mixin(NoiseBasedChunkGenerator.class)
 public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     @Unique
@@ -48,6 +52,52 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     @Unique
     private static final boolean GA$MIRROR_DIRECT_TERRAIN_WRITES = Boolean.parseBoolean(System.getProperty(
             "ga.chunkWorkspace.terrain.mirrorDirectWrites.enabled",
+            "false"
+    ));
+    @Unique
+    private static final boolean GA$DIRECT_SOLID_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.solidCell.enabled",
+            "true"
+    ));
+    @Unique
+    private static final boolean GA$DIRECT_SOLID_CELL_BULK_WRITE = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.solidCell.bulkWrite.enabled",
+            "false"
+    ));
+    @Unique
+    private static final boolean GA$POSITIVE_DENSITY_ORE_FAST = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.positiveDensityOreFast.enabled",
+            "true"
+    ));
+    @Unique
+    private static final boolean GA$DIRECT_NEGATIVE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.negativeCell.enabled",
+            "true"
+    ));
+    @Unique
+    private static final boolean GA$DIRECT_HIGH_AIR_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.highAir.enabled",
+            "true"
+    ));
+    @Unique
+    private static final int GA$DIRECT_HIGH_AIR_MIN_Y = Integer.getInteger(
+            "ga.aquifer.fusedTerrain.directCell.highAirMinY",
+            63
+    );
+    // Unsafe: skips selectCellYZ/density/beardifier from preliminary surface only; keep opt-in.
+    @Unique
+    private static final boolean GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.highAirSurface.enabled",
+            "false"
+    ));
+    @Unique
+    private static final int GA$DIRECT_HIGH_AIR_SURFACE_MARGIN_Y = Integer.getInteger(
+            "ga.aquifer.fusedTerrain.directCell.highAirSurface.marginY",
+            0
+    );
+    @Unique
+    private static final boolean GA$SPECIALIZED_COMMON_CELL = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.noiseFill.specializedCommonCell.enabled",
             "false"
     ));
 
@@ -79,6 +129,38 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             int minCellY,
             int cellCountY
     ) {
+        final boolean metricsEnabled = GANoiseFillMetrics.ENABLED;
+        final long doFillStart = GANoiseFillMetrics.startTimer();
+        long metricDirectAttempts = 0L;
+        long metricDirectSolidHits = 0L;
+        long metricDirectAirHits = 0L;
+        long metricDirectFallbackUnavailable = 0L;
+        long metricDirectFallbackOre = 0L;
+        long metricDirectFallbackNonSolid = 0L;
+        long metricDirectFallbackOob = 0L;
+        long metricDirectFallbackOther = 0L;
+        long metricSlowSamples = 0L;
+        long metricFusedFallbacksToVanilla = 0L;
+        long metricUpdateYCalls = 0L;
+        long metricUpdateXCalls = 0L;
+        long metricUpdateZCalls = 0L;
+        long metricSkippedY = 0L;
+        long metricSkippedX = 0L;
+        long metricSkippedZ = 0L;
+        long metricSelectCellCalls = 0L;
+        long metricSelectCellNanos = 0L;
+        long metricPositiveDensityOreFastSamples = 0L;
+        long metricDirectSolidCellFastCells = 0L;
+        long metricDirectSolidCellFastBlocks = 0L;
+        long metricNegativeGlobalFluidFastSamples = 0L;
+        long metricHighAirCellFastCells = 0L;
+        long metricHighAirCellFastBlocks = 0L;
+        long metricGlobalLavaCellFastCells = 0L;
+        long metricGlobalLavaCellFastBlocks = 0L;
+        long metricSolidCellBulkWrites = 0L;
+        long metricHighAirSurfaceFastCells = 0L;
+        long metricHighAirSurfaceFastBlocks = 0L;
+
         NoiseChunk noiseChunk = chunkAccess.getOrCreateNoiseChunk(
                 chunk -> this.createNoiseChunk(chunk, structureManager, blender, randomState)
         );
@@ -94,17 +176,31 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         final ShortList[] postProcessingLists = ((MixinChunkAccessAccessor) chunkAccess).ga$getPostProcessing();
         int cellWidth = noiseChunk.cellWidth();
         int cellHeight = noiseChunk.cellHeight();
+        int cellWidthSquared = cellWidth * cellWidth;
+        boolean specializedCommonCell = GA$SPECIALIZED_COMMON_CELL && cellWidth == 4 && cellHeight == 8;
         double invCellWidth = 1.0D / (double) cellWidth;
         double invCellHeight = 1.0D / (double) cellHeight;
         int cellCountX = 16 / cellWidth;
         int cellCountZ = 16 / cellWidth;
         int topSectionIndex = chunkAccess.getSectionsCount() - 1;
-        BlockState defaultBlock = this.settings.value().defaultBlock();
+        NoiseGeneratorSettings generatorSettings = this.settings.value();
+        BlockState defaultBlock = generatorSettings.defaultBlock();
         int defaultBlockId = GA$BlockStateExtension.get(defaultBlock).bts$getFastId();
+        int seaLevel = generatorSettings.seaLevel();
         BlockState air = Blocks.AIR.defaultBlockState();
         int airBlockId = GA$BlockStateExtension.get(air).bts$getFastId();
         GAFusedTerrainNoiseChunkAccess fusedTerrain = noiseChunk instanceof GAFusedTerrainNoiseChunkAccess access
                 && access.ga$fusedTerrainAvailable() ? access : null;
+        boolean directCellTerrain = fusedTerrain != null && fusedTerrain.ga$fusedTerrainDirectCellAvailable();
+        double[] directCellDensityValues = directCellTerrain
+                ? fusedTerrain.ga$fusedTerrainDirectCellDensityValues()
+                : null;
+        boolean directCellHasOreVeinRule = directCellTerrain
+                && fusedTerrain.ga$fusedTerrainDirectCellHasOreVeinRule();
+        boolean directCellSkipsOreVeins = directCellTerrain
+                && fusedTerrain.ga$fusedTerrainDirectCellSkipsOreVeins();
+        boolean directCellAirForNonSolid = directCellTerrain
+                && fusedTerrain.ga$fusedTerrainDirectCellAirForNonSolid();
         long worldSurfaceDone0 = 0L;
         long worldSurfaceDone1 = 0L;
         long worldSurfaceDone2 = 0L;
@@ -160,11 +256,227 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                 int baseBlockZ = minBlockZ + cellZ * cellWidth;
 
                 for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
+                    int cellMinBlockY = (minCellY + cellY) * cellHeight;
+                    int wholeCellBlocks = cellHeight * cellWidthSquared;
+                    if (GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST
+                            && GA$DIRECT_HIGH_AIR_CELL_FAST
+                            && directCellTerrain
+                            && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
+                            && cellMinBlockY >= seaLevel
+                            && (!directCellHasOreVeinRule
+                            || directCellSkipsOreVeins
+                            || !ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight))
+                            && ga$preliminarySurfaceBelowCell(
+                                    noiseChunk,
+                                    baseBlockX,
+                                    baseBlockZ,
+                                    cellMinBlockY,
+                                    GA$DIRECT_HIGH_AIR_SURFACE_MARGIN_Y
+                            )) {
+                        if (metricsEnabled) {
+                            metricDirectAttempts += wholeCellBlocks;
+                            metricDirectAirHits += wholeCellBlocks;
+                            metricSkippedY += wholeCellBlocks;
+                            metricSkippedX += wholeCellBlocks;
+                            metricSkippedZ += wholeCellBlocks;
+                            metricHighAirCellFastCells++;
+                            metricHighAirCellFastBlocks += wholeCellBlocks;
+                            metricHighAirSurfaceFastCells++;
+                            metricHighAirSurfaceFastBlocks += wholeCellBlocks;
+                        }
+                        continue;
+                    }
+
+                    long selectStart = metricsEnabled ? System.nanoTime() : 0L;
                     noiseChunk.selectCellYZ(cellY, cellZ);
+                    if (metricsEnabled) {
+                        metricSelectCellCalls++;
+                        metricSelectCellNanos += System.nanoTime() - selectStart;
+                    }
+                    if (directCellTerrain) {
+                        directCellDensityValues = fusedTerrain.ga$fusedTerrainDirectCellDensityValues();
+                    }
+                    boolean directSolidDefaultCell = GA$DIRECT_SOLID_CELL_FAST
+                            && directCellTerrain
+                            && directCellDensityValues != null
+                            && (!directCellHasOreVeinRule
+                            || directCellSkipsOreVeins
+                            || !ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight))
+                            && ga$allDensitiesPositive(directCellDensityValues);
+                    if (directSolidDefaultCell && metricsEnabled) {
+                        metricDirectSolidCellFastCells++;
+                    }
+                    int wholeCellStateId = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID;
+                    boolean wholeCellAir = false;
+                    boolean wholeCellGlobalLava = false;
+                    if (directSolidDefaultCell) {
+                        wholeCellStateId = defaultBlockId;
+                    } else if (GA$DIRECT_NEGATIVE_CELL_FAST
+                            && directCellTerrain
+                            && fusedTerrain != null
+                            && directCellDensityValues != null
+                            && ga$allDensitiesNonPositive(directCellDensityValues)) {
+                        if (GA$DIRECT_HIGH_AIR_CELL_FAST
+                                && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
+                                && cellMinBlockY >= seaLevel) {
+                            wholeCellStateId = airBlockId;
+                            wholeCellAir = true;
+                        } else {
+                            long packedCellState = fusedTerrain.ga$classifyNegativeDensityCellPackedBlockId(
+                                    airBlockId,
+                                    baseBlockX,
+                                    cellMinBlockY,
+                                    baseBlockZ,
+                                    cellWidth,
+                                    cellHeight,
+                                    GA$DIRECT_HIGH_AIR_CELL_FAST,
+                                    GA$DIRECT_HIGH_AIR_MIN_Y
+                            );
+                            if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedCellState)) {
+                                wholeCellStateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedCellState);
+                                wholeCellAir = wholeCellStateId == airBlockId;
+                                wholeCellGlobalLava = !wholeCellAir;
+                            }
+                        }
+                    }
+                    if (wholeCellStateId != GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID
+                            && (wholeCellStateId != defaultBlockId || GA$DIRECT_SOLID_CELL_BULK_WRITE)) {
+                        if (wholeCellAir || debugVoidTerrain) {
+                            if (metricsEnabled) {
+                                metricDirectAttempts += wholeCellBlocks;
+                                metricDirectAirHits += wholeCellBlocks;
+                                metricSkippedY += wholeCellBlocks;
+                                metricSkippedX += wholeCellBlocks;
+                                metricSkippedZ += wholeCellBlocks;
+                                if (wholeCellAir) {
+                                    metricHighAirCellFastCells++;
+                                    metricHighAirCellFastBlocks += wholeCellBlocks;
+                                }
+                            }
+                            continue;
+                        }
+                        boolean wholeCellWritten;
+                        if (workspaceTerrainWrites && directLazyAirTerrainWrites) {
+                            int written = ga$tryFillWorkspaceCell(
+                                    chunkAccess,
+                                    workspace,
+                                    workspaceBlockIds,
+                                    directTerrainWritesBySection,
+                                    directTerrainNonEmptyBySection,
+                                    directTerrainTickingBlocksBySection,
+                                    directTerrainTickingFluidsBySection,
+                                    directTerrainLightBySection,
+                                    directEmptyStates,
+                                    directTickingBlockStates,
+                                    directFluidEmptyStates,
+                                    directTickingFluidStates,
+                                    directLightStates,
+                                    directStateCachesReady,
+                                    baseBlockX,
+                                    cellMinBlockY,
+                                    baseBlockZ,
+                                    cellWidth,
+                                    cellHeight,
+                                    wholeCellStateId
+                            );
+                            wholeCellWritten = written == wholeCellBlocks;
+                            if (wholeCellWritten) {
+                                workspaceTerrainWriteCount += written;
+                            }
+                        } else {
+                            wholeCellWritten = !workspaceTerrainWrites
+                                    && !GA$MIRROR_DIRECT_TERRAIN_WRITES
+                                    && ga$tryFillRawCell(
+                                    chunkAccess,
+                                    baseBlockX,
+                                    cellMinBlockY,
+                                    baseBlockZ,
+                                    cellWidth,
+                                    cellHeight,
+                                    wholeCellStateId
+                            );
+                        }
+                        if (wholeCellWritten) {
+                            if (metricsEnabled) {
+                                metricDirectAttempts += wholeCellBlocks;
+                                if (wholeCellGlobalLava) {
+                                    metricDirectSolidHits += wholeCellBlocks;
+                                    metricGlobalLavaCellFastCells++;
+                                    metricGlobalLavaCellFastBlocks += wholeCellBlocks;
+                                } else {
+                                    metricDirectSolidHits += wholeCellBlocks;
+                                    metricDirectSolidCellFastBlocks += wholeCellBlocks;
+                                    metricSolidCellBulkWrites++;
+                                }
+                                metricSkippedY += wholeCellBlocks;
+                                metricSkippedX += wholeCellBlocks;
+                                metricSkippedZ += wholeCellBlocks;
+                            }
+                            if (!heightmapsDone) {
+                                int height = cellMinBlockY + cellHeight;
+                                boolean blocksMotion = ga$isBlockMotionState(wholeCellStateId, blockMotionStates);
+                                for (int localCellX = 0; localCellX < cellWidth; ++localCellX) {
+                                    int localX = (baseBlockX + localCellX) & 15;
+                                    for (int localCellZ = 0; localCellZ < cellWidth; ++localCellZ) {
+                                        int localZ = (baseBlockZ + localCellZ) & 15;
+                                        int columnIndex = (localZ << 4) | localX;
+                                        long columnBit = 1L << (columnIndex & 63);
+                                        if (columnIndex < 64) {
+                                            if ((worldSurfaceDone0 & columnBit) == 0L) {
+                                                worldSurface.setHeight(localX, localZ, height);
+                                                worldSurfaceDone0 |= columnBit;
+                                            }
+                                            if ((oceanFloorDone0 & columnBit) == 0L && blocksMotion) {
+                                                oceanFloor.setHeight(localX, localZ, height);
+                                                oceanFloorDone0 |= columnBit;
+                                            }
+                                        } else if (columnIndex < 128) {
+                                            if ((worldSurfaceDone1 & columnBit) == 0L) {
+                                                worldSurface.setHeight(localX, localZ, height);
+                                                worldSurfaceDone1 |= columnBit;
+                                            }
+                                            if ((oceanFloorDone1 & columnBit) == 0L && blocksMotion) {
+                                                oceanFloor.setHeight(localX, localZ, height);
+                                                oceanFloorDone1 |= columnBit;
+                                            }
+                                        } else if (columnIndex < 192) {
+                                            if ((worldSurfaceDone2 & columnBit) == 0L) {
+                                                worldSurface.setHeight(localX, localZ, height);
+                                                worldSurfaceDone2 |= columnBit;
+                                            }
+                                            if ((oceanFloorDone2 & columnBit) == 0L && blocksMotion) {
+                                                oceanFloor.setHeight(localX, localZ, height);
+                                                oceanFloorDone2 |= columnBit;
+                                            }
+                                        } else {
+                                            if ((worldSurfaceDone3 & columnBit) == 0L) {
+                                                worldSurface.setHeight(localX, localZ, height);
+                                                worldSurfaceDone3 |= columnBit;
+                                            }
+                                            if ((oceanFloorDone3 & columnBit) == 0L && blocksMotion) {
+                                                oceanFloor.setHeight(localX, localZ, height);
+                                                oceanFloorDone3 |= columnBit;
+                                            }
+                                        }
+                                    }
+                                }
+                                heightmapsDone = (worldSurfaceDone0 & worldSurfaceDone1 & worldSurfaceDone2 & worldSurfaceDone3
+                                        & oceanFloorDone0 & oceanFloorDone1 & oceanFloorDone2 & oceanFloorDone3) == -1L;
+                            }
+                            continue;
+                        }
+                    }
 
                     for (int localCellY = cellHeight - 1; localCellY >= 0; --localCellY) {
-                        int blockY = (minCellY + cellY) * cellHeight + localCellY;
+                        int blockY = cellMinBlockY + localCellY;
                         int localY = blockY & 15;
+                        int cellValueYBase = specializedCommonCell
+                                ? (7 - localCellY) << 4
+                                : (cellHeight - 1 - localCellY) * cellWidthSquared;
+                        boolean directOreVeinY = directCellHasOreVeinRule
+                                && !directCellSkipsOreVeins
+                                && GAFusedTerrainDirectCellSampler.oreVeinCanReplaceAt(blockY);
+                        boolean updatedY = false;
                         int newSectionIndex = chunkAccess.getSectionIndex(blockY);
                         if (sectionIndex != newSectionIndex) {
                             sectionIndex = newSectionIndex;
@@ -174,38 +486,177 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 loadedSectionIndex = sectionIndex;
                             }
                         }
-                        noiseChunk.updateForY(blockY, (double) localCellY * invCellHeight);
 
                         for (int localCellX = 0; localCellX < cellWidth; ++localCellX) {
                             int blockX = baseBlockX + localCellX;
                             int localX = blockX & 15;
-                            noiseChunk.updateForX(blockX, (double) localCellX * invCellWidth);
+                            int cellValueXBase = specializedCommonCell
+                                    ? cellValueYBase + (localCellX << 2)
+                                    : cellValueYBase + localCellX * cellWidth;
+                            boolean updatedX = false;
 
                             for (int localCellZ = 0; localCellZ < cellWidth; ++localCellZ) {
                                 int blockZ = baseBlockZ + localCellZ;
                                 int localZ = blockZ & 15;
-                                noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
+                                int cellValueIndex = cellValueXBase + localCellZ;
 
-                                int stateId;
-                                boolean scheduleFluidUpdate;
-                                if (fusedTerrain != null) {
-                                    long packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
-                                            defaultBlockId,
-                                            blockX,
-                                            blockY,
-                                            blockZ
-                                    );
-                                    if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
-                                        fusedTerrain = null;
-                                        stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                        scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
-                                    } else {
-                                        stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
-                                        scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess.ga$packedScheduleFluidUpdate(packedState);
+                                int stateId = airBlockId;
+                                boolean scheduleFluidUpdate = false;
+                                if (directSolidDefaultCell) {
+                                    stateId = defaultBlockId;
+                                    scheduleFluidUpdate = false;
+                                    if (metricsEnabled) {
+                                        metricDirectAttempts++;
+                                        metricDirectSolidHits++;
+                                        metricDirectSolidCellFastBlocks++;
+                                        metricSkippedZ++;
+                                        if (!updatedY) {
+                                            metricSkippedY++;
+                                        }
+                                        if (!updatedX) {
+                                            metricSkippedX++;
+                                        }
                                     }
                                 } else {
-                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                    int directFallbackReason = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_GENERIC;
+                                    long packedState = ga$sampleDirectCellPackedState(
+                                            directCellTerrain,
+                                            directCellDensityValues,
+                                            directOreVeinY,
+                                            directCellAirForNonSolid,
+                                            defaultBlockId,
+                                            airBlockId,
+                                            cellValueIndex
+                                    );
+                                    if (directCellTerrain && metricsEnabled) {
+                                        metricDirectAttempts++;
+                                    }
+                                    if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
+                                        stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
+                                        scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess.ga$packedScheduleFluidUpdate(packedState);
+                                        if (metricsEnabled) {
+                                            if (stateId == airBlockId) {
+                                                metricDirectAirHits++;
+                                            } else {
+                                                metricDirectSolidHits++;
+                                            }
+                                            metricSkippedZ++;
+                                            if (!updatedY) {
+                                                metricSkippedY++;
+                                            }
+                                            if (!updatedX) {
+                                                metricSkippedX++;
+                                            }
+                                        }
+                                    } else {
+                                        directFallbackReason = GAFusedTerrainNoiseChunkAccess.ga$packedFallbackReason(packedState);
+                                        if (directCellTerrain && metricsEnabled) {
+                                            switch (directFallbackReason) {
+                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE ->
+                                                        metricDirectFallbackUnavailable++;
+                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE ->
+                                                        metricDirectFallbackOre++;
+                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID ->
+                                                        metricDirectFallbackNonSolid++;
+                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_OUT_OF_BOUNDS ->
+                                                        metricDirectFallbackOob++;
+                                                default -> metricDirectFallbackOther++;
+                                            }
+                                        }
+                                        boolean directFallbackResolved = false;
+                                        if (directFallbackReason
+                                                == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
+                                                && fusedTerrain != null) {
+                                            packedState = fusedTerrain.ga$sampleNegativeDensityGlobalFluidPackedBlockId(
+                                                    airBlockId,
+                                                    blockX,
+                                                    blockY,
+                                                    blockZ
+                                            );
+                                            if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
+                                                stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
+                                                scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess
+                                                        .ga$packedScheduleFluidUpdate(packedState);
+                                                directFallbackResolved = true;
+                                                if (metricsEnabled) {
+                                                    metricNegativeGlobalFluidFastSamples++;
+                                                    if (stateId == airBlockId) {
+                                                        metricDirectAirHits++;
+                                                    } else {
+                                                        metricDirectSolidHits++;
+                                                    }
+                                                    metricSkippedZ++;
+                                                    if (!updatedY) {
+                                                        metricSkippedY++;
+                                                    }
+                                                    if (!updatedX) {
+                                                        metricSkippedX++;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (!directFallbackResolved) {
+                                            if (!updatedY) {
+                                                noiseChunk.updateForY(blockY, (double) localCellY * invCellHeight);
+                                                updatedY = true;
+                                                if (metricsEnabled) {
+                                                    metricUpdateYCalls++;
+                                                }
+                                            }
+                                            if (!updatedX) {
+                                                noiseChunk.updateForX(blockX, (double) localCellX * invCellWidth);
+                                                updatedX = true;
+                                                if (metricsEnabled) {
+                                                    metricUpdateXCalls++;
+                                                }
+                                            }
+                                            noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
+                                            if (metricsEnabled) {
+                                                metricUpdateZCalls++;
+                                                metricSlowSamples++;
+                                            }
+
+                                            if (fusedTerrain != null) {
+                                                if (GA$POSITIVE_DENSITY_ORE_FAST
+                                                        && directFallbackReason
+                                                        == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE) {
+                                                    packedState = fusedTerrain.ga$samplePositiveDensityFusedTerrainPackedBlockId(
+                                                            defaultBlockId
+                                                    );
+                                                    if (metricsEnabled) {
+                                                        metricPositiveDensityOreFastSamples++;
+                                                    }
+                                                } else {
+                                                    packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
+                                                            defaultBlockId,
+                                                            blockX,
+                                                            blockY,
+                                                            blockZ
+                                                    );
+                                                }
+                                                if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
+                                                    fusedTerrain = null;
+                                                    directCellTerrain = false;
+                                                    directCellDensityValues = null;
+                                                    directCellHasOreVeinRule = false;
+                                                    directCellSkipsOreVeins = false;
+                                                    directCellAirForNonSolid = false;
+                                                    if (metricsEnabled) {
+                                                        metricFusedFallbacksToVanilla++;
+                                                    }
+                                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                                } else {
+                                                    stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
+                                                    scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess
+                                                            .ga$packedScheduleFluidUpdate(packedState);
+                                                }
+                                            } else {
+                                                stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                                scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                            }
+                                        }
+                                    }
                                 }
                                 if (stateId == airBlockId || debugVoidTerrain) {
                                     continue;
@@ -385,6 +836,48 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             workspace.metrics().addTerrainBlockWrites(workspaceTerrainWriteCount);
             workspace.markTerrainFinalized();
         }
+        if (metricsEnabled) {
+            GANoiseFillMetrics.increment(GANoiseFillMetrics.DO_FILL_CHUNKS);
+            GANoiseFillMetrics.addElapsed(GANoiseFillMetrics.DO_FILL_NANOS, doFillStart);
+            if (fusedTerrain != null || metricDirectAttempts > 0L) {
+                GANoiseFillMetrics.increment(GANoiseFillMetrics.DIRECT_ELIGIBLE_CHUNKS);
+            }
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_ATTEMPTS, metricDirectAttempts);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_HITS, metricDirectSolidHits);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_AIR_HITS, metricDirectAirHits);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_UNAVAILABLE, metricDirectFallbackUnavailable);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_ORE_VEIN_RANGE, metricDirectFallbackOre);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_NON_SOLID, metricDirectFallbackNonSolid);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_OOB, metricDirectFallbackOob);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_OTHER, metricDirectFallbackOther);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SLOW_SAMPLES, metricSlowSamples);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.FUSED_FALLBACKS_TO_VANILLA, metricFusedFallbacksToVanilla);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Y_CALLS, metricUpdateYCalls);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_X_CALLS, metricUpdateXCalls);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Z_CALLS, metricUpdateZCalls);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Y_SKIPPED_BY_DIRECT, metricSkippedY);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_X_SKIPPED_BY_DIRECT, metricSkippedX);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Z_SKIPPED_BY_DIRECT, metricSkippedZ);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_CALLS, metricSelectCellCalls);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_NANOS, metricSelectCellNanos);
+            GANoiseFillMetrics.add(
+                    GANoiseFillMetrics.POSITIVE_DENSITY_ORE_FAST_SAMPLES,
+                    metricPositiveDensityOreFastSamples
+            );
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_FAST_CELLS, metricDirectSolidCellFastCells);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_FAST_BLOCKS, metricDirectSolidCellFastBlocks);
+            GANoiseFillMetrics.add(
+                    GANoiseFillMetrics.DIRECT_NEGATIVE_GLOBAL_FLUID_FAST_SAMPLES,
+                    metricNegativeGlobalFluidFastSamples
+            );
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_CELLS, metricHighAirCellFastCells);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_BLOCKS, metricHighAirCellFastBlocks);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS, metricGlobalLavaCellFastCells);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS, metricGlobalLavaCellFastBlocks);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_BULK_WRITES, metricSolidCellBulkWrites);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_CELLS, metricHighAirSurfaceFastCells);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS, metricHighAirSurfaceFastBlocks);
+        }
         return chunkAccess;
     }
 
@@ -392,6 +885,230 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     private static int ga$sampleInterpolatedStateId(NoiseChunk noiseChunk, int defaultBlockId) {
         BlockState blockState = noiseChunk.getInterpolatedState();
         return blockState == null ? defaultBlockId : GA$BlockStateExtension.get(blockState).bts$getFastId();
+    }
+
+    @Unique
+    private static boolean ga$tryFillRawCell(
+            ChunkAccess chunkAccess,
+            int baseBlockX,
+            int cellMinBlockY,
+            int baseBlockZ,
+            int cellWidth,
+            int cellHeight,
+            int stateId
+    ) {
+        int localMinX = baseBlockX & 15;
+        int localMaxX = localMinX + cellWidth;
+        int localMinZ = baseBlockZ & 15;
+        int localMaxZ = localMinZ + cellWidth;
+        int cellMaxBlockY = cellMinBlockY + cellHeight;
+
+        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
+            int sectionIndex = chunkAccess.getSectionIndex(y);
+            int sectionTopY = (y & ~15) + 16;
+            int toY = Math.min(cellMaxBlockY, sectionTopY);
+            LevelChunkSection section = chunkAccess.getSection(sectionIndex);
+            if (LevelChunkSection$FlatBlockArray.rawData(section) == null) {
+                return false;
+            }
+            y = toY;
+        }
+
+        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
+            int sectionIndex = chunkAccess.getSectionIndex(y);
+            int sectionTopY = (y & ~15) + 16;
+            int toY = Math.min(cellMaxBlockY, sectionTopY);
+            LevelChunkSection section = chunkAccess.getSection(sectionIndex);
+            LevelChunkSection$FlatBlockArray flatSection = LevelChunkSection$FlatBlockArray.get(section);
+            if (!flatSection.bts$fillRawBlockStateBoxForGeneration(
+                    localMinX,
+                    localMaxX,
+                    y & 15,
+                    (toY - 1 & 15) + 1,
+                    localMinZ,
+                    localMaxZ,
+                    stateId
+            )) {
+                return false;
+            }
+            y = toY;
+        }
+        return true;
+    }
+
+    @Unique
+    private static int ga$tryFillWorkspaceCell(
+            ChunkAccess chunkAccess,
+            GAChunkWorkspace workspace,
+            int[] workspaceBlockIds,
+            int[] writesBySection,
+            int[] nonEmptyBySection,
+            int[] tickingBlocksBySection,
+            int[] tickingFluidsBySection,
+            int[] lightBySection,
+            boolean[] emptyStates,
+            boolean[] tickingBlockStates,
+            boolean[] fluidEmptyStates,
+            boolean[] tickingFluidStates,
+            boolean[] lightStates,
+            boolean directStateCachesReady,
+            int baseBlockX,
+            int cellMinBlockY,
+            int baseBlockZ,
+            int cellWidth,
+            int cellHeight,
+            int stateId
+    ) {
+        if (workspace == null || workspaceBlockIds == null || writesBySection == null) {
+            return -1;
+        }
+        int cellMaxBlockY = cellMinBlockY + cellHeight;
+        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
+            int sectionIndex = chunkAccess.getSectionIndex(y);
+            if (sectionIndex < 0 || sectionIndex >= writesBySection.length
+                    || !workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex)) {
+                return -1;
+            }
+            int sectionTopY = (y & ~15) + 16;
+            y = Math.min(cellMaxBlockY, sectionTopY);
+        }
+
+        int localMinX = baseBlockX & 15;
+        int localMaxX = localMinX + cellWidth;
+        int localMinZ = baseBlockZ & 15;
+        int localMaxZ = localMinZ + cellWidth;
+        int written = 0;
+        boolean nonEmpty;
+        boolean tickingBlock;
+        boolean fluidEmpty;
+        boolean tickingFluid;
+        boolean light;
+        if (directStateCachesReady && stateId >= 0 && stateId < emptyStates.length) {
+            nonEmpty = !emptyStates[stateId];
+            tickingBlock = tickingBlockStates[stateId];
+            fluidEmpty = fluidEmptyStates[stateId];
+            tickingFluid = tickingFluidStates[stateId];
+            light = lightStates[stateId];
+        } else {
+            nonEmpty = !FastBlockStateCache.isEmpty(stateId);
+            tickingBlock = FastBlockStateCache.isRandomlyTickingBlock(stateId);
+            fluidEmpty = FastBlockStateCache.isFluidEmpty(stateId);
+            tickingFluid = FastBlockStateCache.isRandomlyTickingFluid(stateId);
+            light = FastBlockStateCache.hasLightEmission(stateId);
+        }
+
+        for (int y = cellMinBlockY; y < cellMaxBlockY; y++) {
+            int sectionIndex = chunkAccess.getSectionIndex(y);
+            int rowBase = (y - workspace.minBuildHeight()) << 8;
+            if (rowBase < 0 || rowBase >= workspaceBlockIds.length) {
+                return -1;
+            }
+            int rowWritten = 0;
+            for (int localZ = localMinZ; localZ < localMaxZ; localZ++) {
+                int from = rowBase | (localZ << 4) | localMinX;
+                int to = from + (localMaxX - localMinX);
+                if (from < 0 || to > workspaceBlockIds.length) {
+                    return -1;
+                }
+                Arrays.fill(workspaceBlockIds, from, to, stateId);
+                rowWritten += to - from;
+            }
+            writesBySection[sectionIndex] += rowWritten;
+            if (nonEmpty) {
+                nonEmptyBySection[sectionIndex] += rowWritten;
+                if (tickingBlock) {
+                    tickingBlocksBySection[sectionIndex] += rowWritten;
+                }
+            }
+            if (!fluidEmpty && tickingFluid) {
+                tickingFluidsBySection[sectionIndex] += rowWritten;
+            }
+            if (light) {
+                lightBySection[sectionIndex] += rowWritten;
+            }
+            written += rowWritten;
+        }
+        return written;
+    }
+
+    @Unique
+    private static long ga$sampleDirectCellPackedState(
+            boolean directCellTerrain,
+            double[] densityValues,
+            boolean oreVeinY,
+            boolean airForNonSolid,
+            int defaultBlockId,
+            int airBlockId,
+            int cellValueIndex
+    ) {
+        if (!directCellTerrain || densityValues == null) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+            );
+        }
+        if (cellValueIndex < 0 || cellValueIndex >= densityValues.length) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_OUT_OF_BOUNDS
+            );
+        }
+
+        double density = densityValues[cellValueIndex];
+        if (density > 0.0D) {
+            return oreVeinY
+                    ? GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                            GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE
+                    )
+                    : GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(defaultBlockId, false);
+        }
+        if (airForNonSolid) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
+        }
+        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
+        );
+    }
+
+    @Unique
+    private static boolean ga$allDensitiesPositive(double[] densityValues) {
+        for (double density : densityValues) {
+            if (density <= 0.0D) {
+                return false;
+            }
+        }
+        return densityValues.length > 0;
+    }
+
+    @Unique
+    private static boolean ga$allDensitiesNonPositive(double[] densityValues) {
+        for (double density : densityValues) {
+            if (density > 0.0D) {
+                return false;
+            }
+        }
+        return densityValues.length > 0;
+    }
+
+    @Unique
+    private static boolean ga$preliminarySurfaceBelowCell(
+            NoiseChunk noiseChunk,
+            int baseBlockX,
+            int baseBlockZ,
+            int cellMinBlockY,
+            int marginY
+    ) {
+        int preliminarySurface = noiseChunk.preliminarySurfaceLevel(baseBlockX, baseBlockZ);
+        return preliminarySurface == Integer.MAX_VALUE || preliminarySurface + marginY < cellMinBlockY;
+    }
+
+    @Unique
+    private static boolean ga$cellIntersectsOreVeins(int minBlockY, int cellHeight) {
+        int maxBlockY = minBlockY + cellHeight - 1;
+        if (maxBlockY < GAFusedTerrainDirectCellSampler.ORE_VEIN_MIN_Y
+                || minBlockY > GAFusedTerrainDirectCellSampler.ORE_VEIN_MAX_Y) {
+            return false;
+        }
+        return minBlockY <= GAFusedTerrainDirectCellSampler.IRON_MAX_Y
+                || maxBlockY >= GAFusedTerrainDirectCellSampler.COPPER_MIN_Y;
     }
 
     @Unique

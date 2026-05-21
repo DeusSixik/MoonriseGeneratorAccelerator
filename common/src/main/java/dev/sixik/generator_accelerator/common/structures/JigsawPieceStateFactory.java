@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.structures.mixin.pools;
+package dev.sixik.generator_accelerator.common.structures;
 
 import net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement;
@@ -9,13 +9,13 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
 
-final class JigsawPieceStateFactory {
+public final class JigsawPieceStateFactory {
     private static final MethodHandle CONSTRUCTOR = ga$findConstructor();
 
     private JigsawPieceStateFactory() {
     }
 
-    static Object ga$create(PoolElementStructurePiece piece, MutableObject<VoxelShape> free, int depth) {
+    public static Object ga$create(PoolElementStructurePiece piece, MutableObject<VoxelShape> free, int depth) {
         try {
             return CONSTRUCTOR.invoke(piece, free, depth);
         } catch (RuntimeException | Error ex) {

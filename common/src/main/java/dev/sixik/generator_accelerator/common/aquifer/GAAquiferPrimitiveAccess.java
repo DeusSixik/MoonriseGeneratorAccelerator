@@ -29,4 +29,8 @@ public interface GAAquiferPrimitiveAccess {
     byte ga$globalFluidKindAt(int x, int y, int z);
 
     int ga$globalFluidLevelAt(int x, int y, int z);
+
+    default int ga$globalFluidBlockIdAt(int x, int y, int z) {
+        return GA_FALLBACK_RESULT;
+    }
 }

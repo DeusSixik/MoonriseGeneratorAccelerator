@@ -454,6 +454,12 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
         return this.ga$globalCacheLevel[this.ga$pickGlobalFluid(x, y, z)];
     }
 
+    @Override
+    @Unique
+    public int ga$globalFluidBlockIdAt(int x, int y, int z) {
+        return this.ga$globalCacheBlockId[this.ga$pickGlobalFluid(x, y, z)];
+    }
+
     @Unique
     private Aquifer.FluidStatus ga$getAquiferStatusByIndex(int index) {
         final Aquifer.FluidStatus cached = this.aquiferCache[index];

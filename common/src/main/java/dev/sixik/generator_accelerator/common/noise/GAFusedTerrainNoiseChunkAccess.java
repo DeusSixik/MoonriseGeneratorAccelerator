@@ -6,10 +6,81 @@ public interface GAFusedTerrainNoiseChunkAccess {
     int GA_FALLBACK_BLOCK_ID = Integer.MIN_VALUE;
     long GA_FALLBACK_PACKED_BLOCK_ID = 1L << 33;
     int GA_PACKED_SCHEDULE_SHIFT = 32;
+    int GA_FALLBACK_REASON_SHIFT = 34;
+    int GA_FALLBACK_REASON_MASK = 0xF;
+    int GA_FALLBACK_REASON_GENERIC = 0;
+    int GA_FALLBACK_REASON_UNAVAILABLE = 1;
+    int GA_FALLBACK_REASON_ORE_VEIN_RANGE = 2;
+    int GA_FALLBACK_REASON_NON_SOLID = 3;
+    int GA_FALLBACK_REASON_OUT_OF_BOUNDS = 4;
+    int GA_FALLBACK_REASON_MIXED_CELL = 5;
 
     boolean ga$fusedTerrainAvailable();
 
     int ga$sampleFusedTerrainBlockId(int defaultBlockId);
+
+    default boolean ga$fusedTerrainDirectCellAvailable() {
+        return false;
+    }
+
+    default long ga$sampleFusedTerrainDirectCellPackedBlockId(
+            int defaultBlockId,
+            int airBlockId,
+            int blockY,
+            int cellValueIndex
+    ) {
+        return ga$packFallback(GA_FALLBACK_REASON_UNAVAILABLE);
+    }
+
+    default double ga$sampleFusedTerrainDirectCellDensity(int cellValueIndex) {
+        return Double.NaN;
+    }
+
+    default double[] ga$fusedTerrainDirectCellDensityValues() {
+        return null;
+    }
+
+    default boolean ga$fusedTerrainDirectCellHasOreVeinRule() {
+        return false;
+    }
+
+    default boolean ga$fusedTerrainDirectCellSkipsOreVeins() {
+        return false;
+    }
+
+    default boolean ga$fusedTerrainDirectCellAirForNonSolid() {
+        return false;
+    }
+
+    default boolean ga$fusedTerrainDirectCellAllDefaultSolid(int minBlockY, int cellHeight) {
+        return false;
+    }
+
+    default long ga$samplePositiveDensityFusedTerrainPackedBlockId(int defaultBlockId) {
+        return ga$packFallback(GA_FALLBACK_REASON_UNAVAILABLE);
+    }
+
+    default long ga$sampleNegativeDensityGlobalFluidPackedBlockId(
+            int airBlockId,
+            int blockX,
+            int blockY,
+            int blockZ
+    ) {
+        return ga$packFallback(GA_FALLBACK_REASON_UNAVAILABLE);
+    }
+
+    default long ga$classifyNegativeDensityCellPackedBlockId(
+            int airBlockId,
+            int minBlockX,
+            int minBlockY,
+            int minBlockZ,
+            int cellWidth,
+            int cellHeight,
+            boolean highAirEnabled,
+            int highAirMinY
+    ) {
+        return ga$packFallback(GA_FALLBACK_REASON_UNAVAILABLE);
+    }
 
     default int ga$sampleFusedTerrainBlockId(int defaultBlockId, int blockX, int blockY, int blockZ) {
         return ga$sampleFusedTerrainBlockId(defaultBlockId);
@@ -36,5 +107,16 @@ public interface GAFusedTerrainNoiseChunkAccess {
 
     static boolean ga$packedFallback(long packed) {
         return (packed & GA_FALLBACK_PACKED_BLOCK_ID) != 0L;
+    }
+
+    static long ga$packFallback(int reason) {
+        return GA_FALLBACK_PACKED_BLOCK_ID
+                | (((long) reason & GA_FALLBACK_REASON_MASK) << GA_FALLBACK_REASON_SHIFT);
+    }
+
+    static int ga$packedFallbackReason(long packed) {
+        return ga$packedFallback(packed)
+                ? (int) ((packed >>> GA_FALLBACK_REASON_SHIFT) & GA_FALLBACK_REASON_MASK)
+                : GA_FALLBACK_REASON_GENERIC;
     }
 }

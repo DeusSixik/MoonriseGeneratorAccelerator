@@ -131,6 +131,92 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     }
 
     @Override
+    public boolean bts$fillRawBlockStateBoxForGeneration(
+            int minLocalX,
+            int maxLocalX,
+            int minLocalY,
+            int maxLocalY,
+            int minLocalZ,
+            int maxLocalZ,
+            int stateId
+    ) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null
+                || minLocalX < 0 || maxLocalX > 16 || minLocalX >= maxLocalX
+                || minLocalY < 0 || maxLocalY > 16 || minLocalY >= maxLocalY
+                || minLocalZ < 0 || maxLocalZ > 16 || minLocalZ >= maxLocalZ) {
+            return false;
+        }
+
+        int touched = 0;
+        int removedNonEmpty = 0;
+        int removedTickingBlocks = 0;
+        int removedTickingFluids = 0;
+        int removedLight = 0;
+        int changed = 0;
+        int previousOldId = Integer.MIN_VALUE;
+        boolean oldEmpty = true;
+        boolean oldTickingBlock = false;
+        boolean oldFluidEmpty = true;
+        boolean oldTickingFluid = false;
+        boolean oldLight = false;
+
+        for (int y = minLocalY; y < maxLocalY; y++) {
+            for (int z = minLocalZ; z < maxLocalZ; z++) {
+                int from = (y << 8) | (z << 4) | minLocalX;
+                int to = from + (maxLocalX - minLocalX);
+                for (int index = from; index < to; index++) {
+                    int oldId = raw[index];
+                    touched++;
+                    if (oldId == stateId) {
+                        continue;
+                    }
+                    if (oldId != previousOldId) {
+                        previousOldId = oldId;
+                        oldEmpty = FastBlockStateCache.isEmpty(oldId);
+                        oldTickingBlock = FastBlockStateCache.isRandomlyTickingBlock(oldId);
+                        oldFluidEmpty = FastBlockStateCache.isFluidEmpty(oldId);
+                        oldTickingFluid = FastBlockStateCache.isRandomlyTickingFluid(oldId);
+                        oldLight = FastBlockStateCache.hasLightEmission(oldId);
+                    }
+                    if (!oldEmpty) {
+                        removedNonEmpty++;
+                        if (oldTickingBlock) {
+                            removedTickingBlocks++;
+                        }
+                    }
+                    if (!oldFluidEmpty && oldTickingFluid) {
+                        removedTickingFluids++;
+                    }
+                    if (oldLight) {
+                        removedLight++;
+                    }
+                    changed++;
+                }
+                Arrays.fill(raw, from, to, stateId);
+            }
+        }
+
+        if (changed == 0) {
+            return true;
+        }
+
+        boolean newEmpty = FastBlockStateCache.isEmpty(stateId);
+        boolean newTickingBlock = FastBlockStateCache.isRandomlyTickingBlock(stateId);
+        boolean newFluidEmpty = FastBlockStateCache.isFluidEmpty(stateId);
+        boolean newTickingFluid = FastBlockStateCache.isRandomlyTickingFluid(stateId);
+        boolean newLight = FastBlockStateCache.hasLightEmission(stateId);
+        this.nonEmptyBlockCount += (short) ((newEmpty ? 0 : changed) - removedNonEmpty);
+        this.tickingBlockCount += (short) ((newTickingBlock ? changed : 0) - removedTickingBlocks);
+        this.tickingFluidCount += (short) ((!newFluidEmpty && newTickingFluid ? changed : 0) - removedTickingFluids);
+        this.bts$rawLightEmissionCount += (newLight ? changed : 0) - removedLight;
+        if (this.bts$rawStartedOnlyAir) {
+            this.bts$rawDirtyOverflow = true;
+        }
+        return true;
+    }
+
+    @Override
     public boolean bts$copyRawBlockDataForGeneration(int[] source) {
         return this.bts$copyRawBlockDataForGeneration(source, 0);
     }

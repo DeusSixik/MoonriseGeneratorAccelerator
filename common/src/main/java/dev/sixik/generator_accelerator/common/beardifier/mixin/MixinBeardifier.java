@@ -40,6 +40,12 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             ThreadLocal.withInitial(GABeardifierCellScratch::new);
 
     @Unique
+    private static final boolean GA$SKIP_BEARDIFIER = Boolean.parseBoolean(System.getProperty(
+            "ga.beardifier.skip.enabled",
+            "false"
+    ));
+
+    @Unique
     private GABeardifierPlan ga$plan;
 
     @Unique
@@ -122,6 +128,9 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
      */
     @Overwrite
     public double compute(FunctionContext context) {
+        if (GA$SKIP_BEARDIFIER) {
+            return 0.0D;
+        }
         this.ga$ensurePlan();
         return GABeardifierKernel.computeAt(
                 this.ga$plan,
@@ -134,6 +143,12 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        if (GA$SKIP_BEARDIFIER) {
+            int cellValues = chunk.cellWidth * chunk.cellWidth * chunk.cellHeight;
+            Arrays.fill(out, 0, cellValues, 0.0D);
+            chunk.arrayIndex = cellValues;
+            return;
+        }
         this.ga$ensurePlan();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
@@ -165,6 +180,10 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Override
     public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        if (GA$SKIP_BEARDIFIER) {
+            chunk.arrayIndex = chunk.cellWidth * chunk.cellWidth * chunk.cellHeight;
+            return;
+        }
         this.ga$ensurePlan();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;

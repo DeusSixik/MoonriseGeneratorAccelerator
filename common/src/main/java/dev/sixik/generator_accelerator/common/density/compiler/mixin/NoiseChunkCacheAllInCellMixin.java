@@ -5,10 +5,13 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCach
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
+import dev.sixik.generator_accelerator.common.noise.GACellCacheLazyAccess;
+import dev.sixik.generator_accelerator.common.noise.GANoiseChunkCellCacheAccess;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
@@ -17,7 +20,8 @@ import org.spongepowered.asm.mixin.Unique;
  * {@code context ==} the owning {@link NoiseChunk} and interpolation is active.
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$CacheAllInCell")
-public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCellCacheCompiledFillerAccess {
+public class NoiseChunkCacheAllInCellMixin
+        implements DfcCellCacheAccess, DfcCellCacheCompiledFillerAccess, GACellCacheLazyAccess {
 
     @Shadow
     @Final
@@ -37,6 +41,49 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
     @Unique
     private DfcCellFillAccess dfc$compiledCellFiller;
 
+    @Unique
+    private int ga$cellCacheIndex = -1;
+
+    @Override
+    public void ga$setCellCacheIndex(int index) {
+        this.ga$cellCacheIndex = index;
+    }
+
+    @Override
+    public int ga$getCellCacheIndex() {
+        return this.ga$cellCacheIndex;
+    }
+
+    /**
+     * @author Sixik
+     * @reason Make all-in-cell caches fill lazily when NoiseChunk skips eager
+     * selectCellYZ cache filling.
+     */
+    @Overwrite
+    public double compute(DensityFunction.FunctionContext context) {
+        if (context != this.field_36602) {
+            return this.noiseFiller.compute(context);
+        }
+        if (!this.field_36602.interpolating) {
+            throw new IllegalStateException("Trying to sample interpolator outside the interpolation loop");
+        }
+        this.ga$ensureLazyFilled();
+        int inX = this.field_36602.inCellX;
+        int inY = this.field_36602.inCellY;
+        int inZ = this.field_36602.inCellZ;
+        int cellW = this.field_36602.cellWidth;
+        int cellH = this.field_36602.cellHeight;
+        if (inX >= 0
+                && inY >= 0
+                && inZ >= 0
+                && inX < cellW
+                && inY < cellH
+                && inZ < cellW) {
+            return this.values[(cellH - 1 - inY) * cellW * cellW + inX * cellW + inZ];
+        }
+        return this.noiseFiller.compute(context);
+    }
+
     @Override
     public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
         if (context != this.field_36602) {
@@ -45,6 +92,7 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
         if (!this.field_36602.interpolating) {
             return DfcCacheFastPath.CACHE_MISS;
         }
+        this.ga$ensureLazyFilled();
         int inX = this.field_36602.inCellX;
         int inY = this.field_36602.inCellY;
         int inZ = this.field_36602.inCellZ;
@@ -80,5 +128,12 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
             }
         }
         return this.dfc$compiledCellFiller;
+    }
+
+    @Unique
+    private void ga$ensureLazyFilled() {
+        if (this.ga$cellCacheIndex >= 0 && this.field_36602 instanceof GANoiseChunkCellCacheAccess access) {
+            access.ga$ensureCellCacheFilled(this.ga$cellCacheIndex);
+        }
     }
 }

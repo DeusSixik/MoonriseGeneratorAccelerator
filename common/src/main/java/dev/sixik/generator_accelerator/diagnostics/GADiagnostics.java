@@ -6,6 +6,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePl
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
@@ -172,6 +173,7 @@ public final class GADiagnostics {
         resetBaseline();
         DecorationPipelineMetrics.reset();
         FeatureVmMetrics.reset();
+        GANoiseFillMetrics.reset();
         SurfaceMetrics.reset();
         DfcCellFillStats.reset();
         DfcNativePlanningStats.reset();
@@ -197,6 +199,7 @@ public final class GADiagnostics {
         setProperty("ga.decorationPipeline.metrics", "true");
         setProperty("ga.featureVm.metrics", "true");
         setProperty("ga.surface.metrics", "true");
+        setProperty("ga.noiseFill.metrics", "true");
         setProperty("ga.worldgenProfile.metrics", "true");
         setProperty("dfc.cellfill.stats", "true");
         setProperty("dfc.cellfill.stats.residualClassDebug", "true");
@@ -214,6 +217,7 @@ public final class GADiagnostics {
         setProperty("ga.decorationPipeline.metrics", "false");
         setProperty("ga.featureVm.metrics", "false");
         setProperty("ga.surface.metrics", "false");
+        setProperty("ga.noiseFill.metrics", "false");
         setProperty("ga.worldgenProfile.metrics", "false");
         setProperty("dfc.cellfill.stats", "false");
         setProperty("dfc.cellfill.stats.residualClassDebug", "false");
@@ -269,6 +273,7 @@ public final class GADiagnostics {
         DecorationPipelineMetrics.setEnabled(Boolean.getBoolean("ga.decorationPipeline.metrics"));
         FeatureVmMetrics.setEnabled(Boolean.getBoolean("ga.featureVm.metrics"));
         SurfaceMetrics.setEnabled(Boolean.getBoolean("ga.surface.metrics"));
+        GANoiseFillMetrics.setEnabled(Boolean.getBoolean("ga.noiseFill.metrics"));
         WorldgenProfileMetrics.setEnabled(Boolean.getBoolean("ga.worldgenProfile.metrics"));
         DfcCellFillStats.setEnabled(
                 Boolean.getBoolean("dfc.cellfill.stats"),
@@ -284,6 +289,7 @@ public final class GADiagnostics {
         return "decoration=" + DecorationPipelineMetrics.ENABLED
                 + ", featureVm=" + FeatureVmMetrics.ENABLED
                 + ", surface=" + SurfaceMetrics.ENABLED
+                + ", noiseFill=" + GANoiseFillMetrics.ENABLED
                 + ", cellFill=" + DfcCellFillStats.ENABLED
                 + ", spline=" + DfcSplineStats.ENABLED
                 + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
@@ -489,6 +495,7 @@ public final class GADiagnostics {
                 pipeline
         ));
         out.put("decorationPipeline", decorationPipelineSnapshot());
+        out.put("noiseFill", noiseFillSnapshot());
         out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());
         return out;
@@ -544,6 +551,21 @@ public final class GADiagnostics {
         out.put("summary", GAScheduler.summary());
         out.putAll(GAScheduler.snapshot());
         out.put("customChunkGraph", GACustomChunkGraphScheduler.snapshot());
+        return out;
+    }
+
+    private static Map<String, Object> noiseFillSnapshot() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", GANoiseFillMetrics.ENABLED);
+        long[] values = new long[GANoiseFillMetrics.COUNTER_COUNT];
+        GANoiseFillMetrics.copyTo(values);
+        Map<String, Object> counters = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i++) {
+            counters.put(GANoiseFillMetrics.name(i), values[i]);
+        }
+        out.put("counters", counters);
+        out.put("snapshot", GANoiseFillMetrics.snapshot());
+        out.put("summary", GANoiseFillMetrics.summary());
         return out;
     }
 

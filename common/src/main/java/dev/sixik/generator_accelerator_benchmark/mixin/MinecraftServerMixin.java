@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator_benchmark.mixin;
 import com.mojang.authlib.GameProfile;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
@@ -186,6 +187,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             }
             if (DecorationPipelineMetrics.ENABLED) {
                 MainBenchmark.log(DecorationPipelineMetrics.summary());
+            }
+            if (GANoiseFillMetrics.ENABLED) {
+                MainBenchmark.log(GANoiseFillMetrics.summary());
             }
             Path diagnosticsPath = GADiagnostics.writeBenchmarkDump(
                     "benchmark-finished",

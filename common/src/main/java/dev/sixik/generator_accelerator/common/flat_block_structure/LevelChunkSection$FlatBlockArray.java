@@ -35,6 +35,20 @@ public interface LevelChunkSection$FlatBlockArray {
     boolean bts$setRawBlockStateForGeneration(int index, int stateId);
 
     /**
+     * Bulk-fill a local cuboid in raw generation storage. Coordinates are
+     * section-local and max bounds are exclusive.
+     */
+    boolean bts$fillRawBlockStateBoxForGeneration(
+            int minLocalX,
+            int maxLocalX,
+            int minLocalY,
+            int maxLocalY,
+            int minLocalZ,
+            int maxLocalZ,
+            int stateId
+    );
+
+    /**
      * Bulk replace a raw section and update vanilla block/fluid counters.
      * Returns false when the section is not unpacked.
      */

@@ -5,11 +5,16 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferColumnBandNearest;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferFluidGrid;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferNearest;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPlan;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPrimitiveAccess;
 import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
+import dev.sixik.generator_accelerator.common.noise.GACellCacheLazyAccess;
+import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSampler;
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
+import dev.sixik.generator_accelerator.common.noise.GANoiseChunkCellCacheAccess;
+import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkPatch;
@@ -19,6 +24,8 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.world.level.block.state.BlockState;
@@ -44,7 +51,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(NoiseChunk.class)
-public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$InterpolatorSoA, GAFusedTerrainNoiseChunkAccess {
+public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$InterpolatorSoA,
+        GAFusedTerrainNoiseChunkAccess, GANoiseChunkCellCacheAccess {
 
     @Shadow
     @Final
@@ -146,6 +154,16 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     private boolean[] bts$cellCacheFastDisabled;
     @Unique
     private double[][] bts$cellCacheValues;
+    @Unique
+    private int[] ga$cellCacheEpochs;
+    @Unique
+    private boolean[] ga$cellCacheFilling;
+    @Unique
+    private int ga$cellCacheEpoch;
+    @Unique
+    private boolean ga$lazyCellArrayCounterOpen;
+    @Unique
+    private int ga$terrainDensityCellCacheIndex = -1;
 
     @Unique
     private double[] bts$interpolatorSlice0Flat;
@@ -192,6 +210,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     @Unique
     private boolean ga$fusedTerrainAvailable;
     @Unique
+    private double[] ga$terrainDensityCellValues;
+    @Unique
     private GAAquiferColumnBandNearest[] ga$terrainColumnBands;
     @Unique
     private GAAquiferNearest ga$terrainNearestScratch;
@@ -208,6 +228,39 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             "ga.aquifer.fusedTerrain.parityCheck",
             "false"
     ));
+    @Unique
+    private static final boolean GA$FUSED_DIRECT_CELL_ENABLED = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.enabled",
+            "true"
+    ));
+    @Unique
+    private static final boolean GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS = Boolean.parseBoolean(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.skipOreVeins",
+            "false"
+    ));
+    @Unique
+    private static final boolean GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID = Boolean.parseBoolean(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.airForNonSolid",
+            "false"
+    ));
+    @Unique
+    private static final boolean GA$FUSED_DIRECT_CELL_HIGH_AIR = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.highAir.enabled",
+            "true"
+    ));
+    @Unique
+    private static final int GA$FUSED_DIRECT_CELL_HIGH_AIR_MIN_Y = Integer.getInteger(
+            "ga.aquifer.fusedTerrain.directCell.highAirMinY",
+            63
+    );
+    @Unique
+    private static final boolean GA$LAZY_CELL_CACHES_ENABLED = GAConfigManager.getConfigOrLoad()
+            .orElseGet(GAConfig::new)
+            .enableDensityCompilerPatch
+            && !"false".equalsIgnoreCase(System.getProperty(
+                    "ga.noise.lazyCellCaches.enabled",
+                    "true"
+            ));
     @Unique
     private static final int GA$FUSED_TERRAIN_PARITY_MASK = Integer.getInteger(
             "ga.aquifer.fusedTerrain.parityMask",
@@ -298,6 +351,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.bts$interpolatorsArray = this.interpolators.toArray(new NoiseChunk.NoiseInterpolator[0]);
         this.bts$cellCachesArray = this.cellCaches.toArray(new NoiseChunk.CacheAllInCell[0]);
         this.bts$initCellCacheArrays();
+        this.ga$initDirectTerrainCellAccess();
         bts$initInterpolatorSoA();
 
         /*
@@ -322,6 +376,205 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     @Override
     public boolean ga$fusedTerrainAvailable() {
         return this.ga$fusedTerrainAvailable && this.ga$terrainSubstanceDensity != null;
+    }
+
+    @Override
+    public boolean ga$fusedTerrainDirectCellAvailable() {
+        return GA$FUSED_DIRECT_CELL_ENABLED
+                && this.ga$fusedTerrainAvailable()
+                && this.ga$terrainDensityCellValues != null;
+    }
+
+    @Override
+    public long ga$sampleFusedTerrainDirectCellPackedBlockId(
+            int defaultBlockId,
+            int airBlockId,
+            int blockY,
+            int cellValueIndex
+    ) {
+        return GAFusedTerrainDirectCellSampler.samplePacked(
+                this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null,
+                defaultBlockId,
+                airBlockId,
+                blockY,
+                cellValueIndex,
+                this.ga$oreVeinRule != null,
+                GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS,
+                GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID
+        );
+    }
+
+    @Override
+    public double ga$sampleFusedTerrainDirectCellDensity(int cellValueIndex) {
+        double[] values = this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null;
+        if (values == null || cellValueIndex < 0 || cellValueIndex >= values.length) {
+            return Double.NaN;
+        }
+        return values[cellValueIndex];
+    }
+
+    @Override
+    public double[] ga$fusedTerrainDirectCellDensityValues() {
+        return this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null;
+    }
+
+    @Override
+    public boolean ga$fusedTerrainDirectCellHasOreVeinRule() {
+        return this.ga$oreVeinRule != null;
+    }
+
+    @Override
+    public boolean ga$fusedTerrainDirectCellSkipsOreVeins() {
+        return GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS;
+    }
+
+    @Override
+    public boolean ga$fusedTerrainDirectCellAirForNonSolid() {
+        return GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID;
+    }
+
+    @Override
+    public boolean ga$fusedTerrainDirectCellAllDefaultSolid(int minBlockY, int cellHeight) {
+        return GAFusedTerrainDirectCellSampler.cellCanUseDefaultSolid(
+                this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null,
+                minBlockY,
+                cellHeight,
+                this.ga$oreVeinRule != null,
+                GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS
+        );
+    }
+
+    @Override
+    public long ga$samplePositiveDensityFusedTerrainPackedBlockId(int defaultBlockId) {
+        if (!ga$fusedTerrainAvailable()) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+            );
+        }
+        NoiseChunk self = (NoiseChunk) (Object) this;
+        BlockState oreState = this.ga$oreVeinRule == null ? null : this.ga$oreVeinRule.calculate(self);
+        int blockId = oreState == null ? defaultBlockId : GA$BlockStateExtension.get(oreState).bts$getFastId();
+        return this.ga$checkedFusedTerrainPackedBlockId(self, defaultBlockId, blockId, false);
+    }
+
+    @Override
+    public long ga$sampleNegativeDensityGlobalFluidPackedBlockId(
+            int airBlockId,
+            int blockX,
+            int blockY,
+            int blockZ
+    ) {
+        if (!(this.aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess)) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+            );
+        }
+        if (primitiveAccess.ga$globalFluidKindAt(blockX, blockY, blockZ) != GAAquiferFluidGrid.KIND_LAVA) {
+            if (GA$FUSED_DIRECT_CELL_HIGH_AIR
+                    && blockY >= GA$FUSED_DIRECT_CELL_HIGH_AIR_MIN_Y
+                    && primitiveAccess.ga$globalFluidKindAt(blockX, blockY, blockZ) == GAAquiferFluidGrid.KIND_AIR) {
+                return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
+            }
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
+            );
+        }
+        int blockId = primitiveAccess.ga$globalFluidBlockIdAt(blockX, blockY, blockZ);
+        if (blockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+            );
+        }
+        return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(blockId, false);
+    }
+
+    @Override
+    public long ga$classifyNegativeDensityCellPackedBlockId(
+            int airBlockId,
+            int minBlockX,
+            int minBlockY,
+            int minBlockZ,
+            int cellWidth,
+            int cellHeight,
+            boolean highAirEnabled,
+            int highAirMinY
+    ) {
+        if (!(this.aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess)) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+            );
+        }
+
+        if (highAirEnabled && minBlockY >= highAirMinY
+                && ga$cellHasOnlyGlobalFluidKind(
+                primitiveAccess,
+                minBlockX,
+                minBlockY,
+                minBlockZ,
+                cellWidth,
+                cellHeight,
+                GAAquiferFluidGrid.KIND_AIR
+        )) {
+            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
+        }
+
+        int lavaBlockId = GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT;
+        for (int y = 0; y < cellHeight; y++) {
+            int blockY = minBlockY + y;
+            for (int x = 0; x < cellWidth; x++) {
+                int blockX = minBlockX + x;
+                for (int z = 0; z < cellWidth; z++) {
+                    int blockZ = minBlockZ + z;
+                    if (primitiveAccess.ga$globalFluidKindAt(blockX, blockY, blockZ) != GAAquiferFluidGrid.KIND_LAVA) {
+                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_MIXED_CELL
+                        );
+                    }
+                    int blockId = primitiveAccess.ga$globalFluidBlockIdAt(blockX, blockY, blockZ);
+                    if (blockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
+                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+                        );
+                    }
+                    if (lavaBlockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
+                        lavaBlockId = blockId;
+                    } else if (lavaBlockId != blockId) {
+                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_MIXED_CELL
+                        );
+                    }
+                }
+            }
+        }
+        return lavaBlockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT
+                ? GAFusedTerrainNoiseChunkAccess.ga$packFallback(
+                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
+        )
+                : GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(lavaBlockId, false);
+    }
+
+    @Unique
+    private static boolean ga$cellHasOnlyGlobalFluidKind(
+            GAAquiferPrimitiveAccess primitiveAccess,
+            int minBlockX,
+            int minBlockY,
+            int minBlockZ,
+            int cellWidth,
+            int cellHeight,
+            byte kind
+    ) {
+        for (int y = 0; y < cellHeight; y++) {
+            int blockY = minBlockY + y;
+            for (int x = 0; x < cellWidth; x++) {
+                int blockX = minBlockX + x;
+                for (int z = 0; z < cellWidth; z++) {
+                    if (primitiveAccess.ga$globalFluidKindAt(blockX, blockY, minBlockZ + z) != kind) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     @Override
@@ -457,14 +710,37 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.bts$cellCacheLazyFastFillers = new boolean[length];
         this.bts$cellCacheFastDisabled = new boolean[length];
         this.bts$cellCacheValues = new double[length][];
+        this.ga$cellCacheEpochs = new int[length];
+        this.ga$cellCacheFilling = new boolean[length];
 
         for (int i = 0; i < length; i++) {
             final NoiseChunk.CacheAllInCell cache = caches[i];
             final DensityFunction filler = cache.noiseFiller;
             this.bts$cellCacheFillers[i] = filler;
             this.bts$cellCacheValues[i] = cache.values;
+            if (cache instanceof GACellCacheLazyAccess access) {
+                access.ga$setCellCacheIndex(i);
+            }
             if (filler instanceof DfcCellFillAccess access) {
                 this.bts$cellCacheFastFillers[i] = access;
+            }
+        }
+    }
+
+    @Unique
+    private void ga$initDirectTerrainCellAccess() {
+        this.ga$terrainDensityCellValues = null;
+        this.ga$terrainDensityCellCacheIndex = -1;
+        if (this.ga$terrainSubstanceDensity == null) {
+            return;
+        }
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final double[][] valuesArray = this.bts$cellCacheValues;
+        for (int i = 0; i < caches.length; i++) {
+            if (caches[i] == this.ga$terrainSubstanceDensity) {
+                this.ga$terrainDensityCellCacheIndex = i;
+                this.ga$terrainDensityCellValues = valuesArray[i];
+                return;
             }
         }
     }
@@ -532,62 +808,138 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.cellStartBlockZ = (this.firstCellZ + zIndex) * this.cellWidth;
         ++this.arrayInterpolationCounter;
 
-        final NoiseChunk self = (NoiseChunk) (Object) this;
-        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
-        final DensityFunction[] fillers = this.bts$cellCacheFillers;
-        final DfcCellFillAccess[] fastFillers = this.bts$cellCacheFastFillers;
-        final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
-        final boolean[] disabledFastFillers = this.bts$cellCacheFastDisabled;
-        final double[][] valuesArray = this.bts$cellCacheValues;
-        for (int i = 0; i < fillers.length; i++) {
-            final DensityFunction filler = fillers[i];
-            DfcCellFillAccess fast = disabledFastFillers[i] ? null : fastFillers[i];
-
-            if (fast == null && !disabledFastFillers[i] && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
-                fast = access.dfc$getOrCompileCellFiller();
-                if (fast != null) {
-                    if (ga$isBrokenCellFiller(fast)) {
-                        disabledFastFillers[i] = true;
-                        fast = null;
-                    } else {
-                        fastFillers[i] = fast;
-                        lazyFastFillers[i] = true;
-                    }
-                }
+        this.ga$advanceCellCacheEpoch();
+        if (GA$LAZY_CELL_CACHES_ENABLED) {
+            if (this.ga$fusedTerrainDirectCellAvailable() && this.ga$terrainDensityCellCacheIndex >= 0) {
+                this.ga$fillCellCache(this.ga$terrainDensityCellCacheIndex);
+                GANoiseFillMetrics.increment(GANoiseFillMetrics.TERRAIN_CACHE_PREFILLS);
             }
-            if (fast != null && ga$isBrokenCellFiller(fast)) {
-                disabledFastFillers[i] = true;
-                fastFillers[i] = null;
-                fast = null;
-            }
-
-            final double[] values = valuesArray[i];
-            if (fast != null) {
-                if (DfcCellFillStats.ENABLED) {
-                    DfcCellFillStats.recordCellFill(fast, filler);
-                }
-                try {
-                    fast.dfc$fillCell(values, self);
-                    if (DfcCellFillParity.isActive()) {
-                        DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
-                        DfcCellFillParity.check(filler, values, self);
-                    }
-                } catch (ArrayIndexOutOfBoundsException exception) {
-                    disabledFastFillers[i] = true;
-                    fastFillers[i] = null;
-                    ga$rememberBrokenCellFiller(fast, filler, exception);
-                    ga$fillCellVanilla(filler, values, self, exception);
-                }
-            } else {
-                if (DfcCellFillParity.isActive()) {
-                    DfcCellFillParity.recordCandidate(filler, false, false);
-                }
-                ga$fillCellVanilla(filler, values, self, null);
+        } else {
+            for (int i = 0; i < this.bts$cellCacheFillers.length; i++) {
+                this.ga$fillCellCache(i);
+                GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_EAGER_FILLS);
             }
         }
 
         ++this.arrayInterpolationCounter;
         this.fillingCell = false;
+    }
+
+    @Override
+    public boolean ga$lazyCellCachesEnabled() {
+        return GA$LAZY_CELL_CACHES_ENABLED;
+    }
+
+    @Override
+    public void ga$ensureCellCacheFilled(int index) {
+        if (!GA$LAZY_CELL_CACHES_ENABLED || index < 0 || index >= this.ga$cellCacheEpochs.length) {
+            return;
+        }
+        if (this.ga$cellCacheEpochs[index] == this.ga$cellCacheEpoch) {
+            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LAZY_HITS);
+            return;
+        }
+        this.ga$fillCellCache(index);
+        GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LAZY_FILLS);
+    }
+
+    @Unique
+    private void ga$advanceCellCacheEpoch() {
+        int next = this.ga$cellCacheEpoch + 1;
+        if (next == 0) {
+            Arrays.fill(this.ga$cellCacheEpochs, 0);
+            next = 1;
+        }
+        this.ga$cellCacheEpoch = next;
+        this.ga$lazyCellArrayCounterOpen = false;
+    }
+
+    @Unique
+    private void ga$fillCellCache(int index) {
+        if (this.ga$cellCacheEpochs[index] == this.ga$cellCacheEpoch) {
+            return;
+        }
+        if (this.ga$cellCacheFilling[index]) {
+            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_RECURSION_SKIPS);
+            return;
+        }
+        boolean previousFillingCell = this.fillingCell;
+        int previousInCellX = this.inCellX;
+        int previousInCellY = this.inCellY;
+        int previousInCellZ = this.inCellZ;
+        int previousArrayIndex = this.arrayIndex;
+        if (!previousFillingCell && !this.ga$lazyCellArrayCounterOpen) {
+            ++this.arrayInterpolationCounter;
+            this.ga$lazyCellArrayCounterOpen = true;
+            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LATE_ARRAY_EPOCHS);
+        }
+        this.fillingCell = true;
+        this.ga$cellCacheFilling[index] = true;
+        try {
+            this.ga$fillCellCacheUnchecked(index);
+            this.ga$cellCacheEpochs[index] = this.ga$cellCacheEpoch;
+        } finally {
+            this.ga$cellCacheFilling[index] = false;
+            this.fillingCell = previousFillingCell;
+            this.inCellX = previousInCellX;
+            this.inCellY = previousInCellY;
+            this.inCellZ = previousInCellZ;
+            this.arrayIndex = previousArrayIndex;
+        }
+    }
+
+    @Unique
+    private void ga$fillCellCacheUnchecked(int index) {
+        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
+        final DensityFunction[] fillers = this.bts$cellCacheFillers;
+        final DfcCellFillAccess[] fastFillers = this.bts$cellCacheFastFillers;
+        final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
+        final boolean[] disabledFastFillers = this.bts$cellCacheFastDisabled;
+        final DensityFunction filler = fillers[index];
+        DfcCellFillAccess fast = disabledFastFillers[index] ? null : fastFillers[index];
+
+        if (fast == null && !disabledFastFillers[index] && caches[index] instanceof DfcCellCacheCompiledFillerAccess access) {
+            fast = access.dfc$getOrCompileCellFiller();
+            if (fast != null) {
+                if (ga$isBrokenCellFiller(fast)) {
+                    disabledFastFillers[index] = true;
+                    fast = null;
+                } else {
+                    fastFillers[index] = fast;
+                    lazyFastFillers[index] = true;
+                }
+            }
+        }
+        if (fast != null && ga$isBrokenCellFiller(fast)) {
+            disabledFastFillers[index] = true;
+            fastFillers[index] = null;
+            fast = null;
+        }
+
+        final double[] values = this.bts$cellCacheValues[index];
+        final NoiseChunk self = (NoiseChunk) (Object) this;
+        if (fast != null) {
+            if (DfcCellFillStats.ENABLED) {
+                DfcCellFillStats.recordCellFill(fast, filler);
+            }
+            try {
+                fast.dfc$fillCell(values, self);
+                if (DfcCellFillParity.isActive()) {
+                    DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[index]);
+                    DfcCellFillParity.check(filler, values, self);
+                }
+            } catch (ArrayIndexOutOfBoundsException exception) {
+                disabledFastFillers[index] = true;
+                fastFillers[index] = null;
+                ga$rememberBrokenCellFiller(fast, filler, exception);
+                ga$fillCellVanilla(filler, values, self, exception);
+            }
+        } else {
+            if (DfcCellFillParity.isActive()) {
+                DfcCellFillParity.recordCandidate(filler, false, false);
+            }
+            ga$fillCellVanilla(filler, values, self, null);
+        }
     }
 
     @Unique
@@ -686,6 +1038,9 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     public void updateForZ(int i, double d) {
         this.inCellZ = i - this.cellStartBlockZ;
         ++this.interpolationCounter;
+        this.arrayIndex = ((this.cellHeight - 1 - this.inCellY) << (this.cellWidthShift << 1))
+                + (this.inCellX << this.cellWidthShift)
+                + this.inCellZ;
         final double[] valueZ0 = this.bts$valueZ0;
         for (int j = 0; j < valueZ0.length; j++) {
             final double v = valueZ0[j];
