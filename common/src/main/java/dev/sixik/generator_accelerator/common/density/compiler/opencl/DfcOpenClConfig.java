@@ -54,6 +54,18 @@ public final class DfcOpenClConfig {
         return enabled() && boolProperty("dfc.opencl.finalDensityHybrid", false);
     }
 
+    public static boolean chunkNoiseEnabled() {
+        return enabled() && boolProperty("dfc.opencl.chunkNoise", false);
+    }
+
+    public static boolean chunkNoiseValidationEnabled() {
+        return boolProperty("dfc.opencl.chunkNoiseValidation", true);
+    }
+
+    public static int chunkNoiseMaxOutputBytes() {
+        return intProperty("dfc.opencl.chunkNoiseMaxOutputBytes", 64 << 20, 0, 1 << 30);
+    }
+
     public static int finalDensityHybridMinSlotValues() {
         return intProperty("dfc.opencl.finalDensityHybridMinSlotValues", slabVmMinElements(), 0, 1 << 24);
     }

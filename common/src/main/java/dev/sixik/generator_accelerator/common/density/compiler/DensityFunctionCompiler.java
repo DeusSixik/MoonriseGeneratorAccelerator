@@ -20,6 +20,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClC
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClCompiledPlanRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClStats;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk.DfcOpenClChunkStats;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -917,9 +918,10 @@ public final class DensityFunctionCompiler {
                                     return (int) Math.min(Integer.MAX_VALUE,
                                             DfcOpenClStats.snapshot().slabSucceeded());
                                 })
-                                .then(Commands.literal("reset")
+                                        .then(Commands.literal("reset")
                                         .executes(context -> {
                                             DfcOpenClStats.reset();
+                                            DfcOpenClChunkStats.reset();
                                             context.getSource().sendSuccess(
                                                     () -> Component.literal("DFC OpenCL stats reset."),
                                                     false);
@@ -3504,9 +3506,12 @@ public final class DensityFunctionCompiler {
                         + ", slabDispatchRequested=" + DfcOpenClConfig.slabVmDispatchEnabled()
                         + ", finalDensityHybrid=" + DfcOpenClConfig.finalDensityHybridEnabled()
                         + ", finalDensityHybridBroken=" + DfcOpenClRuntime.finalDensityHybridBroken()
+                        + ", chunkNoise=" + DfcOpenClConfig.chunkNoiseEnabled()
+                        + ", chunkNoiseValidation=" + DfcOpenClConfig.chunkNoiseValidationEnabled()
                         + ", worldgenBridge=" + DfcOpenClConfig.worldgenBridgeEnabled()
                         + ", slabMinElements=" + DfcOpenClConfig.slabVmMinElements()
                         + ", hybridMinSlotValues=" + DfcOpenClConfig.finalDensityHybridMinSlotValues()
+                        + ", chunkNoiseMaxOutputBytes=" + DfcOpenClConfig.chunkNoiseMaxOutputBytes()
                         + ", bridgeMaxElements=" + DfcOpenClConfig.currentBridgeMaxElements()
                         + ", coordBenchMaxElements=" + DfcOpenClConfig.coordBenchMaxElements()
                         + ", directStaging=" + DfcOpenClConfig.directStagingEnabled()
@@ -3595,6 +3600,24 @@ public final class DensityFunctionCompiler {
                         ? ""
                         : ", lastSkip=" + stats.hybridBatchLastSkip())),
                 false);
+        DfcOpenClChunkStats.Snapshot chunkStats = DfcOpenClChunkStats.snapshot();
+        long blockValues = chunkStats.outputBytes() / Integer.BYTES;
+        source.sendSuccess(() -> Component.literal(
+                "DFC OpenCL chunk noise: calls=" + chunkStats.calls()
+                        + ", skipped=" + chunkStats.skipped()
+                        + ", attempts=" + chunkStats.attempts()
+                        + ", succeeded=" + chunkStats.succeeded()
+                        + ", failed=" + chunkStats.failed()
+                        + ", chunks=" + chunkStats.chunks()
+                        + ", batches=" + chunkStats.batches()
+                        + ", outputBytes=" + chunkStats.outputBytes()
+                        + ", totalMs=" + formatNanosMillis(chunkStats.totalNanos())
+                        + ", avgChunkMs=" + formatAverageMillis(chunkStats.totalNanos(), chunkStats.chunks())
+                        + ", avgBlockNs=" + formatAverageNanos(chunkStats.totalNanos(), blockValues)
+                        + ", maxMs=" + formatNanosMillis(chunkStats.maxNanos())
+                        + ", lastSkip=" + cleanStatReason(chunkStats.lastSkip())
+                        + ", lastFailure=" + cleanStatReason(chunkStats.lastFailure())),
+                false);
     }
 
     private static String formatBucket(DfcSplineStats.BucketStats bucket) {
@@ -3610,6 +3633,17 @@ public final class DensityFunctionCompiler {
             return "0.0";
         }
         return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
+    }
+
+    private static String formatAverageMillis(long nanos, long calls) {
+        if (calls <= 0L) {
+            return "0.000";
+        }
+        return String.format(Locale.ROOT, "%.3f", nanos / (double) calls / 1_000_000.0d);
+    }
+
+    private static String cleanStatReason(String reason) {
+        return reason == null || reason.isBlank() ? "none" : reason;
     }
 
     private static String formatSplineTopEntry(DfcSplineStats.ClassStats stats) {
