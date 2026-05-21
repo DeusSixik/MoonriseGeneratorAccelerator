@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk.DfcOpenClChunkRuntime;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
@@ -78,6 +80,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             int minCellY,
             int cellCountY
     ) {
+        if (DfcOpenClConfig.chunkNoiseEnabled()
+                && DfcOpenClChunkRuntime.global().tryFillSingleChunk(
+                        blender, structureManager, randomState, chunkAccess, minCellY, cellCountY)) {
+            return chunkAccess;
+        }
         NoiseChunk noiseChunk = chunkAccess.getOrCreateNoiseChunk(
                 chunk -> this.createNoiseChunk(chunk, structureManager, blender, randomState)
         );

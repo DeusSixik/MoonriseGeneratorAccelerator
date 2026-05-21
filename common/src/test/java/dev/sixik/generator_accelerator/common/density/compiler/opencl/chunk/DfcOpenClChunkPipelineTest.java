@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class DfcOpenClChunkPipelineTest {
@@ -106,6 +107,14 @@ final class DfcOpenClChunkPipelineTest {
             assertFalse(attempt.allowed());
             assertEquals("memory", attempt.reason());
         });
+    }
+
+    @Test
+    void globalRuntimeSingleChunkHookIsFailSoftUntilImplemented() {
+        DfcOpenClChunkRuntime runtime = DfcOpenClChunkRuntime.global();
+
+        assertSame(runtime, DfcOpenClChunkRuntime.global());
+        assertFalse(runtime.tryFillSingleChunk(null, null, null, null, 0, 0));
     }
 
     private static void withOpenClProperties(String enabled, String chunkNoise, Runnable action) {

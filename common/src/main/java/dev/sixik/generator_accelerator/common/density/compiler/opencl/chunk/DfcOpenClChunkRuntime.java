@@ -1,8 +1,14 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk;
 
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
+import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.levelgen.RandomState;
+import net.minecraft.world.level.levelgen.blending.Blender;
 
 public final class DfcOpenClChunkRuntime {
+    private static final DfcOpenClChunkRuntime GLOBAL = new DfcOpenClChunkRuntime();
+
     public enum OutputMode {
         DENSITY,
         PACKED_BLOCKS
@@ -22,6 +28,25 @@ public final class DfcOpenClChunkRuntime {
         public static Result empty(String reason) {
             return new Result(false, null, reason);
         }
+    }
+
+    public static DfcOpenClChunkRuntime global() {
+        return GLOBAL;
+    }
+
+    public boolean tryFillSingleChunk(
+            Blender blender,
+            StructureManager structureManager,
+            RandomState randomState,
+            ChunkAccess chunkAccess,
+            int minCellY,
+            int cellCountY) {
+        if (!DfcOpenClConfig.chunkNoiseEnabled()) {
+            return false;
+        }
+        DfcOpenClChunkStats.recordCall();
+        DfcOpenClChunkStats.recordSkip("no_plan");
+        return false;
     }
 
     public Attempt preflight(DfcOpenClChunkRequest request, OutputMode mode) {
