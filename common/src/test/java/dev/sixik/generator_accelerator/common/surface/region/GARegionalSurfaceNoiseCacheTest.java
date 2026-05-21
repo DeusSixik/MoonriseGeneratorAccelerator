@@ -13,6 +13,10 @@ import org.mockito.Mockito;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GARegionalSurfaceNoiseCacheTest {
+    static {
+        System.setProperty("ga.surface.regionalNoiseCache.enabled", "true");
+    }
+
     @BeforeAll
     static void bootstrap() {
         SharedConstants.tryDetectVersion();

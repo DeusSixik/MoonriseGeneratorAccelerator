@@ -32,7 +32,7 @@ public final class GARegionalBiomeSectionRaster {
     public static final int REGION_QUART_MASK = REGION_QUART_SIZE - 1;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.biome.regionalQuartRaster.enabled", "true")
+            System.getProperty("ga.biome.regionalQuartRaster.enabled", "false")
     );
     private static final int MAX_ENTRIES = Math.max(
             16,

@@ -19,7 +19,7 @@ public final class GARegionalBeardifierAtlas {
     public static final int REGION_BLOCK_SHIFT = REGION_CHUNK_SHIFT + 4;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.beardifier.regionalAtlas.enabled", "true")
+            System.getProperty("ga.beardifier.regionalAtlas.enabled", "false")
     );
     private static final int MAX_REGIONS = Math.max(
             16,

@@ -58,16 +58,16 @@ public class GAConfig {
     public int schedulerMaxQueuedTasks = 0;
 
     @ConfigComment("Adaptive worldgen governor CPU target for compile throttling under generation pressure.")
-    public double schedulerCpuTarget = 0.85D;
+    public double schedulerCpuTarget = 1.0D;
 
     @ConfigComment("Throttle new worldgen compute tasks when commit lane backlog reaches this many queued/running tasks. 0 = disabled.")
-    public int schedulerCommitBacklogThrottleThreshold = 64;
+    public int schedulerCommitBacklogThrottleThreshold = 0;
 
     @ConfigComment("Throttle new worldgen compute tasks when cross-chunk mailbox backlog reaches this many queued commands. 0 = disabled.")
-    public int schedulerMailboxBacklogThrottleThreshold = 8192;
+    public int schedulerMailboxBacklogThrottleThreshold = 0;
 
     @ConfigComment("Throttle new worldgen compute tasks when heap usage ratio reaches this value. 0 = disabled.")
-    public double schedulerHeapPressureTarget = 0.92D;
+    public double schedulerHeapPressureTarget = 0.0D;
 
     @ConfigComment("Enable GA async chunk-status dispatch. This moves synchronous vanilla generation stages onto GA scheduler lanes.")
     public boolean enableChunkStatusPipeline = true;

@@ -27,7 +27,7 @@ public final class GARegionalAquiferAtlas {
     public static final int REGION_BLOCK_SIZE = 1 << REGION_BLOCK_SHIFT;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.aquifer.regionalAtlas.enabled", "true")
+            System.getProperty("ga.aquifer.regionalAtlas.enabled", "false")
     );
     private static final int MAX_REGIONS = Math.max(
             16,

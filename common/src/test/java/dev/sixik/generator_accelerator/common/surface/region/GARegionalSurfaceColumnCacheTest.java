@@ -1,6 +1,9 @@
 package dev.sixik.generator_accelerator.common.surface.region;
 
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.levelgen.SurfaceSystem;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -8,6 +11,16 @@ import org.mockito.Mockito;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GARegionalSurfaceColumnCacheTest {
+    static {
+        System.setProperty("ga.surface.regionalColumnCache.enabled", "true");
+    }
+
+    @BeforeAll
+    static void bootstrap() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
     @BeforeEach
     void clearCaches() {
         GARegionalSurfaceColumnCache.clearForTests();

@@ -10,6 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class GARegionalAquiferSampleCacheTest {
+    static {
+        System.setProperty("ga.aquifer.regionalSampleCache.enabled", "true");
+    }
+
     private static final Object EROSION_KEY = new Object();
     private static final Object DEPTH_KEY = new Object();
     private static final Object FLOODEDNESS_KEY = new Object();

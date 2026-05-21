@@ -968,12 +968,12 @@ public final class GAScheduler {
         }
 
         static ConfigSnapshot from(GAConfig config, int processors, boolean isDev) {
-            int worldgenBudget = Math.max(2, processors - (isDev ? 0 : 1));
-            int activeWorldgenBudget = Math.max(1, worldgenBudget - 2);
+            int worldgenBudget = Math.max(2, processors);
+            int activeWorldgenBudget = Math.max(1, worldgenBudget);
             int defaultNoise = Math.max(1, Math.round(activeWorldgenBudget * 0.60F));
             int defaultWorkspace = Math.max(1, Math.round(activeWorldgenBudget * 0.30F));
             int defaultTransactional = Math.max(1, activeWorldgenBudget - defaultNoise - defaultWorkspace);
-            int defaultCompile = Math.min(4, Math.max(1, processors / 3));
+            int defaultCompile = 1;
             return new ConfigSnapshot(
                     positiveOrDefault(config.schedulerNoiseWorkers, defaultNoise),
                     positiveOrDefault(config.schedulerCompileWorkers, defaultCompile),

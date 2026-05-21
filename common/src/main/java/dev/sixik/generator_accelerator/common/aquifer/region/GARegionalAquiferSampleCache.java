@@ -18,7 +18,7 @@ public final class GARegionalAquiferSampleCache {
     public static final int REGION_BLOCK_SHIFT = 6;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.aquifer.regionalSampleCache.enabled", "true")
+            System.getProperty("ga.aquifer.regionalSampleCache.enabled", "false")
     );
     private static final int MAX_REGIONS = Math.max(
             16,

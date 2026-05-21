@@ -11,6 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GARegionalAquiferAtlasTest {
+    static {
+        System.setProperty("ga.aquifer.regionalAtlas.enabled", "true");
+    }
+
     @AfterEach
     void tearDown() {
         GARegionalAquiferAtlas.clearForTests();

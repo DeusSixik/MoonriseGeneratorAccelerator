@@ -49,29 +49,32 @@ final class DecorationReadSnapshot {
         int centerZ = context.chunkZ();
         int minBuildHeight = context.chunk().getMinBuildHeight();
         int buildHeight = context.chunk().getHeight();
-        int regionChunkX = centerX >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
-        int regionChunkZ = centerZ >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
-        int regionMinChunkX = regionChunkX << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
-        int regionMinChunkZ = regionChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
-        ChunkAccess[] regionChunks = new ChunkAccess[GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE
-                * GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE];
-        for (int localChunkZ = 0; localChunkZ < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkZ++) {
-            for (int localChunkX = 0; localChunkX < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkX++) {
-                int chunkX = regionMinChunkX + localChunkX;
-                int chunkZ = regionMinChunkZ + localChunkZ;
-                regionChunks[localChunkX | (localChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT)] =
-                        chunkX == centerX && chunkZ == centerZ
-                                ? context.chunk()
-                                : context.level().getChunk(chunkX, chunkZ);
+        GARegionalBiomeSectionRaster.View biomeRaster = null;
+        if (GARegionalBiomeSectionRaster.enabled()) {
+            int regionChunkX = centerX >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+            int regionChunkZ = centerZ >> GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+            int regionMinChunkX = regionChunkX << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+            int regionMinChunkZ = regionChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT;
+            ChunkAccess[] regionChunks = new ChunkAccess[GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE
+                    * GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE];
+            for (int localChunkZ = 0; localChunkZ < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkZ++) {
+                for (int localChunkX = 0; localChunkX < GARegionalBiomeSectionRaster.REGION_CHUNK_SIZE; localChunkX++) {
+                    int chunkX = regionMinChunkX + localChunkX;
+                    int chunkZ = regionMinChunkZ + localChunkZ;
+                    regionChunks[localChunkX | (localChunkZ << GARegionalBiomeSectionRaster.REGION_CHUNK_SHIFT)] =
+                            chunkX == centerX && chunkZ == centerZ
+                                    ? context.chunk()
+                                    : context.level().getChunk(chunkX, chunkZ);
+                }
             }
+            biomeRaster = GARegionalBiomeSectionRaster.capture(
+                    regionMinChunkX,
+                    regionMinChunkZ,
+                    regionChunks,
+                    minBuildHeight,
+                    buildHeight
+            );
         }
-        GARegionalBiomeSectionRaster.View biomeRaster = GARegionalBiomeSectionRaster.capture(
-                regionMinChunkX,
-                regionMinChunkZ,
-                regionChunks,
-                minBuildHeight,
-                buildHeight
-        );
         for (int dz = -safeRadius; dz <= safeRadius; dz++) {
             for (int dx = -safeRadius; dx <= safeRadius; dx++) {
                 int chunkX = centerX + dx;

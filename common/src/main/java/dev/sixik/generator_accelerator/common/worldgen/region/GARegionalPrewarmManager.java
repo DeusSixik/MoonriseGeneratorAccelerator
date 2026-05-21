@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class GARegionalPrewarmManager {
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.region.prewarm.enabled", "true")
+            System.getProperty("ga.region.prewarm.enabled", "false")
     );
 
     private static final ConcurrentHashMap<Object, CompletableFuture<Void>> TASKS = new ConcurrentHashMap<>();
@@ -99,12 +99,9 @@ public final class GARegionalPrewarmManager {
             action.run();
             return;
         }
-        long start = System.nanoTime();
-        try {
-            current.join();
-        } finally {
-            WAIT_NANOS.addAndGet(System.nanoTime() - start);
-        }
+        // Regional prewarm is only an optimization. Waiting here can stall the NOISE/SURFACE
+        // hot path or self-deadlock through nested region work, so always assist inline instead.
+        action.run();
     }
 
     public static boolean cancel(Object key) {

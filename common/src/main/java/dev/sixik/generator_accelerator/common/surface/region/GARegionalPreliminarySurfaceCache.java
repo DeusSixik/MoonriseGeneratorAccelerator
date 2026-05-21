@@ -22,7 +22,7 @@ public final class GARegionalPreliminarySurfaceCache {
     public static final int REGION_QUART_MASK = REGION_QUART_SIZE - 1;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.surface.regionalPreliminaryCache.enabled", "true")
+            System.getProperty("ga.surface.regionalPreliminaryCache.enabled", "false")
     );
     private static final int MAX_ENTRIES = Math.max(
             16,

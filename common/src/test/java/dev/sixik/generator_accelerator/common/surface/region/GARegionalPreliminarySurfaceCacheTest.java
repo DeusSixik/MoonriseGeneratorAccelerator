@@ -1,7 +1,10 @@
 package dev.sixik.generator_accelerator.common.surface.region;
 
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseSettings;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -9,6 +12,16 @@ import org.mockito.Mockito;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GARegionalPreliminarySurfaceCacheTest {
+    static {
+        System.setProperty("ga.surface.regionalPreliminaryCache.enabled", "true");
+    }
+
+    @BeforeAll
+    static void bootstrap() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
     @BeforeEach
     void clearCache() {
         GARegionalPreliminarySurfaceCache.clearForTests();

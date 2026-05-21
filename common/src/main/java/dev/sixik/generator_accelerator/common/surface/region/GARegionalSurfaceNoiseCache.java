@@ -27,7 +27,7 @@ public final class GARegionalSurfaceNoiseCache {
     public static final int REGION_BLOCK_MASK = REGION_BLOCK_SIZE - 1;
 
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.surface.regionalNoiseCache.enabled", "true")
+            System.getProperty("ga.surface.regionalNoiseCache.enabled", "false")
     );
     private static final int MAX_ENTRIES = Math.max(
             16,

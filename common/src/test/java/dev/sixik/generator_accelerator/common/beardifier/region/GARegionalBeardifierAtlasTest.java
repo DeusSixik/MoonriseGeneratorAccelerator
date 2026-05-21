@@ -13,6 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GARegionalBeardifierAtlasTest {
+    static {
+        System.setProperty("ga.beardifier.regionalAtlas.enabled", "true");
+    }
+
     @AfterEach
     void tearDown() {
         GARegionalBeardifierAtlas.clearForTests();

@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class GARegionalSurfaceColumnCache {
     private static final boolean ENABLED = Boolean.parseBoolean(
-            System.getProperty("ga.surface.regionalColumnCache.enabled", "true")
+            System.getProperty("ga.surface.regionalColumnCache.enabled", "false")
     );
     private static final int MAX_ENTRIES = Math.max(
             16,
