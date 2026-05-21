@@ -5,6 +5,8 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.
 import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk.DfcOpenClChunkOutputLayout;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk.DfcOpenClChunkRequest;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -63,6 +65,7 @@ public final class DfcOpenClRuntime {
     static final int CELL_GRID_LAYOUT_XZ = 0;
     static final int CELL_GRID_LAYOUT_Y_COLUMN = 1;
     static final int CELL_GRID_LAYOUT_Y_Z_SLICE = 2;
+    static final int CELL_GRID_LAYOUT_CHUNK_BLOCKS = 3;
     private static final int CELL_GRID_LAYOUT_KIND_MASK = 0xFF;
     private static final int CELL_GRID_LAYOUT_STRIDE_SHIFT = 8;
     /*
@@ -189,6 +192,96 @@ public final class DfcOpenClRuntime {
     public static void clearRuntimeHybridPlanCache() {
         synchronized (RUNTIME_HYBRID_PLANS) {
             RUNTIME_HYBRID_PLANS.clear();
+        }
+    }
+
+    public static synchronized ChunkDensityPrototypeResult tryEvaluateChunkDensityPrototype(
+            CompiledDensityFunction compiled,
+            DfcOpenClChunkRequest chunkRequest) {
+        if (compiled == null) {
+            return ChunkDensityPrototypeResult.failed("no_plan");
+        }
+        if (chunkRequest == null || !chunkRequest.validShape()) {
+            return ChunkDensityPrototypeResult.failed("shape");
+        }
+
+        RuntimeHybridPlan runtimePlan = runtimeHybridPlan(compiled);
+        if (!runtimePlan.available()) {
+            return ChunkDensityPrototypeResult.failed(chunkPrototypeReason(runtimePlan.unavailableReason()));
+        }
+
+        Status status = cachedStatus;
+        if (!status.probed() || !status.available() || selectedCandidate == null) {
+            status = probe(true);
+        }
+        if (!status.available() || selectedCandidate == null) {
+            return ChunkDensityPrototypeResult.failed("unavailable");
+        }
+
+        long started = System.nanoTime();
+        try {
+            DfcOpenClDeviceContext context = ensureActiveContext();
+            DfcOpenClChunkOutputLayout layout = DfcOpenClChunkOutputLayout.forRequest(chunkRequest);
+            double[] out = new double[layout.totalValues()];
+            DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                    chunkNoiseCellGridRequest(out, chunkRequest, runtimePlan.descriptor());
+            RuntimeFinalOutputDispatch finalOutput = buildRuntimeFinalOutputDispatch(context, runtimePlan, request);
+            try {
+                int slotValues = Math.multiplyExact(request.n(), finalOutput.slotBufferSlotCount());
+                DfcOpenClStats.recordSlabAttempt(slotValues);
+                DfcOpenClStats.recordSlabSubmitted();
+                DfcOpenClDeviceContext.SlabVmResult result = context.evalFinalOutputStagesToFinalOutput(
+                        finalOutput.stages(), finalOutput.finalKernel(), request,
+                        finalOutput.slotBufferSlotCount(), true, finalOutput.initialSlotBuffer(),
+                        finalOutput.flatCache2dKernel(), finalOutput.flatCache2dPrefill(), true);
+                DfcOpenClStats.recordSlabSuccess(result.elapsedNanos());
+                return ChunkDensityPrototypeResult.success(out, System.nanoTime() - started);
+            } finally {
+                finalOutput.close();
+            }
+        } catch (RuntimeFinalOutputUnavailable unavailable) {
+            return ChunkDensityPrototypeResult.failed(chunkPrototypeReason(unavailable.getMessage()));
+        } catch (Throwable throwable) {
+            DfcOpenClStats.recordSlabFailure();
+            closeActiveContext();
+            LOGGER.warn("DFC OpenCL: chunk density prototype dispatch failed: {}",
+                    errorMessage(throwable), throwable);
+            return ChunkDensityPrototypeResult.failed("opencl");
+        }
+    }
+
+    private static String chunkPrototypeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "no_plan";
+        }
+        String lower = reason.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("wave")) {
+            return "no_waves";
+        }
+        if (lower.contains("flatcache") || lower.contains("flat cache")) {
+            return "flatcache_unbound";
+        }
+        if (lower.contains("aquifer")) {
+            return "aquifer";
+        }
+        if (lower.contains("opencl")) {
+            return "opencl";
+        }
+        return "no_plan";
+    }
+
+    public record ChunkDensityPrototypeResult(
+            boolean success,
+            double[] densities,
+            long elapsedNanos,
+            String reason) {
+        private static ChunkDensityPrototypeResult success(double[] densities, long elapsedNanos) {
+            return new ChunkDensityPrototypeResult(true, densities, Math.max(0L, elapsedNanos), "ok");
+        }
+
+        private static ChunkDensityPrototypeResult failed(String reason) {
+            return new ChunkDensityPrototypeResult(false, null, 0L,
+                    reason == null || reason.isBlank() ? "no_plan" : reason);
         }
     }
 
@@ -4898,6 +4991,38 @@ public final class DfcOpenClRuntime {
                 n);
     }
 
+    private static DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest chunkNoiseCellGridRequest(
+            double[] out,
+            DfcOpenClChunkRequest chunkRequest,
+            DfcOpenClNoiseDescriptor descriptor) {
+        DfcOpenClChunkOutputLayout layout = DfcOpenClChunkOutputLayout.forRequest(chunkRequest);
+        int n = layout.totalValues();
+        return new DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest(
+                DfcOpenClSlabVmSmoke.bytecode(),
+                DfcOpenClSlabVmSmoke.constants(),
+                descriptor.permutations,
+                descriptor.origins,
+                descriptor.inputFactors,
+                descriptor.ampFactors,
+                descriptor.branchOctaveOffsets,
+                descriptor.branchOctaveCounts,
+                descriptor.branchCoordScales,
+                descriptor.slotValueFactors,
+                descriptor.slotCount,
+                descriptor.branchesPerSlot,
+                descriptor.octavesPerBranch,
+                Math.multiplyExact(chunkRequest.firstChunkX(), 16),
+                chunkRequest.minBlockY(),
+                Math.multiplyExact(chunkRequest.firstChunkZ(), 16),
+                16,
+                chunkRequest.height(),
+                chunkRequest.chunkCount(),
+                cellGridLayoutWithStride(CELL_GRID_LAYOUT_CHUNK_BLOCKS, chunkRequest.chunkCountX()),
+                0.0D,
+                out,
+                n);
+    }
+
     private static DfcOpenClDeviceContext ensureActiveContext() {
         DfcOpenClDeviceEnumerator.Candidate candidate = selectedCandidate;
         if (candidate == null) {
@@ -8265,6 +8390,11 @@ public final class DfcOpenClRuntime {
         int plane = inCell % (request.cellWidth() * request.cellWidth());
         int ix = plane / request.cellWidth();
         int layout = cellGridLayoutKind(request.layout());
+        if (layout == CELL_GRID_LAYOUT_CHUNK_BLOCKS) {
+            int stride = cellGridLayoutStride(request.layout());
+            int chunkX = stride <= 0 ? 0 : cell % stride;
+            return request.firstBlockX() + chunkX * request.cellWidth() + ix;
+        }
         if (layout == CELL_GRID_LAYOUT_Y_COLUMN || layout == CELL_GRID_LAYOUT_Y_Z_SLICE) {
             return request.firstBlockX() + ix;
         }
@@ -8285,6 +8415,8 @@ public final class DfcOpenClRuntime {
         } else if (layout == CELL_GRID_LAYOUT_Y_Z_SLICE) {
             int stride = cellGridLayoutStride(request.layout());
             cellY = stride <= 0 ? 0 : cell % stride;
+        } else if (layout == CELL_GRID_LAYOUT_CHUNK_BLOCKS) {
+            return request.firstBlockY() + yIndex;
         }
         int cellYOffset = cellY * request.cellHeight();
         return request.firstBlockY() + cellYOffset + (request.cellHeight() - 1 - yIndex);
@@ -8304,6 +8436,11 @@ public final class DfcOpenClRuntime {
             int stride = cellGridLayoutStride(request.layout());
             int cellZ = stride <= 0 ? 0 : cell / stride;
             return request.firstBlockZ() + cellZ * request.cellWidth() + iz;
+        }
+        if (layout == CELL_GRID_LAYOUT_CHUNK_BLOCKS) {
+            int stride = cellGridLayoutStride(request.layout());
+            int chunkZ = stride <= 0 ? 0 : cell / stride;
+            return request.firstBlockZ() + chunkZ * request.cellWidth() + iz;
         }
         int cellZ = cell >> 5;
         return request.firstBlockZ() + cellZ * request.cellWidth() + iz;

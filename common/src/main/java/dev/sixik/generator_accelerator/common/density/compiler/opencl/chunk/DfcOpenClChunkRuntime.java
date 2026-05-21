@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.density.compiler.opencl.chunk;
 
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClConfig;
+import dev.sixik.generator_accelerator.common.density.compiler.opencl.DfcOpenClRuntime;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.RandomState;
@@ -70,13 +72,35 @@ public final class DfcOpenClChunkRuntime {
     }
 
     public Result tryEvaluateDensityPrototype(DfcOpenClChunkRequest request) {
+        return tryEvaluateDensityPrototype(request, null);
+    }
+
+    public Result tryEvaluateDensityPrototype(DfcOpenClChunkRequest request, CompiledDensityFunction compiled) {
         DfcOpenClChunkStats.recordCall();
         Attempt attempt = preflight(request, OutputMode.DENSITY);
         if (!attempt.allowed()) {
             DfcOpenClChunkStats.recordSkip(attempt.reason());
             return Result.empty(attempt.reason());
         }
-        DfcOpenClChunkStats.recordSkip("no_plan");
-        return Result.empty("no_plan");
+        if (compiled == null) {
+            DfcOpenClChunkStats.recordSkip("no_plan");
+            return Result.empty("no_plan");
+        }
+        DfcOpenClChunkOutputLayout layout = DfcOpenClChunkOutputLayout.forRequest(request);
+        DfcOpenClChunkStats.recordAttempt(request.chunkCount(), layout.densityOutputBytes());
+        DfcOpenClRuntime.ChunkDensityPrototypeResult result =
+                DfcOpenClRuntime.tryEvaluateChunkDensityPrototype(compiled, request);
+        if (result.success()) {
+            DfcOpenClChunkStats.recordSuccess(request.chunkCount(),
+                    layout.densityOutputBytes(), result.elapsedNanos());
+            return new Result(true, DfcOpenClChunkResult.densities(result.densities()), "ok");
+        }
+        String reason = result.reason();
+        if ("opencl".equals(reason)) {
+            DfcOpenClChunkStats.recordFailure(reason);
+        } else {
+            DfcOpenClChunkStats.recordSkip(reason);
+        }
+        return Result.empty(reason);
     }
 }

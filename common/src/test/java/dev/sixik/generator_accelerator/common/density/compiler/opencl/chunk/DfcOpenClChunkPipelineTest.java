@@ -110,6 +110,19 @@ final class DfcOpenClChunkPipelineTest {
     }
 
     @Test
+    void densityPrototypeWithMissingPlanSkipsAsNoPlan() {
+        withOpenClProperties("true", "true", () -> {
+            DfcOpenClChunkStats.reset();
+            DfcOpenClChunkRuntime runtime = new DfcOpenClChunkRuntime();
+            DfcOpenClChunkRequest request = DfcOpenClChunkRequest.singleChunk(
+                    0, 0, -64, 384, 4, 8, 1 << 24, false);
+
+            assertFalse(runtime.tryEvaluateDensityPrototype(request, null).present());
+            assertEquals("no_plan", DfcOpenClChunkStats.snapshot().lastSkip());
+        });
+    }
+
+    @Test
     void globalRuntimeSingleChunkHookIsFailSoftUntilImplemented() {
         DfcOpenClChunkRuntime runtime = DfcOpenClChunkRuntime.global();
 

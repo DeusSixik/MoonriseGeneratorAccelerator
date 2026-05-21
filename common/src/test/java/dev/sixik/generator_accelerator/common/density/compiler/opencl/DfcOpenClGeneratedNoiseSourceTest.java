@@ -1772,6 +1772,25 @@ class DfcOpenClGeneratedNoiseSourceTest {
     }
 
     @Test
+    void runtimeCellGridCoordsMapChunkBlockLayout() {
+        int chunkCountX = 2;
+        int layout = DfcOpenClRuntime.cellGridLayoutWithStride(
+                DfcOpenClRuntime.CELL_GRID_LAYOUT_CHUNK_BLOCKS, chunkCountX);
+        DfcOpenClDeviceContext.SlabVmNoiseCellGridRequest request =
+                testRequestWithLayout(layout, 8 * 16, -64, 12 * 16, 16, 384, 4);
+        int lastChunkLastBlock = 3 * 16 * 16 * 384 + 383 * 16 * 16 + 15 * 16 + 15;
+
+        assertEquals(8 * 16.0D, DfcOpenClRuntime.runtimeCellGridBlockX(0, request));
+        assertEquals(-64.0D, DfcOpenClRuntime.runtimeCellGridBlockY(0, request));
+        assertEquals(12 * 16.0D, DfcOpenClRuntime.runtimeCellGridBlockZ(0, request));
+        assertEquals((8 + 1) * 16.0D + 15.0D,
+                DfcOpenClRuntime.runtimeCellGridBlockX(lastChunkLastBlock, request));
+        assertEquals(-64.0D + 383.0D, DfcOpenClRuntime.runtimeCellGridBlockY(lastChunkLastBlock, request));
+        assertEquals((12 + 1) * 16.0D + 15.0D,
+                DfcOpenClRuntime.runtimeCellGridBlockZ(lastChunkLastBlock, request));
+    }
+
+    @Test
     void runtimeHybridFastSkipPathIsNotGloballySynchronized() throws NoSuchMethodException {
         int modifiers = DfcOpenClRuntime.class.getDeclaredMethod(
                 "tryFillFinalDensityHybrid", CompiledDensityFunction.class, double[].class, NoiseChunk.class)
