@@ -1,6 +1,4 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
-
-import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
@@ -53,6 +51,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -111,6 +110,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     @Shadow
     @Final
     private DensityFunction initialDensityNoJaggedness;
+    @Shadow
+    protected abstract DensityFunction wrap(DensityFunction densityFunction);
     @Shadow
     @Final
     private Long2IntMap preliminarySurfaceLevel;
@@ -328,16 +329,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.wrapped = new Object2ObjectOpenHashMap<>(128);
     }
 
-    @Inject(
-            method = "<init>",
-            at = @At(
-                    value = "FIELD",
-                    target = "Lnet/minecraft/world/level/levelgen/NoiseChunk;blockStateRule:Lnet/minecraft/world/level/levelgen/NoiseChunk$BlockStateFiller;",
-                    opcode = Opcodes.PUTFIELD,
-                    shift = At.Shift.AFTER
-            )
-    )
-    private void ga$initFusedTerrainAccess(
+    @Inject(method = "<init>", at = @At("TAIL"))
+    private void bts$initOptimizationFields(
             int cellCountXZ,
             RandomState randomState,
             int firstBlockX,
@@ -347,28 +340,23 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             NoiseGeneratorSettings noiseGeneratorSettings,
             Aquifer.FluidPicker fluidPicker,
             Blender blender,
-            CallbackInfo ci,
-            @Local(ordinal = 0) DensityFunction terrainSubstanceDensity
+            CallbackInfo ci
     ) {
         this.ga$chunkMinBlockX = firstBlockX;
         this.ga$chunkMinBlockZ = firstBlockZ;
-        if (!GA$FUSED_TERRAIN_ENABLED) {
-            return;
+        if (GA$FUSED_TERRAIN_ENABLED && this.blockStateRule instanceof MaterialRuleList materialRuleList) {
+            int ruleCount = materialRuleList.materialRuleList().size();
+            if (ruleCount == 1 || ruleCount == 2) {
+                this.ga$terrainSubstanceDensity = DensityFunctions
+                        .cacheAllInCell(DensityFunctions.add(
+                                randomState.router().mapAll(this::wrap).finalDensity(),
+                                DensityFunctions.BeardifierMarker.INSTANCE
+                        ))
+                        .mapAll(this::wrap);
+                this.ga$oreVeinRule = ruleCount > 1 ? materialRuleList.materialRuleList().get(1) : null;
+                this.ga$fusedTerrainAvailable = true;
+            }
         }
-        if (!(this.blockStateRule instanceof MaterialRuleList materialRuleList)) {
-            return;
-        }
-        int ruleCount = materialRuleList.materialRuleList().size();
-        if (ruleCount != 1 && ruleCount != 2) {
-            return;
-        }
-        this.ga$terrainSubstanceDensity = terrainSubstanceDensity;
-        this.ga$oreVeinRule = ruleCount > 1 ? materialRuleList.materialRuleList().get(1) : null;
-        this.ga$fusedTerrainAvailable = true;
-    }
-
-    @Inject(method = "<init>", at = @At("TAIL"))
-    private void bts$initOptimizationFields(CallbackInfo ci) {
         this.sliceFillingContextProvider = new NoiseChunkSliceProvider((NoiseChunk)(Object)this);
 
         /*
@@ -817,7 +805,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
         final double[][] valuesArray = this.bts$cellCacheValues;
         for (int i = 0; i < caches.length; i++) {
-            if (caches[i] == this.ga$terrainSubstanceDensity) {
+            if (caches[i] == this.ga$terrainSubstanceDensity
+                    || Objects.equals(caches[i], this.ga$terrainSubstanceDensity)) {
                 this.ga$terrainDensityCellCacheIndex = i;
                 this.ga$terrainDensityCellValues = valuesArray[i];
                 return;

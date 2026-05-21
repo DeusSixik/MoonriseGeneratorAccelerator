@@ -5,7 +5,6 @@ import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
 
 public class GABiomeMixinPlugin extends GAMixinPlugin {
-
     @Override
     public void onLoad(String s) {
         create("terrablender.core.TerraBlender",

@@ -71,5 +71,19 @@ public abstract class GAMixinPlugin implements IMixinConfigPlugin {
 
     }
 
+    protected boolean isClassLoaded(String className) {
+        if (className == null || className.isEmpty()) {
+            return true;
+        }
+        try {
+            Class.forName(className, false, getClass().getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        } catch (LinkageError e) {
+            return true;
+        }
+    }
+
     public abstract boolean isConfigEnable(GAConfig config);
 }

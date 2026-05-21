@@ -6,7 +6,6 @@ import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
 
 public class GASurfaceMixinPlugin extends GAMixinPlugin {
-
     @Override
     public void onLoad(String s) {
         create("net.hibiscus.naturespirit.NatureSpirit", new MixinApplier.Param(

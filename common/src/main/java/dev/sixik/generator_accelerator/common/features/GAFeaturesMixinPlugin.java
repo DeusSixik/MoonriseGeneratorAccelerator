@@ -6,7 +6,6 @@ import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
 
 public class GAFeaturesMixinPlugin extends GAMixinPlugin {
-
     @Override
     public void onLoad(String s) {
         GeneratorAccelerator.platform = isLoaded("net.fabricmc.api.ModInitializer") ? GeneratorAccelerator.Platform.FABRIC : GeneratorAccelerator.Platform.NEOFORGE;
@@ -226,4 +225,5 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
             return true;
         }
     }
+
 }
