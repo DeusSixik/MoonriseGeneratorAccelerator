@@ -14,11 +14,15 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Noises;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import net.minecraft.world.level.levelgen.VerticalAnchor;
 import net.minecraft.world.level.levelgen.placement.CaveSurface;
+import net.minecraft.world.level.levelgen.synth.NormalNoise;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Optional;
@@ -41,11 +45,13 @@ class SurfaceCompilerParityTest {
         SurfaceRules.RuleSource interval = intervalRules();
         SurfaceRules.RuleSource mixed = mixedColumnIntervalRules();
         SurfaceRules.RuleSource contradiction = contradictionAndDedupRules();
+        SurfaceRules.RuleSource noise = noiseRules();
         SurfaceRules.RuleSource[] rules = new SurfaceRules.RuleSource[]{
                 groupedColumn,
                 interval,
                 mixed,
-                contradiction
+                contradiction,
+                noise
         };
 
         for (SurfaceRules.RuleSource rule : rules) {
@@ -146,13 +152,34 @@ class SurfaceCompilerParityTest {
         );
     }
 
+    private static SurfaceRules.RuleSource noiseRules() {
+        SurfaceRules.ConditionSource surfaceNoise = SurfaceRules.noiseCondition(Noises.SURFACE, -0.2D, 0.3D);
+        SurfaceRules.ConditionSource secondaryNoise = SurfaceRules.noiseCondition(Noises.SURFACE_SECONDARY, 0.05D);
+        SurfaceRules.RuleSource sand = SurfaceRules.state(Blocks.SAND.defaultBlockState());
+        SurfaceRules.RuleSource gravel = SurfaceRules.state(Blocks.GRAVEL.defaultBlockState());
+        SurfaceRules.RuleSource clay = SurfaceRules.state(Blocks.CLAY.defaultBlockState());
+        SurfaceRules.RuleSource stone = SurfaceRules.state(Blocks.STONE.defaultBlockState());
+        return SurfaceRules.sequence(
+                SurfaceRules.ifTrue(surfaceNoise, sand),
+                SurfaceRules.ifTrue(secondaryNoise, gravel),
+                clay,
+                stone
+        );
+    }
+
     @SuppressWarnings("unchecked")
     private static VectorChunkContext context() {
         Holder<Biome>[] biomes = (Holder<Biome>[]) new Holder<?>[256];
         for (int xz = 0; xz < 256; xz++) {
             biomes[xz] = new TestBiomeHolder((xz & 1) == 0 ? Biomes.PLAINS : Biomes.DESERT);
         }
-        VectorChunkContext ctx = new VectorChunkContext(biomes, Block.getId(Blocks.STONE.defaultBlockState()), null, null, null);
+        VectorChunkContext ctx = new VectorChunkContext(
+                biomes,
+                Block.getId(Blocks.STONE.defaultBlockState()),
+                null,
+                mockRandomState(),
+                null
+        );
         ctx.updateForSection(0, 64, 0);
         for (int xz = 0; xz < 256; xz++) {
             ctx.surfaceDepths[xz] = (xz & 3) == 0 ? 0 : 3;
@@ -167,6 +194,29 @@ class SurfaceCompilerParityTest {
             ctx.stoneDepthBelow[i] = (byte) (y + 1);
         }
         return ctx;
+    }
+
+    private static RandomState mockRandomState() {
+        RandomState randomState = Mockito.mock(RandomState.class, Mockito.withSettings().stubOnly());
+        NormalNoise surfaceNoise = Mockito.mock(NormalNoise.class, Mockito.withSettings().stubOnly());
+        NormalNoise secondaryNoise = Mockito.mock(NormalNoise.class, Mockito.withSettings().stubOnly());
+
+        Mockito.when(randomState.getOrCreateNoise(Noises.SURFACE)).thenReturn(surfaceNoise);
+        Mockito.when(randomState.getOrCreateNoise(Noises.SURFACE_SECONDARY)).thenReturn(secondaryNoise);
+        Mockito.when(surfaceNoise.getValue(Mockito.anyDouble(), Mockito.eq(0.0D), Mockito.anyDouble()))
+                .thenAnswer(invocation -> {
+                    double x = invocation.getArgument(0, Double.class);
+                    double z = invocation.getArgument(2, Double.class);
+                    return Math.sin(x * 0.03125D) * 0.45D + Math.cos(z * 0.046875D) * 0.35D;
+                });
+        Mockito.when(secondaryNoise.getValue(Mockito.anyDouble(), Mockito.eq(0.0D), Mockito.anyDouble()))
+                .thenAnswer(invocation -> {
+                    double x = invocation.getArgument(0, Double.class);
+                    double z = invocation.getArgument(2, Double.class);
+                    return Math.cos(x * 0.0625D) * 0.4D - Math.sin(z * 0.0234375D) * 0.3D;
+                });
+
+        return randomState;
     }
 
     private static int[] filledBlocks() {

@@ -2,13 +2,16 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
+import dev.sixik.generator_accelerator.common.surface.region.GARegionalSurfaceNoiseCache;
 import net.minecraft.core.Holder;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
+import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.util.Arrays;
 import java.util.BitSet;
@@ -27,6 +30,11 @@ public class VectorChunkContext {
     private BitSet[] bitSetScratch = new BitSet[8];
     private int bitSetScratchDepth;
     private int columnScratchStamp;
+    private RandomState cachedRegionalNoiseState;
+    private ResourceKey<NormalNoise.NoiseParameters> cachedRegionalNoiseKey;
+    private int cachedRegionalNoiseRegionX;
+    private int cachedRegionalNoiseRegionZ;
+    private double[] cachedRegionalNoiseValues;
 
     public int STONE_ID;
     public int AIR_ID;
@@ -56,6 +64,9 @@ public class VectorChunkContext {
         this.worldContext = worldContext;
         this.randomState = randomState;
         this.surfaceSystem = surfaceSystem;
+        this.cachedRegionalNoiseState = null;
+        this.cachedRegionalNoiseKey = null;
+        this.cachedRegionalNoiseValues = null;
     }
 
     public void clear() {
@@ -64,6 +75,9 @@ public class VectorChunkContext {
         this.randomState = null;
         this.surfaceSystem = null;
         this.bitSetScratchDepth = 0;
+        this.cachedRegionalNoiseState = null;
+        this.cachedRegionalNoiseKey = null;
+        this.cachedRegionalNoiseValues = null;
     }
 
     public void updateForSection(int startX, int startY, int startZ) {
@@ -109,6 +123,54 @@ public class VectorChunkContext {
         }
         this.columnScratchStamp = next;
         return next;
+    }
+
+    public double sampleNoiseColumn(
+            ResourceKey<NormalNoise.NoiseParameters> noiseKey,
+            int localX,
+            int localZ,
+            int xzIdx,
+            int stamp
+    ) {
+        if (this.columnScratchMarks[xzIdx] != stamp) {
+            this.noiseColumnCache[xzIdx] = sampleNoise(noiseKey, localX, localZ);
+            this.columnScratchMarks[xzIdx] = stamp;
+        }
+        return this.noiseColumnCache[xzIdx];
+    }
+
+    public double sampleNoise(ResourceKey<NormalNoise.NoiseParameters> noiseKey, int localX, int localZ) {
+        RandomState state = this.randomState;
+        if (state == null) {
+            throw new IllegalStateException("surface noise sampling requires RandomState");
+        }
+
+        int globalX = this.sectionStartX + localX;
+        int globalZ = this.sectionStartZ + localZ;
+        if (!GARegionalSurfaceNoiseCache.enabled()) {
+            return state.getOrCreateNoise(noiseKey).getValue(globalX, 0.0, globalZ);
+        }
+
+        int regionX = globalX >> GARegionalSurfaceNoiseCache.REGION_BLOCK_SHIFT;
+        int regionZ = globalZ >> GARegionalSurfaceNoiseCache.REGION_BLOCK_SHIFT;
+        double[] regionValues = this.cachedRegionalNoiseValues;
+        if (regionValues == null
+                || this.cachedRegionalNoiseState != state
+                || !noiseKey.equals(this.cachedRegionalNoiseKey)
+                || this.cachedRegionalNoiseRegionX != regionX
+                || this.cachedRegionalNoiseRegionZ != regionZ) {
+            regionValues = GARegionalSurfaceNoiseCache.regionValues(state, noiseKey, regionX, regionZ);
+            this.cachedRegionalNoiseState = state;
+            this.cachedRegionalNoiseKey = noiseKey;
+            this.cachedRegionalNoiseRegionX = regionX;
+            this.cachedRegionalNoiseRegionZ = regionZ;
+            this.cachedRegionalNoiseValues = regionValues;
+        }
+
+        return regionValues[
+                (globalX & GARegionalSurfaceNoiseCache.REGION_BLOCK_MASK)
+                        | ((globalZ & GARegionalSurfaceNoiseCache.REGION_BLOCK_MASK) << GARegionalSurfaceNoiseCache.REGION_BLOCK_SHIFT)
+                ];
     }
 
     public void buildDepthMap(ChunkAccess chunk) {

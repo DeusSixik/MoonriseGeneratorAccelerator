@@ -471,7 +471,7 @@ final class NoiseThresholdColumnConditionPlan implements ColumnConditionPlan {
 
     @Override
     public void filterColumns(long[] columns, VectorChunkContext ctx, SurfaceScratch scratch) {
-        NormalNoise noise = ctx.randomState.getOrCreateNoise(this.noiseKey);
+        int stamp = ctx.nextColumnScratchStamp();
         for (int columnWordIndex = 0; columnWordIndex < 4; columnWordIndex++) {
             long columnWord = columns[columnWordIndex];
             long kept = columnWord;
@@ -480,7 +480,7 @@ final class NoiseThresholdColumnConditionPlan implements ColumnConditionPlan {
                 int xz = (columnWordIndex << 6) + bit;
                 int localX = xz & 15;
                 int localZ = (xz >> 4) & 15;
-                double value = noise.getValue(ctx.sectionStartX + localX, 0.0, ctx.sectionStartZ + localZ);
+                double value = ctx.sampleNoiseColumn(this.noiseKey, localX, localZ, xz, stamp);
                 if (value < this.minThreshold || value > this.maxThreshold) {
                     kept &= ~(1L << bit);
                 }

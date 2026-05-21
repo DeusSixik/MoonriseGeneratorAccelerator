@@ -591,7 +591,7 @@ final class NoiseThresholdSurfaceConditionNode implements SurfaceConditionNode {
 
     @Override
     public void filter(Mask4096 activeMask, VectorChunkContext ctx, SurfaceScratch scratch) {
-        NormalNoise noise = ctx.randomState.getOrCreateNoise(this.noiseKey);
+        int stamp = ctx.nextColumnScratchStamp();
         activeMask.computeActiveColumns(scratch.activeColumns);
         for (int columnWordIndex = 0; columnWordIndex < 4; columnWordIndex++) {
             long columnWord = scratch.activeColumns[columnWordIndex];
@@ -599,7 +599,7 @@ final class NoiseThresholdSurfaceConditionNode implements SurfaceConditionNode {
                 int xz = (columnWordIndex << 6) + Long.numberOfTrailingZeros(columnWord);
                 int localX = xz & 15;
                 int localZ = (xz >> 4) & 15;
-                double noiseVal = noise.getValue(ctx.sectionStartX + localX, 0.0, ctx.sectionStartZ + localZ);
+                double noiseVal = ctx.sampleNoiseColumn(this.noiseKey, localX, localZ, xz, stamp);
                 if (noiseVal < this.minThreshold || noiseVal > this.maxThreshold) {
                     activeMask.clearColumn(xz);
                 }
