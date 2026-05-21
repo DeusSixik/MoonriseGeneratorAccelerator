@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketSendListener;
@@ -17,13 +18,18 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerInfo;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ClientInformation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.util.Unit;
 import net.minecraft.util.thread.ReentrantBlockableEventLoop;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.ChunkIOErrorReporter;
 import net.minecraft.world.level.storage.LevelResource;
 import org.spongepowered.asm.mixin.Mixin;
@@ -55,6 +61,11 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     @Unique private int tickCounter = 0;
     @Unique private long benchmarkStartNanos = 0L;
     @Unique private int generatedBatches = 0;
+    @Unique private boolean ga$directChunkDriver = true;
+    @Unique private int ga$nextBatchCenterChunkX = 0;
+    @Unique private int ga$nextBatchCenterChunkZ = 0;
+    @Unique private int ga$directChunkTicketRadius = 0;
+    @Unique private final ObjectArrayList<ChunkPos> ga$activeChunkTickets = new ObjectArrayList<>();
     @Unique private volatile boolean watchdogStarted = false;
     @Unique private volatile boolean serverTickSeen = false;
     @Unique private volatile long lastTickNanos = System.nanoTime();
@@ -86,11 +97,20 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         int renderDistance = Integer.getInteger("ga.benchmark.renderDistance", 16);
         int maxBatches = Integer.getInteger("ga.benchmark.maxBatches", -1);
         boolean useSpark = Boolean.parseBoolean(System.getProperty("ga.benchmark.useSpark", "true"));
+        boolean directChunkLoad = Boolean.parseBoolean(System.getProperty("ga.benchmark.directChunkLoad", "true"));
 
         if (!isProfilerStart && !benchmarkFinished && tickCounter >= startTick && server.overworld() != null) {
-            this.fakePlayer = this.sdm$makePlayer();
-            fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
-            this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
+            this.ga$directChunkDriver = directChunkLoad;
+            this.ga$nextBatchCenterChunkX = 0;
+            this.ga$nextBatchCenterChunkZ = 0;
+            this.ga$directChunkTicketRadius = 0;
+            this.ga$activeChunkTickets.clear();
+            this.fakePlayer = null;
+            if (!this.ga$directChunkDriver) {
+                this.fakePlayer = this.sdm$makePlayer();
+                this.fakePlayer.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+                this.fakePlayer.teleportTo(server.overworld(), 0, 100, 0, 0, 0);
+            }
 
             if (useSpark) {
                 var commandSource = server.createCommandSourceStack().withPermission(4);
@@ -118,27 +138,34 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
                     + ", ticksBetweenBatches=" + ticksBetweenBatches
                     + ", renderDistance=" + renderDistance
                     + ", maxBatches=" + maxBatches
-                    + ", useSpark=" + useSpark);
+                    + ", useSpark=" + useSpark
+                    + ", driver=" + (this.ga$directChunkDriver ? "direct_chunk" : "fake_player"));
         }
 
-        if (this.fakePlayer != null && isProfilerStart) {
+        if (isProfilerStart) {
             if (ticksBetweenBatches > 0 && tickCounter % ticksBetweenBatches == 0
                     && (maxBatches < 0 || this.generatedBatches < maxBatches)) {
-                double blocksToMove = renderDistance * 2 * 16;
-                double newX = this.fakePlayer.getX() + blocksToMove;
+                if (this.ga$directChunkDriver) {
+                    this.sdm$runDirectBatch(server.overworld(), renderDistance);
+                } else if (this.fakePlayer != null) {
+                    double blocksToMove = renderDistance * 2 * 16;
+                    double newX = this.fakePlayer.getX() + blocksToMove;
 
-                this.fakePlayer.teleportTo(
-                        server.overworld(),
-                        newX,
-                        this.fakePlayer.getY(),
-                        this.fakePlayer.getZ(),
-                        this.fakePlayer.getYRot(),
-                        this.fakePlayer.getXRot()
-                );
+                    this.fakePlayer.teleportTo(
+                            server.overworld(),
+                            newX,
+                            this.fakePlayer.getY(),
+                            this.fakePlayer.getZ(),
+                            this.fakePlayer.getYRot(),
+                            this.fakePlayer.getXRot()
+                    );
+                }
                 this.generatedBatches++;
             }
 
-            this.fakePlayer.resetLastActionTime();
+            if (this.fakePlayer != null) {
+                this.fakePlayer.resetLastActionTime();
+            }
         }
 
         if(!benchmarkFinished && isProfilerStart && (tickCounter >= stopTick || (maxBatches >= 0 && this.generatedBatches >= maxBatches))) {
@@ -165,7 +192,13 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             }
             isProfilerStart = false;
             benchmarkFinished = true;
-            server.getPlayerList().removeAll();
+            if (this.ga$directChunkDriver) {
+                this.sdm$clearDirectBatchTickets(server.overworld());
+            }
+            if (this.fakePlayer != null) {
+                server.getPlayerList().removeAll();
+                this.fakePlayer = null;
+            }
         }
 
         if (benchmarkFinished && tickCounter >= haltTick) {
@@ -197,6 +230,44 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         server.getPlayerList().placeNewPlayer(connection, serverPlayer, commonListenerCookie);
         serverPlayer.connection = new GA$BenchmarkPacketListener(server, connection, serverPlayer, commonListenerCookie);
         return serverPlayer;
+    }
+
+    @Unique
+    private void sdm$runDirectBatch(ServerLevel level, int renderDistance) {
+        int radius = Math.max(1, renderDistance);
+        int centerChunkX = this.ga$nextBatchCenterChunkX;
+        int centerChunkZ = this.ga$nextBatchCenterChunkZ;
+        int ticketRadius = radius + 1;
+        ChunkPos center = new ChunkPos(centerChunkX, centerChunkZ);
+        this.ga$directChunkTicketRadius = ticketRadius;
+        level.getChunkSource().addRegionTicket(TicketType.START, center, ticketRadius, Unit.INSTANCE);
+        this.ga$activeChunkTickets.add(center);
+        for (int chunkZ = centerChunkZ - radius; chunkZ <= centerChunkZ + radius; chunkZ++) {
+            for (int chunkX = centerChunkX - radius; chunkX <= centerChunkX + radius; chunkX++) {
+                level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, true);
+            }
+        }
+
+        int strideChunks = Math.max(1, renderDistance * 2);
+        this.ga$nextBatchCenterChunkX += strideChunks;
+    }
+
+    @Unique
+    private void sdm$clearDirectBatchTickets(ServerLevel level) {
+        if (this.ga$activeChunkTickets.isEmpty()) {
+            return;
+        }
+        Object[] rawActiveChunkTickets = this.ga$activeChunkTickets.elements();
+        for (int i = 0, size = this.ga$activeChunkTickets.size(); i < size; i++) {
+            level.getChunkSource().removeRegionTicket(
+                    TicketType.START,
+                    (ChunkPos) rawActiveChunkTickets[i],
+                    this.ga$directChunkTicketRadius,
+                    Unit.INSTANCE
+            );
+        }
+        this.ga$activeChunkTickets.clear();
+        this.ga$directChunkTicketRadius = 0;
     }
 
     @Unique
@@ -286,6 +357,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         benchmark.put("renderDistance", renderDistance);
         benchmark.put("maxBatches", maxBatches);
         benchmark.put("useSpark", useSpark);
+        benchmark.put("driver", this.ga$directChunkDriver ? "direct_chunk" : "fake_player");
         benchmark.put("elapsedMs", elapsedMs);
         benchmark.put("generatedBatches", this.generatedBatches);
         benchmark.put("tickCounter", this.tickCounter);

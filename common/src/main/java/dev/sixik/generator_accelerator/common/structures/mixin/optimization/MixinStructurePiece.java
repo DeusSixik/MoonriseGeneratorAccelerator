@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.*;
 
 import java.util.Set;
 
-@Mixin(value = StructurePiece.class)
+@Mixin(value = StructurePiece.class, priority = 997)
 public abstract class MixinStructurePiece {
 
     @Unique
@@ -62,6 +62,21 @@ public abstract class MixinStructurePiece {
         if (this.rotation != Rotation.NONE) blockState = blockState.rotate(this.rotation);
 
         if (worldGenLevel instanceof net.minecraft.server.level.WorldGenRegion) {
+            if (blockState.hasBlockEntity()) {
+                if (worldGenLevel.setBlock(pos, blockState, 2)) {
+                    ChunkAccess chunk = worldGenLevel.getChunk(pos.getX() >> 4, pos.getZ() >> 4);
+                    GAWorkspaceWriteBridge.mirrorCurrent(chunk, pos, blockState);
+
+                    FluidState fluidState = blockState.getFluidState();
+                    if (!fluidState.isEmpty()) {
+                        worldGenLevel.scheduleTick(pos, fluidState.getType(), 0);
+                    }
+                    if (SHAPE_CHECK_BLOCKS.contains(blockState.getBlock())) {
+                        chunk.markPosForPostprocessing(pos);
+                    }
+                }
+                return;
+            }
 
             // ==========================================
             // FAST WAY: Natural Generation (ProtoChunk)
@@ -79,23 +94,7 @@ public abstract class MixinStructurePiece {
                 BlockState oldState = section.setBlockState(lx, ly, lz, blockState);
                 GAWorkspaceWriteBridge.mirrorCurrent(chunk, pos, blockState);
 
-                if (blockState.hasBlockEntity()) {
-                    if (chunk.getPersistedStatus().getChunkType() == net.minecraft.world.level.chunk.status.ChunkType.LEVELCHUNK) {
-                        net.minecraft.world.level.block.entity.BlockEntity blockEntity = ((net.minecraft.world.level.block.EntityBlock) blockState.getBlock()).newBlockEntity(pos, blockState);
-                        if (blockEntity != null) {
-                            chunk.setBlockEntity(blockEntity);
-                        } else {
-                            chunk.removeBlockEntity(pos);
-                        }
-                    } else {
-                        net.minecraft.nbt.CompoundTag compoundTag = new net.minecraft.nbt.CompoundTag();
-                        compoundTag.putInt("x", pos.getX());
-                        compoundTag.putInt("y", pos.getY());
-                        compoundTag.putInt("z", pos.getZ());
-                        compoundTag.putString("id", "DUMMY");
-                        chunk.setBlockEntityNbt(compoundTag);
-                    }
-                } else if (oldState != null && oldState.hasBlockEntity()) {
+                if (oldState != null && oldState.hasBlockEntity()) {
                     chunk.removeBlockEntity(pos);
                 }
 

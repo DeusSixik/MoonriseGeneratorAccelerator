@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.Unique;
 
 import java.util.List;
 
-@Mixin(ChunkGenerator.class)
+@Mixin(value = ChunkGenerator.class, priority = 997)
 public abstract class MixinChunkGenerator$optimize_creating_structure {
 
     @Unique
@@ -112,8 +112,10 @@ public abstract class MixinChunkGenerator$optimize_creating_structure {
     ) {
         int count = entries.size();
         int[] indices = INDEX_POOL.get();
-        if (count > indices.length)
+        if (count > indices.length) {
             indices = new int[count]; // Редкий случай расширения
+            INDEX_POOL.set(indices);
+        }
 
         int totalWeight = 0;
         for (int i = 0; i < count; i++) {

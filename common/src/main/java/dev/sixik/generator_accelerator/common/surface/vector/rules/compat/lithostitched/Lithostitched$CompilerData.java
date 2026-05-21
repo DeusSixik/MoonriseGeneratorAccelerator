@@ -26,12 +26,13 @@ public class Lithostitched$CompilerData {
     public static VectorRule compileRule(SurfaceRules.RuleSource ruleSource) {
 
         if (ruleSource instanceof TransientMergedRule mergedRule) {
-            if (mergedRule.sequence().size() == 1) {
-                return VectorRuleCompiler.compileRule(mergedRule.sequence().getFirst());
+            List<SurfaceRules.RuleSource> rules = mergedRule.rules();
+            if (rules.size() == 1) {
+                return VectorRuleCompiler.compileRule(rules.getFirst());
             } else {
                 List<VectorRule> compiledList = new ArrayList<>();
 
-                for (SurfaceRules.RuleSource childRule : mergedRule.sequence()) {
+                for (SurfaceRules.RuleSource childRule : rules) {
                     compiledList.add(VectorRuleCompiler.compileRule(childRule));
                 }
 

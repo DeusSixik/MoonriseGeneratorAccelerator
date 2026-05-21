@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.safe;
 
 import dev.sixik.generator_accelerator.common.structures.compat.ConfluenceStructureTemplateCompat;
+import dev.sixik.generator_accelerator.common.structures.StructureBlockEntityNbtSanitizer;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
@@ -30,7 +31,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-@Mixin(value = StructureTemplate.class, priority = 0)
+@Mixin(value = StructureTemplate.class, priority = 997)
 public abstract class MixinStructureTemplate {
 
     @Unique
@@ -255,7 +256,9 @@ public abstract class MixinStructureTemplate {
             ListTag posTag = blockInfoTag.getList("pos", 3);
             BlockPos blockPos = new BlockPos(posTag.getInt(0), posTag.getInt(1), posTag.getInt(2));
             BlockState blockState = simplePalette.stateFor(blockInfoTag.getInt(StructureTemplate.BLOCK_TAG_STATE));
-            CompoundTag blockNbt = blockInfoTag.contains("nbt") ? blockInfoTag.getCompound("nbt") : null;
+            CompoundTag blockNbt = blockInfoTag.contains("nbt")
+                    ? StructureBlockEntityNbtSanitizer.sanitizeTemplateNbt(blockState, blockInfoTag.getCompound("nbt"))
+                    : null;
             StructureTemplate.StructureBlockInfo structureBlockInfo = new StructureTemplate.StructureBlockInfo(blockPos, blockState, blockNbt);
             ConfluenceStructureTemplateCompat.load(blockInfoTag, structureBlockInfo);
             addToLists(structureBlockInfo, solidBlocks, nbtBlocks, otherBlocks);

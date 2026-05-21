@@ -7,11 +7,8 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 
 import java.util.List;
-import java.util.Map;
 
 public interface StructurePoolElementCache {
-
-    Map<Rotation, List<StructureTemplate.StructureBlockInfo>> bts$getJigsawCache();
 
     List<StructureTemplate.StructureBlockInfo> bts$getCachedJigsawBlocks(StructureTemplateManager manager, BlockPos pos, Rotation rotation, RandomSource random);
 }

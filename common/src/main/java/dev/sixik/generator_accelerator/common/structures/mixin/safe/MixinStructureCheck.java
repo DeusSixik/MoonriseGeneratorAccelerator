@@ -1,16 +1,24 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.safe;
 
+import dev.sixik.generator_accelerator.common.structures.ChunkKeyedBooleanCache;
+import dev.sixik.generator_accelerator.common.structures.StructureGenerationHotPath;
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
-import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMaps;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureCheck;
 import net.minecraft.world.level.levelgen.structure.StructureCheckResult;
 import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,10 +29,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.Iterator;
 import java.util.Map;
 
-@Mixin(value = StructureCheck.class, priority = 0)
+@Mixin(value = StructureCheck.class, priority = 997)
 public abstract class MixinStructureCheck {
 
     @Unique
@@ -32,6 +39,24 @@ public abstract class MixinStructureCheck {
 
     @Unique
     private final Object generator_accelerator$featureChecksLock = new Object();
+
+    @Unique
+    private final ChunkKeyedBooleanCache<Structure> generator_accelerator$featureChecksByChunk = new ChunkKeyedBooleanCache<>();
+
+    @Unique
+    private final Object generator_accelerator$storageStateLock = new Object();
+
+    @Unique
+    private final Long2ByteOpenHashMap generator_accelerator$storageStateByChunk = new Long2ByteOpenHashMap();
+
+    @Unique
+    private static final byte generator_accelerator$storageUnknown = 0;
+
+    @Unique
+    private static final byte generator_accelerator$storageNoData = 1;
+
+    @Unique
+    private static final byte generator_accelerator$storageChunkLoadNeeded = 2;
 
     @Shadow
     @Final
@@ -46,13 +71,32 @@ public abstract class MixinStructureCheck {
     private long seed;
 
     @Shadow
-    @Nullable
-    private StructureCheckResult tryLoadFromStorage(ChunkPos chunkPos, Structure structure, boolean skipReferencedStructures, long chunkKey) {
-        throw new AssertionError();
-    }
+    @Final
+    private RegistryAccess registryAccess;
 
     @Shadow
-    private boolean canCreateStructure(ChunkPos chunkPos, Structure structure) {
+    @Final
+    private ChunkGenerator chunkGenerator;
+
+    @Shadow
+    @Final
+    private BiomeSource biomeSource;
+
+    @Shadow
+    @Final
+    private RandomState randomState;
+
+    @Shadow
+    @Final
+    private StructureTemplateManager structureTemplateManager;
+
+    @Shadow
+    @Final
+    private LevelHeightAccessor heightAccessor;
+
+    @Shadow
+    @Nullable
+    private StructureCheckResult tryLoadFromStorage(ChunkPos chunkPos, Structure structure, boolean skipReferencedStructures, long chunkKey) {
         throw new AssertionError();
     }
 
@@ -73,7 +117,7 @@ public abstract class MixinStructureCheck {
             return this.checkStructureInfo(structureRefs, structure, skipReferencedStructures);
         }
 
-        StructureCheckResult storageResult = this.tryLoadFromStorage(chunkPos, structure, skipReferencedStructures, chunkKey);
+        StructureCheckResult storageResult = this.generator_accelerator$tryLoadFromStorageCached(chunkPos, structure, skipReferencedStructures, chunkKey);
         if (storageResult != null) {
             return storageResult;
         }
@@ -98,14 +142,10 @@ public abstract class MixinStructureCheck {
         }
 
         synchronized (this.generator_accelerator$featureChecksLock) {
-            Iterator<Long2BooleanMap> iterator = this.featureChecks.values().iterator();
-            while (iterator.hasNext()) {
-                Long2BooleanMap checksByChunk = iterator.next();
-                checksByChunk.remove(chunkKey);
-                if (checksByChunk.isEmpty()) {
-                    iterator.remove();
-                }
-            }
+            this.generator_accelerator$featureChecksByChunk.removeChunk(chunkKey);
+        }
+        synchronized (this.generator_accelerator$storageStateLock) {
+            this.generator_accelerator$storageStateByChunk.remove(chunkKey);
         }
         ci.cancel();
     }
@@ -137,23 +177,62 @@ public abstract class MixinStructureCheck {
     @Unique
     private boolean generator_accelerator$getOrComputeFeatureCheck(ChunkPos chunkPos, Structure structure, long chunkKey) {
         synchronized (this.generator_accelerator$featureChecksLock) {
-            Long2BooleanMap checksByChunk = this.featureChecks.get(structure);
-            if (checksByChunk != null && checksByChunk.containsKey(chunkKey)) {
-                return checksByChunk.get(chunkKey);
+            Boolean cached = this.generator_accelerator$featureChecksByChunk.get(chunkKey, structure);
+            if (cached != null) {
+                return cached;
             }
         }
 
-        boolean computed = this.canCreateStructure(chunkPos, structure);
+        boolean computed = this.generator_accelerator$canCreateStructure(chunkPos, structure);
 
         synchronized (this.generator_accelerator$featureChecksLock) {
-            Long2BooleanMap checksByChunk = this.featureChecks.computeIfAbsent(structure, ignored -> new Long2BooleanOpenHashMap());
-            if (checksByChunk.containsKey(chunkKey)) {
-                return checksByChunk.get(chunkKey);
-            }
-
-            checksByChunk.put(chunkKey, computed);
-            return computed;
+            return this.generator_accelerator$featureChecksByChunk.getOrCompute(chunkKey, structure, () -> computed);
         }
+    }
+
+    @Unique
+    @Nullable
+    private StructureCheckResult generator_accelerator$tryLoadFromStorageCached(ChunkPos chunkPos, Structure structure, boolean skipReferencedStructures, long chunkKey) {
+        byte cachedState;
+        synchronized (this.generator_accelerator$storageStateLock) {
+            cachedState = this.generator_accelerator$storageStateByChunk.get(chunkKey);
+        }
+
+        if (cachedState == generator_accelerator$storageNoData) {
+            return null;
+        }
+        if (cachedState == generator_accelerator$storageChunkLoadNeeded) {
+            return StructureCheckResult.CHUNK_LOAD_NEEDED;
+        }
+
+        StructureCheckResult result = this.tryLoadFromStorage(chunkPos, structure, skipReferencedStructures, chunkKey);
+        synchronized (this.generator_accelerator$storageStateLock) {
+            if (result == null) {
+                this.generator_accelerator$storageStateByChunk.put(chunkKey, generator_accelerator$storageNoData);
+            } else if (result == StructureCheckResult.CHUNK_LOAD_NEEDED) {
+                this.generator_accelerator$storageStateByChunk.put(chunkKey, generator_accelerator$storageChunkLoadNeeded);
+            } else {
+                this.generator_accelerator$storageStateByChunk.remove(chunkKey);
+            }
+        }
+        return result;
+    }
+
+    @Unique
+    private boolean generator_accelerator$canCreateStructure(ChunkPos chunkPos, Structure structure) {
+        return structure.findValidGenerationPoint(
+                StructureGenerationHotPath.createContext(
+                        structure,
+                        this.registryAccess,
+                        this.chunkGenerator,
+                        this.biomeSource,
+                        this.randomState,
+                        this.structureTemplateManager,
+                        this.seed,
+                        chunkPos,
+                        this.heightAccessor
+                )
+        ).isPresent();
     }
 
     @Unique
