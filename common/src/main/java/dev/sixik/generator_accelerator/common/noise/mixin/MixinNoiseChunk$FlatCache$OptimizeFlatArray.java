@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.DfcCompiledMathFallback;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -27,6 +28,10 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
 
     @Unique
     private double[] bts$array;
+    @Unique
+    private volatile DensityFunction ga$compiledMathFallback;
+    @Unique
+    private volatile boolean ga$compiledMathFallbackChecked;
 
     @Override
     public double[] bts$getArray() {
@@ -98,6 +103,16 @@ public abstract class MixinNoiseChunk$FlatCache$OptimizeFlatArray implements Den
             }
         }
 
-        return this.noiseFiller.compute(functionContext);
+        DensityFunction compiled = this.ga$compiledMathFallback();
+        return (compiled != null ? compiled : this.noiseFiller).compute(functionContext);
+    }
+
+    @Unique
+    private DensityFunction ga$compiledMathFallback() {
+        if (!this.ga$compiledMathFallbackChecked) {
+            this.ga$compiledMathFallback = DfcCompiledMathFallback.compileIfFullyMath(this.noiseFiller);
+            this.ga$compiledMathFallbackChecked = true;
+        }
+        return this.ga$compiledMathFallback;
     }
 }

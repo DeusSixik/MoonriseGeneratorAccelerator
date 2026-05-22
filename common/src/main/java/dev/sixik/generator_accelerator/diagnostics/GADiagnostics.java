@@ -5,6 +5,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.DfcCompiledFillArray;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.DfcCompiledMathFallback;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGlobalFluidCellCache;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
@@ -182,6 +183,7 @@ public final class GADiagnostics {
         SurfaceMetrics.reset();
         DfcCellFillStats.reset();
         DfcCompiledFillArray.resetMetrics();
+        DfcCompiledMathFallback.resetMetrics();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
@@ -644,6 +646,7 @@ public final class GADiagnostics {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cellFill", DfcCellFillStats.snapshot());
         out.put("onDemandFillArray", DfcCompiledFillArray.snapshot());
+        out.put("cacheMathFallback", DfcCompiledMathFallback.snapshot());
         out.put("nativePlanning", DfcNativePlanningStats.snapshot());
         out.put("spline", DfcSplineStats.snapshot());
         out.put("splineTopClasses", DfcSplineStats.snapshotTopClasses(12));

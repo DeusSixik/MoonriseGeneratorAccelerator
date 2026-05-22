@@ -330,7 +330,8 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
                     target = "Lnet/minecraft/world/level/levelgen/NoiseChunk;blockStateRule:Lnet/minecraft/world/level/levelgen/NoiseChunk$BlockStateFiller;",
                     opcode = Opcodes.PUTFIELD,
                     shift = At.Shift.AFTER
-            )
+            ),
+            require = 0
     )
     private void ga$initFusedTerrainAccess(
             int cellCountXZ,

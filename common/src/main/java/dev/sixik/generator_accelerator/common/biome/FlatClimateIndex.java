@@ -54,6 +54,18 @@ public class FlatClimateIndex<T> {
 
     // Read-only shared data
     private final long[] bounds;
+    private final long[] minT;
+    private final long[] maxT;
+    private final long[] minH;
+    private final long[] maxH;
+    private final long[] minC;
+    private final long[] maxC;
+    private final long[] minE;
+    private final long[] maxE;
+    private final long[] minD;
+    private final long[] maxD;
+    private final long[] minW;
+    private final long[] maxW;
     private final int[] structure; // [offset, count]
     private final int[] nodeOffsets;
     private final int[] nodeChildCounts;
@@ -73,6 +85,8 @@ public class FlatClimateIndex<T> {
             Boolean.parseBoolean(System.getProperty("ga.climate.secondWarmStart", "true"));
     private static final boolean SORT_CHILDREN_BY_DISTANCE =
             Boolean.parseBoolean(System.getProperty("ga.climate.sortChildrenByDistance", "true"));
+    private static final boolean GREEDY_SEED_SEARCH =
+            Boolean.parseBoolean(System.getProperty("ga.climate.greedySeedSearch", "true"));
     private static final int QUERY_CACHE_SIZE = queryCacheSize();
     private static final int QUERY_CACHE_MASK = QUERY_CACHE_SIZE - 1;
 
@@ -120,6 +134,19 @@ public class FlatClimateIndex<T> {
         this.rootIndex = flatten(vanillaTree.root, storage);
 
         this.bounds = Arrays.copyOf(storage.bounds, storage.cursor * BYTES_PER_NODE);
+        BoundsSoA boundsSoA = collectBoundsSoA(storage.cursor);
+        this.minT = boundsSoA.minT;
+        this.maxT = boundsSoA.maxT;
+        this.minH = boundsSoA.minH;
+        this.maxH = boundsSoA.maxH;
+        this.minC = boundsSoA.minC;
+        this.maxC = boundsSoA.maxC;
+        this.minE = boundsSoA.minE;
+        this.maxE = boundsSoA.maxE;
+        this.minD = boundsSoA.minD;
+        this.maxD = boundsSoA.maxD;
+        this.minW = boundsSoA.minW;
+        this.maxW = boundsSoA.maxW;
         this.structure = Arrays.copyOf(storage.structure, storage.cursor * 2);
         this.nodeOffsets = collectNodeOffsets(storage.cursor);
         this.nodeChildCounts = collectNodeChildCounts(storage.cursor);
@@ -138,6 +165,19 @@ public class FlatClimateIndex<T> {
         this.rootIndex = flatten(vanillaTree.root, storage);
 
         this.bounds = Arrays.copyOf(storage.bounds, storage.cursor * BYTES_PER_NODE);
+        BoundsSoA boundsSoA = collectBoundsSoA(storage.cursor);
+        this.minT = boundsSoA.minT;
+        this.maxT = boundsSoA.maxT;
+        this.minH = boundsSoA.minH;
+        this.maxH = boundsSoA.maxH;
+        this.minC = boundsSoA.minC;
+        this.maxC = boundsSoA.maxC;
+        this.minE = boundsSoA.minE;
+        this.maxE = boundsSoA.maxE;
+        this.minD = boundsSoA.minD;
+        this.maxD = boundsSoA.maxD;
+        this.minW = boundsSoA.minW;
+        this.maxW = boundsSoA.maxW;
         this.structure = Arrays.copyOf(storage.structure, storage.cursor * 2);
         this.nodeOffsets = collectNodeOffsets(storage.cursor);
         this.nodeChildCounts = collectNodeChildCounts(storage.cursor);
@@ -258,8 +298,48 @@ public class FlatClimateIndex<T> {
 
         final int[] stack = s.stack;
         final long[] stackDistances = s.stackDistances;
+        final boolean fullQueryDimensions = (this.activeDimensionMask & QUERY_DIMENSION_MASK) == QUERY_DIMENSION_MASK;
+
+        if (GREEDY_SEED_SEARCH && bestDist != 0L) {
+            int greedyNode = rootIndex;
+            long greedyDist = distance(greedyNode, t, h, c, e, d, w);
+            while (greedyDist < bestDist) {
+                final int offset = nodeOffsets[greedyNode];
+                final int childCount = nodeChildCounts[greedyNode];
+                if (childCount == 0) {
+                    bestDist = greedyDist;
+                    bestLeafNodeIndex = greedyNode;
+                    bestLeafValueIndex = offset;
+                    if (bestDist == 0L) {
+                        rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
+                        storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
+                        return (T) values[bestLeafValueIndex];
+                    }
+                    break;
+                }
+
+                int nearestChild = -1;
+                long nearestDist = bestDist;
+                for (int i = 0; i < childCount; i++) {
+                    final int childNodeIdx = offset + i;
+                    final long dist = fullQueryDimensions
+                            ? distanceCappedFull(childNodeIdx, t, h, c, e, d, w, nearestDist)
+                            : distanceMaskedCapped(childNodeIdx, t, h, c, e, d, w, nearestDist);
+                    if (dist < nearestDist) {
+                        nearestChild = childNodeIdx;
+                        nearestDist = dist;
+                    }
+                }
+                if (nearestChild < 0) {
+                    break;
+                }
+                greedyNode = nearestChild;
+                greedyDist = nearestDist;
+            }
+        }
+
         int sp = 0;
-        long rootDistance = distanceCapped(rootIndex, t, h, c, e, d, w, bestDist);
+        long rootDistance = distance(rootIndex, t, h, c, e, d, w);
         if (rootDistance >= bestDist && bestLeafValueIndex >= 0) {
             rememberLastResult(s, bestLeafNodeIndex, bestLeafValueIndex, t, h, c, e, d, w);
             storeQueryCache(s, queryCacheSlot, t, h, c, e, d, w);
@@ -270,7 +350,6 @@ public class FlatClimateIndex<T> {
 
         final long[] childDists = s.childDistances;
         final int[] childIdxs = s.childIndices;
-        final boolean fullQueryDimensions = (this.activeDimensionMask & QUERY_DIMENSION_MASK) == QUERY_DIMENSION_MASK;
 
         while (sp > 0) {
             --sp;
@@ -530,14 +609,13 @@ public class FlatClimateIndex<T> {
         if ((this.activeDimensionMask & QUERY_DIMENSION_MASK) != QUERY_DIMENSION_MASK) {
             return distanceMasked(nodeIdx, t, h, c, e, d, w);
         }
-        int base = nodeIdx * BYTES_PER_NODE;
         long dist = 0L;
-        dist += bDist(bounds[base], bounds[base + 1], t);
-        dist += bDist(bounds[base + 2], bounds[base + 3], h);
-        dist += bDist(bounds[base + 4], bounds[base + 5], c);
-        dist += bDist(bounds[base + 6], bounds[base + 7], e);
-        dist += bDist(bounds[base + 8], bounds[base + 9], d);
-        dist += bDist(bounds[base + 10], bounds[base + 11], w);
+        dist += bDist(minT[nodeIdx], maxT[nodeIdx], t);
+        dist += bDist(minH[nodeIdx], maxH[nodeIdx], h);
+        dist += bDist(minC[nodeIdx], maxC[nodeIdx], c);
+        dist += bDist(minE[nodeIdx], maxE[nodeIdx], e);
+        dist += bDist(minD[nodeIdx], maxD[nodeIdx], d);
+        dist += bDist(minW[nodeIdx], maxW[nodeIdx], w);
         if (hasOffsetDistances) {
             dist += offsetDistances[nodeIdx];
         }
@@ -552,19 +630,18 @@ public class FlatClimateIndex<T> {
     }
 
     private long distanceCappedFull(int nodeIdx, long t, long h, long c, long e, long d, long w, long cap) {
-        int base = nodeIdx * BYTES_PER_NODE;
         long dist = 0L;
-        dist += bDist(bounds[base], bounds[base + 1], t);
+        dist += bDist(minT[nodeIdx], maxT[nodeIdx], t);
         if (dist >= cap) return cap;
-        dist += bDist(bounds[base + 2], bounds[base + 3], h);
+        dist += bDist(minH[nodeIdx], maxH[nodeIdx], h);
         if (dist >= cap) return cap;
-        dist += bDist(bounds[base + 4], bounds[base + 5], c);
+        dist += bDist(minC[nodeIdx], maxC[nodeIdx], c);
         if (dist >= cap) return cap;
-        dist += bDist(bounds[base + 6], bounds[base + 7], e);
+        dist += bDist(minE[nodeIdx], maxE[nodeIdx], e);
         if (dist >= cap) return cap;
-        dist += bDist(bounds[base + 8], bounds[base + 9], d);
+        dist += bDist(minD[nodeIdx], maxD[nodeIdx], d);
         if (dist >= cap) return cap;
-        dist += bDist(bounds[base + 10], bounds[base + 11], w);
+        dist += bDist(minW[nodeIdx], maxW[nodeIdx], w);
         if (hasOffsetDistances) {
             dist += offsetDistances[nodeIdx];
         }
@@ -572,15 +649,14 @@ public class FlatClimateIndex<T> {
     }
 
     private long distanceMasked(int nodeIdx, long t, long h, long c, long e, long d, long w) {
-        int base = nodeIdx * BYTES_PER_NODE;
         int mask = this.activeDimensionMask;
         long dist = 0L;
-        if ((mask & 1) != 0) dist += bDist(bounds[base], bounds[base + 1], t);
-        if ((mask & 2) != 0) dist += bDist(bounds[base + 2], bounds[base + 3], h);
-        if ((mask & 4) != 0) dist += bDist(bounds[base + 4], bounds[base + 5], c);
-        if ((mask & 8) != 0) dist += bDist(bounds[base + 6], bounds[base + 7], e);
-        if ((mask & 16) != 0) dist += bDist(bounds[base + 8], bounds[base + 9], d);
-        if ((mask & 32) != 0) dist += bDist(bounds[base + 10], bounds[base + 11], w);
+        if ((mask & 1) != 0) dist += bDist(minT[nodeIdx], maxT[nodeIdx], t);
+        if ((mask & 2) != 0) dist += bDist(minH[nodeIdx], maxH[nodeIdx], h);
+        if ((mask & 4) != 0) dist += bDist(minC[nodeIdx], maxC[nodeIdx], c);
+        if ((mask & 8) != 0) dist += bDist(minE[nodeIdx], maxE[nodeIdx], e);
+        if ((mask & 16) != 0) dist += bDist(minD[nodeIdx], maxD[nodeIdx], d);
+        if ((mask & 32) != 0) dist += bDist(minW[nodeIdx], maxW[nodeIdx], w);
         if (hasOffsetDistances) {
             dist += offsetDistances[nodeIdx];
         }
@@ -588,31 +664,30 @@ public class FlatClimateIndex<T> {
     }
 
     private long distanceMaskedCapped(int nodeIdx, long t, long h, long c, long e, long d, long w, long cap) {
-        int base = nodeIdx * BYTES_PER_NODE;
         int mask = this.activeDimensionMask;
         long dist = 0L;
         if ((mask & 1) != 0) {
-            dist += bDist(bounds[base], bounds[base + 1], t);
+            dist += bDist(minT[nodeIdx], maxT[nodeIdx], t);
             if (dist >= cap) return cap;
         }
         if ((mask & 2) != 0) {
-            dist += bDist(bounds[base + 2], bounds[base + 3], h);
+            dist += bDist(minH[nodeIdx], maxH[nodeIdx], h);
             if (dist >= cap) return cap;
         }
         if ((mask & 4) != 0) {
-            dist += bDist(bounds[base + 4], bounds[base + 5], c);
+            dist += bDist(minC[nodeIdx], maxC[nodeIdx], c);
             if (dist >= cap) return cap;
         }
         if ((mask & 8) != 0) {
-            dist += bDist(bounds[base + 6], bounds[base + 7], e);
+            dist += bDist(minE[nodeIdx], maxE[nodeIdx], e);
             if (dist >= cap) return cap;
         }
         if ((mask & 16) != 0) {
-            dist += bDist(bounds[base + 8], bounds[base + 9], d);
+            dist += bDist(minD[nodeIdx], maxD[nodeIdx], d);
             if (dist >= cap) return cap;
         }
         if ((mask & 32) != 0) {
-            dist += bDist(bounds[base + 10], bounds[base + 11], w);
+            dist += bDist(minW[nodeIdx], maxW[nodeIdx], w);
             if (dist >= cap) return cap;
         }
         if (hasOffsetDistances) {
@@ -703,6 +778,38 @@ public class FlatClimateIndex<T> {
             valueIndices[i] = nodeOffsets[leaves[i]];
         }
         return valueIndices;
+    }
+
+    private BoundsSoA collectBoundsSoA(int nodeCount) {
+        long[] minT = new long[nodeCount];
+        long[] maxT = new long[nodeCount];
+        long[] minH = new long[nodeCount];
+        long[] maxH = new long[nodeCount];
+        long[] minC = new long[nodeCount];
+        long[] maxC = new long[nodeCount];
+        long[] minE = new long[nodeCount];
+        long[] maxE = new long[nodeCount];
+        long[] minD = new long[nodeCount];
+        long[] maxD = new long[nodeCount];
+        long[] minW = new long[nodeCount];
+        long[] maxW = new long[nodeCount];
+        long[] bounds = this.bounds;
+        for (int node = 0; node < nodeCount; node++) {
+            int base = node * BYTES_PER_NODE;
+            minT[node] = bounds[base];
+            maxT[node] = bounds[base + 1];
+            minH[node] = bounds[base + 2];
+            maxH[node] = bounds[base + 3];
+            minC[node] = bounds[base + 4];
+            maxC[node] = bounds[base + 5];
+            minE[node] = bounds[base + 6];
+            maxE[node] = bounds[base + 7];
+            minD[node] = bounds[base + 8];
+            maxD[node] = bounds[base + 9];
+            minW[node] = bounds[base + 10];
+            maxW[node] = bounds[base + 11];
+        }
+        return new BoundsSoA(minT, maxT, minH, maxH, minC, maxC, minE, maxE, minD, maxD, minW, maxW);
     }
 
     private static boolean hasNonZero(long[] values) {
@@ -799,5 +906,21 @@ public class FlatClimateIndex<T> {
                 structure = Arrays.copyOf(structure, structure.length * 2);
             }
         }
+    }
+
+    private record BoundsSoA(
+            long[] minT,
+            long[] maxT,
+            long[] minH,
+            long[] maxH,
+            long[] minC,
+            long[] maxC,
+            long[] minE,
+            long[] maxE,
+            long[] minD,
+            long[] maxD,
+            long[] minW,
+            long[] maxW
+    ) {
     }
 }

@@ -33,7 +33,7 @@ public final class DfcCompiledFillArray {
         }
         ATTEMPTS.increment();
         SOURCE_CLASSES.computeIfAbsent(source.getClass().getName(), ignored -> new LongAdder()).increment();
-        DensityFunction compiled = CompilingVisitor.global().apply(source);
+        DensityFunction compiled = compile(source);
         if (compiled == source) {
             MISSES.increment();
             return false;
@@ -41,6 +41,13 @@ public final class DfcCompiledFillArray {
         COMPILED_HITS.increment();
         compiled.fillArray(values, provider);
         return true;
+    }
+
+    public static DensityFunction compile(DensityFunction source) {
+        if (!ENABLED || source instanceof CompiledDensityFunction) {
+            return source;
+        }
+        return CompilingVisitor.global().apply(source);
     }
 
     public static void resetMetrics() {
