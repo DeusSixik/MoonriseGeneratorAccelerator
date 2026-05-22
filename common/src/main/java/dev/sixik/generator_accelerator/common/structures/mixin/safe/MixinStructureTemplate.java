@@ -31,7 +31,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-@Mixin(value = StructureTemplate.class, priority = 0)
+@Mixin(value = StructureTemplate.class, priority = 997)
 public abstract class MixinStructureTemplate {
 
     @Unique

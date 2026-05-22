@@ -8,6 +8,7 @@ import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketSendListener;
@@ -42,10 +43,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
@@ -67,7 +66,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     @Unique private int ga$nextBatchCenterChunkX = 0;
     @Unique private int ga$nextBatchCenterChunkZ = 0;
     @Unique private int ga$directChunkTicketRadius = 0;
-    @Unique private final List<ChunkPos> ga$activeChunkTickets = new ArrayList<>();
+    @Unique private final ObjectArrayList<ChunkPos> ga$activeChunkTickets = new ObjectArrayList<>();
     @Unique private volatile boolean watchdogStarted = false;
     @Unique private volatile boolean serverTickSeen = false;
     @Unique private volatile long lastTickNanos = System.nanoTime();
@@ -266,10 +265,11 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         if (this.ga$activeChunkTickets.isEmpty()) {
             return;
         }
+        Object[] rawActiveChunkTickets = this.ga$activeChunkTickets.elements();
         for (int i = 0, size = this.ga$activeChunkTickets.size(); i < size; i++) {
             level.getChunkSource().removeRegionTicket(
                     TicketType.START,
-                    this.ga$activeChunkTickets.get(i),
+                    (ChunkPos) rawActiveChunkTickets[i],
                     this.ga$directChunkTicketRadius,
                     Unit.INSTANCE
             );

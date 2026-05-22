@@ -41,8 +41,9 @@ public final class StructurePieceCollisionIndex {
                     continue;
                 }
 
-                for (int i = 0; i < bucket.size(); i++) {
-                    StructurePiece piece = bucket.get(i);
+                Object[] rawBucket = bucket.elements();
+                for (int i = 0, size = bucket.size(); i < size; i++) {
+                    StructurePiece piece = (StructurePiece) rawBucket[i];
                     if (this.visitedMarks.getInt(piece) == stamp) {
                         continue;
                     }

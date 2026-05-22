@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.Unique;
 
 import java.util.List;
 
-@Mixin(ChunkGenerator.class)
+@Mixin(value = ChunkGenerator.class, priority = 997)
 public abstract class MixinChunkGenerator$optimize_creating_structure {
 
     @Unique

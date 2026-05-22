@@ -2,7 +2,7 @@ package dev.sixik.generator_accelerator.common.structures.mixin.pools;
 
 import com.mojang.logging.LogUtils;
 import dev.sixik.generator_accelerator.common.structures.JigsawFreeSpaceTracker;
-import dev.sixik.generator_accelerator.common.structures.JigsawPieceStateFactory;
+import dev.sixik.generator_accelerator.common.structures.JigsawPlacementPieceStateFactory;
 import dev.sixik.generator_accelerator.common.structures.JigsawPlacementHotPath;
 import dev.sixik.generator_accelerator.common.structures.StructurePlacementShuffler;
 import dev.sixik.generator_accelerator.common.structures.StructurePoolElementCache;
@@ -45,7 +45,7 @@ import org.spongepowered.asm.mixin.Unique;
 import java.util.List;
 import java.util.Optional;
 
-@Mixin(targets = "net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement$Placer")
+@Mixin(targets = "net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement$Placer", priority = 997)
 public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
     @Unique
     private static final Logger GA$LOGGER = LogUtils.getLogger();
@@ -348,7 +348,7 @@ public abstract class MixinJigsawPlacement$Placer$use_cached_jigsaws {
                     ));
                     this.pieces.add(placedPiece);
                     if (depth + 1 <= this.maxDepth) {
-                        this.placing.add(JigsawPieceStateFactory.ga$create(placedPiece, freeShape, depth + 1), placementPriority);
+                        this.placing.add(JigsawPlacementPieceStateFactory.create(placedPiece, freeShape, depth + 1), placementPriority);
                     }
                     return true;
                 }

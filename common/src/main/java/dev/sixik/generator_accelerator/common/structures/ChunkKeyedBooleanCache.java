@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.structures;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2BooleanMap;
 import it.unimi.dsi.fastutil.objects.Object2BooleanOpenHashMap;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,27 +15,35 @@ public final class ChunkKeyedBooleanCache<K> {
 
     @Nullable
     public Boolean get(long chunkKey, K key) {
-        Object2BooleanMap<K> chunkChecks = this.checksByChunk.get(chunkKey);
-        if (chunkChecks == null || !chunkChecks.containsKey(key)) {
+        Object2BooleanOpenHashMap<K> chunkChecks = this.checksByChunk.get(chunkKey);
+        if (chunkChecks == null) {
             return null;
         }
-        return chunkChecks.getBoolean(key);
+        boolean cached = chunkChecks.getBoolean(key);
+        if (cached || chunkChecks.containsKey(key)) {
+            return cached;
+        }
+        return null;
     }
 
     public boolean getOrCompute(long chunkKey, K key, BooleanSupplier computer) {
         Object2BooleanOpenHashMap<K> chunkChecks = this.checksByChunk.get(chunkKey);
-        if (chunkChecks != null && chunkChecks.containsKey(key)) {
-            return chunkChecks.getBoolean(key);
+        if (chunkChecks != null) {
+            boolean cached = chunkChecks.getBoolean(key);
+            if (cached || chunkChecks.containsKey(key)) {
+                return cached;
+            }
         }
 
         boolean computed = computer.getAsBoolean();
         chunkChecks = this.checksByChunk.get(chunkKey);
         if (chunkChecks == null) {
-            chunkChecks = new Object2BooleanOpenHashMap<>();
+            chunkChecks = new Object2BooleanOpenHashMap<>(4);
             this.checksByChunk.put(chunkKey, chunkChecks);
         }
-        if (chunkChecks.containsKey(key)) {
-            return chunkChecks.getBoolean(key);
+        boolean cached = chunkChecks.getBoolean(key);
+        if (cached || chunkChecks.containsKey(key)) {
+            return cached;
         }
 
         chunkChecks.put(key, computed);
