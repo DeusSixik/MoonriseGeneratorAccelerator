@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class DfcCompiledFillArray {
     private static final boolean ENABLED = !"false".equalsIgnoreCase(System.getProperty(
             "dfc.onDemandFillArray.enabled",
-            "true"
+            "false"
     ));
     private static final LongAdder ATTEMPTS = new LongAdder();
     private static final LongAdder COMPILED_HITS = new LongAdder();

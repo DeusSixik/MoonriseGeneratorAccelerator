@@ -278,7 +278,7 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             .enableDensityCompilerPatch
             && !"false".equalsIgnoreCase(System.getProperty(
                     "ga.noise.lazyCellCaches.enabled",
-                    "true"
+                    "false"
             ));
     @Unique
     private static final int GA$FUSED_TERRAIN_PARITY_MASK = Integer.getInteger(
