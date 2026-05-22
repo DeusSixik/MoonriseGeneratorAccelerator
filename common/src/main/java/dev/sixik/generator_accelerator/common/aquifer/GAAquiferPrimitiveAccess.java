@@ -33,4 +33,22 @@ public interface GAAquiferPrimitiveAccess {
     default int ga$globalFluidBlockIdAt(int x, int y, int z) {
         return GA_FALLBACK_RESULT;
     }
+
+    default boolean ga$prepareGlobalFluidCellCache(
+            int minBlockX,
+            int minBlockY,
+            int minBlockZ,
+            int cellWidth,
+            int cellHeight
+    ) {
+        return false;
+    }
+
+    default byte ga$cachedGlobalFluidKindAt(int x, int y, int z) {
+        return GAAquiferFluidGrid.KIND_UNKNOWN;
+    }
+
+    default int ga$cachedGlobalFluidBlockIdAt(int x, int y, int z) {
+        return GA_FALLBACK_RESULT;
+    }
 }

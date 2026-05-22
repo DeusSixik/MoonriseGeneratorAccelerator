@@ -4,9 +4,12 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.DfcCompiledFillArray;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGlobalFluidCellCache;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.structures.StructureNoiseColumnCache;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
@@ -174,8 +177,11 @@ public final class GADiagnostics {
         DecorationPipelineMetrics.reset();
         FeatureVmMetrics.reset();
         GANoiseFillMetrics.reset();
+        GAAquiferGlobalFluidCellCache.resetMetrics();
+        StructureNoiseColumnCache.resetMetrics();
         SurfaceMetrics.reset();
         DfcCellFillStats.reset();
+        DfcCompiledFillArray.resetMetrics();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
@@ -200,6 +206,8 @@ public final class GADiagnostics {
         setProperty("ga.featureVm.metrics", "true");
         setProperty("ga.surface.metrics", "true");
         setProperty("ga.noiseFill.metrics", "true");
+        setProperty("ga.aquifer.globalFluidCellCache.metrics", "true");
+        setProperty("ga.structureNoiseColumnCache.metrics", "true");
         setProperty("ga.worldgenProfile.metrics", "true");
         setProperty("dfc.cellfill.stats", "true");
         setProperty("dfc.cellfill.stats.residualClassDebug", "true");
@@ -218,6 +226,8 @@ public final class GADiagnostics {
         setProperty("ga.featureVm.metrics", "false");
         setProperty("ga.surface.metrics", "false");
         setProperty("ga.noiseFill.metrics", "false");
+        setProperty("ga.aquifer.globalFluidCellCache.metrics", "false");
+        setProperty("ga.structureNoiseColumnCache.metrics", "false");
         setProperty("ga.worldgenProfile.metrics", "false");
         setProperty("dfc.cellfill.stats", "false");
         setProperty("dfc.cellfill.stats.residualClassDebug", "false");
@@ -274,6 +284,8 @@ public final class GADiagnostics {
         FeatureVmMetrics.setEnabled(Boolean.getBoolean("ga.featureVm.metrics"));
         SurfaceMetrics.setEnabled(Boolean.getBoolean("ga.surface.metrics"));
         GANoiseFillMetrics.setEnabled(Boolean.getBoolean("ga.noiseFill.metrics"));
+        GAAquiferGlobalFluidCellCache.setMetricsEnabled(Boolean.getBoolean("ga.aquifer.globalFluidCellCache.metrics"));
+        StructureNoiseColumnCache.setMetricsEnabled(Boolean.getBoolean("ga.structureNoiseColumnCache.metrics"));
         WorldgenProfileMetrics.setEnabled(Boolean.getBoolean("ga.worldgenProfile.metrics"));
         DfcCellFillStats.setEnabled(
                 Boolean.getBoolean("dfc.cellfill.stats"),
@@ -290,6 +302,7 @@ public final class GADiagnostics {
                 + ", featureVm=" + FeatureVmMetrics.ENABLED
                 + ", surface=" + SurfaceMetrics.ENABLED
                 + ", noiseFill=" + GANoiseFillMetrics.ENABLED
+                + ", structureNoiseColumn=" + StructureNoiseColumnCache.METRICS_ENABLED
                 + ", cellFill=" + DfcCellFillStats.ENABLED
                 + ", spline=" + DfcSplineStats.ENABLED
                 + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
@@ -496,6 +509,8 @@ public final class GADiagnostics {
         ));
         out.put("decorationPipeline", decorationPipelineSnapshot());
         out.put("noiseFill", noiseFillSnapshot());
+        out.put("aquiferGlobalFluidCellCache", GAAquiferGlobalFluidCellCache.snapshot());
+        out.put("structureNoiseColumnCache", StructureNoiseColumnCache.snapshot());
         out.put("surfaceCompiler", surfaceCompilerSnapshot());
         out.put("densityCompiler", densityCompilerSnapshot());
         return out;
@@ -628,6 +643,7 @@ public final class GADiagnostics {
     private static Map<String, Object> densityCompilerSnapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cellFill", DfcCellFillStats.snapshot());
+        out.put("onDemandFillArray", DfcCompiledFillArray.snapshot());
         out.put("nativePlanning", DfcNativePlanningStats.snapshot());
         out.put("spline", DfcSplineStats.snapshot());
         out.put("splineTopClasses", DfcSplineStats.snapshotTopClasses(12));

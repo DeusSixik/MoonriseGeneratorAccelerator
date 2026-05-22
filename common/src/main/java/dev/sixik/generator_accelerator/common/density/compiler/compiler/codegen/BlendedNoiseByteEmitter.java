@@ -14,10 +14,15 @@ public final class BlendedNoiseByteEmitter {
     public interface DSlot { int next(); }
 
     private static final String MTH = "net/minecraft/util/Mth";
-    private static final String RT = "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime";
     private static final String IN = "net/minecraft/world/level/levelgen/synth/ImprovedNoise";
     private static final String IND = "L" + IN + ";";
+    private static final String RUNTIME = "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime";
     private static final String N5 = "(DDDDD)D";
+    private static final double WRAP = 33_554_432.0D;
+    public static final boolean WRAP_AXIS_INLINE_ENABLED = !"false".equalsIgnoreCase(System.getProperty(
+            "dfc.blendedNoise.wrapAxisInline.enabled",
+            "false"
+    ));
 
     private BlendedNoiseByteEmitter() {}
 
@@ -45,6 +50,9 @@ public final class BlendedNoiseByteEmitter {
         int sD9 = d.next();
         int sD10 = d.next();
         int sD16 = d.next();
+        int sWrapValue = WRAP_AXIS_INLINE_ENABLED ? d.next() : -1;
+        int sWrapScaled = WRAP_AXIS_INLINE_ENABLED ? d.next() : -1;
+        int sWrapLong = WRAP_AXIS_INLINE_ENABLED ? d.next() : -1;
 
         // d0 = bx * xzMul
         mv.visitVarInsn(Opcodes.ILOAD, 2);
@@ -111,17 +119,17 @@ public final class BlendedNoiseByteEmitter {
             mv.visitVarInsn(Opcodes.DLOAD, s6);
             mv.visitLdcInsn(d11);
             mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+            emitWrapAxis(mv, sWrapValue, sWrapScaled, sWrapLong);
             // wrap(d4 * d11)
             mv.visitVarInsn(Opcodes.DLOAD, s8);
             mv.visitLdcInsn(d11);
             mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+            emitWrapAxis(mv, sWrapValue, sWrapScaled, sWrapLong);
             // wrap(d5 * d11)
             mv.visitVarInsn(Opcodes.DLOAD, s10);
             mv.visitLdcInsn(d11);
             mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+            emitWrapAxis(mv, sWrapValue, sWrapScaled, sWrapLong);
             // d7 * d11
             mv.visitVarInsn(Opcodes.DLOAD, s14);
             mv.visitLdcInsn(d11);
@@ -178,7 +186,7 @@ public final class BlendedNoiseByteEmitter {
             Label sa = new Label();
             mv.visitJumpInsn(Opcodes.IFNULL, sskip);
 
-            wrap3(mv, s0, s2, s4, d11);
+            wrap3(mv, s0, s2, s4, d11, sWrapValue, sWrapScaled, sWrapLong);
             // d15 = d6 * d11
             mv.visitVarInsn(Opcodes.DLOAD, s12);
             mv.visitLdcInsn(d11);
@@ -216,7 +224,7 @@ public final class BlendedNoiseByteEmitter {
             Label sskip = new Label();
             Label sa = new Label();
             mv.visitJumpInsn(Opcodes.IFNULL, sskip);
-            wrap3(mv, s0, s2, s4, d11);
+            wrap3(mv, s0, s2, s4, d11, sWrapValue, sWrapScaled, sWrapLong);
             mv.visitVarInsn(Opcodes.DLOAD, s12);
             mv.visitLdcInsn(d11);
             mv.visitInsn(Opcodes.DMUL);
@@ -256,18 +264,72 @@ public final class BlendedNoiseByteEmitter {
         }
     }
 
-    private static void wrap3(MethodVisitor mv, int s0, int s2, int s4, double d11) {
+    private static void wrap3(
+            MethodVisitor mv,
+            int s0,
+            int s2,
+            int s4,
+            double d11,
+            int valueSlot,
+            int scaledSlot,
+            int longSlot
+    ) {
         mv.visitVarInsn(Opcodes.DLOAD, s0);
         mv.visitLdcInsn(d11);
         mv.visitInsn(Opcodes.DMUL);
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+        emitWrapAxis(mv, valueSlot, scaledSlot, longSlot);
         mv.visitVarInsn(Opcodes.DLOAD, s2);
         mv.visitLdcInsn(d11);
         mv.visitInsn(Opcodes.DMUL);
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+        emitWrapAxis(mv, valueSlot, scaledSlot, longSlot);
         mv.visitVarInsn(Opcodes.DLOAD, s4);
         mv.visitLdcInsn(d11);
         mv.visitInsn(Opcodes.DMUL);
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+        emitWrapAxis(mv, valueSlot, scaledSlot, longSlot);
+    }
+
+    private static void emitWrapAxis(MethodVisitor mv, int valueSlot, int scaledSlot, int longSlot) {
+        if (!WRAP_AXIS_INLINE_ENABLED) {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME, "wrapAxis", "(D)D", false);
+            return;
+        }
+
+        Label decrement = new Label();
+        Label afterFloor = new Label();
+
+        mv.visitVarInsn(Opcodes.DSTORE, valueSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, valueSlot);
+        mv.visitLdcInsn(WRAP);
+        mv.visitInsn(Opcodes.DDIV);
+        mv.visitLdcInsn(0.5D);
+        mv.visitInsn(Opcodes.DADD);
+        mv.visitVarInsn(Opcodes.DSTORE, scaledSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, scaledSlot);
+        mv.visitInsn(Opcodes.D2L);
+        mv.visitVarInsn(Opcodes.LSTORE, longSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, scaledSlot);
+        mv.visitVarInsn(Opcodes.LLOAD, longSlot);
+        mv.visitInsn(Opcodes.L2D);
+        mv.visitInsn(Opcodes.DCMPG);
+        mv.visitJumpInsn(Opcodes.IFLT, decrement);
+        mv.visitVarInsn(Opcodes.LLOAD, longSlot);
+        mv.visitJumpInsn(Opcodes.GOTO, afterFloor);
+
+        mv.visitLabel(decrement);
+        mv.visitVarInsn(Opcodes.LLOAD, longSlot);
+        mv.visitInsn(Opcodes.LCONST_1);
+        mv.visitInsn(Opcodes.LSUB);
+
+        mv.visitLabel(afterFloor);
+        mv.visitInsn(Opcodes.L2D);
+        mv.visitLdcInsn(WRAP);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitVarInsn(Opcodes.DSTORE, scaledSlot);
+        mv.visitVarInsn(Opcodes.DLOAD, valueSlot);
+        mv.visitVarInsn(Opcodes.DLOAD, scaledSlot);
+        mv.visitInsn(Opcodes.DSUB);
     }
 }

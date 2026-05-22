@@ -3,6 +3,11 @@ package dev.sixik.generator_accelerator.common.noise;
 import net.minecraft.world.level.block.state.BlockState;
 
 public interface GAFusedTerrainNoiseChunkAccess {
+    int GA_DIRECT_CELL_CLASS_UNAVAILABLE = -1;
+    int GA_DIRECT_CELL_CLASS_MIXED = 0;
+    int GA_DIRECT_CELL_CLASS_ALL_POSITIVE = 1;
+    int GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE = 2;
+
     int GA_FALLBACK_BLOCK_ID = Integer.MIN_VALUE;
     long GA_FALLBACK_PACKED_BLOCK_ID = 1L << 33;
     int GA_PACKED_SCHEDULE_SHIFT = 32;
@@ -23,6 +28,10 @@ public interface GAFusedTerrainNoiseChunkAccess {
         return false;
     }
 
+    default boolean ga$prepareFusedTerrainDirectCell() {
+        return ga$fusedTerrainDirectCellAvailable();
+    }
+
     default long ga$sampleFusedTerrainDirectCellPackedBlockId(
             int defaultBlockId,
             int airBlockId,
@@ -38,6 +47,21 @@ public interface GAFusedTerrainNoiseChunkAccess {
 
     default double[] ga$fusedTerrainDirectCellDensityValues() {
         return null;
+    }
+
+    default int ga$fusedTerrainDirectCellDensityClass() {
+        return GA_DIRECT_CELL_CLASS_UNAVAILABLE;
+    }
+
+    default double ga$fusedTerrainDirectCellMinDensity() {
+        return Double.NaN;
+    }
+
+    default double ga$fusedTerrainDirectCellMaxDensity() {
+        return Double.NaN;
+    }
+
+    default void ga$setFusedTerrainDirectCellDensitySummary(int cellClass, double minDensity, double maxDensity) {
     }
 
     default boolean ga$fusedTerrainDirectCellHasOreVeinRule() {

@@ -270,7 +270,7 @@ public final class GABeardifierPlan {
         return this.binOffsets != null;
     }
 
-    void collectActive(GABeardifierCellScratch scratch, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+    public void collectActive(GABeardifierCellScratch scratch, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
         scratch.beginCollect();
         if (this.binOffsets == null) {
             collectActiveScan(scratch, minX, maxX, minY, maxY, minZ, maxZ);

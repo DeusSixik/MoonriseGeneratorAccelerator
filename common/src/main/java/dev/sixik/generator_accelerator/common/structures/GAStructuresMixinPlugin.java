@@ -12,6 +12,17 @@ public class GAStructuresMixinPlugin extends GAMixinPlugin {
     }
 
     @Override
+    public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (!super.shouldApplyMixin(targetClassName, mixinClassName)) {
+            return false;
+        }
+        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.structures.mixin.MixinNoiseBasedChunkGenerator$structure_exact_cache")) {
+            return Boolean.getBoolean("ga.structureNoiseColumnCache.enabled");
+        }
+        return true;
+    }
+
+    @Override
     public void onLoad(String s) {
         create("org.violetmoon.zeta.Zeta", new MixinApplier.Param(
                 "dev.sixik.generator_accelerator.common.structures.mixin.compats.zeta.Zeta$StructurePiece$Fix",

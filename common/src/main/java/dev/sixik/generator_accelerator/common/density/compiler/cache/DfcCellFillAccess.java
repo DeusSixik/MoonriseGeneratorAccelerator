@@ -9,6 +9,16 @@ public interface DfcCellFillAccess {
 
     void dfc$fillCell(double[] out, NoiseChunk chunk);
 
+    /**
+     * Optional terrain-density cache entrypoint. Implementations that can collect the
+     * all-positive/all-non-positive summary while writing {@code out} return true;
+     * callers keep the old post-fill scan when this returns false.
+     */
+    default boolean dfc$fillCellAndCollectTerrainSummary(double[] out, NoiseChunk chunk) {
+        dfc$fillCell(out, chunk);
+        return false;
+    }
+
     default void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
         int length = chunk.cellWidth * chunk.cellWidth * chunk.cellHeight;
         double[] tmp = new double[length];

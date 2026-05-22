@@ -81,6 +81,13 @@ public final class GABeardifierKernel {
         return computeActiveAt(plan, scratch, x, y, z);
     }
 
+    public static double computeCollectedAt(GABeardifierPlan plan, GABeardifierCellScratch scratch, int x, int y, int z) {
+        if (plan == null || scratch == null || scratch.empty()) {
+            return 0.0D;
+        }
+        return computeActiveAt(plan, scratch, x, y, z);
+    }
+
     private static double computeActiveAt(GABeardifierPlan plan, GABeardifierCellScratch scratch, int x, int y, int z) {
         double value = 0.0D;
         int[] active = scratch.buryPieces;

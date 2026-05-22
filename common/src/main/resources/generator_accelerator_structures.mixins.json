@@ -8,6 +8,7 @@
     "MixinChunkAccess$SynchronizeStructureData",
     "MixinChunkGenerator$optimize_creating_structure",
     "MixinChunkGeneratorStructureState",
+    "MixinNoiseBasedChunkGenerator$structure_exact_cache",
     "compats.blueprints.Blueprint$StructurePieceMixin",
     "compats.zeta.Zeta$StructurePiece$Fix",
     "optimization.MixinPiecesContainer",

@@ -4,6 +4,7 @@ import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferColumnBandNearest;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferFluidGrid;
+import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGlobalFluidCellCache;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGrid;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferNearest;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPlan;
@@ -119,6 +120,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
     private boolean[] ga$globalCacheValid;
     @Unique
     private byte[] ga$globalCacheNextSlot;
+    @Unique
+    private GAAquiferGlobalFluidCellCache ga$globalFluidCellCache;
     @Unique
     private static final BlockState ga$AIR_STATE = Blocks.AIR.defaultBlockState();
     @Unique
@@ -458,6 +461,59 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise
     @Unique
     public int ga$globalFluidBlockIdAt(int x, int y, int z) {
         return this.ga$globalCacheBlockId[this.ga$pickGlobalFluid(x, y, z)];
+    }
+
+    @Override
+    @Unique
+    public boolean ga$prepareGlobalFluidCellCache(
+            int minBlockX,
+            int minBlockY,
+            int minBlockZ,
+            int cellWidth,
+            int cellHeight
+    ) {
+        GAAquiferGlobalFluidCellCache cache = this.ga$globalFluidCellCache;
+        if (cache == null) {
+            if (!GAAquiferGlobalFluidCellCache.ENABLED) {
+                return false;
+            }
+            cache = new GAAquiferGlobalFluidCellCache();
+            this.ga$globalFluidCellCache = cache;
+        }
+        if (cache.matches(minBlockX, minBlockY, minBlockZ, cellWidth, cellHeight)) {
+            return true;
+        }
+        if (!cache.start(minBlockX, minBlockY, minBlockZ, cellWidth, cellHeight)) {
+            return false;
+        }
+
+        int index = 0;
+        for (int y = 0; y < cellHeight; y++) {
+            int blockY = minBlockY + y;
+            for (int x = 0; x < cellWidth; x++) {
+                int blockX = minBlockX + x;
+                for (int z = 0; z < cellWidth; z++) {
+                    int slot = this.ga$pickGlobalFluid(blockX, blockY, minBlockZ + z);
+                    cache.set(index++, this.ga$kindAtGlobalSlot(slot, blockY), this.ga$globalCacheBlockId[slot]);
+                }
+            }
+        }
+        cache.finish();
+        return true;
+    }
+
+    @Override
+    @Unique
+    public byte ga$cachedGlobalFluidKindAt(int x, int y, int z) {
+        GAAquiferGlobalFluidCellCache cache = this.ga$globalFluidCellCache;
+        return cache == null ? GAAquiferFluidGrid.KIND_UNKNOWN : cache.kindAt(x, y, z);
+    }
+
+    @Override
+    @Unique
+    public int ga$cachedGlobalFluidBlockIdAt(int x, int y, int z) {
+        GAAquiferGlobalFluidCellCache cache = this.ga$globalFluidCellCache;
+        return cache == null ? GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT : cache.blockIdAt(x, y, z);
     }
 
     @Unique

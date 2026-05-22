@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.structures.mixin.optimization;
 
 import dev.sixik.generator_accelerator.common.structures.StructureGenerationHotPath;
+import dev.sixik.generator_accelerator.common.structures.StructureNoiseColumnCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.world.level.ChunkPos;
@@ -58,19 +59,21 @@ public abstract class MixinStructure$generation_hot_path {
                 validBiome
         );
 
-        Optional<Structure.GenerationStub> generationStub = this.findValidGenerationPoint(generationContext);
-        if (generationStub.isEmpty()) {
-            return StructureStart.INVALID_START;
-        }
+        try (StructureNoiseColumnCache ignored = StructureNoiseColumnCache.enter()) {
+            Optional<Structure.GenerationStub> generationStub = this.findValidGenerationPoint(generationContext);
+            if (generationStub.isEmpty()) {
+                return StructureStart.INVALID_START;
+            }
 
-        StructurePiecesBuilder piecesBuilder = generationStub.get().getPiecesBuilder();
-        StructureStart structureStart = new StructureStart(
-                (Structure) (Object) this,
-                chunkPos,
-                references,
-                piecesBuilder.build()
-        );
-        return structureStart.isValid() ? structureStart : StructureStart.INVALID_START;
+            StructurePiecesBuilder piecesBuilder = generationStub.get().getPiecesBuilder();
+            StructureStart structureStart = new StructureStart(
+                    (Structure) (Object) this,
+                    chunkPos,
+                    references,
+                    piecesBuilder.build()
+            );
+            return structureStart.isValid() ? structureStart : StructureStart.INVALID_START;
+        }
     }
 
     /**

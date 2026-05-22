@@ -6,6 +6,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierCellScratch;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierKernel;
 import dev.sixik.generator_accelerator.common.beardifier.GABeardifierPlan;
+import dev.sixik.generator_accelerator.common.beardifier.GABeardifierThreadCache;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.world.level.levelgen.Beardifier;
@@ -36,10 +37,6 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private static float[] BEARD_KERNEL;
 
     @Unique
-    private static final ThreadLocal<GABeardifierCellScratch> GA$CELL_SCRATCH =
-            ThreadLocal.withInitial(GABeardifierCellScratch::new);
-
-    @Unique
     private static final boolean GA$SKIP_BEARDIFIER = Boolean.parseBoolean(System.getProperty(
             "ga.beardifier.skip.enabled",
             "false"
@@ -47,6 +44,9 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Unique
     private GABeardifierPlan ga$plan;
+    @Unique
+    private static final ThreadLocal<GABeardifierThreadCache> GA$THREAD_CACHE =
+            ThreadLocal.withInitial(GABeardifierThreadCache::new);
 
     @Unique
     private void ga$initPlan() {
@@ -122,6 +122,55 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         }
     }
 
+    @Unique
+    private GABeardifierCellScratch ga$scratch() {
+        return GA$THREAD_CACHE.get().scratch;
+    }
+
+    @Unique
+    private double ga$computeAtNoiseChunkCell(NoiseChunk chunk) {
+        this.ga$ensurePlan();
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int minX = chunk.cellStartBlockX;
+        int minY = chunk.cellStartBlockY;
+        int minZ = chunk.cellStartBlockZ;
+        int maxX = minX + cellW - 1;
+        int maxY = minY + cellH - 1;
+        int maxZ = minZ + cellW - 1;
+        if (this.ga$plan.outside(minX, maxX, minY, maxY, minZ, maxZ)) {
+            return 0.0D;
+        }
+
+        GABeardifierThreadCache cache = GA$THREAD_CACHE.get();
+        if (cache.owner != this
+                || cache.chunk != chunk
+                || cache.startX != minX
+                || cache.startY != minY
+                || cache.startZ != minZ
+                || cache.cellWidth != cellW
+                || cache.cellHeight != cellH) {
+            this.ga$plan.collectActive(cache.scratch, minX, maxX, minY, maxY, minZ, maxZ);
+            cache.owner = this;
+            cache.chunk = chunk;
+            cache.startX = minX;
+            cache.startY = minY;
+            cache.startZ = minZ;
+            cache.cellWidth = cellW;
+            cache.cellHeight = cellH;
+        }
+        if (cache.scratch.empty()) {
+            return 0.0D;
+        }
+        return GABeardifierKernel.computeCollectedAt(
+                this.ga$plan,
+                cache.scratch,
+                minX + chunk.inCellX,
+                minY + chunk.inCellY,
+                minZ + chunk.inCellZ
+        );
+    }
+
     /**
      * @author Sixik
      * @reason Delegate Beardifier point sampling to primitive detached kernel.
@@ -131,10 +180,13 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         if (GA$SKIP_BEARDIFIER) {
             return 0.0D;
         }
+        if (context instanceof NoiseChunk chunk) {
+            return this.ga$computeAtNoiseChunkCell(chunk);
+        }
         this.ga$ensurePlan();
         return GABeardifierKernel.computeAt(
                 this.ga$plan,
-                GA$CELL_SCRATCH.get(),
+                this.ga$scratch(),
                 context.blockX(),
                 context.blockY(),
                 context.blockZ()
@@ -165,9 +217,11 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             chunk.arrayIndex = cellValues;
             return;
         }
+        GABeardifierThreadCache cache = GA$THREAD_CACHE.get();
+        cache.owner = null;
         GABeardifierKernel.fillCell(
                 this.ga$plan,
-                GA$CELL_SCRATCH.get(),
+                cache.scratch,
                 out,
                 cellW,
                 cellH,
@@ -199,9 +253,11 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             chunk.arrayIndex = cellValues;
             return;
         }
+        GABeardifierThreadCache cache = GA$THREAD_CACHE.get();
+        cache.owner = null;
         GABeardifierKernel.accumulateCell(
                 this.ga$plan,
-                GA$CELL_SCRATCH.get(),
+                cache.scratch,
                 out,
                 cellW,
                 cellH,

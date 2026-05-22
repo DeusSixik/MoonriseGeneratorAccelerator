@@ -45,10 +45,18 @@ public final class GANoiseFillMetrics {
     public static final int DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS = 33;
     public static final int DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS = 34;
     public static final int DIRECT_SOLID_CELL_BULK_WRITES = 35;
-    public static final int DIRECT_HIGH_AIR_SURFACE_FAST_CELLS = 36;
-    public static final int DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS = 37;
+    public static final int CELL_DENSITY_CLASSIFIER_HITS = 36;
+    public static final int CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS = 37;
+    public static final int CELL_DENSITY_SUMMARY_INTEGRATED = 38;
+    public static final int CELL_DENSITY_SUMMARY_SCAN_FALLBACKS = 39;
+    public static final int CELL_DENSITY_SUMMARY_FAST_FAILURES = 40;
+    public static final int DIRECT_HIGH_AIR_SURFACE_FAST_CELLS = 41;
+    public static final int DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS = 42;
+    public static final int FUSED_TERRAIN_CHUNKS = 43;
+    public static final int DIRECT_CELL_AVAILABLE_CHUNKS = 44;
+    public static final int DIRECT_CELL_MISSING_CHUNKS = 45;
 
-    public static final int COUNTER_COUNT = 38;
+    public static final int COUNTER_COUNT = 46;
 
     private static final String[] NAMES = {
             "doFill.chunks",
@@ -87,8 +95,16 @@ public final class GANoiseFillMetrics {
             "direct.globalLavaCellFastCells",
             "direct.globalLavaCellFastBlocks",
             "direct.solidCellBulkWrites",
+            "cell.densityClassifierHits",
+            "cell.densityClassifierScanFallbacks",
+            "cell.densitySummaryIntegrated",
+            "cell.densitySummaryScanFallbacks",
+            "cell.densitySummaryFastFailures",
             "direct.highAirSurfaceFastCells",
-            "direct.highAirSurfaceFastBlocks"
+            "direct.highAirSurfaceFastBlocks",
+            "fusedTerrain.chunks",
+            "directCell.availableChunks",
+            "directCell.missingChunks"
     };
 
     private static final AtomicLongArray COUNTERS = new AtomicLongArray(COUNTER_COUNT);
@@ -169,8 +185,16 @@ public final class GANoiseFillMetrics {
                 get(DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS),
                 get(DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS),
                 get(DIRECT_SOLID_CELL_BULK_WRITES),
+                get(CELL_DENSITY_CLASSIFIER_HITS),
+                get(CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS),
+                get(CELL_DENSITY_SUMMARY_INTEGRATED),
+                get(CELL_DENSITY_SUMMARY_SCAN_FALLBACKS),
+                get(CELL_DENSITY_SUMMARY_FAST_FAILURES),
                 get(DIRECT_HIGH_AIR_SURFACE_FAST_CELLS),
                 get(DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS),
+                get(FUSED_TERRAIN_CHUNKS),
+                get(DIRECT_CELL_AVAILABLE_CHUNKS),
+                get(DIRECT_CELL_MISSING_CHUNKS),
                 summary()
         );
     }
@@ -212,8 +236,16 @@ public final class GANoiseFillMetrics {
                 + ", globalLavaCellFastCells=" + get(DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS)
                 + ", globalLavaCellFastBlocks=" + get(DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS)
                 + ", solidCellBulkWrites=" + get(DIRECT_SOLID_CELL_BULK_WRITES)
+                + ", densityClassifierHits=" + get(CELL_DENSITY_CLASSIFIER_HITS)
+                + ", densityClassifierScanFallbacks=" + get(CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS)
+                + ", densitySummaryIntegrated=" + get(CELL_DENSITY_SUMMARY_INTEGRATED)
+                + ", densitySummaryScanFallbacks=" + get(CELL_DENSITY_SUMMARY_SCAN_FALLBACKS)
+                + ", densitySummaryFastFailures=" + get(CELL_DENSITY_SUMMARY_FAST_FAILURES)
                 + ", highAirSurfaceFastCells=" + get(DIRECT_HIGH_AIR_SURFACE_FAST_CELLS)
-                + ", highAirSurfaceFastBlocks=" + get(DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS);
+                + ", highAirSurfaceFastBlocks=" + get(DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS)
+                + ", fusedTerrainChunks=" + get(FUSED_TERRAIN_CHUNKS)
+                + ", directCellAvailableChunks=" + get(DIRECT_CELL_AVAILABLE_CHUNKS)
+                + ", directCellMissingChunks=" + get(DIRECT_CELL_MISSING_CHUNKS);
     }
 
     private static long millis(long nanos) {
@@ -244,8 +276,16 @@ public final class GANoiseFillMetrics {
             long directGlobalLavaCellFastCells,
             long directGlobalLavaCellFastBlocks,
             long directSolidCellBulkWrites,
+            long densityClassifierHits,
+            long densityClassifierScanFallbacks,
+            long densitySummaryIntegrated,
+            long densitySummaryScanFallbacks,
+            long densitySummaryFastFailures,
             long directHighAirSurfaceFastCells,
             long directHighAirSurfaceFastBlocks,
+            long fusedTerrainChunks,
+            long directCellAvailableChunks,
+            long directCellMissingChunks,
             String summary
     ) {
     }

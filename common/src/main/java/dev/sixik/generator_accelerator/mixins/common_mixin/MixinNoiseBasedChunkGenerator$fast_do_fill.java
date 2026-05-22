@@ -70,9 +70,14 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             "true"
     ));
     @Unique
+    private static final boolean GA$DIRECT_CELL_ORE_RANGE_PREFILL = !"false".equalsIgnoreCase(System.getProperty(
+            "ga.aquifer.fusedTerrain.directCell.oreRangePrefill.enabled",
+            "false"
+    ));
+    @Unique
     private static final boolean GA$DIRECT_NEGATIVE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
             "ga.aquifer.fusedTerrain.directCell.negativeCell.enabled",
-            "true"
+            "false"
     ));
     @Unique
     private static final boolean GA$DIRECT_HIGH_AIR_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
@@ -84,7 +89,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             "ga.aquifer.fusedTerrain.directCell.highAirMinY",
             63
     );
-    // Unsafe: skips selectCellYZ/density/beardifier from preliminary surface only; keep opt-in.
+    // Unsafe near structure terrain adjustment: skips selectCellYZ/beardifier from preliminary surface only.
     @Unique
     private static final boolean GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
             "ga.aquifer.fusedTerrain.directCell.highAirSurface.enabled",
@@ -158,6 +163,8 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         long metricGlobalLavaCellFastCells = 0L;
         long metricGlobalLavaCellFastBlocks = 0L;
         long metricSolidCellBulkWrites = 0L;
+        long metricDensityClassifierHits = 0L;
+        long metricDensityClassifierScanFallbacks = 0L;
         long metricHighAirSurfaceFastCells = 0L;
         long metricHighAirSurfaceFastBlocks = 0L;
 
@@ -177,6 +184,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         int cellWidth = noiseChunk.cellWidth();
         int cellHeight = noiseChunk.cellHeight();
         int cellWidthSquared = cellWidth * cellWidth;
+        int wholeCellBlocks = cellHeight * cellWidthSquared;
         boolean specializedCommonCell = GA$SPECIALIZED_COMMON_CELL && cellWidth == 4 && cellHeight == 8;
         double invCellWidth = 1.0D / (double) cellWidth;
         double invCellHeight = 1.0D / (double) cellHeight;
@@ -195,12 +203,23 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         double[] directCellDensityValues = directCellTerrain
                 ? fusedTerrain.ga$fusedTerrainDirectCellDensityValues()
                 : null;
+        int directCellDensityClass = directCellTerrain
+                ? fusedTerrain.ga$fusedTerrainDirectCellDensityClass()
+                : GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
         boolean directCellHasOreVeinRule = directCellTerrain
                 && fusedTerrain.ga$fusedTerrainDirectCellHasOreVeinRule();
         boolean directCellSkipsOreVeins = directCellTerrain
                 && fusedTerrain.ga$fusedTerrainDirectCellSkipsOreVeins();
         boolean directCellAirForNonSolid = directCellTerrain
                 && fusedTerrain.ga$fusedTerrainDirectCellAirForNonSolid();
+        if (metricsEnabled) {
+            if (fusedTerrain != null) {
+                GANoiseFillMetrics.increment(GANoiseFillMetrics.FUSED_TERRAIN_CHUNKS);
+                GANoiseFillMetrics.increment(directCellTerrain
+                        ? GANoiseFillMetrics.DIRECT_CELL_AVAILABLE_CHUNKS
+                        : GANoiseFillMetrics.DIRECT_CELL_MISSING_CHUNKS);
+            }
+        }
         long worldSurfaceDone0 = 0L;
         long worldSurfaceDone1 = 0L;
         long worldSurfaceDone2 = 0L;
@@ -257,7 +276,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
 
                 for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
                     int cellMinBlockY = (minCellY + cellY) * cellHeight;
-                    int wholeCellBlocks = cellHeight * cellWidthSquared;
                     if (GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST
                             && GA$DIRECT_HIGH_AIR_CELL_FAST
                             && directCellTerrain
@@ -293,49 +311,94 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         metricSelectCellCalls++;
                         metricSelectCellNanos += System.nanoTime() - selectStart;
                     }
-                    if (directCellTerrain) {
+                    boolean directCellIntersectsOreVeins = directCellHasOreVeinRule
+                            && !directCellSkipsOreVeins
+                            && ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight);
+                    boolean directCellActiveForCell = directCellTerrain
+                            && (!directCellIntersectsOreVeins || GA$DIRECT_CELL_ORE_RANGE_PREFILL)
+                            && fusedTerrain.ga$prepareFusedTerrainDirectCell();
+                    if (directCellActiveForCell) {
                         directCellDensityValues = fusedTerrain.ga$fusedTerrainDirectCellDensityValues();
+                        directCellDensityClass = fusedTerrain.ga$fusedTerrainDirectCellDensityClass();
+                        if (metricsEnabled
+                                && directCellDensityClass != GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
+                            metricDensityClassifierHits++;
+                        }
+                    } else {
+                        directCellDensityValues = null;
+                        directCellDensityClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
                     }
-                    boolean directSolidDefaultCell = GA$DIRECT_SOLID_CELL_FAST
-                            && directCellTerrain
+
+                    boolean directSolidDefaultCell = false;
+                    int directCellDensityKind = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
+                    boolean directSolidCellCandidate = GA$DIRECT_SOLID_CELL_FAST
+                            && directCellActiveForCell
                             && directCellDensityValues != null
-                            && (!directCellHasOreVeinRule
-                            || directCellSkipsOreVeins
-                            || !ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight))
-                            && ga$allDensitiesPositive(directCellDensityValues);
+                            && !directCellIntersectsOreVeins;
+                    if (directSolidCellCandidate) {
+                        directCellDensityKind = directCellDensityClass;
+                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
+                            if (metricsEnabled) {
+                                metricDensityClassifierScanFallbacks++;
+                            }
+                            directCellDensityKind = ga$classifyDensityCell(directCellDensityValues);
+                        }
+                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_POSITIVE) {
+                            directSolidDefaultCell = true;
+                        }
+                    }
                     if (directSolidDefaultCell && metricsEnabled) {
                         metricDirectSolidCellFastCells++;
                     }
                     int wholeCellStateId = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID;
                     boolean wholeCellAir = false;
                     boolean wholeCellGlobalLava = false;
+                    boolean directNegativeCellCandidate = false;
                     if (directSolidDefaultCell) {
                         wholeCellStateId = defaultBlockId;
-                    } else if (GA$DIRECT_NEGATIVE_CELL_FAST
-                            && directCellTerrain
-                            && fusedTerrain != null
-                            && directCellDensityValues != null
-                            && ga$allDensitiesNonPositive(directCellDensityValues)) {
-                        if (GA$DIRECT_HIGH_AIR_CELL_FAST
+                    } else {
+                        directNegativeCellCandidate = (GA$DIRECT_NEGATIVE_CELL_FAST
+                                || (GA$DIRECT_HIGH_AIR_CELL_FAST
                                 && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
-                                && cellMinBlockY >= seaLevel) {
-                            wholeCellStateId = airBlockId;
-                            wholeCellAir = true;
-                        } else {
-                            long packedCellState = fusedTerrain.ga$classifyNegativeDensityCellPackedBlockId(
-                                    airBlockId,
-                                    baseBlockX,
-                                    cellMinBlockY,
-                                    baseBlockZ,
-                                    cellWidth,
-                                    cellHeight,
-                                    GA$DIRECT_HIGH_AIR_CELL_FAST,
-                                    GA$DIRECT_HIGH_AIR_MIN_Y
-                            );
-                            if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedCellState)) {
-                                wholeCellStateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedCellState);
-                                wholeCellAir = wholeCellStateId == airBlockId;
-                                wholeCellGlobalLava = !wholeCellAir;
+                                && cellMinBlockY >= seaLevel))
+                                && directCellActiveForCell
+                                && fusedTerrain != null
+                                && directCellDensityValues != null;
+                    }
+                    if (!directSolidDefaultCell && directNegativeCellCandidate) {
+                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
+                            directCellDensityKind = directCellDensityClass;
+                        }
+                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
+                            if (metricsEnabled) {
+                                metricDensityClassifierScanFallbacks++;
+                            }
+                            directCellDensityKind = ga$classifyDensityCell(directCellDensityValues);
+                        }
+                        boolean directNegativeDefaultCell = directCellDensityKind
+                                == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE;
+                        if (directNegativeDefaultCell) {
+                            if (GA$DIRECT_HIGH_AIR_CELL_FAST
+                                    && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
+                                    && cellMinBlockY >= seaLevel) {
+                                wholeCellStateId = airBlockId;
+                                wholeCellAir = true;
+                            } else {
+                                long packedCellState = fusedTerrain.ga$classifyNegativeDensityCellPackedBlockId(
+                                        airBlockId,
+                                        baseBlockX,
+                                        cellMinBlockY,
+                                        baseBlockZ,
+                                        cellWidth,
+                                        cellHeight,
+                                        GA$DIRECT_HIGH_AIR_CELL_FAST,
+                                        GA$DIRECT_HIGH_AIR_MIN_Y
+                                );
+                                if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedCellState)) {
+                                    wholeCellStateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedCellState);
+                                    wholeCellAir = wholeCellStateId == airBlockId;
+                                    wholeCellGlobalLava = !wholeCellAir;
+                                }
                             }
                         }
                     }
@@ -520,7 +583,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 } else {
                                     int directFallbackReason = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_GENERIC;
                                     long packedState = ga$sampleDirectCellPackedState(
-                                            directCellTerrain,
+                                            directCellActiveForCell,
                                             directCellDensityValues,
                                             directOreVeinY,
                                             directCellAirForNonSolid,
@@ -528,7 +591,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                             airBlockId,
                                             cellValueIndex
                                     );
-                                    if (directCellTerrain && metricsEnabled) {
+                                    if (directCellActiveForCell && metricsEnabled) {
                                         metricDirectAttempts++;
                                     }
                                     if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
@@ -550,7 +613,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                         }
                                     } else {
                                         directFallbackReason = GAFusedTerrainNoiseChunkAccess.ga$packedFallbackReason(packedState);
-                                        if (directCellTerrain && metricsEnabled) {
+                                        if (directCellActiveForCell && metricsEnabled) {
                                             switch (directFallbackReason) {
                                                 case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE ->
                                                         metricDirectFallbackUnavailable++;
@@ -637,7 +700,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                                 if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
                                                     fusedTerrain = null;
                                                     directCellTerrain = false;
+                                                    directCellActiveForCell = false;
                                                     directCellDensityValues = null;
+                                                    directCellDensityClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
                                                     directCellHasOreVeinRule = false;
                                                     directCellSkipsOreVeins = false;
                                                     directCellAirForNonSolid = false;
@@ -875,6 +940,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS, metricGlobalLavaCellFastCells);
             GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS, metricGlobalLavaCellFastBlocks);
             GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_BULK_WRITES, metricSolidCellBulkWrites);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_HITS, metricDensityClassifierHits);
+            GANoiseFillMetrics.add(
+                    GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS,
+                    metricDensityClassifierScanFallbacks
+            );
             GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_CELLS, metricHighAirSurfaceFastCells);
             GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS, metricHighAirSurfaceFastBlocks);
         }
@@ -1069,23 +1139,25 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     }
 
     @Unique
-    private static boolean ga$allDensitiesPositive(double[] densityValues) {
-        for (double density : densityValues) {
-            if (density <= 0.0D) {
-                return false;
-            }
+    private static int ga$classifyDensityCell(double[] densityValues) {
+        if (densityValues.length == 0) {
+            return GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
         }
-        return densityValues.length > 0;
-    }
-
-    @Unique
-    private static boolean ga$allDensitiesNonPositive(double[] densityValues) {
+        boolean hasPositive = false;
+        boolean hasNonPositive = false;
         for (double density : densityValues) {
             if (density > 0.0D) {
-                return false;
+                hasPositive = true;
+            } else {
+                hasNonPositive = true;
+            }
+            if (hasPositive && hasNonPositive) {
+                return GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_MIXED;
             }
         }
-        return densityValues.length > 0;
+        return hasPositive
+                ? GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_POSITIVE
+                : GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE;
     }
 
     @Unique

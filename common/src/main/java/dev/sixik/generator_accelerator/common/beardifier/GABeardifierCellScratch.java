@@ -78,7 +78,7 @@ public final class GABeardifierCellScratch {
         return true;
     }
 
-    boolean empty() {
+    public boolean empty() {
         return this.buryCount == 0
                 && this.thinCount == 0
                 && this.boxCount == 0
