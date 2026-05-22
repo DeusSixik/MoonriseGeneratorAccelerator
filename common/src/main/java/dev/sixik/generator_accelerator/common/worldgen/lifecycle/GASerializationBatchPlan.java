@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.lifecycle;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -17,12 +19,12 @@ public record GASerializationBatchPlan(List<GASerializationChunk> chunks, long e
         if (dirtyChunks == null || dirtyChunks.isEmpty() || maxChunks <= 0 || maxBytes <= 0L) {
             return new GASerializationBatchPlan(List.of(), 0L, dirtyChunks != null && !dirtyChunks.isEmpty());
         }
-        List<GASerializationChunk> ordered = new ArrayList<>(dirtyChunks);
+        List<GASerializationChunk> ordered = new ObjectArrayList<>(dirtyChunks);
         ordered.sort(Comparator
                 .comparing(GASerializationChunk::urgency)
                 .thenComparingInt(GASerializationChunk::chunkX)
                 .thenComparingInt(GASerializationChunk::chunkZ));
-        List<GASerializationChunk> selected = new ArrayList<>(Math.min(maxChunks, ordered.size()));
+        List<GASerializationChunk> selected = new ObjectArrayList<>(Math.min(maxChunks, ordered.size()));
         long bytes = 0L;
         for (GASerializationChunk chunk : ordered) {
             if (chunk == null) {

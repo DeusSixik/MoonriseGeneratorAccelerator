@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -34,7 +36,7 @@ public final class GACommitOwnership {
         if (commands == null) {
             throw new NullPointerException("commands");
         }
-        List<GACommitCommand<T>> owned = new ArrayList<>();
+        List<GACommitCommand<T>> owned = new ObjectArrayList<>();
         Map<GAChunkPosition, List<GACommitCommand<T>>> forwarded = new TreeMap<>();
         for (GACommitCommand<T> command : commands) {
             if (command == null) {
@@ -44,13 +46,13 @@ public final class GACommitOwnership {
             if (ownerChunk.equals(targetChunk)) {
                 owned.add(command);
             } else {
-                forwarded.computeIfAbsent(targetChunk, ignored -> new ArrayList<>()).add(command);
+                forwarded.computeIfAbsent(targetChunk, ignored -> new ObjectArrayList<>()).add(command);
             }
         }
         owned.sort(GACommitCommand::compareTo);
         Map<GAChunkPosition, List<GACommitCommand<T>>> copied = new TreeMap<>();
         for (Map.Entry<GAChunkPosition, List<GACommitCommand<T>>> entry : forwarded.entrySet()) {
-            List<GACommitCommand<T>> ordered = new ArrayList<>(entry.getValue());
+            List<GACommitCommand<T>> ordered = new ObjectArrayList<>(entry.getValue());
             ordered.sort(GACommitCommand::compareTo);
             copied.put(entry.getKey(), List.copyOf(ordered));
         }
@@ -73,7 +75,7 @@ public final class GACommitOwnership {
         if (!split.forwardedByTarget().isEmpty()) {
             throw new IllegalArgumentException("localCommands contain non-owned targets for " + ownerChunk);
         }
-        List<GACommitCommand<T>> combined = new ArrayList<>(split.owned());
+        List<GACommitCommand<T>> combined = new ObjectArrayList<>(split.owned());
         combined.addAll(mailbox.drainCommands(ownerChunk));
         return GACommitBatch.of(combined).resolve(policy);
     }

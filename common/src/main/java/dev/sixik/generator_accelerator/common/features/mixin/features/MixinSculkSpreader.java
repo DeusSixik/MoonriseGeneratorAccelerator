@@ -4,6 +4,7 @@ import dev.sixik.generator_accelerator.common.features.SculkSpreaderCursorScratc
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.WorldGenRegion;
@@ -60,7 +61,7 @@ public abstract class MixinSculkSpreader {
             return;
         }
 
-        ArrayList<SculkSpreader.ChargeCursor> next = new ArrayList<>(current.size());
+        ObjectArrayList<SculkSpreader.ChargeCursor> next = new ObjectArrayList<>(current.size());
         for (int i = 0, size = current.size(); i < size; i++) {
             SculkSpreader.ChargeCursor cursor = current.get(i);
             cursor.update(level, origin, random, (SculkSpreader) (Object) this, shouldSpread);

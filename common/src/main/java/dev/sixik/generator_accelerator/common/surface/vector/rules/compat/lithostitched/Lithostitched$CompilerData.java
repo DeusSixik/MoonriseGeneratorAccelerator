@@ -12,6 +12,7 @@ import dev.worldgen.lithostitched.worldgen.surface.condition.internal.TagFilledC
 import dev.worldgen.lithostitched.worldgen.surface.rule.BandlandsRule;
 import dev.worldgen.lithostitched.worldgen.surface.rule.ReferenceRule;
 import dev.worldgen.lithostitched.worldgen.surface.rule.TransientMergedRule;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +31,7 @@ public class Lithostitched$CompilerData {
             if (rules.size() == 1) {
                 return VectorRuleCompiler.compileRule(rules.getFirst());
             } else {
-                List<VectorRule> compiledList = new ArrayList<>();
+                List<VectorRule> compiledList = new ObjectArrayList<>();
 
                 for (SurfaceRules.RuleSource childRule : rules) {
                     compiledList.add(VectorRuleCompiler.compileRule(childRule));
@@ -49,7 +50,7 @@ public class Lithostitched$CompilerData {
             } else if (size == 1) {
                 return VectorRuleCompiler.compileRule(refRule.rules().get(0).value());
             } else {
-                List<VectorRule> compiledList = new ArrayList<>(size);
+                List<VectorRule> compiledList = new ObjectArrayList<>(size);
                 for (int i = 0; i < size; i++) {
                     compiledList.add(VectorRuleCompiler.compileRule(refRule.rules().get(i).value()));
                 }
@@ -76,7 +77,7 @@ public class Lithostitched$CompilerData {
         }
 
         if (conditionSource instanceof AnyOfCondition anyOf) {
-            List<VectorCondition> list = new ArrayList<>(anyOf.conditions().size());
+            List<VectorCondition> list = new ObjectArrayList<>(anyOf.conditions().size());
             for (SurfaceRules.ConditionSource cond : anyOf.conditions()) {
                 list.add(VectorRuleCompiler.compileCondition(cond));
             }
@@ -84,7 +85,7 @@ public class Lithostitched$CompilerData {
         }
 
         if (conditionSource instanceof AllOfCondition allOf) {
-            List<VectorCondition> list = new ArrayList<>(allOf.conditions().size());
+            List<VectorCondition> list = new ObjectArrayList<>(allOf.conditions().size());
             for (SurfaceRules.ConditionSource cond : allOf.conditions()) {
                 list.add(VectorRuleCompiler.compileCondition(cond));
             }

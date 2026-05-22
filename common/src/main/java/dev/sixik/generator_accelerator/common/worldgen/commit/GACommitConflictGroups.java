@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -34,15 +36,15 @@ public final class GACommitConflictGroups<T> {
             if (command == null) {
                 throw new NullPointerException("command");
             }
-            byKey.computeIfAbsent(GACommitConflictKey.from(command.position(), granularity), ignored -> new ArrayList<>())
+            byKey.computeIfAbsent(GACommitConflictKey.from(command.position(), granularity), ignored -> new ObjectArrayList<>())
                     .add(command);
         }
 
-        List<GACommitConflictGroup<T>> groups = new ArrayList<>();
+        List<GACommitConflictGroup<T>> groups = new ObjectArrayList<>();
         int collidingGroups = 0;
         int largestGroupSize = 0;
         for (Map.Entry<GACommitConflictKey, List<GACommitCommand<T>>> entry : byKey.entrySet()) {
-            List<GACommitCommand<T>> ordered = new ArrayList<>(entry.getValue());
+            List<GACommitCommand<T>> ordered = new ObjectArrayList<>(entry.getValue());
             ordered.sort(GACommitCommand::compareTo);
             if (ordered.size() > 1) {
                 collidingGroups++;

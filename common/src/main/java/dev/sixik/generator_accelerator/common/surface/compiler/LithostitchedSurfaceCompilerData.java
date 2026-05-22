@@ -11,6 +11,7 @@ import dev.worldgen.lithostitched.worldgen.surface.condition.internal.TagFilledC
 import dev.worldgen.lithostitched.worldgen.surface.rule.BandlandsRule;
 import dev.worldgen.lithostitched.worldgen.surface.rule.ReferenceRule;
 import dev.worldgen.lithostitched.worldgen.surface.rule.TransientMergedRule;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.util.InclusiveRange;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -32,7 +33,7 @@ final class LithostitchedSurfaceCompilerData {
                 return compiler.compileRule(rules.getFirst());
             }
 
-            List<SurfaceRuleNode> compiledList = new ArrayList<>(rules.size() + 1);
+            List<SurfaceRuleNode> compiledList = new ObjectArrayList<>(rules.size() + 1);
             for (SurfaceRules.RuleSource childRule : rules) {
                 compiledList.add(compiler.compileRule(childRule));
             }

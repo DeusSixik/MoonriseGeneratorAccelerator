@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.surface.compiler;
 import dev.sixik.generator_accelerator.common.surface.exceptions.UnknownSurfaceConditionSource;
 import dev.sixik.generator_accelerator.common.surface.exceptions.UnknownSurfaceRuleSource;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
@@ -110,8 +111,8 @@ public final class SurfaceRuleCompiler {
         private final IdentityHashMap<SurfaceRules.ConditionSource, SurfaceConditionNode> compiledConditions = new IdentityHashMap<>();
         private final HashMap<ConditionKey, Integer> structuralConditionUseCounts = new HashMap<>();
         private final HashMap<ConditionKey, SurfaceConditionNode> structuralCompiledConditions = new HashMap<>();
-        private final List<String> fallbackRuleClasses = SurfaceCompilerConfig.DUMP ? new ArrayList<>() : List.of();
-        private final List<String> fallbackConditionClasses = SurfaceCompilerConfig.DUMP ? new ArrayList<>() : List.of();
+        private final List<String> fallbackRuleClasses = SurfaceCompilerConfig.DUMP ? new ObjectArrayList<>() : List.of();
+        private final List<String> fallbackConditionClasses = SurfaceCompilerConfig.DUMP ? new ObjectArrayList<>() : List.of();
         private int nextConditionCacheSlot;
         private int fallbackIslandCount;
 
@@ -152,7 +153,7 @@ public final class SurfaceRuleCompiler {
             }
 
             if (ruleSource instanceof SurfaceRules.SequenceRuleSource sequenceRule) {
-                List<SurfaceRuleNode> flattened = new ArrayList<>();
+                List<SurfaceRuleNode> flattened = new ObjectArrayList<>();
                 flattenSequence(sequenceRule, flattened);
                 if (flattened.isEmpty()) {
                     return EmptySurfaceRuleNode.INSTANCE;
@@ -191,7 +192,7 @@ public final class SurfaceRuleCompiler {
         }
 
         private SurfaceRuleNode compileTestRule(SurfaceRules.TestRuleSource testRule) {
-            List<SurfaceConditionNode> conditions = new ArrayList<>(2);
+            ObjectArrayList<SurfaceConditionNode> conditions = new ObjectArrayList<>(2);
             SurfaceRules.RuleSource finalRule = testRule;
 
             while (finalRule instanceof SurfaceRules.TestRuleSource currentTest) {

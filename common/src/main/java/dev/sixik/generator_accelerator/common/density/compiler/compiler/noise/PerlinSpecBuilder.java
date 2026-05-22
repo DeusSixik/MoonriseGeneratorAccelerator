@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.PerlinNoiseAccessor;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
 
@@ -47,9 +48,9 @@ public final class PerlinSpecBuilder {
             return null;
         }
 
-        List<ImprovedNoise> active = new ArrayList<>(octaves.length);
-        List<Double> inputFactors = new ArrayList<>(octaves.length);
-        List<Double> ampValueFactors = new ArrayList<>(octaves.length);
+        List<ImprovedNoise> active = new ObjectArrayList<>(octaves.length);
+        List<Double> inputFactors = new ObjectArrayList<>(octaves.length);
+        List<Double> ampValueFactors = new ObjectArrayList<>(octaves.length);
         int skipped = 0;
         for (int i = 0; i < octaves.length; i++) {
             ImprovedNoise oct = octaves[i];

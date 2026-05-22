@@ -4,6 +4,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.Bl
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpecCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpecCache;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
@@ -33,18 +34,18 @@ import java.util.Map;
  */
 public final class ConstantPool {
 
-    private final List<Double> constants = new ArrayList<>();
+    private final List<Double> constants = new ObjectArrayList<>();
     private final Map<Long, Integer> constantIndex = new java.util.HashMap<>();
 
-    private final List<NormalNoise> noises = new ArrayList<>();
+    private final List<NormalNoise> noises = new ObjectArrayList<>();
     private final IdentityHashMap<NormalNoise, Integer> noiseIndex = new IdentityHashMap<>();
 
-    private final List<DensityFunction> externs = new ArrayList<>();
+    private final List<DensityFunction> externs = new ObjectArrayList<>();
     private final IdentityHashMap<DensityFunction, Integer> externIndex = new IdentityHashMap<>();
     /** Extern indices whose call sites may use {@link dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath}. */
     private final BitSet cacheWrapperFastPathExtern = new BitSet();
 
-    private final List<Object> splines = new ArrayList<>();
+    private final List<Object> splines = new ObjectArrayList<>();
 
     /**
      * Per-noise specialization data keyed by {@link NormalNoise} identity. Each entry
@@ -53,10 +54,10 @@ public final class ConstantPool {
      * coexist with inlined ones (the first {@code N} noise references go through
      * {@code noiseIndex}, the inlined ones get their own index space here).
      */
-    private final List<NoiseSpec> noiseSpecs = new ArrayList<>();
+    private final List<NoiseSpec> noiseSpecs = new ObjectArrayList<>();
     private final IdentityHashMap<NormalNoise, Integer> noiseSpecIndex = new IdentityHashMap<>();
 
-    private final List<BlendedNoiseSpec> blendedNoiseSpecs = new ArrayList<>();
+    private final List<BlendedNoiseSpec> blendedNoiseSpecs = new ObjectArrayList<>();
     private final IdentityHashMap<BlendedNoise, Integer> blendedNoiseSpecIndex = new IdentityHashMap<>();
 
     /** Intern a double, returning its slot in the {@code constants} array. */

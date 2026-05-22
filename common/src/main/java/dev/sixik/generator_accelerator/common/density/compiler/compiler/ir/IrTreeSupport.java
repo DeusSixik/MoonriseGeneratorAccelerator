@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -38,7 +40,7 @@ public final class IrTreeSupport {
             case IRNode.EndIslands e -> List.of();
             case IRNode.Spline.Constant sc -> List.of();
             case IRNode.Spline.Multipoint mp -> {
-                List<IRNode> ch = new ArrayList<>(mp.values().size() + 1);
+                List<IRNode> ch = new ObjectArrayList<>(mp.values().size() + 1);
                 ch.add(mp.coordinate());
                 ch.addAll(mp.values());
                 yield ch;

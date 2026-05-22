@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -16,7 +18,7 @@ public final class GACommitMailbox<T> {
         if (command == null) {
             throw new NullPointerException("command");
         }
-        queues.computeIfAbsent(GAChunkPosition.fromBlock(command.position()), ignored -> new ArrayList<>())
+        queues.computeIfAbsent(GAChunkPosition.fromBlock(command.position()), ignored -> new ObjectArrayList<>())
                 .add(command);
     }
 
@@ -70,7 +72,7 @@ public final class GACommitMailbox<T> {
         if (commands == null) {
             return List.of();
         }
-        List<GACommitCommand<T>> ordered = new ArrayList<>(commands);
+        List<GACommitCommand<T>> ordered = new ObjectArrayList<>(commands);
         ordered.sort(GACommitCommand::compareTo);
         return List.copyOf(ordered);
     }
@@ -79,7 +81,7 @@ public final class GACommitMailbox<T> {
         if (policy == null) {
             throw new NullPointerException("policy");
         }
-        List<GACommitMailboxDrain<T>> drained = new ArrayList<>();
+        List<GACommitMailboxDrain<T>> drained = new ObjectArrayList<>();
         for (Map.Entry<GAChunkPosition, List<GACommitCommand<T>>> entry : queues.entrySet()) {
             GACommitBatch.GAResolvedCommitBatch<T> resolved = GACommitBatch.of(entry.getValue()).resolve(policy);
             drained.add(new GACommitMailboxDrain<>(entry.getKey(), resolved));
@@ -124,7 +126,7 @@ public final class GACommitMailbox<T> {
                     applier.apply(command);
                 } catch (Exception exception) {
                     if (failures == null) {
-                        failures = new ArrayList<>();
+                        failures = new ObjectArrayList<>();
                     }
                     failures.add(new GACommitEngine.GACommitFailure<>(command, exception));
                 }

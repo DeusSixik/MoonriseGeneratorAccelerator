@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -54,8 +56,8 @@ public record GACommitPlan<T>(
         if (granularity == null) {
             throw new NullPointerException("granularity");
         }
-        List<GACommitCommand<T>> accepted = new ArrayList<>();
-        List<GACommitCommand<T>> rejected = new ArrayList<>();
+        List<GACommitCommand<T>> accepted = new ObjectArrayList<>();
+        List<GACommitCommand<T>> rejected = new ObjectArrayList<>();
         int inputCount = 0;
         int collisionCount = 0;
         for (GACommitMailbox.GACommitMailboxDrain<T> output : mailboxOutputs) {
@@ -68,7 +70,7 @@ public record GACommitPlan<T>(
             inputCount += stats.inputCount();
             collisionCount += stats.collisionCount();
         }
-        List<GACommitCommand<T>> all = new ArrayList<>(accepted);
+        List<GACommitCommand<T>> all = new ObjectArrayList<>(accepted);
         all.addAll(rejected);
         GACommitBatch.GAResolvedCommitBatch<T> resolved = new GACommitBatch.GAResolvedCommitBatch<>(
                 accepted,

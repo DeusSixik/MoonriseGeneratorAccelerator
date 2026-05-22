@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -34,7 +36,7 @@ public final class GACommitEngine {
                 applier.apply(command);
             } catch (Exception exception) {
                 if (failures == null) {
-                    failures = new ArrayList<>();
+                    failures = new ObjectArrayList<>();
                 }
                 failures.add(new GACommitFailure<>(command, exception));
             }
@@ -85,7 +87,7 @@ public final class GACommitEngine {
                 applier.apply(command);
             } catch (Exception exception) {
                 if (failures == null) {
-                    failures = new ArrayList<>();
+                    failures = new ObjectArrayList<>();
                 }
                 failures.add(new GACommitFailure<>(command, exception));
             }
@@ -157,8 +159,8 @@ public final class GACommitEngine {
 
         GACommitBatch<T> batch = GACommitBatch.of(commands);
         GACommitPlan<T> plan = GACommitPlan.of(batch, policy, granularity);
-        List<GACommitReplayPlan.GACommitReplayGroup<T>> replayGroups = new ArrayList<>();
-        List<GACommitFailure<T>> failures = new ArrayList<>();
+        List<GACommitReplayPlan.GACommitReplayGroup<T>> replayGroups = new ObjectArrayList<>();
+        List<GACommitFailure<T>> failures = new ObjectArrayList<>();
         GACommitMetrics aggregate = GACommitMetrics.empty();
 
         for (GACommitConflictGroups.GACommitConflictGroup<T> group : plan.conflictGroups().groups()) {

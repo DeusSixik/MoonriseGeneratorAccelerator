@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -55,7 +57,7 @@ public final class RefCount {
             for (IRNode c : children(n)) stack.push(c);
         }
 
-        List<IRNode> spillSet = new ArrayList<>();
+        List<IRNode> spillSet = new ObjectArrayList<>();
         for (var e : st.refs.entrySet()) {
             IRNode n = e.getKey();
             if (e.getValue() < 2) continue;
@@ -77,7 +79,7 @@ public final class RefCount {
             case IRNode.InlinedNoise in -> List.of(in.coordX(), in.coordY(), in.coordZ());
             case IRNode.WeirdRarity wr -> List.of(wr.input());
             case IRNode.Spline.Multipoint mp -> {
-                List<IRNode> all = new ArrayList<>(mp.values().size() + 1);
+                List<IRNode> all = new ObjectArrayList<>(mp.values().size() + 1);
                 all.add(mp.coordinate());
                 all.addAll(mp.values());
                 yield all;

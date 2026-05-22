@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -161,7 +162,7 @@ public final class SlabInnerNativeProgram {
 
     private static final class Builder {
         private final ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        private final List<Double> constList = new ArrayList<>();
+        private final List<Double> constList = new ObjectArrayList<>();
         private String unsupportedClass;
         private boolean failedOnExtracted;
 
