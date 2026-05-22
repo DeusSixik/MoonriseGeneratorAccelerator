@@ -80,7 +80,6 @@ public class GAConfigManager {
         config.enablePalettedContainerPatch = boolOverride("ga.config.enablePalettedContainerPatch", config.enablePalettedContainerPatch);
         config.enableStructuresPatch = boolOverride("ga.config.enableStructuresPatch", config.enableStructuresPatch);
         config.enableSurfacePatch = boolOverride("ga.config.enableSurfacePatch", config.enableSurfacePatch);
-        config.enableStructureNoiseColumnCache = boolOverride("ga.config.enableStructureNoiseColumnCache", config.enableStructureNoiseColumnCache);
 
         config.schedulerNoiseWorkers = intOverride("ga.config.schedulerNoiseWorkers", config.schedulerNoiseWorkers);
         config.schedulerCompileWorkers = intOverride("ga.config.schedulerCompileWorkers", config.schedulerCompileWorkers);
@@ -191,7 +190,6 @@ public class GAConfigManager {
         config.enablePalettedContainerPatch = enabled;
         config.enableStructuresPatch = enabled;
         config.enableSurfacePatch = enabled;
-        config.enableStructureNoiseColumnCache = enabled;
         config.enableChunkStatusPipeline = enabled;
         config.enableCustomChunkGraphScheduler = enabled;
         config.enableChunkWorkspaceRuntime = enabled;

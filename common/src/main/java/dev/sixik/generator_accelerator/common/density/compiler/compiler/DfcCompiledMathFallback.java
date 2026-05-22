@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -55,7 +56,7 @@ public final class DfcCompiledMathFallback {
         }
         ACCEPTED.increment();
         ACCEPTED_CLASSES.computeIfAbsent(source.getClass().getName(), ignored -> new LongAdder()).increment();
-        DensityFunction compiled = DfcCompiledFillArray.compile(target);
+        DensityFunction compiled = target instanceof CompiledDensityFunction ? target : CompilingVisitor.global().apply(target);
         if (compiled == target) {
             MISSES.increment();
             return null;

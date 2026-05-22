@@ -5,16 +5,11 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferColumnBandNearest;
-import dev.sixik.generator_accelerator.common.aquifer.GAAquiferFluidGrid;
-import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGlobalFluidCellCache;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferNearest;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPlan;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferPrimitiveAccess;
 import dev.sixik.generator_accelerator.common.noise.CachedPointContext;
-import dev.sixik.generator_accelerator.common.noise.GACellCacheLazyAccess;
-import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSampler;
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
-import dev.sixik.generator_accelerator.common.noise.GANoiseChunkCellCacheAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
@@ -25,8 +20,6 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
-import dev.sixik.generator_accelerator.config.GAConfig;
-import dev.sixik.generator_accelerator.config.GAConfigManager;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.world.level.block.state.BlockState;
@@ -53,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(NoiseChunk.class)
 public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$InterpolatorSoA,
-        GAFusedTerrainNoiseChunkAccess, GANoiseChunkCellCacheAccess {
+        GAFusedTerrainNoiseChunkAccess {
 
     @Shadow
     @Final
@@ -155,18 +148,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     private boolean[] bts$cellCacheFastDisabled;
     @Unique
     private double[][] bts$cellCacheValues;
-    @Unique
-    private int[] ga$cellCacheEpochs;
-    @Unique
-    private boolean[] ga$cellCacheFilling;
-    @Unique
-    private int ga$cellCacheEpoch;
-    @Unique
-    private boolean ga$lazyCellArrayCounterOpen;
-    @Unique
-    private int ga$terrainDensityCellCacheIndex = -1;
-
-    @Unique
     private double[] bts$interpolatorSlice0Flat;
     @Unique
     private double[] bts$interpolatorSlice1Flat;
@@ -211,14 +192,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     @Unique
     private boolean ga$fusedTerrainAvailable;
     @Unique
-    private double[] ga$terrainDensityCellValues;
-    @Unique
-    private int ga$terrainDensityCellClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-    @Unique
-    private double ga$terrainDensityCellMin = Double.NaN;
-    @Unique
-    private double ga$terrainDensityCellMax = Double.NaN;
-    @Unique
     private GAAquiferColumnBandNearest[] ga$terrainColumnBands;
     @Unique
     private GAAquiferNearest ga$terrainNearestScratch;
@@ -235,52 +208,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             "ga.aquifer.fusedTerrain.parityCheck",
             "false"
     ));
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_ENABLED = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.densityClassifier.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_DENSITY_SUMMARY_INTEGRATED = !"false".equalsIgnoreCase(
-            System.getProperty(
-                    "ga.aquifer.fusedTerrain.directCell.densitySummaryIntegrated.enabled",
-                    "false"
-            )
-    );
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS = Boolean.parseBoolean(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.skipOreVeins",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID = Boolean.parseBoolean(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.airForNonSolid",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$FUSED_DIRECT_CELL_HIGH_AIR = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.highAir.enabled",
-            "true"
-    ));
-    @Unique
-    private static final int GA$FUSED_DIRECT_CELL_HIGH_AIR_MIN_Y = Integer.getInteger(
-            "ga.aquifer.fusedTerrain.directCell.highAirMinY",
-            63
-    );
-    @Unique
-    private static final boolean GA$LAZY_CELL_CACHES_ENABLED = GAConfigManager.getConfigOrLoad()
-            .orElseGet(GAConfig::new)
-            .enableDensityCompilerPatch
-            && !"false".equalsIgnoreCase(System.getProperty(
-                    "ga.noise.lazyCellCaches.enabled",
-                    "false"
-            ));
-    @Unique
     private static final int GA$FUSED_TERRAIN_PARITY_MASK = Integer.getInteger(
             "ga.aquifer.fusedTerrain.parityMask",
             1023
@@ -371,7 +298,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.bts$interpolatorsArray = this.interpolators.toArray(new NoiseChunk.NoiseInterpolator[0]);
         this.bts$cellCachesArray = this.cellCaches.toArray(new NoiseChunk.CacheAllInCell[0]);
         this.bts$initCellCacheArrays();
-        this.ga$initDirectTerrainCellAccess();
         bts$initInterpolatorSoA();
 
         /*
@@ -400,115 +326,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
     }
 
     @Override
-    public boolean ga$fusedTerrainDirectCellAvailable() {
-        return GA$FUSED_DIRECT_CELL_ENABLED
-                && this.ga$fusedTerrainAvailable()
-                && this.ga$terrainDensityCellValues != null;
-    }
-
-    @Override
-    public boolean ga$prepareFusedTerrainDirectCell() {
-        if (!this.ga$fusedTerrainDirectCellAvailable() || this.ga$terrainDensityCellCacheIndex < 0) {
-            return false;
-        }
-        boolean previousFillingCell = this.fillingCell;
-        this.fillingCell = true;
-        try {
-            this.ga$fillCellCache(this.ga$terrainDensityCellCacheIndex);
-        } finally {
-            this.fillingCell = previousFillingCell;
-        }
-        GANoiseFillMetrics.increment(GANoiseFillMetrics.TERRAIN_CACHE_PREFILLS);
-        return this.ga$cellCacheEpochs[this.ga$terrainDensityCellCacheIndex] == this.ga$cellCacheEpoch;
-    }
-
-    @Override
-    public long ga$sampleFusedTerrainDirectCellPackedBlockId(
-            int defaultBlockId,
-            int airBlockId,
-            int blockY,
-            int cellValueIndex
-    ) {
-        return GAFusedTerrainDirectCellSampler.samplePacked(
-                this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null,
-                defaultBlockId,
-                airBlockId,
-                blockY,
-                cellValueIndex,
-                this.ga$oreVeinRule != null,
-                GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS,
-                GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID
-        );
-    }
-
-    @Override
-    public double ga$sampleFusedTerrainDirectCellDensity(int cellValueIndex) {
-        double[] values = this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null;
-        if (values == null || cellValueIndex < 0 || cellValueIndex >= values.length) {
-            return Double.NaN;
-        }
-        return values[cellValueIndex];
-    }
-
-    @Override
-    public double[] ga$fusedTerrainDirectCellDensityValues() {
-        return this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null;
-    }
-
-    @Override
-    public int ga$fusedTerrainDirectCellDensityClass() {
-        return GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER
-                && this.ga$fusedTerrainDirectCellAvailable()
-                ? this.ga$terrainDensityCellClass
-                : GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-    }
-
-    @Override
-    public double ga$fusedTerrainDirectCellMinDensity() {
-        return GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER
-                && this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellMin : Double.NaN;
-    }
-
-    @Override
-    public double ga$fusedTerrainDirectCellMaxDensity() {
-        return GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER
-                && this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellMax : Double.NaN;
-    }
-
-    @Override
-    public void ga$setFusedTerrainDirectCellDensitySummary(int cellClass, double minDensity, double maxDensity) {
-        this.ga$terrainDensityCellClass = cellClass;
-        this.ga$terrainDensityCellMin = minDensity;
-        this.ga$terrainDensityCellMax = maxDensity;
-    }
-
-    @Override
-    public boolean ga$fusedTerrainDirectCellHasOreVeinRule() {
-        return this.ga$oreVeinRule != null;
-    }
-
-    @Override
-    public boolean ga$fusedTerrainDirectCellSkipsOreVeins() {
-        return GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS;
-    }
-
-    @Override
-    public boolean ga$fusedTerrainDirectCellAirForNonSolid() {
-        return GA$FUSED_DIRECT_CELL_AIR_FOR_NON_SOLID;
-    }
-
-    @Override
-    public boolean ga$fusedTerrainDirectCellAllDefaultSolid(int minBlockY, int cellHeight) {
-        return GAFusedTerrainDirectCellSampler.cellCanUseDefaultSolid(
-                this.ga$fusedTerrainDirectCellAvailable() ? this.ga$terrainDensityCellValues : null,
-                minBlockY,
-                cellHeight,
-                this.ga$oreVeinRule != null,
-                GA$FUSED_DIRECT_CELL_SKIP_ORE_VEINS
-        );
-    }
-
-    @Override
     public long ga$samplePositiveDensityFusedTerrainPackedBlockId(int defaultBlockId) {
         if (!ga$fusedTerrainAvailable()) {
             return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
@@ -519,153 +336,6 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         BlockState oreState = this.ga$oreVeinRule == null ? null : this.ga$oreVeinRule.calculate(self);
         int blockId = oreState == null ? defaultBlockId : GA$BlockStateExtension.get(oreState).bts$getFastId();
         return this.ga$checkedFusedTerrainPackedBlockId(self, defaultBlockId, blockId, false);
-    }
-
-    @Override
-    public long ga$sampleNegativeDensityGlobalFluidPackedBlockId(
-            int airBlockId,
-            int blockX,
-            int blockY,
-            int blockZ
-    ) {
-        if (!(this.aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess)) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-            );
-        }
-        byte kind = ga$globalFluidKindAt(primitiveAccess, blockX, blockY, blockZ);
-        if (kind != GAAquiferFluidGrid.KIND_LAVA) {
-            if (GA$FUSED_DIRECT_CELL_HIGH_AIR
-                    && blockY >= GA$FUSED_DIRECT_CELL_HIGH_AIR_MIN_Y
-                    && kind == GAAquiferFluidGrid.KIND_AIR) {
-                return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
-            }
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
-            );
-        }
-        int blockId = ga$globalFluidBlockIdAt(primitiveAccess, blockX, blockY, blockZ);
-        if (blockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-            );
-        }
-        return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(blockId, false);
-    }
-
-    @Override
-    public long ga$classifyNegativeDensityCellPackedBlockId(
-            int airBlockId,
-            int minBlockX,
-            int minBlockY,
-            int minBlockZ,
-            int cellWidth,
-            int cellHeight,
-            boolean highAirEnabled,
-            int highAirMinY
-    ) {
-        if (!(this.aquifer instanceof GAAquiferPrimitiveAccess primitiveAccess)) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-            );
-        }
-
-        if (GAAquiferGlobalFluidCellCache.ENABLED) {
-            primitiveAccess.ga$prepareGlobalFluidCellCache(minBlockX, minBlockY, minBlockZ, cellWidth, cellHeight);
-        }
-
-        if (highAirEnabled && minBlockY >= highAirMinY
-                && ga$cellHasOnlyGlobalFluidKind(
-                primitiveAccess,
-                minBlockX,
-                minBlockY,
-                minBlockZ,
-                cellWidth,
-                cellHeight,
-                GAAquiferFluidGrid.KIND_AIR
-        )) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
-        }
-
-        int lavaBlockId = GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT;
-        for (int y = 0; y < cellHeight; y++) {
-            int blockY = minBlockY + y;
-            for (int x = 0; x < cellWidth; x++) {
-                int blockX = minBlockX + x;
-                for (int z = 0; z < cellWidth; z++) {
-                    int blockZ = minBlockZ + z;
-                    if (ga$globalFluidKindAt(primitiveAccess, blockX, blockY, blockZ) != GAAquiferFluidGrid.KIND_LAVA) {
-                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_MIXED_CELL
-                        );
-                    }
-                    int blockId = ga$globalFluidBlockIdAt(primitiveAccess, blockX, blockY, blockZ);
-                    if (blockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
-                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-                        );
-                    }
-                    if (lavaBlockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT) {
-                        lavaBlockId = blockId;
-                    } else if (lavaBlockId != blockId) {
-                        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_MIXED_CELL
-                        );
-                    }
-                }
-            }
-        }
-        return lavaBlockId == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT
-                ? GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-        )
-                : GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(lavaBlockId, false);
-    }
-
-    @Unique
-    private static boolean ga$cellHasOnlyGlobalFluidKind(
-            GAAquiferPrimitiveAccess primitiveAccess,
-            int minBlockX,
-            int minBlockY,
-            int minBlockZ,
-            int cellWidth,
-            int cellHeight,
-            byte kind
-    ) {
-        for (int y = 0; y < cellHeight; y++) {
-            int blockY = minBlockY + y;
-            for (int x = 0; x < cellWidth; x++) {
-                int blockX = minBlockX + x;
-                for (int z = 0; z < cellWidth; z++) {
-                    if (ga$globalFluidKindAt(primitiveAccess, blockX, blockY, minBlockZ + z) != kind) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }
-
-    @Unique
-    private static byte ga$globalFluidKindAt(GAAquiferPrimitiveAccess primitiveAccess, int x, int y, int z) {
-        if (!GAAquiferGlobalFluidCellCache.ENABLED) {
-            return primitiveAccess.ga$globalFluidKindAt(x, y, z);
-        }
-        byte cached = primitiveAccess.ga$cachedGlobalFluidKindAt(x, y, z);
-        return cached == GAAquiferFluidGrid.KIND_UNKNOWN
-                ? primitiveAccess.ga$globalFluidKindAt(x, y, z)
-                : cached;
-    }
-
-    @Unique
-    private static int ga$globalFluidBlockIdAt(GAAquiferPrimitiveAccess primitiveAccess, int x, int y, int z) {
-        if (!GAAquiferGlobalFluidCellCache.ENABLED) {
-            return primitiveAccess.ga$globalFluidBlockIdAt(x, y, z);
-        }
-        int cached = primitiveAccess.ga$cachedGlobalFluidBlockIdAt(x, y, z);
-        return cached == GAAquiferPrimitiveAccess.GA_FALLBACK_RESULT
-                ? primitiveAccess.ga$globalFluidBlockIdAt(x, y, z)
-                : cached;
     }
 
     @Override
@@ -801,45 +471,14 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.bts$cellCacheLazyFastFillers = new boolean[length];
         this.bts$cellCacheFastDisabled = new boolean[length];
         this.bts$cellCacheValues = new double[length][];
-        this.ga$cellCacheEpochs = new int[length];
-        this.ga$cellCacheFilling = new boolean[length];
 
         for (int i = 0; i < length; i++) {
             final NoiseChunk.CacheAllInCell cache = caches[i];
             final DensityFunction filler = cache.noiseFiller;
             this.bts$cellCacheFillers[i] = filler;
             this.bts$cellCacheValues[i] = cache.values;
-            if (cache instanceof GACellCacheLazyAccess access) {
-                access.ga$setCellCacheIndex(i);
-            }
             if (filler instanceof DfcCellFillAccess access) {
                 this.bts$cellCacheFastFillers[i] = access;
-            }
-        }
-    }
-
-    @Unique
-    private void ga$initDirectTerrainCellAccess() {
-        this.ga$terrainDensityCellValues = null;
-        this.ga$terrainDensityCellCacheIndex = -1;
-        if (GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER) {
-            this.ga$resetTerrainDensityCellSummary();
-        }
-        if (this.ga$terrainSubstanceDensity == null) {
-            return;
-        }
-        DensityFunction terrainCellFiller = this.ga$terrainSubstanceDensity;
-        if (terrainCellFiller instanceof DensityFunctions.Marker marker
-                && marker.type() == DensityFunctions.Marker.Type.CacheAllInCell) {
-            terrainCellFiller = marker.wrapped();
-        }
-        final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
-        final double[][] valuesArray = this.bts$cellCacheValues;
-        for (int i = 0; i < this.bts$cellCacheFillers.length; i++) {
-            if (caches[i] == this.ga$terrainSubstanceDensity || this.bts$cellCacheFillers[i] == terrainCellFiller) {
-                this.ga$terrainDensityCellCacheIndex = i;
-                this.ga$terrainDensityCellValues = valuesArray[i];
-                return;
             }
         }
     }
@@ -907,82 +546,13 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
         this.cellStartBlockZ = (this.firstCellZ + zIndex) * this.cellWidth;
         ++this.arrayInterpolationCounter;
 
-        this.ga$advanceCellCacheEpoch();
-        if (!GA$LAZY_CELL_CACHES_ENABLED) {
-            for (int i = 0; i < this.bts$cellCacheFillers.length; i++) {
-                this.ga$fillCellCache(i);
-                GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_EAGER_FILLS);
-            }
+        for (int i = 0; i < this.bts$cellCacheFillers.length; i++) {
+            this.ga$fillCellCacheUnchecked(i);
+            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_EAGER_FILLS);
         }
 
         ++this.arrayInterpolationCounter;
         this.fillingCell = false;
-    }
-
-    @Override
-    public boolean ga$lazyCellCachesEnabled() {
-        return GA$LAZY_CELL_CACHES_ENABLED;
-    }
-
-    @Override
-    public void ga$ensureCellCacheFilled(int index) {
-        if (!GA$LAZY_CELL_CACHES_ENABLED || index < 0 || index >= this.ga$cellCacheEpochs.length) {
-            return;
-        }
-        if (this.ga$cellCacheEpochs[index] == this.ga$cellCacheEpoch) {
-            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LAZY_HITS);
-            return;
-        }
-        this.ga$fillCellCache(index);
-        GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LAZY_FILLS);
-    }
-
-    @Unique
-    private void ga$advanceCellCacheEpoch() {
-        int next = this.ga$cellCacheEpoch + 1;
-        if (next == 0) {
-            Arrays.fill(this.ga$cellCacheEpochs, 0);
-            next = 1;
-        }
-        this.ga$cellCacheEpoch = next;
-        this.ga$lazyCellArrayCounterOpen = false;
-        if (GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER) {
-            this.ga$resetTerrainDensityCellSummary();
-        }
-    }
-
-    @Unique
-    private void ga$fillCellCache(int index) {
-        if (this.ga$cellCacheEpochs[index] == this.ga$cellCacheEpoch) {
-            return;
-        }
-        if (this.ga$cellCacheFilling[index]) {
-            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_RECURSION_SKIPS);
-            return;
-        }
-        boolean previousFillingCell = this.fillingCell;
-        int previousInCellX = this.inCellX;
-        int previousInCellY = this.inCellY;
-        int previousInCellZ = this.inCellZ;
-        int previousArrayIndex = this.arrayIndex;
-        if (!previousFillingCell && !this.ga$lazyCellArrayCounterOpen) {
-            ++this.arrayInterpolationCounter;
-            this.ga$lazyCellArrayCounterOpen = true;
-            GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_CACHE_LATE_ARRAY_EPOCHS);
-        }
-        this.fillingCell = true;
-        this.ga$cellCacheFilling[index] = true;
-        try {
-            this.ga$fillCellCacheUnchecked(index);
-            this.ga$cellCacheEpochs[index] = this.ga$cellCacheEpoch;
-        } finally {
-            this.ga$cellCacheFilling[index] = false;
-            this.fillingCell = previousFillingCell;
-            this.inCellX = previousInCellX;
-            this.inCellY = previousInCellY;
-            this.inCellZ = previousInCellZ;
-            this.arrayIndex = previousArrayIndex;
-        }
     }
 
     @Unique
@@ -1015,21 +585,12 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
 
         final double[] values = this.bts$cellCacheValues[index];
         final NoiseChunk self = (NoiseChunk) (Object) this;
-        final boolean terrainDensityCell = index == this.ga$terrainDensityCellCacheIndex;
-        final boolean collectTerrainSummary = terrainDensityCell
-                && GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER
-                && GA$FUSED_DIRECT_CELL_DENSITY_SUMMARY_INTEGRATED;
-        boolean terrainSummaryIntegrated = false;
         if (fast != null) {
             if (DfcCellFillStats.ENABLED) {
                 DfcCellFillStats.recordCellFill(fast, filler);
             }
             try {
-                terrainSummaryIntegrated = collectTerrainSummary
-                        && fast.dfc$fillCellAndCollectTerrainSummary(values, self);
-                if (!collectTerrainSummary) {
-                    fast.dfc$fillCell(values, self);
-                }
+                fast.dfc$fillCell(values, self);
                 if (DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[index]);
                     DfcCellFillParity.check(filler, values, self);
@@ -1037,79 +598,14 @@ public abstract class MixinNoiseChunk implements NoiseChunkPatch, NoiseChunk$Int
             } catch (RuntimeException | LinkageError exception) {
                 disabledFastFillers[index] = true;
                 fastFillers[index] = null;
-                terrainSummaryIntegrated = false;
                 ga$rememberBrokenCellFiller(fast, filler, exception);
                 ga$fillCellVanilla(filler, values, self, exception);
-                if (collectTerrainSummary) {
-                    GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_FAST_FAILURES);
-                }
             }
         } else {
             if (DfcCellFillParity.isActive()) {
                 DfcCellFillParity.recordCandidate(filler, false, false);
             }
             ga$fillCellVanilla(filler, values, self, null);
-        }
-        if (terrainDensityCell) {
-            if (GA$FUSED_DIRECT_CELL_DENSITY_CLASSIFIER) {
-                if (terrainSummaryIntegrated) {
-                    GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_INTEGRATED);
-                } else {
-                    GANoiseFillMetrics.increment(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_SCAN_FALLBACKS);
-                    this.ga$updateTerrainDensityCellSummary(values);
-                }
-            }
-        }
-    }
-
-    @Unique
-    private void ga$resetTerrainDensityCellSummary() {
-        this.ga$terrainDensityCellClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-        this.ga$terrainDensityCellMin = Double.NaN;
-        this.ga$terrainDensityCellMax = Double.NaN;
-    }
-
-    @Unique
-    private void ga$updateTerrainDensityCellSummary(double[] values) {
-        if (values == null || values.length == 0) {
-            this.ga$resetTerrainDensityCellSummary();
-            return;
-        }
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        boolean sawPositive = false;
-        boolean sawNonPositive = false;
-        for (double value : values) {
-            if (Double.isNaN(value)) {
-                this.ga$resetTerrainDensityCellSummary();
-                return;
-            }
-            if (value > 0.0D) {
-                sawPositive = true;
-            } else {
-                sawNonPositive = true;
-            }
-            if (sawPositive && sawNonPositive) {
-                this.ga$terrainDensityCellClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_MIXED;
-                this.ga$terrainDensityCellMin = Double.NaN;
-                this.ga$terrainDensityCellMax = Double.NaN;
-                return;
-            }
-            if (value < min) {
-                min = value;
-            }
-            if (value > max) {
-                max = value;
-            }
-        }
-        this.ga$terrainDensityCellMin = min;
-        this.ga$terrainDensityCellMax = max;
-        if (sawPositive) {
-            this.ga$terrainDensityCellClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_POSITIVE;
-        } else if (sawNonPositive) {
-            this.ga$terrainDensityCellClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE;
-        } else {
-            this.ga$resetTerrainDensityCellSummary();
         }
     }
 

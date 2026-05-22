@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
-import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainDirectCellSampler;
 import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
@@ -49,63 +48,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             "ga.chunkWorkspace.terrain.sectionOnlyDirty.enabled",
             Boolean.toString(GA$CONFIG.enableWorkspaceTerrainSectionOnlyDirtyTracking)
     ));
-    @Unique
-    private static final boolean GA$MIRROR_DIRECT_TERRAIN_WRITES = Boolean.parseBoolean(System.getProperty(
-            "ga.chunkWorkspace.terrain.mirrorDirectWrites.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$DIRECT_SOLID_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.solidCell.enabled",
-            "true"
-    ));
-    @Unique
-    private static final boolean GA$DIRECT_SOLID_CELL_BULK_WRITE = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.solidCell.bulkWrite.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$POSITIVE_DENSITY_ORE_FAST = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.positiveDensityOreFast.enabled",
-            "true"
-    ));
-    @Unique
-    private static final boolean GA$DIRECT_CELL_ORE_RANGE_PREFILL = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.oreRangePrefill.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$DIRECT_NEGATIVE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.negativeCell.enabled",
-            "false"
-    ));
-    @Unique
-    private static final boolean GA$DIRECT_HIGH_AIR_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.highAir.enabled",
-            "true"
-    ));
-    @Unique
-    private static final int GA$DIRECT_HIGH_AIR_MIN_Y = Integer.getInteger(
-            "ga.aquifer.fusedTerrain.directCell.highAirMinY",
-            63
-    );
-    // Unsafe near structure terrain adjustment: skips selectCellYZ/beardifier from preliminary surface only.
-    @Unique
-    private static final boolean GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.aquifer.fusedTerrain.directCell.highAirSurface.enabled",
-            "false"
-    ));
-    @Unique
-    private static final int GA$DIRECT_HIGH_AIR_SURFACE_MARGIN_Y = Integer.getInteger(
-            "ga.aquifer.fusedTerrain.directCell.highAirSurface.marginY",
-            0
-    );
-    @Unique
-    private static final boolean GA$SPECIALIZED_COMMON_CELL = !"false".equalsIgnoreCase(System.getProperty(
-            "ga.noiseFill.specializedCommonCell.enabled",
-            "false"
-    ));
-
     @Shadow
     @Final
     private Holder<NoiseGeneratorSettings> settings;
@@ -165,8 +107,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         long metricSolidCellBulkWrites = 0L;
         long metricDensityClassifierHits = 0L;
         long metricDensityClassifierScanFallbacks = 0L;
-        long metricHighAirSurfaceFastCells = 0L;
-        long metricHighAirSurfaceFastBlocks = 0L;
 
         NoiseChunk noiseChunk = chunkAccess.getOrCreateNoiseChunk(
                 chunk -> this.createNoiseChunk(chunk, structureManager, blender, randomState)
@@ -185,7 +125,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         int cellHeight = noiseChunk.cellHeight();
         int cellWidthSquared = cellWidth * cellWidth;
         int wholeCellBlocks = cellHeight * cellWidthSquared;
-        boolean specializedCommonCell = GA$SPECIALIZED_COMMON_CELL && cellWidth == 4 && cellHeight == 8;
         double invCellWidth = 1.0D / (double) cellWidth;
         double invCellHeight = 1.0D / (double) cellHeight;
         int cellCountX = 16 / cellWidth;
@@ -194,30 +133,13 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         NoiseGeneratorSettings generatorSettings = this.settings.value();
         BlockState defaultBlock = generatorSettings.defaultBlock();
         int defaultBlockId = GA$BlockStateExtension.get(defaultBlock).bts$getFastId();
-        int seaLevel = generatorSettings.seaLevel();
         BlockState air = Blocks.AIR.defaultBlockState();
         int airBlockId = GA$BlockStateExtension.get(air).bts$getFastId();
         GAFusedTerrainNoiseChunkAccess fusedTerrain = noiseChunk instanceof GAFusedTerrainNoiseChunkAccess access
                 && access.ga$fusedTerrainAvailable() ? access : null;
-        boolean directCellTerrain = fusedTerrain != null && fusedTerrain.ga$fusedTerrainDirectCellAvailable();
-        double[] directCellDensityValues = directCellTerrain
-                ? fusedTerrain.ga$fusedTerrainDirectCellDensityValues()
-                : null;
-        int directCellDensityClass = directCellTerrain
-                ? fusedTerrain.ga$fusedTerrainDirectCellDensityClass()
-                : GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-        boolean directCellHasOreVeinRule = directCellTerrain
-                && fusedTerrain.ga$fusedTerrainDirectCellHasOreVeinRule();
-        boolean directCellSkipsOreVeins = directCellTerrain
-                && fusedTerrain.ga$fusedTerrainDirectCellSkipsOreVeins();
-        boolean directCellAirForNonSolid = directCellTerrain
-                && fusedTerrain.ga$fusedTerrainDirectCellAirForNonSolid();
         if (metricsEnabled) {
             if (fusedTerrain != null) {
                 GANoiseFillMetrics.increment(GANoiseFillMetrics.FUSED_TERRAIN_CHUNKS);
-                GANoiseFillMetrics.increment(directCellTerrain
-                        ? GANoiseFillMetrics.DIRECT_CELL_AVAILABLE_CHUNKS
-                        : GANoiseFillMetrics.DIRECT_CELL_MISSING_CHUNKS);
             }
         }
         long worldSurfaceDone0 = 0L;
@@ -276,269 +198,16 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
 
                 for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
                     int cellMinBlockY = (minCellY + cellY) * cellHeight;
-                    if (GA$DIRECT_HIGH_AIR_SURFACE_CELL_FAST
-                            && GA$DIRECT_HIGH_AIR_CELL_FAST
-                            && directCellTerrain
-                            && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
-                            && cellMinBlockY >= seaLevel
-                            && (!directCellHasOreVeinRule
-                            || directCellSkipsOreVeins
-                            || !ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight))
-                            && ga$preliminarySurfaceBelowCell(
-                                    noiseChunk,
-                                    baseBlockX,
-                                    baseBlockZ,
-                                    cellMinBlockY,
-                                    GA$DIRECT_HIGH_AIR_SURFACE_MARGIN_Y
-                            )) {
-                        if (metricsEnabled) {
-                            metricDirectAttempts += wholeCellBlocks;
-                            metricDirectAirHits += wholeCellBlocks;
-                            metricSkippedY += wholeCellBlocks;
-                            metricSkippedX += wholeCellBlocks;
-                            metricSkippedZ += wholeCellBlocks;
-                            metricHighAirCellFastCells++;
-                            metricHighAirCellFastBlocks += wholeCellBlocks;
-                            metricHighAirSurfaceFastCells++;
-                            metricHighAirSurfaceFastBlocks += wholeCellBlocks;
-                        }
-                        continue;
-                    }
-
                     long selectStart = metricsEnabled ? System.nanoTime() : 0L;
                     noiseChunk.selectCellYZ(cellY, cellZ);
                     if (metricsEnabled) {
                         metricSelectCellCalls++;
                         metricSelectCellNanos += System.nanoTime() - selectStart;
                     }
-                    boolean directCellIntersectsOreVeins = directCellHasOreVeinRule
-                            && !directCellSkipsOreVeins
-                            && ga$cellIntersectsOreVeins(cellMinBlockY, cellHeight);
-                    boolean directCellActiveForCell = directCellTerrain
-                            && (!directCellIntersectsOreVeins || GA$DIRECT_CELL_ORE_RANGE_PREFILL)
-                            && fusedTerrain.ga$prepareFusedTerrainDirectCell();
-                    if (directCellActiveForCell) {
-                        directCellDensityValues = fusedTerrain.ga$fusedTerrainDirectCellDensityValues();
-                        directCellDensityClass = fusedTerrain.ga$fusedTerrainDirectCellDensityClass();
-                        if (metricsEnabled
-                                && directCellDensityClass != GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
-                            metricDensityClassifierHits++;
-                        }
-                    } else {
-                        directCellDensityValues = null;
-                        directCellDensityClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-                    }
-
-                    boolean directSolidDefaultCell = false;
-                    int directCellDensityKind = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-                    boolean directSolidCellCandidate = GA$DIRECT_SOLID_CELL_FAST
-                            && directCellActiveForCell
-                            && directCellDensityValues != null
-                            && !directCellIntersectsOreVeins;
-                    if (directSolidCellCandidate) {
-                        directCellDensityKind = directCellDensityClass;
-                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
-                            if (metricsEnabled) {
-                                metricDensityClassifierScanFallbacks++;
-                            }
-                            directCellDensityKind = ga$classifyDensityCell(directCellDensityValues);
-                        }
-                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_POSITIVE) {
-                            directSolidDefaultCell = true;
-                        }
-                    }
-                    if (directSolidDefaultCell && metricsEnabled) {
-                        metricDirectSolidCellFastCells++;
-                    }
-                    int wholeCellStateId = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID;
-                    boolean wholeCellAir = false;
-                    boolean wholeCellGlobalLava = false;
-                    boolean directNegativeCellCandidate = false;
-                    if (directSolidDefaultCell) {
-                        wholeCellStateId = defaultBlockId;
-                    } else {
-                        directNegativeCellCandidate = (GA$DIRECT_NEGATIVE_CELL_FAST
-                                || (GA$DIRECT_HIGH_AIR_CELL_FAST
-                                && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
-                                && cellMinBlockY >= seaLevel))
-                                && directCellActiveForCell
-                                && fusedTerrain != null
-                                && directCellDensityValues != null;
-                    }
-                    if (!directSolidDefaultCell && directNegativeCellCandidate) {
-                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
-                            directCellDensityKind = directCellDensityClass;
-                        }
-                        if (directCellDensityKind == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE) {
-                            if (metricsEnabled) {
-                                metricDensityClassifierScanFallbacks++;
-                            }
-                            directCellDensityKind = ga$classifyDensityCell(directCellDensityValues);
-                        }
-                        boolean directNegativeDefaultCell = directCellDensityKind
-                                == GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE;
-                        if (directNegativeDefaultCell) {
-                            if (GA$DIRECT_HIGH_AIR_CELL_FAST
-                                    && cellMinBlockY >= GA$DIRECT_HIGH_AIR_MIN_Y
-                                    && cellMinBlockY >= seaLevel) {
-                                wholeCellStateId = airBlockId;
-                                wholeCellAir = true;
-                            } else {
-                                long packedCellState = fusedTerrain.ga$classifyNegativeDensityCellPackedBlockId(
-                                        airBlockId,
-                                        baseBlockX,
-                                        cellMinBlockY,
-                                        baseBlockZ,
-                                        cellWidth,
-                                        cellHeight,
-                                        GA$DIRECT_HIGH_AIR_CELL_FAST,
-                                        GA$DIRECT_HIGH_AIR_MIN_Y
-                                );
-                                if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedCellState)) {
-                                    wholeCellStateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedCellState);
-                                    wholeCellAir = wholeCellStateId == airBlockId;
-                                    wholeCellGlobalLava = !wholeCellAir;
-                                }
-                            }
-                        }
-                    }
-                    if (wholeCellStateId != GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_BLOCK_ID
-                            && (wholeCellStateId != defaultBlockId || GA$DIRECT_SOLID_CELL_BULK_WRITE)) {
-                        if (wholeCellAir || debugVoidTerrain) {
-                            if (metricsEnabled) {
-                                metricDirectAttempts += wholeCellBlocks;
-                                metricDirectAirHits += wholeCellBlocks;
-                                metricSkippedY += wholeCellBlocks;
-                                metricSkippedX += wholeCellBlocks;
-                                metricSkippedZ += wholeCellBlocks;
-                                if (wholeCellAir) {
-                                    metricHighAirCellFastCells++;
-                                    metricHighAirCellFastBlocks += wholeCellBlocks;
-                                }
-                            }
-                            continue;
-                        }
-                        boolean wholeCellWritten;
-                        if (workspaceTerrainWrites && directLazyAirTerrainWrites) {
-                            int written = ga$tryFillWorkspaceCell(
-                                    chunkAccess,
-                                    workspace,
-                                    workspaceBlockIds,
-                                    directTerrainWritesBySection,
-                                    directTerrainNonEmptyBySection,
-                                    directTerrainTickingBlocksBySection,
-                                    directTerrainTickingFluidsBySection,
-                                    directTerrainLightBySection,
-                                    directEmptyStates,
-                                    directTickingBlockStates,
-                                    directFluidEmptyStates,
-                                    directTickingFluidStates,
-                                    directLightStates,
-                                    directStateCachesReady,
-                                    baseBlockX,
-                                    cellMinBlockY,
-                                    baseBlockZ,
-                                    cellWidth,
-                                    cellHeight,
-                                    wholeCellStateId
-                            );
-                            wholeCellWritten = written == wholeCellBlocks;
-                            if (wholeCellWritten) {
-                                workspaceTerrainWriteCount += written;
-                            }
-                        } else {
-                            wholeCellWritten = !workspaceTerrainWrites
-                                    && !GA$MIRROR_DIRECT_TERRAIN_WRITES
-                                    && ga$tryFillRawCell(
-                                    chunkAccess,
-                                    baseBlockX,
-                                    cellMinBlockY,
-                                    baseBlockZ,
-                                    cellWidth,
-                                    cellHeight,
-                                    wholeCellStateId
-                            );
-                        }
-                        if (wholeCellWritten) {
-                            if (metricsEnabled) {
-                                metricDirectAttempts += wholeCellBlocks;
-                                if (wholeCellGlobalLava) {
-                                    metricDirectSolidHits += wholeCellBlocks;
-                                    metricGlobalLavaCellFastCells++;
-                                    metricGlobalLavaCellFastBlocks += wholeCellBlocks;
-                                } else {
-                                    metricDirectSolidHits += wholeCellBlocks;
-                                    metricDirectSolidCellFastBlocks += wholeCellBlocks;
-                                    metricSolidCellBulkWrites++;
-                                }
-                                metricSkippedY += wholeCellBlocks;
-                                metricSkippedX += wholeCellBlocks;
-                                metricSkippedZ += wholeCellBlocks;
-                            }
-                            if (!heightmapsDone) {
-                                int height = cellMinBlockY + cellHeight;
-                                boolean blocksMotion = ga$isBlockMotionState(wholeCellStateId, blockMotionStates);
-                                for (int localCellX = 0; localCellX < cellWidth; ++localCellX) {
-                                    int localX = (baseBlockX + localCellX) & 15;
-                                    for (int localCellZ = 0; localCellZ < cellWidth; ++localCellZ) {
-                                        int localZ = (baseBlockZ + localCellZ) & 15;
-                                        int columnIndex = (localZ << 4) | localX;
-                                        long columnBit = 1L << (columnIndex & 63);
-                                        if (columnIndex < 64) {
-                                            if ((worldSurfaceDone0 & columnBit) == 0L) {
-                                                worldSurface.setHeight(localX, localZ, height);
-                                                worldSurfaceDone0 |= columnBit;
-                                            }
-                                            if ((oceanFloorDone0 & columnBit) == 0L && blocksMotion) {
-                                                oceanFloor.setHeight(localX, localZ, height);
-                                                oceanFloorDone0 |= columnBit;
-                                            }
-                                        } else if (columnIndex < 128) {
-                                            if ((worldSurfaceDone1 & columnBit) == 0L) {
-                                                worldSurface.setHeight(localX, localZ, height);
-                                                worldSurfaceDone1 |= columnBit;
-                                            }
-                                            if ((oceanFloorDone1 & columnBit) == 0L && blocksMotion) {
-                                                oceanFloor.setHeight(localX, localZ, height);
-                                                oceanFloorDone1 |= columnBit;
-                                            }
-                                        } else if (columnIndex < 192) {
-                                            if ((worldSurfaceDone2 & columnBit) == 0L) {
-                                                worldSurface.setHeight(localX, localZ, height);
-                                                worldSurfaceDone2 |= columnBit;
-                                            }
-                                            if ((oceanFloorDone2 & columnBit) == 0L && blocksMotion) {
-                                                oceanFloor.setHeight(localX, localZ, height);
-                                                oceanFloorDone2 |= columnBit;
-                                            }
-                                        } else {
-                                            if ((worldSurfaceDone3 & columnBit) == 0L) {
-                                                worldSurface.setHeight(localX, localZ, height);
-                                                worldSurfaceDone3 |= columnBit;
-                                            }
-                                            if ((oceanFloorDone3 & columnBit) == 0L && blocksMotion) {
-                                                oceanFloor.setHeight(localX, localZ, height);
-                                                oceanFloorDone3 |= columnBit;
-                                            }
-                                        }
-                                    }
-                                }
-                                heightmapsDone = (worldSurfaceDone0 & worldSurfaceDone1 & worldSurfaceDone2 & worldSurfaceDone3
-                                        & oceanFloorDone0 & oceanFloorDone1 & oceanFloorDone2 & oceanFloorDone3) == -1L;
-                            }
-                            continue;
-                        }
-                    }
-
                     for (int localCellY = cellHeight - 1; localCellY >= 0; --localCellY) {
                         int blockY = cellMinBlockY + localCellY;
                         int localY = blockY & 15;
-                        int cellValueYBase = specializedCommonCell
-                                ? (7 - localCellY) << 4
-                                : (cellHeight - 1 - localCellY) * cellWidthSquared;
-                        boolean directOreVeinY = directCellHasOreVeinRule
-                                && !directCellSkipsOreVeins
-                                && GAFusedTerrainDirectCellSampler.oreVeinCanReplaceAt(blockY);
+                        int cellValueYBase = (cellHeight - 1 - localCellY) * cellWidthSquared;
                         boolean updatedY = false;
                         int newSectionIndex = chunkAccess.getSectionIndex(blockY);
                         if (sectionIndex != newSectionIndex) {
@@ -553,9 +222,7 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         for (int localCellX = 0; localCellX < cellWidth; ++localCellX) {
                             int blockX = baseBlockX + localCellX;
                             int localX = blockX & 15;
-                            int cellValueXBase = specializedCommonCell
-                                    ? cellValueYBase + (localCellX << 2)
-                                    : cellValueYBase + localCellX * cellWidth;
+                            int cellValueXBase = cellValueYBase + localCellX * cellWidth;
                             boolean updatedX = false;
 
                             for (int localCellZ = 0; localCellZ < cellWidth; ++localCellZ) {
@@ -563,165 +230,49 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 int localZ = blockZ & 15;
                                 int cellValueIndex = cellValueXBase + localCellZ;
 
-                                int stateId = airBlockId;
+                                int stateId;
                                 boolean scheduleFluidUpdate = false;
-                                if (directSolidDefaultCell) {
-                                    stateId = defaultBlockId;
-                                    scheduleFluidUpdate = false;
+                                if (!updatedY) {
+                                    noiseChunk.updateForY(blockY, (double) localCellY * invCellHeight);
+                                    updatedY = true;
                                     if (metricsEnabled) {
-                                        metricDirectAttempts++;
-                                        metricDirectSolidHits++;
-                                        metricDirectSolidCellFastBlocks++;
-                                        metricSkippedZ++;
-                                        if (!updatedY) {
-                                            metricSkippedY++;
-                                        }
-                                        if (!updatedX) {
-                                            metricSkippedX++;
-                                        }
+                                        metricUpdateYCalls++;
                                     }
-                                } else {
-                                    int directFallbackReason = GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_GENERIC;
-                                    long packedState = ga$sampleDirectCellPackedState(
-                                            directCellActiveForCell,
-                                            directCellDensityValues,
-                                            directOreVeinY,
-                                            directCellAirForNonSolid,
+                                }
+                                if (!updatedX) {
+                                    noiseChunk.updateForX(blockX, (double) localCellX * invCellWidth);
+                                    updatedX = true;
+                                    if (metricsEnabled) {
+                                        metricUpdateXCalls++;
+                                    }
+                                }
+                                noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
+                                if (metricsEnabled) {
+                                    metricUpdateZCalls++;
+                                    metricSlowSamples++;
+                                }
+
+                                if (fusedTerrain != null) {
+                                    long packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
                                             defaultBlockId,
-                                            airBlockId,
-                                            cellValueIndex
+                                            blockX,
+                                            blockY,
+                                            blockZ
                                     );
-                                    if (directCellActiveForCell && metricsEnabled) {
-                                        metricDirectAttempts++;
-                                    }
-                                    if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
+                                    if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
+                                        fusedTerrain = null;
+                                        if (metricsEnabled) {
+                                            metricFusedFallbacksToVanilla++;
+                                        }
+                                        stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                        scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                    } else {
                                         stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
                                         scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess.ga$packedScheduleFluidUpdate(packedState);
-                                        if (metricsEnabled) {
-                                            if (stateId == airBlockId) {
-                                                metricDirectAirHits++;
-                                            } else {
-                                                metricDirectSolidHits++;
-                                            }
-                                            metricSkippedZ++;
-                                            if (!updatedY) {
-                                                metricSkippedY++;
-                                            }
-                                            if (!updatedX) {
-                                                metricSkippedX++;
-                                            }
-                                        }
-                                    } else {
-                                        directFallbackReason = GAFusedTerrainNoiseChunkAccess.ga$packedFallbackReason(packedState);
-                                        if (directCellActiveForCell && metricsEnabled) {
-                                            switch (directFallbackReason) {
-                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE ->
-                                                        metricDirectFallbackUnavailable++;
-                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE ->
-                                                        metricDirectFallbackOre++;
-                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID ->
-                                                        metricDirectFallbackNonSolid++;
-                                                case GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_OUT_OF_BOUNDS ->
-                                                        metricDirectFallbackOob++;
-                                                default -> metricDirectFallbackOther++;
-                                            }
-                                        }
-                                        boolean directFallbackResolved = false;
-                                        if (directFallbackReason
-                                                == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
-                                                && fusedTerrain != null) {
-                                            packedState = fusedTerrain.ga$sampleNegativeDensityGlobalFluidPackedBlockId(
-                                                    airBlockId,
-                                                    blockX,
-                                                    blockY,
-                                                    blockZ
-                                            );
-                                            if (!GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
-                                                stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
-                                                scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess
-                                                        .ga$packedScheduleFluidUpdate(packedState);
-                                                directFallbackResolved = true;
-                                                if (metricsEnabled) {
-                                                    metricNegativeGlobalFluidFastSamples++;
-                                                    if (stateId == airBlockId) {
-                                                        metricDirectAirHits++;
-                                                    } else {
-                                                        metricDirectSolidHits++;
-                                                    }
-                                                    metricSkippedZ++;
-                                                    if (!updatedY) {
-                                                        metricSkippedY++;
-                                                    }
-                                                    if (!updatedX) {
-                                                        metricSkippedX++;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        if (!directFallbackResolved) {
-                                            if (!updatedY) {
-                                                noiseChunk.updateForY(blockY, (double) localCellY * invCellHeight);
-                                                updatedY = true;
-                                                if (metricsEnabled) {
-                                                    metricUpdateYCalls++;
-                                                }
-                                            }
-                                            if (!updatedX) {
-                                                noiseChunk.updateForX(blockX, (double) localCellX * invCellWidth);
-                                                updatedX = true;
-                                                if (metricsEnabled) {
-                                                    metricUpdateXCalls++;
-                                                }
-                                            }
-                                            noiseChunk.updateForZ(blockZ, (double) localCellZ * invCellWidth);
-                                            if (metricsEnabled) {
-                                                metricUpdateZCalls++;
-                                                metricSlowSamples++;
-                                            }
-
-                                            if (fusedTerrain != null) {
-                                                if (GA$POSITIVE_DENSITY_ORE_FAST
-                                                        && directFallbackReason
-                                                        == GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE) {
-                                                    packedState = fusedTerrain.ga$samplePositiveDensityFusedTerrainPackedBlockId(
-                                                            defaultBlockId
-                                                    );
-                                                    if (metricsEnabled) {
-                                                        metricPositiveDensityOreFastSamples++;
-                                                    }
-                                                } else {
-                                                    packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
-                                                            defaultBlockId,
-                                                            blockX,
-                                                            blockY,
-                                                            blockZ
-                                                    );
-                                                }
-                                                if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
-                                                    fusedTerrain = null;
-                                                    directCellTerrain = false;
-                                                    directCellActiveForCell = false;
-                                                    directCellDensityValues = null;
-                                                    directCellDensityClass = GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-                                                    directCellHasOreVeinRule = false;
-                                                    directCellSkipsOreVeins = false;
-                                                    directCellAirForNonSolid = false;
-                                                    if (metricsEnabled) {
-                                                        metricFusedFallbacksToVanilla++;
-                                                    }
-                                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
-                                                } else {
-                                                    stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
-                                                    scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess
-                                                            .ga$packedScheduleFluidUpdate(packedState);
-                                                }
-                                            } else {
-                                                stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                                scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
-                                            }
-                                        }
                                     }
+                                } else {
+                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
                                 }
                                 if (stateId == airBlockId || debugVoidTerrain) {
                                     continue;
@@ -820,9 +371,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                                 ? defaultBlock
                                                 : FastBlockStateCache.getBlockState(stateId);
                                         section.setBlockState(localX, localY, localZ, blockState, false);
-                                    }
-                                    if (GA$MIRROR_DIRECT_TERRAIN_WRITES) {
-                                        GAWorkspaceWriteBridge.mirrorCurrent(chunkAccess, blockX, blockY, blockZ, stateId);
                                     }
                                 }
 
@@ -945,8 +493,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                     GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS,
                     metricDensityClassifierScanFallbacks
             );
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_CELLS, metricHighAirSurfaceFastCells);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS, metricHighAirSurfaceFastBlocks);
         }
         return chunkAccess;
     }
@@ -1099,88 +645,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             written += rowWritten;
         }
         return written;
-    }
-
-    @Unique
-    private static long ga$sampleDirectCellPackedState(
-            boolean directCellTerrain,
-            double[] densityValues,
-            boolean oreVeinY,
-            boolean airForNonSolid,
-            int defaultBlockId,
-            int airBlockId,
-            int cellValueIndex
-    ) {
-        if (!directCellTerrain || densityValues == null) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_UNAVAILABLE
-            );
-        }
-        if (cellValueIndex < 0 || cellValueIndex >= densityValues.length) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                    GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_OUT_OF_BOUNDS
-            );
-        }
-
-        double density = densityValues[cellValueIndex];
-        if (density > 0.0D) {
-            return oreVeinY
-                    ? GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                            GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_ORE_VEIN_RANGE
-                    )
-                    : GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(defaultBlockId, false);
-        }
-        if (airForNonSolid) {
-            return GAFusedTerrainNoiseChunkAccess.ga$packFusedTerrain(airBlockId, false);
-        }
-        return GAFusedTerrainNoiseChunkAccess.ga$packFallback(
-                GAFusedTerrainNoiseChunkAccess.GA_FALLBACK_REASON_NON_SOLID
-        );
-    }
-
-    @Unique
-    private static int ga$classifyDensityCell(double[] densityValues) {
-        if (densityValues.length == 0) {
-            return GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_UNAVAILABLE;
-        }
-        boolean hasPositive = false;
-        boolean hasNonPositive = false;
-        for (double density : densityValues) {
-            if (density > 0.0D) {
-                hasPositive = true;
-            } else {
-                hasNonPositive = true;
-            }
-            if (hasPositive && hasNonPositive) {
-                return GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_MIXED;
-            }
-        }
-        return hasPositive
-                ? GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_POSITIVE
-                : GAFusedTerrainNoiseChunkAccess.GA_DIRECT_CELL_CLASS_ALL_NON_POSITIVE;
-    }
-
-    @Unique
-    private static boolean ga$preliminarySurfaceBelowCell(
-            NoiseChunk noiseChunk,
-            int baseBlockX,
-            int baseBlockZ,
-            int cellMinBlockY,
-            int marginY
-    ) {
-        int preliminarySurface = noiseChunk.preliminarySurfaceLevel(baseBlockX, baseBlockZ);
-        return preliminarySurface == Integer.MAX_VALUE || preliminarySurface + marginY < cellMinBlockY;
-    }
-
-    @Unique
-    private static boolean ga$cellIntersectsOreVeins(int minBlockY, int cellHeight) {
-        int maxBlockY = minBlockY + cellHeight - 1;
-        if (maxBlockY < GAFusedTerrainDirectCellSampler.ORE_VEIN_MIN_Y
-                || minBlockY > GAFusedTerrainDirectCellSampler.ORE_VEIN_MAX_Y) {
-            return false;
-        }
-        return minBlockY <= GAFusedTerrainDirectCellSampler.IRON_MAX_Y
-                || maxBlockY >= GAFusedTerrainDirectCellSampler.COPPER_MIN_Y;
     }
 
     @Unique

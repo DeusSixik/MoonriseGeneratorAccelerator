@@ -16,9 +16,6 @@ public class GAStructuresMixinPlugin extends GAMixinPlugin {
         if (!super.shouldApplyMixin(targetClassName, mixinClassName)) {
             return false;
         }
-        if (mixinClassName.equals("dev.sixik.generator_accelerator.common.structures.mixin.MixinNoiseBasedChunkGenerator$structure_exact_cache")) {
-            return Boolean.getBoolean("ga.structureNoiseColumnCache.enabled");
-        }
         return true;
     }
 

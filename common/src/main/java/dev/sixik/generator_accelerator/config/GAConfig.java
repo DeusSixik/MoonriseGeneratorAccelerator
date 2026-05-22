@@ -36,9 +36,6 @@ public class GAConfig {
 
     public boolean enableSurfacePatch = true;
 
-    @ConfigComment("Enable exact bounded cache for NoiseBasedChunkGenerator base-height/base-column probes while structures are generating.")
-    public boolean enableStructureNoiseColumnCache = false;
-
     @ConfigComment("GA scheduler noise lane workers. 0 = auto.")
     public int schedulerNoiseWorkers = 0;
 
