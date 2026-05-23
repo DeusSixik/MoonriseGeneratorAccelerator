@@ -1,5 +1,8 @@
 package dev.sixik.generator_accelerator.common.heightmap.mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
+import dev.sixik.generator_accelerator.api.patches.GA$LevelChunkSectionExtern;
+import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import net.minecraft.util.BitStorage;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -31,12 +34,12 @@ public abstract class MixinHeightmap$optimize_logic {
     @Unique
     private int ga$minBuildHeight;
     @Unique
-    private int ga$typeOrdinal;
+    private byte ga$typeOrdinal;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void ga$cacheMinBuildHeight(ChunkAccess chunk, Heightmap.Types type, CallbackInfo ci) {
         this.ga$minBuildHeight = chunk.getMinBuildHeight();
-        this.ga$typeOrdinal = type.ordinal();
+        this.ga$typeOrdinal = (byte) type.ordinal();
     }
 
     /**
@@ -51,7 +54,7 @@ public abstract class MixinHeightmap$optimize_logic {
 
         if (y <= currentTop - 2) return false;
 
-        if (this.ga$isOpaque(state)) {
+        if (this.ga$isOpaque(GA$BlockStateExtension.get(state).bts$getFastId())) {
             if (y >= currentTop) {
                 this.data.set(index, y + 1 - minY);
                 return true;
@@ -70,10 +73,12 @@ public abstract class MixinHeightmap$optimize_logic {
                 continue;
             }
 
+            GA$LevelChunkSectionExtern sectionExtern = (GA$LevelChunkSectionExtern) section;
+
             int sectionBottom = this.chunk.getSectionYFromSectionIndex(sectionIndex) << 4;
             for (; searchY >= sectionBottom; searchY--) {
-                BlockState checkState = section.getBlockState(x, searchY & 15, z);
-                if (this.ga$isOpaque(checkState)) {
+                int block = sectionExtern.ga$getBlockRaw(x, searchY & 15, z);
+                if (this.ga$isOpaque(block)) {
                     this.data.set(index, searchY + 1 - minY);
                     return true;
                 }
@@ -85,14 +90,19 @@ public abstract class MixinHeightmap$optimize_logic {
     }
 
     @Unique
-    private boolean ga$isOpaque(BlockState state) {
-        return switch (this.ga$typeOrdinal) {
-            case 0, 1 -> !state.isAir(); // WORLD_SURFACE(_WG)
-            case 2, 3 -> state.blocksMotion(); // OCEAN_FLOOR(_WG)
-            case 4 -> state.blocksMotion() || !state.getFluidState().isEmpty(); // MOTION_BLOCKING
-            case 5 -> (state.blocksMotion() || !state.getFluidState().isEmpty())
-                    && !(state.getBlock() instanceof LeavesBlock); // MOTION_BLOCKING_NO_LEAVES
-            default -> this.isOpaque.test(state);
+    private boolean ga$isOpaque(int state) {
+        return ga$isOpaque(state, ga$typeOrdinal);
+    }
+
+    @Unique
+    private static boolean ga$isOpaque(int state, byte typeOrdinal) {
+        return switch (typeOrdinal) {
+            case 0, 1 -> !FastBlockStateCache.isAir(state); // WORLD_SURFACE(_WG)
+            case 2, 3 -> FastBlockStateCache.IS_BLOCK_MOTION_STATES[state]; // OCEAN_FLOOR(_WG)
+            case 4 -> FastBlockStateCache.IS_BLOCK_MOTION_STATES[state] || !FastBlockStateCache.IS_FLUID_STATES_EMPTY[state]; // MOTION_BLOCKING
+            case 5 -> (FastBlockStateCache.IS_BLOCK_MOTION_STATES[state] || !FastBlockStateCache.IS_FLUID_STATES_EMPTY[state])
+                    && !FastBlockStateCache.hasTag(state, FastBlockStateCache.BLOCK_LEAVES); // MOTION_BLOCKING_NO_LEAVES
+            default -> throw new IllegalStateException("Unexpected value: " + typeOrdinal);
         };
     }
 
@@ -102,7 +112,7 @@ public abstract class MixinHeightmap$optimize_logic {
      */
     @Overwrite
     public static void primeHeightmaps(ChunkAccess chunk, Set<Heightmap.Types> types) {
-        int count = types.size();
+        byte count = (byte) types.size();
         if (count == 0) return;
         if (bts$isFeatureHeightmapSet(types)) {
             bts$primeFeatureHeightmaps(chunk);
@@ -110,12 +120,10 @@ public abstract class MixinHeightmap$optimize_logic {
         }
 
         Heightmap[] maps = new Heightmap[count];
-        Predicate<BlockState>[] predicates = new Predicate[count];
 
         int idx = 0;
         for (Heightmap.Types t : types) {
             maps[idx] = chunk.getOrCreateHeightmapUnprimed(t);
-            predicates[idx] = t.isOpaque();
             idx++;
         }
 
@@ -135,11 +143,13 @@ public abstract class MixinHeightmap$optimize_logic {
                         continue;
                     }
 
-                    BlockState state = section.getBlockState(x, y & 15, z);
+                    GA$LevelChunkSectionExtern sectionExtern = (GA$LevelChunkSectionExtern) section;
 
-                    if (!state.isAir()) {
-                        for (int i = 0; i < count; i++) {
-                            if ((remaining & (1 << i)) != 0 && predicates[i].test(state)) {
+                    int blockId = sectionExtern.ga$getBlockRaw(x, y & 15, z);
+                    if (!FastBlockStateCache.AIR_STATES[blockId]) {
+                        for (byte i = 0; i < count; i++) {
+
+                            if ((remaining & (1 << i)) != 0 && ga$isOpaque(blockId, i)) {
                                 maps[i].setHeight(x, z, y + 1);
                                 remaining &= ~(1 << i);
                             }
@@ -149,7 +159,7 @@ public abstract class MixinHeightmap$optimize_logic {
                 }
 
                 if (remaining != 0) {
-                    for (int i = 0; i < count; i++) {
+                    for (byte i = 0; i < count; i++) {
                         if ((remaining & (1 << i)) != 0) {
                             maps[i].setHeight(x, z, minY);
                         }

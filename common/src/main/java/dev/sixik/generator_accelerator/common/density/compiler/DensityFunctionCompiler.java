@@ -15,9 +15,6 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.sixik.ga_profiler.HtmlReporter;
-import net.sixik.ga_profiler.ProfileData;
-import net.sixik.ga_profiler.Profiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,16 +71,6 @@ public final class DensityFunctionCompiler {
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("dfc")
                 .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("test_profiler")
-                        .executes(commandContext -> {
-                            final Collection<ProfileData.Snapshot> snatpshot = Profiler.getData();
-                            CompletableFuture.runAsync(() -> {
-                                HtmlReporter.generate(GeneratorAccelerator.gameFolder.resolve("debug.html").toString(), snatpshot, List.of("none"));
-                                Profiler.reset();
-                            });
-                            return 0;
-                        })
-                )
                 .then(Commands.literal("dump")
                         .executes(context -> {
                             Compiler.DumpResult result = Compiler.dumpCompiledClasses();
