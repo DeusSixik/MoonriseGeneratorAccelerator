@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.structures.mixin.optimization;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.structure.StructurePiece;
@@ -36,7 +35,7 @@ public class MixinPiecesContainer {
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     long chunkPos = ChunkPos.asLong(x, z);
-                    this.bts$chunkGrid.computeIfAbsent(chunkPos, k -> new ObjectArrayList<>()).add(piece);
+                    this.bts$chunkGrid.computeIfAbsent(chunkPos, k -> new ArrayList<>()).add(piece);
                 }
             }
         }

@@ -113,7 +113,7 @@ public class MixinFeatureSorter {
                         throw new IllegalStateException("Feature order cycle found");
                     }
 
-                    List<T> list4 = new ObjectArrayList<>(list);
+                    List<T> list4 = new ArrayList<>(list);
                     int k;
                     do {
                         k = list4.size();

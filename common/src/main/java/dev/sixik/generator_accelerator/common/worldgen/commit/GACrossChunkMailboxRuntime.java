@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.worldgen.commit;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -110,7 +109,7 @@ public final class GACrossChunkMailboxRuntime {
                 return false;
             }
             long targetKey = ChunkPos.asLong(targetChunkX, targetChunkZ);
-            QUEUES.computeIfAbsent(targetKey, ignored -> new ObjectArrayList<>()).add(command);
+            QUEUES.computeIfAbsent(targetKey, ignored -> new ArrayList<>()).add(command);
             queuedCommands++;
             updateMax(MAX_QUEUE_DEPTH, queuedCommands);
             updateMax(MAX_TARGET_CHUNKS, QUEUES.size());

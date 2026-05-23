@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -176,7 +175,7 @@ public final class Splitter {
 
     /** Convenience for tests / logging. */
     public static List<IRNode> orderedExtracted(Set<IRNode> extracted, IRNode root) {
-        List<IRNode> ordered = new ObjectArrayList<>(extracted.size());
+        List<IRNode> ordered = new ArrayList<>(extracted.size());
         Map<IRNode, Boolean> seen = new IdentityHashMap<>();
         Deque<IRNode> stack = new ArrayDeque<>();
         stack.push(root);

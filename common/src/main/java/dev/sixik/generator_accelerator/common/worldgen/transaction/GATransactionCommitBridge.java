@@ -7,7 +7,6 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCollisionR
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCollisionResult;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitCommand;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitOrderKey;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +43,7 @@ public final class GATransactionCommitBridge {
         Objects.requireNonNull(baseOrderKey, "baseOrderKey");
         requireSealed(snapshot);
 
-        List<GACommitCommand<Object>> commands = new ObjectArrayList<>(snapshot.entries().size());
+        List<GACommitCommand<Object>> commands = new ArrayList<>(snapshot.entries().size());
         for (GAJournalEntry entry : snapshot.entries()) {
             if (!(entry instanceof GAJournalEntry.BlockWrite blockWrite)) {
                 continue;

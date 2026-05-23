@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.cache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
@@ -175,7 +174,7 @@ public final class GlobalCompileCache {
     }
 
     public List<CopiedClassBundle> snapshotBundles() {
-        return new ObjectArrayList<>(bundles.asMap().values());
+        return new ArrayList<>(bundles.asMap().values());
     }
 
     /**

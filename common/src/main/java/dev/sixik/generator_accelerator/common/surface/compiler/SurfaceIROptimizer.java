@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.surface.compiler;
 
 import dev.sixik.generator_accelerator.common.surface.compiler.ir.SurfaceConditionIR;
 import dev.sixik.generator_accelerator.common.surface.compiler.ir.SurfaceRuleIR;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -183,7 +182,7 @@ final class SurfaceIROptimizer {
     }
 
     private SurfaceRuleIR optimizeSequence(List<SurfaceRuleIR> rules) {
-        ObjectArrayList<SurfaceRuleIR> flattened = new ObjectArrayList<>(rules.size());
+        ArrayList<SurfaceRuleIR> flattened = new ArrayList<>(rules.size());
         for (SurfaceRuleIR child : rules) {
             SurfaceRuleIR optimized = optimizeRule(child);
             if (optimized instanceof SurfaceRuleIR.Empty) {
@@ -212,7 +211,7 @@ final class SurfaceIROptimizer {
         return new SurfaceRuleIR.Sequence(flattened);
     }
 
-    private void mergeAdjacentSameBlockRules(ObjectArrayList<SurfaceRuleIR> rules) {
+    private void mergeAdjacentSameBlockRules(ArrayList<SurfaceRuleIR> rules) {
         for (int i = 0; i < rules.size() - 1; i++) {
             SurfaceRuleIR current = rules.get(i);
             if (!(current instanceof SurfaceRuleIR.Test first)
@@ -222,7 +221,7 @@ final class SurfaceIROptimizer {
                 continue;
             }
 
-            ObjectArrayList<SurfaceConditionIR> mergedConditions = null;
+            ArrayList<SurfaceConditionIR> mergedConditions = null;
             int j = i + 1;
             while (j < rules.size()) {
                 SurfaceRuleIR next = rules.get(j);
@@ -236,7 +235,7 @@ final class SurfaceIROptimizer {
                 }
 
                 if (mergedConditions == null) {
-                    mergedConditions = new ObjectArrayList<>(4);
+                    mergedConditions = new ArrayList<>(4);
                     mergedConditions.add(first.condition());
                 }
                 mergedConditions.add(nextTest.condition());
@@ -273,7 +272,7 @@ final class SurfaceIROptimizer {
     }
 
     private SurfaceConditionIR optimizeAllOf(List<SurfaceConditionIR> conditions) {
-        ObjectArrayList<SurfaceConditionIR> flattened = new ObjectArrayList<>(conditions.size());
+        ArrayList<SurfaceConditionIR> flattened = new ArrayList<>(conditions.size());
         boolean reorderSafe = true;
         for (SurfaceConditionIR condition : conditions) {
             SurfaceConditionIR optimized = optimizeCondition(condition);
@@ -295,7 +294,7 @@ final class SurfaceIROptimizer {
     }
 
     private SurfaceConditionIR optimizeAnyOf(List<SurfaceConditionIR> conditions) {
-        ObjectArrayList<SurfaceConditionIR> flattened = new ObjectArrayList<>(conditions.size());
+        ArrayList<SurfaceConditionIR> flattened = new ArrayList<>(conditions.size());
         boolean reorderSafe = true;
         for (SurfaceConditionIR condition : conditions) {
             SurfaceConditionIR optimized = optimizeCondition(condition);
@@ -316,12 +315,12 @@ final class SurfaceIROptimizer {
         return finishBooleanList(flattened, false, reorderSafe);
     }
 
-    private SurfaceConditionIR finishBooleanList(ObjectArrayList<SurfaceConditionIR> conditions, boolean allOf, boolean reorderSafe) {
+    private SurfaceConditionIR finishBooleanList(ArrayList<SurfaceConditionIR> conditions, boolean allOf, boolean reorderSafe) {
         if (conditions.isEmpty()) {
             return allOf ? TRUE : FALSE;
         }
 
-        ObjectArrayList<SurfaceConditionIR> deduped = new ObjectArrayList<>(conditions.size());
+        ArrayList<SurfaceConditionIR> deduped = new ArrayList<>(conditions.size());
         HashSet<SurfaceConditionIR> seen = new HashSet<>();
         for (SurfaceConditionIR condition : conditions) {
             SurfaceConditionIR canonical = isCanonicalSafe(condition) ? canonical(condition) : condition;

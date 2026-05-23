@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -47,7 +45,7 @@ public final class GACommitBatch<T> {
     }
 
     public static final class Builder<T> {
-        private final List<GACommitCommand<T>> commands = new ObjectArrayList<>();
+        private final List<GACommitCommand<T>> commands = new ArrayList<>();
 
         public Builder<T> add(GACommitCommand<T> command) {
             if (command == null) {

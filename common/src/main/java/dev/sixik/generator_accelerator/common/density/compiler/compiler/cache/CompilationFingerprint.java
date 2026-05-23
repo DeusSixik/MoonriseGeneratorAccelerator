@@ -8,7 +8,6 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCo
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.CodegenNativeNoise;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
@@ -138,7 +137,7 @@ public final class CompilationFingerprint {
     }
 
     private static List<IRNode> childrenOf(IRNode n) {
-        ObjectArrayList<IRNode> children = new ObjectArrayList<>();
+        ArrayList<IRNode> children = new ArrayList<>();
         for (IRNode c : RefCount.children(n)) {
             children.add(c);
         }

@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.surface.compiler;
 
 import dev.sixik.generator_accelerator.common.surface.compiler.ir.SurfaceConditionIR;
 import dev.sixik.generator_accelerator.common.surface.compiler.ir.SurfaceRuleIR;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
@@ -39,7 +38,7 @@ final class SurfaceIRBuilder {
         }
 
         if (ruleSource instanceof SurfaceRules.SequenceRuleSource sequenceRule) {
-            List<SurfaceRuleIR> flattened = new ObjectArrayList<>(sequenceRule.sequence().size());
+            List<SurfaceRuleIR> flattened = new ArrayList<>(sequenceRule.sequence().size());
             flattenSequence(sequenceRule, flattened);
             locallyOptimizeSequence(flattened);
             if (flattened.isEmpty()) {
@@ -155,7 +154,7 @@ final class SurfaceIRBuilder {
     }
 
     private SurfaceRuleIR buildTestRule(SurfaceRules.TestRuleSource testRule) {
-        List<SurfaceConditionIR> conditions = new ObjectArrayList<>(2);
+        List<SurfaceConditionIR> conditions = new ArrayList<>(2);
         SurfaceRules.RuleSource finalRule = testRule;
 
         while (finalRule instanceof SurfaceRules.TestRuleSource currentTest) {
@@ -175,7 +174,7 @@ final class SurfaceIRBuilder {
         if (conditions.size() == 1) {
             return conditions.get(0);
         }
-        ObjectArrayList<SurfaceConditionIR> deduped = new ObjectArrayList<>(conditions.size());
+        ArrayList<SurfaceConditionIR> deduped = new ArrayList<>(conditions.size());
         java.util.HashSet<SurfaceConditionIR> seen = new java.util.HashSet<>();
         for (SurfaceConditionIR condition : conditions) {
             if (condition instanceof SurfaceConditionIR.Constant constant) {
@@ -244,7 +243,7 @@ final class SurfaceIRBuilder {
                 continue;
             }
 
-            ObjectArrayList<SurfaceConditionIR> mergedConditions = null;
+            ArrayList<SurfaceConditionIR> mergedConditions = null;
             int j = i + 1;
             while (j < rules.size()) {
                 SurfaceRuleIR next = rules.get(j);
@@ -258,7 +257,7 @@ final class SurfaceIRBuilder {
                 }
 
                 if (mergedConditions == null) {
-                    mergedConditions = new ObjectArrayList<>(4);
+                    mergedConditions = new ArrayList<>(4);
                     mergedConditions.add(first.condition());
                 }
                 mergedConditions.add(nextTest.condition());
@@ -274,7 +273,7 @@ final class SurfaceIRBuilder {
     }
 
     private SurfaceConditionIR combineAny(List<SurfaceConditionIR> conditions) {
-        ObjectArrayList<SurfaceConditionIR> deduped = new ObjectArrayList<>(conditions.size());
+        ArrayList<SurfaceConditionIR> deduped = new ArrayList<>(conditions.size());
         java.util.HashSet<SurfaceConditionIR> seen = new java.util.HashSet<>();
         for (SurfaceConditionIR condition : conditions) {
             if (condition instanceof SurfaceConditionIR.Constant constant) {

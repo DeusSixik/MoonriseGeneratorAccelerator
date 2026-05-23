@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictre
 import com.dtteam.dynamictrees.api.worldgen.GroundFinder;
 import com.dtteam.dynamictrees.utility.CoordUtils;
 import com.dtteam.dynamictrees.worldgen.OverworldGroundFinder;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
@@ -60,7 +59,7 @@ public abstract class DynamicTrees$OverworldGroundFinderMixin {
         }
 
         List<BlockPos> subterranean = GroundFinder.SUBTERRANEAN.findGround(level, start, heightmap);
-        ObjectArrayList<BlockPos> result = new ObjectArrayList<>(1 + subterranean.size());
+        ArrayList<BlockPos> result = new ArrayList<>(1 + subterranean.size());
         result.add(surface);
         result.addAll(subterranean);
         return result;

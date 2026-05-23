@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -40,11 +38,11 @@ public final class GACommitCollisionResolver {
             return new GACommitCollisionResult<>(List.of(only), List.of(), 0);
         }
 
-        List<GACommitCommand<T>> ordered = new ObjectArrayList<>(commands);
+        List<GACommitCommand<T>> ordered = new ArrayList<>(commands);
         ordered.sort(POSITION_THEN_ORDER);
 
-        List<GACommitCommand<T>> accepted = new ObjectArrayList<>();
-        List<GACommitCommand<T>> rejected = new ObjectArrayList<>();
+        List<GACommitCommand<T>> accepted = new ArrayList<>();
+        List<GACommitCommand<T>> rejected = new ArrayList<>();
 
         int index = 0;
         int collisions = 0;

@@ -440,7 +440,7 @@ public abstract class MixinOreFeature extends Feature<OreConfiguration> {
             return new Block[] {bmt.block};
         } else if (rule instanceof TagMatchTest tmt) {
             Iterable<Holder<Block>> tags = BuiltInRegistries.BLOCK.getTagOrEmpty(tmt.tag);
-            List<Block> list = new ObjectArrayList<>();
+            List<Block> list = new ArrayList<>();
             for (Holder<Block> holder : tags) {
                 list.add(holder.value());
             }

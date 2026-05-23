@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.spline;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRBuilder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.util.CubicSpline;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 
@@ -55,7 +54,7 @@ public final class SplineInliner {
             // Coordinate goes through the outer IRBuilder so it shares with sibling DFs.
             IRNode coord = outerBuilder.walkChild(mp.coordinate().function().value());
 
-            List<IRNode.Spline> values = new ObjectArrayList<>(mp.values().size());
+            List<IRNode.Spline> values = new ArrayList<>(mp.values().size());
             for (CubicSpline<DensityFunctions.Spline.Point, DensityFunctions.Spline.Coordinate> v : mp.values()) {
                 values.add(walk(v));
             }

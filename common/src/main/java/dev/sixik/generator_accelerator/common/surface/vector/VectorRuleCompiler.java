@@ -4,7 +4,6 @@ import dev.sixik.generator_accelerator.common.surface.vector.rules.*;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.biomeswevegone.BiomesWeveGone$CompilerData;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.lithostitched.Lithostitched$CompilerData;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.compat.terrablender.Terrablender$CompilerData;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 
 import java.util.ArrayList;
@@ -25,7 +24,7 @@ public class VectorRuleCompiler {
         }
 
         if (ruleSource instanceof SurfaceRules.SequenceRuleSource sequenceRule) {
-            List<VectorRule> compiledList = new ObjectArrayList<>();
+            List<VectorRule> compiledList = new ArrayList<>();
             for (SurfaceRules.RuleSource childRule : sequenceRule.sequence()) {
                 compiledList.add(compileRule(childRule));
             }

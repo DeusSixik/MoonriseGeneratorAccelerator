@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.worldgen.lifecycle;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
@@ -99,7 +97,7 @@ public final class GALightingHandoffMask {
         if (count == 0) {
             return List.of();
         }
-        ObjectArrayList<GAColumnPosition> out = new ObjectArrayList<>(count);
+        ArrayList<GAColumnPosition> out = new ArrayList<>(count);
         appendDirtyColumns(out, word0, 0);
         appendDirtyColumns(out, word1, 64);
         appendDirtyColumns(out, word2, 128);
@@ -126,7 +124,7 @@ public final class GALightingHandoffMask {
         };
     }
 
-    private static void appendDirtyColumns(ObjectArrayList<GAColumnPosition> out, long word, int base) {
+    private static void appendDirtyColumns(ArrayList<GAColumnPosition> out, long word, int base) {
         while (word != 0L) {
             int bit = Long.numberOfTrailingZeros(word);
             out.add(GAColumnPosition.fromPackedIndex(base + bit));

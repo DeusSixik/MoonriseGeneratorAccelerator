@@ -4,7 +4,6 @@ import dev.sixik.generator_accelerator.common.worldgen.transaction.GAJournalEntr
 import dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionCommitBridge;
 import dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionSnapshot;
 import dev.sixik.generator_accelerator.common.worldgen.transaction.GATransactionState;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +29,7 @@ public final class GACommitSideEffectBridge {
             throw new IllegalStateException("transaction snapshot is " + snapshot.state());
         }
 
-        List<GACommitCommand<Object>> commands = new ObjectArrayList<>(snapshot.entries().size());
+        List<GACommitCommand<Object>> commands = new ArrayList<>(snapshot.entries().size());
         for (GAJournalEntry entry : snapshot.entries()) {
             if (entry instanceof GAJournalEntry.PostprocessMark mark) {
                 commands.add(command(

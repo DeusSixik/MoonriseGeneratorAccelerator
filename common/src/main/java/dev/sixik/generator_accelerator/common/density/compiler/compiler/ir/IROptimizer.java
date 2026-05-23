@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -163,7 +162,7 @@ public final class IROptimizer {
             }
             case IRNode.Spline.Multipoint mp -> {
                 IRNode coord = rewrite(mp.coordinate());
-                List<IRNode.Spline> values = new ObjectArrayList<>(mp.values().size());
+                List<IRNode.Spline> values = new ArrayList<>(mp.values().size());
                 boolean valuesChanged = false;
                 for (IRNode.Spline v : mp.values()) {
                     IRNode rewritten = rewrite(v);

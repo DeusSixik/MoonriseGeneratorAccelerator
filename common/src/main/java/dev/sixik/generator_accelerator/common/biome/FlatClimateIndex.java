@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.biome;
 
 import com.mojang.datafixers.util.Pair;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.biome.Climate;
 
 import java.util.ArrayList;
@@ -780,7 +779,7 @@ public class FlatClimateIndex<T> {
     private static class TempStorage {
         long[] bounds;
         int[] structure;
-        final List<Object> values = new ObjectArrayList<>();
+        final List<Object> values = new ArrayList<>();
         int cursor = 0;
 
         TempStorage(int size) {

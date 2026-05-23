@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.worldgen.commit;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -28,7 +26,7 @@ public record GACommitFinalizePlan<T>(
         if (plan == null) {
             throw new NullPointerException("plan");
         }
-        List<GACommitCommand<T>> replayCommands = new ObjectArrayList<>(plan.resolved().accepted());
+        List<GACommitCommand<T>> replayCommands = new ArrayList<>(plan.resolved().accepted());
         replayCommands.sort(Comparator.comparing(GACommitCommand<T>::orderKey));
         return new GACommitFinalizePlan<>(plan, replayCommands, plan.resolved().stats());
     }

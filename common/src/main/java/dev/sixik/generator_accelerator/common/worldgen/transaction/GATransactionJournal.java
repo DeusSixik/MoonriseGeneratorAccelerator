@@ -1,7 +1,5 @@
 package dev.sixik.generator_accelerator.common.worldgen.transaction;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,7 +14,7 @@ public final class GATransactionJournal {
     }
 
     public GATransactionJournal(int initialCapacity) {
-        this.entries = new ObjectArrayList<>(Math.max(0, initialCapacity));
+        this.entries = new ArrayList<>(Math.max(0, initialCapacity));
         this.state = GATransactionState.OPEN;
     }
 

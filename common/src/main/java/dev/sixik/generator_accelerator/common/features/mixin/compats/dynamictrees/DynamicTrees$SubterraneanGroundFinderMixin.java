@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.features.mixin.compats.dynamictrees;
 
 import com.dtteam.dynamictrees.worldgen.SubterraneanGroundFinder;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -27,8 +26,8 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
     private static final List<BlockPos> GA$NO_LAYERS = Collections.singletonList(BlockPos.ZERO);
 
     @Unique
-    private static final ThreadLocal<ObjectArrayList<BlockPos>> GA$POSITIONS =
-            ThreadLocal.withInitial(() -> new ObjectArrayList<>(8));
+    private static final ThreadLocal<ArrayList<BlockPos>> GA$POSITIONS =
+            ThreadLocal.withInitial(() -> new ArrayList<>(8));
 
     @Unique
     private static final TagKey<Biome> GA$UNDERGROUND_BIOMES =
@@ -71,7 +70,7 @@ public abstract class DynamicTrees$SubterraneanGroundFinderMixin {
         boolean hasCeiling = level.dimensionType().hasCeiling();
         BlockPos.MutableBlockPos pos = GA$SCAN_POS.get();
 
-        ObjectArrayList<BlockPos> positions = GA$POSITIONS.get();
+        ArrayList<BlockPos> positions = GA$POSITIONS.get();
         positions.clear();
         positions.ensureCapacity(layerCount);
 

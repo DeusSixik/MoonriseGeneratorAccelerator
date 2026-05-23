@@ -12,7 +12,6 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailbo
 import dev.sixik.generator_accelerator.common.worldgen.commit.GAFinalRepackValue;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 
@@ -367,7 +366,7 @@ public final class GAChunkWorkspaceRuntime {
             return;
         }
 
-        List<GACommitCommand<GAFinalRepackValue>> commands = new ObjectArrayList<>(dirtySections.length);
+        List<GACommitCommand<GAFinalRepackValue>> commands = new ArrayList<>(dirtySections.length);
         for (int localIndex = 0; localIndex < dirtySections.length; localIndex++) {
             int dirtySection = dirtySections[localIndex];
             int sectionY = workspace.minSectionY() + dirtySection;

@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.structures.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$ChunkGeneratorStructureStateExtern;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
@@ -69,7 +68,7 @@ public abstract class MixinChunkGeneratorStructureState implements GA$ChunkGener
             for (StructureSet.StructureSelectionEntry structureset$structureselectionentry : structureset.structures()) {
                 Structure structure = structureset$structureselectionentry.structure().value();
                 if (structure.biomes().stream().anyMatch(set::contains)) {
-                    this.placementsForStructure.computeIfAbsent(structure, p_256235_ -> new ObjectArrayList<>()).add(structureset.placement());
+                    this.placementsForStructure.computeIfAbsent(structure, p_256235_ -> new ArrayList<>()).add(structureset.placement());
                     flag = true;
                 }
             }

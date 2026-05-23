@@ -1,7 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -74,7 +73,7 @@ public final class SlabNativeBatchPlan {
             return Optional.empty();
         }
         IRNode hoisted = plan.hoistedSubtree();
-        List<Slot> out = new ObjectArrayList<>();
+        List<Slot> out = new ArrayList<>();
         IdentityHashMap<IRNode, Boolean> assigned = new IdentityHashMap<>();
         int[] nextIdx = {0};
 
