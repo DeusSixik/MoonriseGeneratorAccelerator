@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.structures.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import dev.sixik.generator_accelerator.common.structures.StructureStartFastLookup;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.BlockGetter;
@@ -10,10 +11,12 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.StructureAccess;
 import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureSet;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import org.spongepowered.asm.mixin.*;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.StampedLock;
 
@@ -29,7 +32,8 @@ import java.util.concurrent.locks.StampedLock;
 public abstract class MixinChunkAccess$SynchronizeStructureData implements BlockGetter,
         BiomeManager.NoiseBiomeSource,
         LightChunk,
-        StructureAccess {
+        StructureAccess,
+        StructureStartFastLookup {
 
     @Shadow
     @Final
@@ -100,6 +104,38 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
                 bts$structureStartsSnapshot = snapshot;
             }
             return snapshot;
+        } finally {
+            bts$structuresData_structureStarts_Lock.unlockRead(stamp);
+        }
+    }
+
+    @Override
+    public boolean ga$hasAnyStartFor(List<StructureSet.StructureSelectionEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return false;
+        }
+        final long stamp = bts$structuresData_structureStarts_Lock.readLock();
+        try {
+            if (structureStarts.isEmpty()) {
+                return false;
+            }
+            for (int i = 0, size = entries.size(); i < size; i++) {
+                Structure structure = entries.get(i).structure().value();
+                if (structureStarts.containsKey(structure)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            bts$structuresData_structureStarts_Lock.unlockRead(stamp);
+        }
+    }
+
+    @Override
+    public boolean ga$hasStartFor(Structure structure) {
+        final long stamp = bts$structuresData_structureStarts_Lock.readLock();
+        try {
+            return structureStarts.containsKey(structure);
         } finally {
             bts$structuresData_structureStarts_Lock.unlockRead(stamp);
         }

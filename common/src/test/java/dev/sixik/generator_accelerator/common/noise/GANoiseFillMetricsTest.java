@@ -20,67 +20,40 @@ class GANoiseFillMetricsTest {
         GANoiseFillMetrics.reset();
 
         GANoiseFillMetrics.increment(GANoiseFillMetrics.DO_FILL_CHUNKS);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_ATTEMPTS, 7L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.SLOW_SAMPLES, 7L);
 
         assertEquals(0L, GANoiseFillMetrics.get(GANoiseFillMetrics.DO_FILL_CHUNKS));
-        assertEquals(0L, GANoiseFillMetrics.get(GANoiseFillMetrics.DIRECT_ATTEMPTS));
+        assertEquals(0L, GANoiseFillMetrics.get(GANoiseFillMetrics.SLOW_SAMPLES));
     }
 
     @Test
-    void snapshotReportsDirectHitRateAndNewOreCounter() {
+    void snapshotReportsLiveCounters() {
         GANoiseFillMetrics.setEnabled(true);
         GANoiseFillMetrics.reset();
 
         GANoiseFillMetrics.increment(GANoiseFillMetrics.DO_FILL_CHUNKS);
         GANoiseFillMetrics.add(GANoiseFillMetrics.DO_FILL_NANOS, 2_000_000L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_ATTEMPTS, 4L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_HITS, 3L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.POSITIVE_DENSITY_ORE_FAST_SAMPLES, 2L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_NEGATIVE_GLOBAL_FLUID_FAST_SAMPLES, 1L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_CELLS, 1L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_BLOCKS, 128L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_BULK_WRITES, 1L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_HITS, 2L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS, 1L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_INTEGRATED, 3L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_SCAN_FALLBACKS, 4L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_SUMMARY_FAST_FAILURES, 5L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_CELLS, 6L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_SURFACE_FAST_BLOCKS, 768L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.FUSED_TERRAIN_CHUNKS, 7L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_CELL_AVAILABLE_CHUNKS, 8L);
-        GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_CELL_MISSING_CHUNKS, 9L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.SLOW_SAMPLES, 4L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Y_CALLS, 10L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_X_CALLS, 11L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Z_CALLS, 12L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_CALLS, 13L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_NANOS, 3_000_000L);
+        GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_CACHE_EAGER_FILLS, 2L);
 
         GANoiseFillMetrics.Snapshot snapshot = GANoiseFillMetrics.snapshot();
         assertTrue(snapshot.enabled());
         assertEquals(1L, snapshot.chunks());
         assertEquals(2L, snapshot.totalMillis());
-        assertEquals(4L, snapshot.directAttempts());
-        assertEquals(3L, snapshot.directHits());
-        assertEquals(0.75D, snapshot.directHitRate(), 0.0D);
-        assertEquals(2L, snapshot.positiveDensityOreFastSamples());
-        assertEquals(0L, snapshot.directSolidCellFastCells());
-        assertEquals(0L, snapshot.directSolidCellFastBlocks());
-        assertEquals(1L, snapshot.directNegativeGlobalFluidFastSamples());
-        assertEquals(1L, snapshot.directHighAirCellFastCells());
-        assertEquals(128L, snapshot.directHighAirCellFastBlocks());
-        assertEquals(1L, snapshot.directSolidCellBulkWrites());
-        assertEquals(2L, snapshot.densityClassifierHits());
-        assertEquals(1L, snapshot.densityClassifierScanFallbacks());
-        assertEquals(3L, snapshot.densitySummaryIntegrated());
-        assertEquals(4L, snapshot.densitySummaryScanFallbacks());
-        assertEquals(5L, snapshot.densitySummaryFastFailures());
-        assertEquals(6L, snapshot.directHighAirSurfaceFastCells());
-        assertEquals(768L, snapshot.directHighAirSurfaceFastBlocks());
-        assertEquals(7L, snapshot.fusedTerrainChunks());
-        assertEquals(8L, snapshot.directCellAvailableChunks());
-        assertEquals(9L, snapshot.directCellMissingChunks());
-        assertTrue(snapshot.summary().contains("positiveDensityOreFastSamples=2"));
-        assertTrue(snapshot.summary().contains("negativeGlobalFluidFastSamples=1"));
-        assertTrue(snapshot.summary().contains("highAirCellFastBlocks=128"));
-        assertTrue(snapshot.summary().contains("densityClassifierHits=2"));
-        assertTrue(snapshot.summary().contains("densitySummaryIntegrated=3"));
-        assertTrue(snapshot.summary().contains("highAirSurfaceFastBlocks=768"));
-        assertTrue(snapshot.summary().contains("directCellAvailableChunks=8"));
+        assertEquals(4L, snapshot.slowSamples());
+        assertEquals(10L, snapshot.updateYCalls());
+        assertEquals(11L, snapshot.updateXCalls());
+        assertEquals(12L, snapshot.updateZCalls());
+        assertEquals(13L, snapshot.selectCellCalls());
+        assertEquals(3L, snapshot.selectCellMillis());
+        assertEquals(2L, snapshot.eagerCellFills());
+        assertTrue(snapshot.summary().contains("slowSamples=4"));
+        assertTrue(snapshot.summary().contains("selectCellCalls=13"));
+        assertTrue(snapshot.summary().contains("eagerCellFills=2"));
     }
 }

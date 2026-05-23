@@ -6,6 +6,7 @@ import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspac
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -606,7 +607,9 @@ public final class GAScheduler {
 
         try {
             if (throttled) {
-                GOVERNOR_WAIT_NANOS.addAndGet(Lane.COMPILE.ordinal(), System.nanoTime() - waitStart);
+                long waited = System.nanoTime() - waitStart;
+                GOVERNOR_WAIT_NANOS.addAndGet(Lane.COMPILE.ordinal(), waited);
+                GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.SCHEDULER_WAIT_IDLE, waited);
             }
             return runMeasured(Lane.COMPILE, supplier);
         } finally {
@@ -646,7 +649,9 @@ public final class GAScheduler {
             }
         }
         if (throttled) {
-            GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), System.nanoTime() - waitStart);
+            long waited = System.nanoTime() - waitStart;
+            GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), waited);
+            GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.SCHEDULER_WAIT_IDLE, waited);
         }
         return runMeasured(lane, supplier);
     }

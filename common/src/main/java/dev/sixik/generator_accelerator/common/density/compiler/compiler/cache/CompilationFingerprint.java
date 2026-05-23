@@ -100,7 +100,6 @@ public final class CompilationFingerprint {
         d.update((byte) (BlendedNoiseByteEmitter.WRAP_AXIS_INLINE_ENABLED ? 1 : 0));
         d.update((byte) (Codegen.JAVA_NOISE_KERNEL_ENABLED ? 1 : 0));
         d.update((byte) (Codegen.JAVA_BLENDED_KERNEL_ENABLED ? 1 : 0));
-        d.update((byte) (Codegen.CELL_FILL_SUMMARY_OVERRIDE_ENABLED ? 1 : 0));
     }
 
     public static String stableClassSuffix(byte[] sha256) {

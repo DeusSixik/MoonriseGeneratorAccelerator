@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.flat_block_structure.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.flat_block_structure.FlatBlockArrayMetrics;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -76,6 +77,16 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     private static final int bts$PACK_STARTED_ONLY_AIR_BITS = Math.max(4, Math.min(8,
             Integer.getInteger("ga.flatBlockArray.packStartedOnlyAirBits", 6)));
     @Unique
+    private static final boolean bts$PACK_STARTED_ONLY_AIR_RECOMPUTE_COUNTERS = Boolean.parseBoolean(System.getProperty(
+            "ga.flatBlockArray.packStartedOnlyAirRecomputeCounters",
+            "true"
+    ));
+    @Unique
+    private static final boolean bts$RAW_DIRECT_DIRTY_INDEX = Boolean.parseBoolean(System.getProperty(
+            "ga.flatBlockArray.rawDirectDirtyIndex.enabled",
+            "false"
+    ));
+    @Unique
     private static final int bts$RAW_DIRTY_INDEX_PREALLOC = Math.max(0, Math.min(
             bts$RAW_DIRTY_INDEX_POOL_MAX,
             Integer.getInteger("ga.flatBlockArray.rawDirtyPoolPrealloc", bts$RAW_DIRTY_INDEX_POOL_MAX)
@@ -98,25 +109,40 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
      */
     @Override
     public int @Nullable [] bts$getRawBlockData() {
-        return bts$rawBlockData;
+        int[] raw = this.bts$rawBlockData;
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawData(raw != null);
+        }
+        return raw;
     }
 
     @Override
     public boolean bts$setRawBlockStateForGeneration(int index, int stateId) {
         int[] raw = this.bts$rawBlockData;
         if (raw == null) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawWriteMiss();
+            }
             return false;
         }
 
         int oldId = raw[index];
         if (oldId == stateId) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawWriteHit(false);
+            }
             return true;
         }
 
         raw[index] = stateId;
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawWriteHit(true);
+        }
         this.bts$updateRawLightEmissionCount(oldId, stateId);
         if (this.bts$rawStartedOnlyAir) {
-            if (!this.bts$rawDirtyOverflow) {
+            if (bts$RAW_DIRECT_DIRTY_INDEX) {
+                this.bts$recordRawDirtyIndex(index, oldId, stateId);
+            } else if (!this.bts$rawDirtyOverflow) {
                 this.bts$rawDirtyOverflow = true;
             }
             if (oldId == bts$AIR_STATE_ID && stateId != bts$AIR_STATE_ID) {
@@ -128,6 +154,67 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
         this.bts$updateCountsById(oldId, stateId);
         return true;
+    }
+
+    @Override
+    public int bts$setRawBlockStateStartedOnlyAirNoCountersForGeneration(int index, int stateId) {
+        int[] raw = this.bts$rawBlockData;
+        if (raw == null || !this.bts$rawStartedOnlyAir) {
+            if (raw == null && FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawWriteMiss();
+            }
+            return -1;
+        }
+
+        int oldId = raw[index];
+        if (oldId == stateId) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawWriteHit(false);
+            }
+            return 0;
+        }
+        if (oldId != bts$AIR_STATE_ID || stateId == bts$AIR_STATE_ID) {
+            return -1;
+        }
+
+        raw[index] = stateId;
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawWriteHit(true);
+        }
+        if (bts$RAW_DIRECT_DIRTY_INDEX) {
+            this.bts$recordRawDirtyIndex(index, oldId, stateId);
+        } else if (!this.bts$rawDirtyOverflow) {
+            this.bts$rawDirtyOverflow = true;
+        }
+        return 1;
+    }
+
+    @Override
+    public boolean bts$isRawStartedOnlyAirForGeneration() {
+        return this.bts$rawBlockData != null && this.bts$rawStartedOnlyAir;
+    }
+
+    @Override
+    public void bts$commitRawStartedOnlyAirGenerationWrites(
+            int nonEmptyBlockCount,
+            int tickingBlockCount,
+            int tickingFluidCount,
+            int lightEmissionCount,
+            int writtenBlocks
+    ) {
+        if (writtenBlocks <= 0 || this.bts$rawBlockData == null || !this.bts$rawStartedOnlyAir) {
+            return;
+        }
+        this.nonEmptyBlockCount = (short) Math.min(bts$RAW_BLOCK_DATA_LENGTH, this.nonEmptyBlockCount + nonEmptyBlockCount);
+        this.tickingBlockCount = (short) Math.min(bts$RAW_BLOCK_DATA_LENGTH, this.tickingBlockCount + tickingBlockCount);
+        this.tickingFluidCount = (short) Math.min(bts$RAW_BLOCK_DATA_LENGTH, this.tickingFluidCount + tickingFluidCount);
+        this.bts$rawLightEmissionCount = Math.min(
+                bts$RAW_BLOCK_DATA_LENGTH,
+                this.bts$rawLightEmissionCount + lightEmissionCount
+        );
+        if (!bts$RAW_DIRECT_DIRTY_INDEX && !this.bts$rawDirtyOverflow) {
+            this.bts$rawDirtyOverflow = true;
+        }
     }
 
     @Override
@@ -198,6 +285,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
 
         if (changed == 0) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordFill(touched, changed);
+            }
             return true;
         }
 
@@ -212,6 +302,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         this.bts$rawLightEmissionCount += (newLight ? changed : 0) - removedLight;
         if (this.bts$rawStartedOnlyAir) {
             this.bts$rawDirtyOverflow = true;
+        }
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordFill(touched, changed);
         }
         return true;
     }
@@ -232,6 +325,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
 
         System.arraycopy(source, sourceOffset, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordCopy(false);
+        }
         this.bts$rawStartedOnlyAir = false;
         this.bts$rawDirtyOverflow = true;
         this.bts$rawDirtyIndexCount = 0;
@@ -258,6 +354,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         }
 
         System.arraycopy(source, sourceOffset, raw, 0, bts$RAW_BLOCK_DATA_LENGTH);
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordCopy(true);
+        }
         this.bts$rawStartedOnlyAir = false;
         this.bts$rawDirtyOverflow = true;
         this.bts$rawDirtyIndexCount = 0;
@@ -276,8 +375,15 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
      */
     @Override
     public void bts$unpackForGeneration() {
-        if (this.bts$rawBlockData != null) return;
+        if (this.bts$rawBlockData != null) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordUnpackSkip();
+            }
+            return;
+        }
 
+        long metricsStart = FlatBlockArrayMetrics.ENABLED ? FlatBlockArrayMetrics.startTimer() : 0L;
+        try {
         int[] raw = bts$acquireRawBlockData();
         this.bts$rawBlockData = raw;
         this.bts$releaseRawDirtyIndices();
@@ -307,6 +413,11 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
                 }
             }
         }
+        } finally {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordUnpack(metricsStart);
+            }
+        }
     }
 
     /**
@@ -317,15 +428,25 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Override
     public void bts$packAndFreeze() {
         int[] raw = this.bts$rawBlockData;
-        if (raw == null) return;
+        if (raw == null) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordPackSkip();
+            }
+            return;
+        }
 
+        long metricsStart = FlatBlockArrayMetrics.ENABLED ? FlatBlockArrayMetrics.startTimer() : 0L;
+        boolean startedOnlyAir = this.bts$rawStartedOnlyAir;
         try {
-            if (this.bts$rawStartedOnlyAir) {
+            if (startedOnlyAir) {
                 this.bts$packStartedOnlyAir(raw);
             } else {
                 this.bts$packFullSection(raw);
             }
         } finally {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordPack(metricsStart, startedOnlyAir);
+            }
             this.bts$rawStartedOnlyAir = false;
             this.bts$rawBlockData = null;
             this.bts$rawDirtyIndexCount = 0;
@@ -338,6 +459,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
     @Unique
     private void bts$packFullSection(int[] raw) {
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordFullSectionScan();
+        }
         states.acquire();
         try {
             short nonAir = 0;
@@ -393,10 +517,52 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             if (dirtyIndices == null || this.bts$rawDirtyIndexCount == 0) {
                 return;
             }
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordStartedOnlyAirDirtyPack();
+            }
             this.bts$packStartedOnlyAirDirty(raw, dirtyIndices, this.bts$rawDirtyIndexCount);
             return;
         }
 
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordStartedOnlyAirFullScanPack();
+        }
+        if (bts$PACK_STARTED_ONLY_AIR_RECOMPUTE_COUNTERS) {
+            this.bts$packStartedOnlyAirRecomputeCounters(raw);
+            return;
+        }
+
+        BlockState lastState = Blocks.AIR.defaultBlockState();
+        int lastStateIndex = -1;
+        boolean acquired = false;
+
+        try {
+            for (int i = 0; i < bts$RAW_BLOCK_DATA_LENGTH; i++) {
+                int stateId = raw[i];
+                if (stateId == bts$AIR_STATE_ID) {
+                    continue;
+                }
+                if (lastStateIndex != stateId) {
+                    lastStateIndex = stateId;
+                    lastState = FastBlockStateCache.getBlockState(stateId);
+                }
+
+                if (!acquired) {
+                    states.acquire();
+                    acquired = true;
+                    this.states.onResize(bts$PACK_STARTED_ONLY_AIR_BITS, lastState);
+                }
+                this.states.set(i, lastState);
+            }
+        } finally {
+            if (acquired) {
+                states.release();
+            }
+        }
+    }
+
+    @Unique
+    private void bts$packStartedOnlyAirRecomputeCounters(int[] raw) {
         short nonAir = 0;
         short tickBlocks = 0;
         short tickFluids = 0;
@@ -438,10 +604,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
                     }
                 }
 
-                if (!lastFluidEmpty) {
-                    if (lastFluidTicking) {
-                        tickFluids++;
-                    }
+                if (!lastFluidEmpty && lastFluidTicking) {
+                    tickFluids++;
                 }
             }
 
@@ -490,11 +654,17 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     private static int[] bts$acquireRawBlockData() {
         int[] raw = bts$RAW_BLOCK_DATA_POOL.poll();
         if (raw == null) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawPoolMiss();
+            }
             raw = new int[bts$RAW_BLOCK_DATA_LENGTH];
             if (bts$AIR_STATE_ID != 0) {
                 Arrays.fill(raw, bts$AIR_STATE_ID);
             }
             return raw;
+        }
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawPoolHit();
         }
         Arrays.fill(raw, bts$AIR_STATE_ID);
         return raw;
@@ -506,18 +676,33 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             return;
         }
         bts$RAW_BLOCK_DATA_POOL.offer(raw);
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawPoolRelease();
+        }
     }
 
     @Unique
     private static short[] bts$acquireRawDirtyIndices() {
         short[] indices = bts$RAW_DIRTY_INDEX_POOL.poll();
-        return indices == null ? new short[bts$RAW_BLOCK_DATA_LENGTH] : indices;
+        if (indices == null) {
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawDirtyPoolMiss();
+            }
+            return new short[bts$RAW_BLOCK_DATA_LENGTH];
+        }
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordRawDirtyPoolHit();
+        }
+        return indices;
     }
 
     @Unique
     private static void bts$releaseRawDirtyIndices(short[] indices) {
         if (indices.length == bts$RAW_BLOCK_DATA_LENGTH) {
             bts$RAW_DIRTY_INDEX_POOL.offer(indices);
+            if (FlatBlockArrayMetrics.ENABLED) {
+                FlatBlockArrayMetrics.recordRawDirtyPoolRelease();
+            }
         }
     }
 
@@ -664,6 +849,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
 
     @Unique
     private void bts$recomputeRawCounters(int[] raw) {
+        if (FlatBlockArrayMetrics.ENABLED) {
+            FlatBlockArrayMetrics.recordFullSectionScan();
+        }
         short nonAir = 0;
         short tickBlocks = 0;
         short tickFluids = 0;

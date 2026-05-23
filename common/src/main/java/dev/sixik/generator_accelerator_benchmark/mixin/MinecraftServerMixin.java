@@ -3,8 +3,11 @@ package dev.sixik.generator_accelerator_benchmark.mixin;
 import com.mojang.authlib.GameProfile;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.common.flat_block_structure.FlatBlockArrayMetrics;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.structures.StructureStartMetrics;
 import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -122,6 +125,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             if (DecorationPipelineMetrics.ENABLED) {
                 DecorationPipelineMetrics.reset();
             }
+            GAWallTimeTelemetry.reset();
+            FlatBlockArrayMetrics.reset();
+            StructureStartMetrics.reset();
             GADiagnostics.resetBaseline();
             if (Boolean.getBoolean("ga.diagnostics.jfr")) {
                 GADiagnostics.restartRecording(
@@ -189,6 +195,15 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             }
             if (GANoiseFillMetrics.ENABLED) {
                 MainBenchmark.log(GANoiseFillMetrics.summary());
+            }
+            if (GAWallTimeTelemetry.enabled()) {
+                MainBenchmark.log(GAWallTimeTelemetry.summary());
+            }
+            if (FlatBlockArrayMetrics.ENABLED) {
+                MainBenchmark.log(FlatBlockArrayMetrics.summary());
+            }
+            if (StructureStartMetrics.ENABLED) {
+                MainBenchmark.log(StructureStartMetrics.summary());
             }
             Path diagnosticsPath = GADiagnostics.writeBenchmarkDump(
                     "benchmark-finished",
@@ -369,6 +384,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         benchmark.put("elapsedMs", elapsedMs);
         benchmark.put("generatedBatches", this.generatedBatches);
         benchmark.put("tickCounter", this.tickCounter);
+        benchmark.put("wallTimeTelemetry", GAWallTimeTelemetry.enabled());
+        benchmark.put("flatBlockArrayMetrics", FlatBlockArrayMetrics.ENABLED);
+        benchmark.put("structureStartMetrics", StructureStartMetrics.ENABLED);
         return benchmark;
     }
 

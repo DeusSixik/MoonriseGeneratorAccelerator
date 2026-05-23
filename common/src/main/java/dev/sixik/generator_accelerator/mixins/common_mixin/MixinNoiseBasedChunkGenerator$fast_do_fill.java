@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
-import dev.sixik.generator_accelerator.common.noise.GAFusedTerrainNoiseChunkAccess;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
@@ -11,6 +10,7 @@ import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspac
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkAccessAccessor;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
@@ -48,6 +48,11 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             "ga.chunkWorkspace.terrain.sectionOnlyDirty.enabled",
             Boolean.toString(GA$CONFIG.enableWorkspaceTerrainSectionOnlyDirtyTracking)
     ));
+    @Unique
+    private static final boolean GA$SECTION_LOCAL_RAW_COUNTERS = Boolean.parseBoolean(System.getProperty(
+            "ga.noiseFill.sectionLocalRawCounters.enabled",
+            "true"
+    ));
     @Shadow
     @Final
     private Holder<NoiseGeneratorSettings> settings;
@@ -78,36 +83,20 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
     ) {
         final boolean metricsEnabled = GANoiseFillMetrics.ENABLED;
         final long doFillStart = GANoiseFillMetrics.startTimer();
-        long metricDirectAttempts = 0L;
-        long metricDirectSolidHits = 0L;
-        long metricDirectAirHits = 0L;
-        long metricDirectFallbackUnavailable = 0L;
-        long metricDirectFallbackOre = 0L;
-        long metricDirectFallbackNonSolid = 0L;
-        long metricDirectFallbackOob = 0L;
-        long metricDirectFallbackOther = 0L;
         long metricSlowSamples = 0L;
-        long metricFusedFallbacksToVanilla = 0L;
         long metricUpdateYCalls = 0L;
         long metricUpdateXCalls = 0L;
         long metricUpdateZCalls = 0L;
-        long metricSkippedY = 0L;
-        long metricSkippedX = 0L;
-        long metricSkippedZ = 0L;
         long metricSelectCellCalls = 0L;
         long metricSelectCellNanos = 0L;
-        long metricPositiveDensityOreFastSamples = 0L;
-        long metricDirectSolidCellFastCells = 0L;
-        long metricDirectSolidCellFastBlocks = 0L;
-        long metricNegativeGlobalFluidFastSamples = 0L;
-        long metricHighAirCellFastCells = 0L;
-        long metricHighAirCellFastBlocks = 0L;
-        long metricGlobalLavaCellFastCells = 0L;
-        long metricGlobalLavaCellFastBlocks = 0L;
-        long metricSolidCellBulkWrites = 0L;
-        long metricDensityClassifierHits = 0L;
-        long metricDensityClassifierScanFallbacks = 0L;
+        long metricAquiferScheduleChecks = 0L;
+        long metricNonAirSamples = 0L;
+        long metricSectionLocalRawCommits = 0L;
+        long metricSectionLocalRawWrites = 0L;
+        long metricSectionLocalRawFallbacks = 0L;
+        final long wallTelemetryStart = GAWallTimeTelemetry.start(GAWallTimeTelemetry.Stage.NOISE_DO_FILL);
 
+        try {
         NoiseChunk noiseChunk = chunkAccess.getOrCreateNoiseChunk(
                 chunk -> this.createNoiseChunk(chunk, structureManager, blender, randomState)
         );
@@ -135,13 +124,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         int defaultBlockId = GA$BlockStateExtension.get(defaultBlock).bts$getFastId();
         BlockState air = Blocks.AIR.defaultBlockState();
         int airBlockId = GA$BlockStateExtension.get(air).bts$getFastId();
-        GAFusedTerrainNoiseChunkAccess fusedTerrain = noiseChunk instanceof GAFusedTerrainNoiseChunkAccess access
-                && access.ga$fusedTerrainAvailable() ? access : null;
-        if (metricsEnabled) {
-            if (fusedTerrain != null) {
-                GANoiseFillMetrics.increment(GANoiseFillMetrics.FUSED_TERRAIN_CHUNKS);
-            }
-        }
         long worldSurfaceDone0 = 0L;
         long worldSurfaceDone1 = 0L;
         long worldSurfaceDone2 = 0L;
@@ -182,6 +164,21 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                 && directFluidEmptyStates != null
                 && directTickingFluidStates != null
                 && directLightStates != null;
+        boolean sectionLocalRawCountersEnabled = GA$SECTION_LOCAL_RAW_COUNTERS && !workspaceTerrainWrites;
+        boolean[] sectionLocalEmptyStates = sectionLocalRawCountersEnabled ? FastBlockStateCache.EMPTY_STATES : null;
+        boolean[] sectionLocalTickingBlockStates = sectionLocalRawCountersEnabled
+                ? FastBlockStateCache.RANDOM_TICKING_BLOCK_STATES
+                : null;
+        boolean[] sectionLocalFluidEmptyStates = sectionLocalRawCountersEnabled ? FastBlockStateCache.FLUID_EMPTY_STATES : null;
+        boolean[] sectionLocalTickingFluidStates = sectionLocalRawCountersEnabled
+                ? FastBlockStateCache.RANDOM_TICKING_FLUID_STATES
+                : null;
+        boolean[] sectionLocalLightStates = sectionLocalRawCountersEnabled ? FastBlockStateCache.LIGHT_EMITTING_STATES : null;
+        boolean sectionLocalStateCachesReady = sectionLocalEmptyStates != null
+                && sectionLocalTickingBlockStates != null
+                && sectionLocalFluidEmptyStates != null
+                && sectionLocalTickingFluidStates != null
+                && sectionLocalLightStates != null;
         long workspaceTerrainWriteCount = 0L;
         long workspacePreparedTerrainSections = 0L;
 
@@ -194,6 +191,14 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                 LevelChunkSection section = workspaceTerrainWrites ? null : chunkAccess.getSection(sectionIndex);
                 LevelChunkSection$FlatBlockArray flatSection = section == null ? null : LevelChunkSection$FlatBlockArray.get(section);
                 int loadedSectionIndex = section == null ? Integer.MIN_VALUE : sectionIndex;
+                boolean sectionLocalRawWriter = sectionLocalRawCountersEnabled
+                        && flatSection != null
+                        && flatSection.bts$isRawStartedOnlyAirForGeneration();
+                int sectionLocalNonEmpty = 0;
+                int sectionLocalTickingBlocks = 0;
+                int sectionLocalTickingFluids = 0;
+                int sectionLocalLight = 0;
+                int sectionLocalWrites = 0;
                 int baseBlockZ = minBlockZ + cellZ * cellWidth;
 
                 for (int cellY = cellCountY - 1; cellY >= 0; --cellY) {
@@ -211,11 +216,31 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         boolean updatedY = false;
                         int newSectionIndex = chunkAccess.getSectionIndex(blockY);
                         if (sectionIndex != newSectionIndex) {
+                            if (sectionLocalRawWriter && sectionLocalWrites > 0) {
+                                flatSection.bts$commitRawStartedOnlyAirGenerationWrites(
+                                        sectionLocalNonEmpty,
+                                        sectionLocalTickingBlocks,
+                                        sectionLocalTickingFluids,
+                                        sectionLocalLight,
+                                        sectionLocalWrites
+                                );
+                                if (metricsEnabled) {
+                                    metricSectionLocalRawCommits++;
+                                    metricSectionLocalRawWrites += sectionLocalWrites;
+                                }
+                                sectionLocalNonEmpty = 0;
+                                sectionLocalTickingBlocks = 0;
+                                sectionLocalTickingFluids = 0;
+                                sectionLocalLight = 0;
+                                sectionLocalWrites = 0;
+                            }
                             sectionIndex = newSectionIndex;
                             if (!workspaceTerrainWrites) {
                                 section = chunkAccess.getSection(sectionIndex);
                                 flatSection = LevelChunkSection$FlatBlockArray.get(section);
                                 loadedSectionIndex = sectionIndex;
+                                sectionLocalRawWriter = sectionLocalRawCountersEnabled
+                                        && flatSection.bts$isRawStartedOnlyAirForGeneration();
                             }
                         }
 
@@ -252,30 +277,16 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                     metricSlowSamples++;
                                 }
 
-                                if (fusedTerrain != null) {
-                                    long packedState = fusedTerrain.ga$sampleFusedTerrainPackedBlockId(
-                                            defaultBlockId,
-                                            blockX,
-                                            blockY,
-                                            blockZ
-                                    );
-                                    if (GAFusedTerrainNoiseChunkAccess.ga$packedFallback(packedState)) {
-                                        fusedTerrain = null;
-                                        if (metricsEnabled) {
-                                            metricFusedFallbacksToVanilla++;
-                                        }
-                                        stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                        scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
-                                    } else {
-                                        stateId = GAFusedTerrainNoiseChunkAccess.ga$packedBlockId(packedState);
-                                        scheduleFluidUpdate = GAFusedTerrainNoiseChunkAccess.ga$packedScheduleFluidUpdate(packedState);
-                                    }
-                                } else {
-                                    stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
-                                    scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                stateId = ga$sampleInterpolatedStateId(noiseChunk, defaultBlockId);
+                                scheduleFluidUpdate = aquifer.shouldScheduleFluidUpdate();
+                                if (metricsEnabled) {
+                                    metricAquiferScheduleChecks++;
                                 }
                                 if (stateId == airBlockId || debugVoidTerrain) {
                                     continue;
+                                }
+                                if (metricsEnabled) {
+                                    metricNonAirSamples++;
                                 }
 
                                 int columnIndex = (localZ << 4) | localX;
@@ -361,16 +372,80 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                     workspaceTerrainWriteCount++;
                                 } else {
                                     if (section == null || loadedSectionIndex != sectionIndex) {
+                                        if (sectionLocalRawWriter && sectionLocalWrites > 0) {
+                                            flatSection.bts$commitRawStartedOnlyAirGenerationWrites(
+                                                    sectionLocalNonEmpty,
+                                                    sectionLocalTickingBlocks,
+                                                    sectionLocalTickingFluids,
+                                                    sectionLocalLight,
+                                                    sectionLocalWrites
+                                            );
+                                            if (metricsEnabled) {
+                                                metricSectionLocalRawCommits++;
+                                                metricSectionLocalRawWrites += sectionLocalWrites;
+                                            }
+                                            sectionLocalNonEmpty = 0;
+                                            sectionLocalTickingBlocks = 0;
+                                            sectionLocalTickingFluids = 0;
+                                            sectionLocalLight = 0;
+                                            sectionLocalWrites = 0;
+                                        }
                                         section = chunkAccess.getSection(sectionIndex);
                                         flatSection = LevelChunkSection$FlatBlockArray.get(section);
                                         loadedSectionIndex = sectionIndex;
+                                        sectionLocalRawWriter = sectionLocalRawCountersEnabled
+                                                && flatSection.bts$isRawStartedOnlyAirForGeneration();
                                     }
                                     int localIndex = (localY << 8) | (localZ << 4) | localX;
-                                    if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
-                                        BlockState blockState = stateId == defaultBlockId
-                                                ? defaultBlock
-                                                : FastBlockStateCache.getBlockState(stateId);
-                                        section.setBlockState(localX, localY, localZ, blockState, false);
+                                    int rawWriteResult = sectionLocalRawWriter
+                                            ? flatSection.bts$setRawBlockStateStartedOnlyAirNoCountersForGeneration(
+                                                    localIndex,
+                                                    stateId
+                                            )
+                                            : -1;
+                                    if (rawWriteResult > 0) {
+                                        sectionLocalWrites++;
+                                        if (sectionLocalStateCachesReady
+                                                && stateId >= 0
+                                                && stateId < sectionLocalEmptyStates.length) {
+                                            if (!sectionLocalEmptyStates[stateId]) {
+                                                sectionLocalNonEmpty++;
+                                                if (sectionLocalTickingBlockStates[stateId]) {
+                                                    sectionLocalTickingBlocks++;
+                                                }
+                                            }
+                                            if (!sectionLocalFluidEmptyStates[stateId]
+                                                    && sectionLocalTickingFluidStates[stateId]) {
+                                                sectionLocalTickingFluids++;
+                                            }
+                                            if (sectionLocalLightStates[stateId]) {
+                                                sectionLocalLight++;
+                                            }
+                                        } else {
+                                            if (!FastBlockStateCache.isEmpty(stateId)) {
+                                                sectionLocalNonEmpty++;
+                                                if (FastBlockStateCache.isRandomlyTickingBlock(stateId)) {
+                                                    sectionLocalTickingBlocks++;
+                                                }
+                                            }
+                                            if (!FastBlockStateCache.isFluidEmpty(stateId)
+                                                    && FastBlockStateCache.isRandomlyTickingFluid(stateId)) {
+                                                sectionLocalTickingFluids++;
+                                            }
+                                            if (FastBlockStateCache.hasLightEmission(stateId)) {
+                                                sectionLocalLight++;
+                                            }
+                                        }
+                                    } else if (rawWriteResult < 0) {
+                                        if (sectionLocalRawWriter && metricsEnabled) {
+                                            metricSectionLocalRawFallbacks++;
+                                        }
+                                        if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
+                                            BlockState blockState = stateId == defaultBlockId
+                                                    ? defaultBlock
+                                                    : FastBlockStateCache.getBlockState(stateId);
+                                            section.setBlockState(localX, localY, localZ, blockState, false);
+                                        }
                                     }
                                 }
 
@@ -424,6 +499,19 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                         }
                     }
                 }
+                if (sectionLocalRawWriter && sectionLocalWrites > 0) {
+                    flatSection.bts$commitRawStartedOnlyAirGenerationWrites(
+                            sectionLocalNonEmpty,
+                            sectionLocalTickingBlocks,
+                            sectionLocalTickingFluids,
+                            sectionLocalLight,
+                            sectionLocalWrites
+                    );
+                    if (metricsEnabled) {
+                        metricSectionLocalRawCommits++;
+                        metricSectionLocalRawWrites += sectionLocalWrites;
+                    }
+                }
             }
             noiseChunk.swapSlices();
         }
@@ -452,49 +540,22 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         if (metricsEnabled) {
             GANoiseFillMetrics.increment(GANoiseFillMetrics.DO_FILL_CHUNKS);
             GANoiseFillMetrics.addElapsed(GANoiseFillMetrics.DO_FILL_NANOS, doFillStart);
-            if (fusedTerrain != null || metricDirectAttempts > 0L) {
-                GANoiseFillMetrics.increment(GANoiseFillMetrics.DIRECT_ELIGIBLE_CHUNKS);
-            }
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_ATTEMPTS, metricDirectAttempts);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_HITS, metricDirectSolidHits);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_AIR_HITS, metricDirectAirHits);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_UNAVAILABLE, metricDirectFallbackUnavailable);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_ORE_VEIN_RANGE, metricDirectFallbackOre);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_NON_SOLID, metricDirectFallbackNonSolid);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_OOB, metricDirectFallbackOob);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_FALLBACK_OTHER, metricDirectFallbackOther);
             GANoiseFillMetrics.add(GANoiseFillMetrics.SLOW_SAMPLES, metricSlowSamples);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.FUSED_FALLBACKS_TO_VANILLA, metricFusedFallbacksToVanilla);
             GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Y_CALLS, metricUpdateYCalls);
             GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_X_CALLS, metricUpdateXCalls);
             GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Z_CALLS, metricUpdateZCalls);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Y_SKIPPED_BY_DIRECT, metricSkippedY);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_X_SKIPPED_BY_DIRECT, metricSkippedX);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.UPDATE_Z_SKIPPED_BY_DIRECT, metricSkippedZ);
             GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_CALLS, metricSelectCellCalls);
             GANoiseFillMetrics.add(GANoiseFillMetrics.SELECT_CELL_NANOS, metricSelectCellNanos);
-            GANoiseFillMetrics.add(
-                    GANoiseFillMetrics.POSITIVE_DENSITY_ORE_FAST_SAMPLES,
-                    metricPositiveDensityOreFastSamples
-            );
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_FAST_CELLS, metricDirectSolidCellFastCells);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_FAST_BLOCKS, metricDirectSolidCellFastBlocks);
-            GANoiseFillMetrics.add(
-                    GANoiseFillMetrics.DIRECT_NEGATIVE_GLOBAL_FLUID_FAST_SAMPLES,
-                    metricNegativeGlobalFluidFastSamples
-            );
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_CELLS, metricHighAirCellFastCells);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_HIGH_AIR_CELL_FAST_BLOCKS, metricHighAirCellFastBlocks);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_CELLS, metricGlobalLavaCellFastCells);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_GLOBAL_LAVA_CELL_FAST_BLOCKS, metricGlobalLavaCellFastBlocks);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.DIRECT_SOLID_CELL_BULK_WRITES, metricSolidCellBulkWrites);
-            GANoiseFillMetrics.add(GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_HITS, metricDensityClassifierHits);
-            GANoiseFillMetrics.add(
-                    GANoiseFillMetrics.CELL_DENSITY_CLASSIFIER_SCAN_FALLBACKS,
-                    metricDensityClassifierScanFallbacks
-            );
+            GANoiseFillMetrics.add(GANoiseFillMetrics.AQUIFER_SCHEDULE_CHECKS, metricAquiferScheduleChecks);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.NON_AIR_SAMPLES, metricNonAirSamples);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SECTION_LOCAL_RAW_COMMITS, metricSectionLocalRawCommits);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SECTION_LOCAL_RAW_WRITES, metricSectionLocalRawWrites);
+            GANoiseFillMetrics.add(GANoiseFillMetrics.SECTION_LOCAL_RAW_FALLBACKS, metricSectionLocalRawFallbacks);
         }
         return chunkAccess;
+        } finally {
+            GAWallTimeTelemetry.end(GAWallTimeTelemetry.Stage.NOISE_DO_FILL, wallTelemetryStart);
+        }
     }
 
     @Unique
@@ -503,149 +564,6 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
         return blockState == null ? defaultBlockId : GA$BlockStateExtension.get(blockState).bts$getFastId();
     }
 
-    @Unique
-    private static boolean ga$tryFillRawCell(
-            ChunkAccess chunkAccess,
-            int baseBlockX,
-            int cellMinBlockY,
-            int baseBlockZ,
-            int cellWidth,
-            int cellHeight,
-            int stateId
-    ) {
-        int localMinX = baseBlockX & 15;
-        int localMaxX = localMinX + cellWidth;
-        int localMinZ = baseBlockZ & 15;
-        int localMaxZ = localMinZ + cellWidth;
-        int cellMaxBlockY = cellMinBlockY + cellHeight;
-
-        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
-            int sectionIndex = chunkAccess.getSectionIndex(y);
-            int sectionTopY = (y & ~15) + 16;
-            int toY = Math.min(cellMaxBlockY, sectionTopY);
-            LevelChunkSection section = chunkAccess.getSection(sectionIndex);
-            if (LevelChunkSection$FlatBlockArray.rawData(section) == null) {
-                return false;
-            }
-            y = toY;
-        }
-
-        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
-            int sectionIndex = chunkAccess.getSectionIndex(y);
-            int sectionTopY = (y & ~15) + 16;
-            int toY = Math.min(cellMaxBlockY, sectionTopY);
-            LevelChunkSection section = chunkAccess.getSection(sectionIndex);
-            LevelChunkSection$FlatBlockArray flatSection = LevelChunkSection$FlatBlockArray.get(section);
-            if (!flatSection.bts$fillRawBlockStateBoxForGeneration(
-                    localMinX,
-                    localMaxX,
-                    y & 15,
-                    (toY - 1 & 15) + 1,
-                    localMinZ,
-                    localMaxZ,
-                    stateId
-            )) {
-                return false;
-            }
-            y = toY;
-        }
-        return true;
-    }
-
-    @Unique
-    private static int ga$tryFillWorkspaceCell(
-            ChunkAccess chunkAccess,
-            GAChunkWorkspace workspace,
-            int[] workspaceBlockIds,
-            int[] writesBySection,
-            int[] nonEmptyBySection,
-            int[] tickingBlocksBySection,
-            int[] tickingFluidsBySection,
-            int[] lightBySection,
-            boolean[] emptyStates,
-            boolean[] tickingBlockStates,
-            boolean[] fluidEmptyStates,
-            boolean[] tickingFluidStates,
-            boolean[] lightStates,
-            boolean directStateCachesReady,
-            int baseBlockX,
-            int cellMinBlockY,
-            int baseBlockZ,
-            int cellWidth,
-            int cellHeight,
-            int stateId
-    ) {
-        if (workspace == null || workspaceBlockIds == null || writesBySection == null) {
-            return -1;
-        }
-        int cellMaxBlockY = cellMinBlockY + cellHeight;
-        for (int y = cellMinBlockY; y < cellMaxBlockY; ) {
-            int sectionIndex = chunkAccess.getSectionIndex(y);
-            if (sectionIndex < 0 || sectionIndex >= writesBySection.length
-                    || !workspace.prepareTerrainBlockIdWorkspaceOnlySection(sectionIndex)) {
-                return -1;
-            }
-            int sectionTopY = (y & ~15) + 16;
-            y = Math.min(cellMaxBlockY, sectionTopY);
-        }
-
-        int localMinX = baseBlockX & 15;
-        int localMaxX = localMinX + cellWidth;
-        int localMinZ = baseBlockZ & 15;
-        int localMaxZ = localMinZ + cellWidth;
-        int written = 0;
-        boolean nonEmpty;
-        boolean tickingBlock;
-        boolean fluidEmpty;
-        boolean tickingFluid;
-        boolean light;
-        if (directStateCachesReady && stateId >= 0 && stateId < emptyStates.length) {
-            nonEmpty = !emptyStates[stateId];
-            tickingBlock = tickingBlockStates[stateId];
-            fluidEmpty = fluidEmptyStates[stateId];
-            tickingFluid = tickingFluidStates[stateId];
-            light = lightStates[stateId];
-        } else {
-            nonEmpty = !FastBlockStateCache.isEmpty(stateId);
-            tickingBlock = FastBlockStateCache.isRandomlyTickingBlock(stateId);
-            fluidEmpty = FastBlockStateCache.isFluidEmpty(stateId);
-            tickingFluid = FastBlockStateCache.isRandomlyTickingFluid(stateId);
-            light = FastBlockStateCache.hasLightEmission(stateId);
-        }
-
-        for (int y = cellMinBlockY; y < cellMaxBlockY; y++) {
-            int sectionIndex = chunkAccess.getSectionIndex(y);
-            int rowBase = (y - workspace.minBuildHeight()) << 8;
-            if (rowBase < 0 || rowBase >= workspaceBlockIds.length) {
-                return -1;
-            }
-            int rowWritten = 0;
-            for (int localZ = localMinZ; localZ < localMaxZ; localZ++) {
-                int from = rowBase | (localZ << 4) | localMinX;
-                int to = from + (localMaxX - localMinX);
-                if (from < 0 || to > workspaceBlockIds.length) {
-                    return -1;
-                }
-                Arrays.fill(workspaceBlockIds, from, to, stateId);
-                rowWritten += to - from;
-            }
-            writesBySection[sectionIndex] += rowWritten;
-            if (nonEmpty) {
-                nonEmptyBySection[sectionIndex] += rowWritten;
-                if (tickingBlock) {
-                    tickingBlocksBySection[sectionIndex] += rowWritten;
-                }
-            }
-            if (!fluidEmpty && tickingFluid) {
-                tickingFluidsBySection[sectionIndex] += rowWritten;
-            }
-            if (light) {
-                lightBySection[sectionIndex] += rowWritten;
-            }
-            written += rowWritten;
-        }
-        return written;
-    }
 
     @Unique
     private static boolean ga$isBlockMotionState(int stateId, boolean[] blockMotionStates) {

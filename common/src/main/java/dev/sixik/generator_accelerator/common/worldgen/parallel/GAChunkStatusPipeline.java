@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.parallel;
 
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.world.level.ChunkPos;
@@ -121,7 +122,7 @@ public final class GAChunkStatusPipeline {
         if (!stageEnabled(stage)) {
             INLINE.incrementAndGet(stageIndex);
             try {
-                return CompletableFuture.completedFuture(task.get());
+                return CompletableFuture.completedFuture(runTimed(stage, task));
             } catch (Throwable throwable) {
                 return failedFuture(throwable);
             }
@@ -155,9 +156,11 @@ public final class GAChunkStatusPipeline {
         int stageIndex = stage.ordinal();
         if (!stageEnabled(stage)) {
             INLINE.incrementAndGet(stageIndex);
+            long timer = GAWallTimeTelemetry.start(stage.telemetryStage());
             try {
-                return requireFuture(task.get());
+                return GAWallTimeTelemetry.endWhenComplete(stage.telemetryStage(), timer, requireFuture(task.get()));
             } catch (Throwable throwable) {
+                GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
                 return failedFuture(throwable);
             }
         }
@@ -248,7 +251,7 @@ public final class GAChunkStatusPipeline {
         }
 
         try {
-            return task.get();
+            return runTimed(stage, task);
         } finally {
             releaseRegion(token, scratch);
         }
@@ -261,10 +264,15 @@ public final class GAChunkStatusPipeline {
             Supplier<CompletableFuture<ChunkAccess>> task
     ) {
         GuardLease lease = acquireLease(stage, step, chunk);
+        long timer = GAWallTimeTelemetry.start(stage.telemetryStage());
         try {
             CompletableFuture<ChunkAccess> future = requireFuture(task.get());
-            return future.whenComplete((ignored, failure) -> lease.release());
+            return future.whenComplete((ignored, failure) -> {
+                GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
+                lease.release();
+            });
         } catch (Throwable throwable) {
+            GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
             lease.release();
             throw throwable;
         }
@@ -278,16 +286,23 @@ public final class GAChunkStatusPipeline {
             ChunkCompletionCallback callback
     ) {
         GuardLease lease = acquireLease(stage, step, chunk);
+        long timer = GAWallTimeTelemetry.start(stage.telemetryStage());
         try {
             CompletableFuture<ChunkAccess> future = requireFuture(task.get());
             future.whenComplete((result, failure) -> {
+                GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
                 lease.release();
                 callback.accept(result, failure);
             });
         } catch (Throwable throwable) {
+            GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
             lease.release();
             throw throwable;
         }
+    }
+
+    private static ChunkAccess runTimed(Stage stage, Supplier<ChunkAccess> task) {
+        return GAWallTimeTelemetry.time(stage.telemetryStage(), task);
     }
 
     private static GuardLease acquireLease(Stage stage, ChunkStep step, ChunkAccess chunk) {
@@ -471,22 +486,28 @@ public final class GAChunkStatusPipeline {
     }
 
     public enum Stage {
-        NOISE("noise"),
-        STRUCTURE_STARTS("structure_starts"),
-        STRUCTURE_REFERENCES("structure_references"),
-        SURFACE("surface"),
-        CARVERS("carvers"),
-        FEATURES("features"),
-        SPAWN("spawn");
+        NOISE("noise", GAWallTimeTelemetry.Stage.NOISE),
+        STRUCTURE_STARTS("structure_starts", GAWallTimeTelemetry.Stage.STRUCTURE_STARTS),
+        STRUCTURE_REFERENCES("structure_references", GAWallTimeTelemetry.Stage.STRUCTURE_REFERENCES),
+        SURFACE("surface", GAWallTimeTelemetry.Stage.SURFACE),
+        CARVERS("carvers", GAWallTimeTelemetry.Stage.CARVERS),
+        FEATURES("features", GAWallTimeTelemetry.Stage.FEATURES),
+        SPAWN("spawn", GAWallTimeTelemetry.Stage.SPAWN);
 
         private final String jsonName;
+        private final GAWallTimeTelemetry.Stage telemetryStage;
 
-        Stage(String jsonName) {
+        Stage(String jsonName, GAWallTimeTelemetry.Stage telemetryStage) {
             this.jsonName = jsonName;
+            this.telemetryStage = telemetryStage;
         }
 
         String jsonName() {
             return jsonName;
+        }
+
+        GAWallTimeTelemetry.Stage telemetryStage() {
+            return telemetryStage;
         }
     }
 

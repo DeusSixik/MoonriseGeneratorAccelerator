@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -62,24 +64,28 @@ public final class GAChunkWorkspaceMetrics {
         long positive = Math.max(0L, nanos);
         importNanos += positive;
         GLOBAL_IMPORT_NANOS.addAndGet(positive);
+        GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.WORKSPACE_IMPORT, positive);
     }
 
     public void addComputeNanos(long nanos) {
         long positive = Math.max(0L, nanos);
         computeNanos += positive;
         GLOBAL_COMPUTE_NANOS.addAndGet(positive);
+        GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.WORKSPACE_COMPUTE, positive);
     }
 
     public void addFinalizeNanos(long nanos) {
         long positive = Math.max(0L, nanos);
         finalizeNanos += positive;
         GLOBAL_FINALIZE_NANOS.addAndGet(positive);
+        GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.WORKSPACE_FINALIZE, positive);
     }
 
     public void addRepackNanos(long nanos) {
         long positive = Math.max(0L, nanos);
         repackNanos += positive;
         GLOBAL_REPACK_NANOS.addAndGet(positive);
+        GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.WORKSPACE_REPACK, positive);
     }
 
     public static void incrementImportFailures() {

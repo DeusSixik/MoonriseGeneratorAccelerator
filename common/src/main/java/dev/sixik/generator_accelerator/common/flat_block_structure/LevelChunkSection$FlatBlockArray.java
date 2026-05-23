@@ -35,6 +35,38 @@ public interface LevelChunkSection$FlatBlockArray {
     boolean bts$setRawBlockStateForGeneration(int index, int stateId);
 
     /**
+     * Raw write for started-from-air sections when the caller batches vanilla
+     * counters outside the per-block loop.
+     *
+     * @return {@code 1} when air changed to {@code stateId}, {@code 0} when
+     * the raw slot already held {@code stateId}, or {@code -1} when the caller
+     * must use the normal counted path.
+     */
+    default int bts$setRawBlockStateStartedOnlyAirNoCountersForGeneration(int index, int stateId) {
+        return -1;
+    }
+
+    /**
+     * True when the unpacked raw storage was created from an all-air vanilla
+     * section. Terrain generation can then batch section counters locally.
+     */
+    default boolean bts$isRawStartedOnlyAirForGeneration() {
+        return false;
+    }
+
+    /**
+     * Commit counters accumulated by a section-local raw writer.
+     */
+    default void bts$commitRawStartedOnlyAirGenerationWrites(
+            int nonEmptyBlockCount,
+            int tickingBlockCount,
+            int tickingFluidCount,
+            int lightEmissionCount,
+            int writtenBlocks
+    ) {
+    }
+
+    /**
      * Bulk-fill a local cuboid in raw generation storage. Coordinates are
      * section-local and max bounds are exclusive.
      */

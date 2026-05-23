@@ -12,6 +12,7 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailbo
 import dev.sixik.generator_accelerator.common.worldgen.commit.GAFinalRepackValue;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
+import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 
@@ -69,7 +70,12 @@ public final class GAChunkWorkspaceRuntime {
             return checked;
         }
         return checked.thenApply(chunk -> {
-            drainCrossChunkMailboxIfQueued(chunk);
+            long timer = GAWallTimeTelemetry.start(GAWallTimeTelemetry.Stage.CHUNK_STATUS_HANDOFF);
+            try {
+                drainCrossChunkMailboxIfQueued(chunk);
+            } finally {
+                GAWallTimeTelemetry.end(GAWallTimeTelemetry.Stage.CHUNK_STATUS_HANDOFF, timer);
+            }
             return chunk;
         });
     }

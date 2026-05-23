@@ -4,11 +4,12 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.DfcCompiledMathFallback;
 import dev.sixik.generator_accelerator.common.aquifer.GAAquiferGlobalFluidCellCache;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
+import dev.sixik.generator_accelerator.common.flat_block_structure.FlatBlockArrayMetrics;
 import dev.sixik.generator_accelerator.common.noise.GANoiseFillMetrics;
+import dev.sixik.generator_accelerator.common.structures.StructureStartMetrics;
 import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
@@ -90,6 +91,7 @@ public final class GADiagnostics {
         return commandEnabled
                 || Boolean.getBoolean("ga.diagnostics.enabled")
                 || Boolean.getBoolean("ga.benchmark.diagnostics")
+                || GAWallTimeTelemetry.enabled()
                 || Boolean.getBoolean("ga.diagnostics.jfr");
     }
 
@@ -179,7 +181,6 @@ public final class GADiagnostics {
         GAAquiferGlobalFluidCellCache.resetMetrics();
         SurfaceMetrics.reset();
         DfcCellFillStats.reset();
-        DfcCompiledMathFallback.resetMetrics();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
@@ -190,6 +191,9 @@ public final class GADiagnostics {
         GACommitMetrics.resetGlobal();
         GAChunkWorkspaceMetrics.resetGlobal();
         GAChunkWorkspacePool.resetMetrics();
+        GAWallTimeTelemetry.reset();
+        FlatBlockArrayMetrics.reset();
+        StructureStartMetrics.reset();
         WorldgenOptimizerMetrics.reset();
         GAOuterLifecycleMetrics.resetGlobal();
     }
@@ -204,6 +208,9 @@ public final class GADiagnostics {
         setProperty("ga.featureVm.metrics", "true");
         setProperty("ga.surface.metrics", "true");
         setProperty("ga.noiseFill.metrics", "true");
+        setProperty("ga.wallTimeTelemetry", "true");
+        setProperty("ga.flatBlockArray.metrics", "true");
+        setProperty("ga.structures.createStructures.metrics", "true");
         setProperty("ga.aquifer.globalFluidCellCache.metrics", "true");
         setProperty("ga.worldgenProfile.metrics", "true");
         setProperty("dfc.cellfill.stats", "true");
@@ -223,6 +230,9 @@ public final class GADiagnostics {
         setProperty("ga.featureVm.metrics", "false");
         setProperty("ga.surface.metrics", "false");
         setProperty("ga.noiseFill.metrics", "false");
+        setProperty("ga.wallTimeTelemetry", "false");
+        setProperty("ga.flatBlockArray.metrics", "false");
+        setProperty("ga.structures.createStructures.metrics", "false");
         setProperty("ga.aquifer.globalFluidCellCache.metrics", "false");
         setProperty("ga.worldgenProfile.metrics", "false");
         setProperty("dfc.cellfill.stats", "false");
@@ -282,6 +292,10 @@ public final class GADiagnostics {
         GANoiseFillMetrics.setEnabled(Boolean.getBoolean("ga.noiseFill.metrics"));
         GAAquiferGlobalFluidCellCache.setMetricsEnabled(Boolean.getBoolean("ga.aquifer.globalFluidCellCache.metrics"));
         WorldgenProfileMetrics.setEnabled(Boolean.getBoolean("ga.worldgenProfile.metrics"));
+        GAWallTimeTelemetry.ENABLED = Boolean.getBoolean("ga.wallTimeTelemetry");
+        StructureStartMetrics.setTypeMetricsEnabled(Boolean.getBoolean("ga.structures.createStructures.typeMetrics.enabled"));
+        StructureStartMetrics.setEnabled(Boolean.getBoolean("ga.structures.createStructures.metrics")
+                || Boolean.getBoolean("ga.wallTimeTelemetry"));
         DfcCellFillStats.setEnabled(
                 Boolean.getBoolean("dfc.cellfill.stats"),
                 Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug"));
@@ -297,6 +311,9 @@ public final class GADiagnostics {
                 + ", featureVm=" + FeatureVmMetrics.ENABLED
                 + ", surface=" + SurfaceMetrics.ENABLED
                 + ", noiseFill=" + GANoiseFillMetrics.ENABLED
+                + ", wallTimeTelemetry=" + GAWallTimeTelemetry.enabled()
+                + ", flatBlockArray=" + FlatBlockArrayMetrics.ENABLED
+                + ", structureStarts=" + StructureStartMetrics.ENABLED
                 + ", cellFill=" + DfcCellFillStats.ENABLED
                 + ", spline=" + DfcSplineStats.ENABLED
                 + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
@@ -488,8 +505,11 @@ public final class GADiagnostics {
         out.put("featureVm", featureVmSnapshot());
         out.put("worldgenProfiles", profiles);
         out.put("worldgenRegistryScan", registryScan);
+        out.put("wallTimeTelemetry", GAWallTimeTelemetry.snapshot());
+        out.put("structureStarts", StructureStartMetrics.snapshot());
         out.put("scheduler", scheduler);
         out.put("chunkWorkspace", workspace);
+        out.put("flatBlockArray", FlatBlockArrayMetrics.snapshot());
         out.put("commitEngine", commit);
         out.put("patternOptimizer", optimizer);
         out.put("outerLifecycle", outerLifecycle);
@@ -636,7 +656,6 @@ public final class GADiagnostics {
     private static Map<String, Object> densityCompilerSnapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cellFill", DfcCellFillStats.snapshot());
-        out.put("cacheMathFallback", DfcCompiledMathFallback.snapshot());
         out.put("nativePlanning", DfcNativePlanningStats.snapshot());
         out.put("spline", DfcSplineStats.snapshot());
         out.put("splineTopClasses", DfcSplineStats.snapshotTopClasses(12));
