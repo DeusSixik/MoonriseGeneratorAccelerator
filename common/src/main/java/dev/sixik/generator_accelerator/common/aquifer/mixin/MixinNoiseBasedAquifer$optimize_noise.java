@@ -92,12 +92,7 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
     private int c2me$idx3;
     @Unique
     private double c2me$mutableDoubleThingy;
-    @Unique
-    private int[] ga$aquiferX;
-    @Unique
-    private int[] ga$aquiferY;
-    @Unique
-    private int[] ga$aquiferZ;
+
     @Unique
     private static final BlockState ga$AIR_STATE = Blocks.AIR.defaultBlockState();
     @Unique
@@ -117,9 +112,6 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
             throw new AssertionError("Array length");
         }
         final int sizeY = this.aquiferLocationCache.length / (this.gridSizeX * this.gridSizeZ);
-        this.ga$aquiferX = new int[this.aquiferLocationCache.length];
-        this.ga$aquiferY = new int[this.aquiferLocationCache.length];
-        this.ga$aquiferZ = new int[this.aquiferLocationCache.length];
         final RandomSource random = SixikGenerationUtils.getRandom(this.positionalRandomFactory);
         // index: y, z, x
         for (int y = 0; y < sizeY; y++) {
@@ -134,9 +126,6 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
                     final int z2 = z1 * 16 + random.nextInt(10);
                     final int index = this.getIndex(x1, y1, z1);
                     this.aquiferLocationCache[index] = BlockPos.asLong(x2, y2, z2);
-                    this.ga$aquiferX[index] = x2;
-                    this.ga$aquiferY[index] = y2;
-                    this.ga$aquiferZ[index] = z2;
                 }
             }
         }
@@ -358,9 +347,8 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
         final int strideY = this.gridSizeZ * this.gridSizeX;
         final int strideZ = this.gridSizeX;
-        final int[] aquiferX = this.ga$aquiferX;
-        final int[] aquiferY = this.ga$aquiferY;
-        final int[] aquiferZ = this.ga$aquiferZ;
+
+        final long[] posCache = aquiferLocationCache;
 
         int baseIndexY = (((gy - 1 - this.minGridY) * this.gridSizeZ + (gz - this.minGridZ)) * this.gridSizeX)
                 + (gx - this.minGridX);
@@ -373,10 +361,11 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
                 {
                     final int posIdx = baseIndexZ; // +0
+                    final long posPack = posCache[posIdx];
 
-                    final int dx = aquiferX[posIdx] - x;
-                    final int dy = aquiferY[posIdx] - y;
-                    final int dz = aquiferZ[posIdx] - z;
+                    final int dx = BlockPos.getX(posPack) - x;
+                    final int dy = BlockPos.getY(posPack) - y;
+                    final int dz = BlockPos.getZ(posPack) - z;
                     final int dist = dx * dx + dy * dy + dz * dz;
 
                     if (localDist3 >= dist) {
@@ -401,10 +390,11 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
 
                 {
                     final int posIdx = baseIndexZ + 1;
+                    final long posPack = posCache[posIdx];
 
-                    final int dx = aquiferX[posIdx] - x;
-                    final int dy = aquiferY[posIdx] - y;
-                    final int dz = aquiferZ[posIdx] - z;
+                    final int dx = BlockPos.getX(posPack) - x;
+                    final int dy = BlockPos.getY(posPack) - y;
+                    final int dz = BlockPos.getZ(posPack) - z;
                     final int dist = dx * dx + dy * dy + dz * dz;
 
                     if (localDist3 >= dist) {
@@ -446,10 +436,12 @@ public abstract class MixinNoiseBasedAquifer$optimize_noise {
         if (cached != null) {
             return cached;
         }
+
+        final long packedPos = aquiferLocationCache[index];
         final Aquifer.FluidStatus computed = this.computeFluid(
-                this.ga$aquiferX[index],
-                this.ga$aquiferY[index],
-                this.ga$aquiferZ[index]
+                BlockPos.getX(packedPos),
+                BlockPos.getY(packedPos),
+                BlockPos.getZ(packedPos)
         );
         this.aquiferCache[index] = computed;
         return computed;
