@@ -228,56 +228,54 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int[] influenceMaxY = this.c2me$pieceInfluenceMaxY;
         int[] influenceMinZ = this.c2me$pieceInfluenceMinZ;
         int[] influenceMaxZ = this.c2me$pieceInfluenceMaxZ;
-        int buryEnd = this.ga$pieceBuryCount;
-        int thinEnd = buryEnd + this.ga$pieceThinCount;
-        int boxEnd = thinEnd + this.ga$pieceBoxCount;
-        int encapsulateEnd = boxEnd + this.ga$pieceEncapsulateCount;
+        byte[] terrain = this.c2me$pieceTerrain;
+        for (int pieceIndex = 0; pieceIndex < terrain.length; pieceIndex++) {
+            if (i < influenceMinX[pieceIndex] || i > influenceMaxX[pieceIndex]
+                    || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]
+                    || k < influenceMinZ[pieceIndex] || k > influenceMaxZ[pieceIndex]) {
+                continue;
+            }
+            int dx = minX[pieceIndex] - i;
+            if (dx < 0) {
+                dx = i - maxX[pieceIndex];
+                if (dx < 0) {
+                    dx = 0;
+                }
+            }
+            int dz = minZ[pieceIndex] - k;
+            if (dz < 0) {
+                dz = k - maxZ[pieceIndex];
+                if (dz < 0) {
+                    dz = 0;
+                }
+            }
 
-        for (int pieceIndex = 0; pieceIndex < buryEnd; pieceIndex++) {
-            if (i < influenceMinX[pieceIndex] || i > influenceMaxX[pieceIndex]
-                    || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]
-                    || k < influenceMinZ[pieceIndex] || k > influenceMaxZ[pieceIndex]) {
-                continue;
+            int terrainKind = terrain[pieceIndex] & 0xFF;
+            if (terrainKind == GA$TERRAIN_BURY) {
+                d += GABeardifierContributionMath.bury(dx, j - groundY[pieceIndex], dz);
+            } else if (terrainKind == GA$TERRAIN_BEARD_THIN) {
+                d += ga$getBeardContributionSameY(dx, j - groundY[pieceIndex], dz) * 0.8D;
+            } else if (terrainKind == GA$TERRAIN_BEARD_BOX) {
+                int ground = groundY[pieceIndex];
+                int verticalOffset = j - ground;
+                int yDistance = ground - j;
+                if (yDistance < 0) {
+                    yDistance = j - maxY[pieceIndex];
+                    if (yDistance < 0) {
+                        yDistance = 0;
+                    }
+                }
+                d += ga$getBeardContributionUnchecked(dx, yDistance, dz, verticalOffset) * 0.8D;
+            } else if (terrainKind == GA$TERRAIN_ENCAPSULATE) {
+                int yDistance = minY[pieceIndex] - j;
+                if (yDistance < 0) {
+                    yDistance = j - maxY[pieceIndex];
+                    if (yDistance < 0) {
+                        yDistance = 0;
+                    }
+                }
+                d += GABeardifierContributionMath.buryHalfScaled(dx, yDistance, dz) * 0.8D;
             }
-            int dx = GABeardifierColumnMath.axisDistance(i, minX[pieceIndex], maxX[pieceIndex]);
-            int dz = GABeardifierColumnMath.axisDistance(k, minZ[pieceIndex], maxZ[pieceIndex]);
-            int verticalOffset = j - groundY[pieceIndex];
-            d += GABeardifierContributionMath.bury(dx, verticalOffset, dz);
-        }
-        for (int pieceIndex = buryEnd; pieceIndex < thinEnd; pieceIndex++) {
-            if (i < influenceMinX[pieceIndex] || i > influenceMaxX[pieceIndex]
-                    || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]
-                    || k < influenceMinZ[pieceIndex] || k > influenceMaxZ[pieceIndex]) {
-                continue;
-            }
-            int dx = GABeardifierColumnMath.axisDistance(i, minX[pieceIndex], maxX[pieceIndex]);
-            int dz = GABeardifierColumnMath.axisDistance(k, minZ[pieceIndex], maxZ[pieceIndex]);
-            int verticalOffset = j - groundY[pieceIndex];
-            d += ga$getBeardContributionSameY(dx, verticalOffset, dz) * 0.8D;
-        }
-        for (int pieceIndex = thinEnd; pieceIndex < boxEnd; pieceIndex++) {
-            if (i < influenceMinX[pieceIndex] || i > influenceMaxX[pieceIndex]
-                    || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]
-                    || k < influenceMinZ[pieceIndex] || k > influenceMaxZ[pieceIndex]) {
-                continue;
-            }
-            int dx = GABeardifierColumnMath.axisDistance(i, minX[pieceIndex], maxX[pieceIndex]);
-            int dz = GABeardifierColumnMath.axisDistance(k, minZ[pieceIndex], maxZ[pieceIndex]);
-            int ground = groundY[pieceIndex];
-            int verticalOffset = j - ground;
-            int yDistance = GABeardifierContributionMath.boxYDistance(j, ground, maxY[pieceIndex]);
-            d += ga$getBeardContributionUnchecked(dx, yDistance, dz, verticalOffset) * 0.8D;
-        }
-        for (int pieceIndex = boxEnd; pieceIndex < encapsulateEnd; pieceIndex++) {
-            if (i < influenceMinX[pieceIndex] || i > influenceMaxX[pieceIndex]
-                    || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]
-                    || k < influenceMinZ[pieceIndex] || k > influenceMaxZ[pieceIndex]) {
-                continue;
-            }
-            int dx = GABeardifierColumnMath.axisDistance(i, minX[pieceIndex], maxX[pieceIndex]);
-            int dz = GABeardifierColumnMath.axisDistance(k, minZ[pieceIndex], maxZ[pieceIndex]);
-            int yDistance = GABeardifierContributionMath.encapsulateYDistance(j, minY[pieceIndex], maxY[pieceIndex]);
-            d += GABeardifierContributionMath.buryHalfScaled(dx, yDistance, dz) * 0.8D;
         }
 
         int[] junctionX = this.c2me$junctionX;
@@ -456,7 +454,13 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             }
             int ground = groundY[pieceIndex];
             int verticalOffset = j - ground;
-            int yDistance = GABeardifierContributionMath.boxYDistance(j, ground, maxY[pieceIndex]);
+            int yDistance = ground - j;
+            if (yDistance < 0) {
+                yDistance = j - maxY[pieceIndex];
+                if (yDistance < 0) {
+                    yDistance = 0;
+                }
+            }
             d += ga$getBeardContributionUnchecked(dx, yDistance, dz, verticalOffset) * 0.8D;
         }
         for (int activeIndex = boxEnd; activeIndex < encapsulateEnd; activeIndex++) {
@@ -467,7 +471,13 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                     || j < influenceMinY[pieceIndex] || j > influenceMaxY[pieceIndex]) {
                 continue;
             }
-            int yDistance = GABeardifierContributionMath.encapsulateYDistance(j, minY[pieceIndex], maxY[pieceIndex]);
+            int yDistance = minY[pieceIndex] - j;
+            if (yDistance < 0) {
+                yDistance = j - maxY[pieceIndex];
+                if (yDistance < 0) {
+                    yDistance = 0;
+                }
+            }
             d += GABeardifierContributionMath.buryHalfScaled(dx, yDistance, dz) * 0.8D;
         }
 
