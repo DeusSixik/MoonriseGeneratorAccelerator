@@ -23,6 +23,6 @@ public final class CanyonSkipChecker implements WorldCarver.CarveSkipChecker {
     @Override
     public boolean shouldSkip(CarvingContext carvingContext, double scaledX, double scaledY, double scaledZ, int y) {
         int widthIndex = y - this.minGenY - 1;
-        return (scaledX * scaledX + scaledZ * scaledZ) * (double) this.widthFactors[widthIndex] + scaledY * scaledY / 6.0D >= 1.0D;
+        return (scaledX * scaledX + scaledZ * scaledZ) * (double) this.widthFactors[widthIndex] + scaledY * scaledY * 0.1666666666666667 >= 1.0D;
     }
 }
