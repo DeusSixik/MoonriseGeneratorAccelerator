@@ -28,11 +28,6 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private ObjectListIterator<JigsawJunction> junctionIterator;
 
     @Shadow
-    private static double getBuryContribution(double d, double e, double f) {
-        throw new RuntimeException();
-    }
-
-    @Shadow
     @Final
     private static float[] BEARD_KERNEL;
 
@@ -176,6 +171,8 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int[] influenceMinZ = this.c2me$pieceInfluenceMinZ;
         int[] influenceMaxZ = this.c2me$pieceInfluenceMaxZ;
         byte[] terrain = this.c2me$pieceTerrain;
+
+
         for (int i1 = 0; i1 < terrain.length; i1++) {
             int terrainKind = terrain[i1] & 0xFF;
             if (terrainKind == GA$TERRAIN_NONE) {
@@ -195,7 +192,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                 final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
                 final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
                 final int p = j - groundY[i1];
-                d += ga$getBuryContributionFast(m, (double) p / 2.0D, n);
+                d += ga$getBuryContributionFast(m, (double) p * 0.5d, n);
             } else if (terrainKind == GA$TERRAIN_BEARD_THIN) {
                 final int p = j - groundY[i1];
                 final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
@@ -216,9 +213,9 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                 final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
                 int yDistance = Math.max(0, Math.max(pieceMinY - j, j - pieceMaxY));
                 d += ga$getBuryContributionFast(
-                        (double) m / 2.0D,
-                        (double) yDistance / 2.0D,
-                        (double) n / 2.0D
+                        (double) m * 0.5d,
+                        (double) yDistance * 0.5d,
+                        (double) n * 0.5d
                 ) * 0.8D;
             }
         }
@@ -273,7 +270,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                 final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
                 final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
                 final int p = j - groundY[i1];
-                d += ga$getBuryContributionFast(m, (double) p / 2.0D, n);
+                d += ga$getBuryContributionFast(m, (double) p * 0.5d, n);
             } else if (terrainKind == GA$TERRAIN_BEARD_THIN) {
                 final int p = j - groundY[i1];
                 final int m = Math.max(0, Math.max(pieceMinX - i, i - pieceMaxX));
@@ -294,9 +291,9 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                 final int n = Math.max(0, Math.max(pieceMinZ - k, k - pieceMaxZ));
                 int yDistance = Math.max(0, Math.max(pieceMinY - j, j - pieceMaxY));
                 d += ga$getBuryContributionFast(
-                        (double) m / 2.0D,
-                        (double) yDistance / 2.0D,
-                        (double) n / 2.0D
+                        (double) m * 0.5d,
+                        (double) yDistance * 0.5d,
+                        (double) n * 0.5d
                 ) * 0.8D;
             }
         }
@@ -451,7 +448,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private static double ga$getBeardContributionUnchecked(int i, int j, int k, int l) {
         double y = l + 0.5D;
         double lengthSquared = (double) i * (double) i + y * y + (double) k * (double) k;
-        double contribution = -y * Mth.fastInvSqrt(lengthSquared / 2.0D) / 2.0D;
+        double contribution = -y * Mth.fastInvSqrt(lengthSquared * 0.5d) * 0.5d;
         int index = ((k + 12) * 24 + (i + 12)) * 24 + (j + 12);
         return contribution * (double) BEARD_KERNEL[index];
     }
@@ -479,7 +476,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                     for (int j = -12; j < 12; j++) {
                         double y = j + 0.5D;
                         double lengthSquared = (double) i * (double) i + y * y + (double) k * (double) k;
-                        double contribution = -y * Mth.fastInvSqrt(lengthSquared / 2.0D) / 2.0D;
+                        double contribution = -y * Mth.fastInvSqrt(lengthSquared * 0.5d) * 0.5d;
                         int index = ((k + 12) * 24 + (i + 12)) * 24 + (j + 12);
                         table[index] = (float) (contribution * (double) BEARD_KERNEL[index]);
                     }
@@ -496,7 +493,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         if (distanceSquared > 36.0D) {
             return 0.0D;
         }
-        return 1.0D - Math.sqrt(distanceSquared) / 6.0D;
+        return 1.0D - Math.sqrt(distanceSquared) * 0.16666666666666666D;
     }
 
     /**
