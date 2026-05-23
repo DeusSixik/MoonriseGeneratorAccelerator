@@ -1,8 +1,11 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.structures.FastBiomeCache;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.api.structures.FastStructureCache;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,6 +24,9 @@ public class MixinMinecraftServer {
     public void bts$runServer(CallbackInfo ci) {
         FastBlockStateCache.init(GeneratorAccelerator.platform);
         FastBlockStateCache.reloadTags();
+        MinecraftServer server = (MinecraftServer) (Object) this;
+        FastBiomeCache.init(server.registryAccess().registryOrThrow(Registries.BIOME));
+        FastStructureCache.init(server.registryAccess().registryOrThrow(Registries.STRUCTURE));
     }
 
     @Inject(method = "stopServer", at = @At("HEAD"))

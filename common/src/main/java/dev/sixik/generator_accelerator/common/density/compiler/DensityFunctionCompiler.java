@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
@@ -14,11 +15,17 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.sixik.ga_profiler.HtmlReporter;
+import net.sixik.ga_profiler.ProfileData;
+import net.sixik.ga_profiler.Profiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 public final class DensityFunctionCompiler {
     public static final Logger LOGGER = LoggerFactory.getLogger(DensityFunctionCompiler.class);
@@ -67,6 +74,16 @@ public final class DensityFunctionCompiler {
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("dfc")
                 .requires(source -> source.hasPermission(2))
+                .then(Commands.literal("test_profiler")
+                        .executes(commandContext -> {
+                            final Collection<ProfileData.Snapshot> snatpshot = Profiler.getData();
+                            CompletableFuture.runAsync(() -> {
+                                HtmlReporter.generate(GeneratorAccelerator.gameFolder.resolve("debug.html").toString(), snatpshot, List.of("none"));
+                                Profiler.reset();
+                            });
+                            return 0;
+                        })
+                )
                 .then(Commands.literal("dump")
                         .executes(context -> {
                             Compiler.DumpResult result = Compiler.dumpCompiledClasses();

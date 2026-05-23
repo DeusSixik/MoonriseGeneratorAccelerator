@@ -17,7 +17,7 @@ public final class GeneratorAcceleratorFabric implements ModInitializer {
         // Proceed with mild caution.
 
         // Run our common setup.
-        GeneratorAccelerator.init(GeneratorAccelerator.Platform.FABRIC, FabricLoader.getInstance().isDevelopmentEnvironment());
+        GeneratorAccelerator.init(GeneratorAccelerator.Platform.FABRIC, FabricLoader.getInstance().isDevelopmentEnvironment(), FabricLoader.getInstance().getGameDir());
         DensityFunctionCompiler.init();
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             FastBlockStateCache.init(GeneratorAccelerator.Platform.FABRIC);

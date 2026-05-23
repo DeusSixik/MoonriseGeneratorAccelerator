@@ -76,6 +76,7 @@ public class FastBlockStateCache {
         if (registrySize <= 1) {
             return;
         }
+
         if (initialized && size == registrySize && STATES != null && AIR_STATES != null
                 && BLOCK_BY_STATE != null && FLUID_STATES != null && FLUID_KIND_BY_STATE != null
                 && EMPTY_STATES != null && RANDOM_TICKING_BLOCK_STATES != null
