@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.sixik.generator_accelerator_dod.impl.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "plugin": "dev.sixik.generator_accelerator_dod.impl.GADodMixinPlugin",
+  "mixins": [
+    "DOD$MixinChunkAccess",
+    "DOD$MixinLevel"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

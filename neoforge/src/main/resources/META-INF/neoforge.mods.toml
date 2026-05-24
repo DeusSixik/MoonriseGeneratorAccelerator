@@ -36,6 +36,9 @@ side = "BOTH"
 
 
 [[mixins]]
+config = "generator_accelerato_dod.mixins.json"
+
+[[mixins]]
 config = "generator_accelerator.mixins.json"
 
 [[mixins]]

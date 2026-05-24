@@ -20,6 +20,7 @@
   },
   "accessWidener": "btsengineconcurrent.accesswidener",
   "mixins": [
+    "generator_accelerato_dod.mixins.json",
     "generator_accelerator.mixins.json",
     "generator_accelerator_density_compiler.mixins.json",
     "generator_accelerator_benchmark.mixins.json",
