@@ -611,7 +611,7 @@ public final class GACustomChunkGraphScheduler {
             }
 
             int statusIndex = node.status.getIndex();
-            int hash = stepHash(node.holder, statusIndex);
+            int hash = stepHash(node.holder, node.step, statusIndex);
             int baseIndex = (hash & IN_FLIGHT_BUCKET_MASK) * IN_FLIGHT_WAYS;
             for (;;) {
                 int emptyIndex = -1;
@@ -624,7 +624,7 @@ public final class GACustomChunkGraphScheduler {
                         }
                         continue;
                     }
-                    if (current.matches(node.holder, statusIndex)) {
+                    if (current.matches(node.holder, node.step, statusIndex)) {
                         NODES_JOINED_IN_FLIGHT.incrementAndGet();
                         current.addListener(callback);
                         return;
@@ -637,7 +637,7 @@ public final class GACustomChunkGraphScheduler {
                     return;
                 }
 
-                InFlightStep created = new InFlightStep(node.holder, statusIndex, emptyIndex, callback);
+                InFlightStep created = new InFlightStep(node.holder, node.step, statusIndex, emptyIndex, callback);
                 if (IN_FLIGHT_STEPS.compareAndSet(emptyIndex, null, created)) {
                     long count = IN_FLIGHT_STEP_COUNT.incrementAndGet();
                     updateMax(MAX_IN_FLIGHT_STEPS, count);
@@ -867,8 +867,9 @@ public final class GACustomChunkGraphScheduler {
             } while (!value.compareAndSet(current, next));
         }
 
-        private static int stepHash(GenerationChunkHolder holder, int statusIndex) {
+        private static int stepHash(GenerationChunkHolder holder, ChunkStep step, int statusIndex) {
             int hash = System.identityHashCode(holder);
+            hash ^= System.identityHashCode(step) * 0x165667b1;
             hash ^= statusIndex * 0x85ebca6b;
             hash ^= hash >>> 16;
             hash *= 0x7feb352d;
@@ -996,6 +997,7 @@ public final class GACustomChunkGraphScheduler {
 
     private static final class InFlightStep {
         private final GenerationChunkHolder holder;
+        private final ChunkStep step;
         private final int statusIndex;
         private final int slotIndex;
         private StepCompletionCallback firstListener;
@@ -1006,18 +1008,20 @@ public final class GACustomChunkGraphScheduler {
 
         private InFlightStep(
                 GenerationChunkHolder holder,
+                ChunkStep step,
                 int statusIndex,
                 int slotIndex,
                 StepCompletionCallback firstListener
         ) {
             this.holder = holder;
+            this.step = step;
             this.statusIndex = statusIndex;
             this.slotIndex = slotIndex;
             this.firstListener = firstListener;
         }
 
-        private boolean matches(GenerationChunkHolder holder, int statusIndex) {
-            return this.holder == holder && this.statusIndex == statusIndex;
+        private boolean matches(GenerationChunkHolder holder, ChunkStep step, int statusIndex) {
+            return this.holder == holder && this.step == step && this.statusIndex == statusIndex;
         }
 
         private void addListener(StepCompletionCallback listener) {

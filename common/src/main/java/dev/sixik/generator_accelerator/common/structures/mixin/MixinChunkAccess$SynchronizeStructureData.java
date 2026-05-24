@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.structures.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import dev.sixik.generator_accelerator.common.structures.StructureReferenceSnapshot;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
@@ -109,7 +110,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
     public LongSet bts$getReferencesForStructure$synchronized(Structure structure, Operation<LongSet> original) {
         final long stamp = bts$structuresData_structuresRefences_Lock.readLock();
         try {
-            return original.call(structure);
+            return StructureReferenceSnapshot.copyReferences(original.call(structure));
         } finally {
             bts$structuresData_structuresRefences_Lock.unlockRead(stamp);
         }
@@ -147,7 +148,7 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         try {
             snapshot = bts$structureReferencesSnapshot;
             if (snapshot == null) {
-                snapshot = Collections.unmodifiableMap(new Reference2ObjectOpenHashMap<>(structuresRefences));
+                snapshot = StructureReferenceSnapshot.copyReferences(structuresRefences);
                 bts$structureReferencesSnapshot = snapshot;
             }
             return snapshot;
