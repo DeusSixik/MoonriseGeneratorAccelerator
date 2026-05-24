@@ -13,5 +13,9 @@ public interface SurfaceRulesContextBiomeGetter {
 
     Biome bts$getBiomeCached();
 
-    int[] bts$getPositions();
+    int bts$getPositionX();
+
+    int bts$getPositionY();
+
+    int bts$getPositionZ();
 }

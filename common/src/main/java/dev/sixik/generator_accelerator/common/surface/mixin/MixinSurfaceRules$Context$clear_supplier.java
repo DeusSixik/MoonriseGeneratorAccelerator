@@ -18,9 +18,9 @@ import java.util.function.Supplier;
 @Mixin(SurfaceRules.Context.class)
 public abstract class MixinSurfaceRules$Context$clear_supplier implements SurfaceRulesContextBiomeGetter {
 
-
-    @Unique
-    private int[] biomePossition = new int[3];
+    private int biomePossitionX;
+    private int biomePossitionY;
+    private int biomePossitionZ;
 
     @Unique
     private Holder<Biome> biomeHolderCache; // null = не вычислено для текущих координат
@@ -71,10 +71,9 @@ public abstract class MixinSurfaceRules$Context$clear_supplier implements Surfac
         this.biomeHolderCache = null;
         this.biomeCache = null;
 
-        final int[] bPos = biomePossition;
-        bPos[0] = l;
-        bPos[1] = m;
-        bPos[2] = n;
+        biomePossitionX = l;
+        biomePossitionY = m;
+        biomePossitionZ = n;
 
         this.blockY = m;
         this.waterHeight = k;
@@ -91,8 +90,7 @@ public abstract class MixinSurfaceRules$Context$clear_supplier implements Surfac
     public Holder<Biome> bts$getBiomeHolderCached() {
         Holder<Biome> b = biomeHolderCache;
         if (b == null) {
-            final int[] bPos = biomePossition;
-            b = biomeGetter.apply(pos.set(bPos[0], bPos[1], bPos[2]));
+            b = biomeGetter.apply(pos.set(biomePossitionX, biomePossitionY, biomePossitionZ));
             biomeHolderCache = b;
         }
         return b;
@@ -102,15 +100,24 @@ public abstract class MixinSurfaceRules$Context$clear_supplier implements Surfac
     public Biome bts$getBiomeCached() {
         Biome b = biomeCache;
         if(b == null) {
-            final int[] bPos = biomePossition;
-            b = biomeGetter.apply(pos.set(bPos[0], bPos[1], bPos[2])).value();
+            b = biomeGetter.apply(pos.set(biomePossitionX, biomePossitionY, biomePossitionZ)).value();
             biomeCache = b;
         }
         return b;
     }
 
     @Override
-    public int[] bts$getPositions() {
-        return biomePossition;
+    public int bts$getPositionX() {
+        return biomePossitionX;
+    }
+
+    @Override
+    public int bts$getPositionY() {
+        return biomePossitionY;
+    }
+
+    @Override
+    public int bts$getPositionZ() {
+        return biomePossitionZ;
     }
 }
