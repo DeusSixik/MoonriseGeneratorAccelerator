@@ -18,9 +18,11 @@ public class MixinBlendedNoise$flat_data {
     @Shadow
     @Final
     private double yMultiplier;
+    @Mutable
     @Shadow
     @Final
     private double xzFactor;
+    @Mutable
     @Shadow
     @Final
     private double yFactor;
@@ -75,6 +77,9 @@ public class MixinBlendedNoise$flat_data {
          */
         this.bts$flattenNoise(this.minLimitNoise, 16, true);
         this.bts$flattenNoise(this.maxLimitNoise, 16, true);
+
+        this.xzFactor = 1.0 / this.xzMultiplier;
+        this.yFactor = 1.0 / this.yMultiplier;
     }
 
     @Unique
@@ -137,12 +142,12 @@ public class MixinBlendedNoise$flat_data {
         double blockY = (double) ctx.blockY() * this.yMultiplier;
         double blockZ = (double) ctx.blockZ() * this.xzMultiplier;
 
-        double g = blockX / this.xzFactor;
-        double h = blockY / this.yFactor;
-        double i = blockZ / this.xzFactor;
+        double g = blockX * this.xzFactor;
+        double h = blockY * this.yFactor;
+        double i = blockZ * this.xzFactor;
 
         double j = this.yMultiplier * this.smearScaleMultiplier;
-        double k = j / this.yFactor;
+        double k = j * this.yFactor;
 
         double[] bts$mainFreqs = this.bts$mainFreqs;
         double[] bts$mainAmps = this.bts$mainAmps;
@@ -160,7 +165,7 @@ public class MixinBlendedNoise$flat_data {
             n += this.bts$mainNoises[idx].noise(inX, inY, inZ, k * freq, h * freq) * bts$mainAmps[idx];
         }
 
-        double q = (n / 10.0 + 1.0) * 0.5;
+        double q = (n * 0.1 + 1.0) * 0.5;
 
         boolean skipMin = q >= 1.0;
         boolean skipMax = q <= 0.0;

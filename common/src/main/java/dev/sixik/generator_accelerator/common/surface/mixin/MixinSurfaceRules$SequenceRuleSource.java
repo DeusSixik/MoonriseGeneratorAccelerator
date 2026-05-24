@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.common.surface.mixin;
 
 import dev.sixik.generator_accelerator.common.surface.SequenceRulePrimitive;
 import dev.sixik.generator_accelerator.common.surface.SequenceRuleSourcePrimitive;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectLists;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import org.jetbrains.annotations.NotNull;
 import org.spongepowered.asm.mixin.Mixin;
@@ -20,10 +22,10 @@ import java.util.List;
 public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourcePrimitive {
 
     @Unique
-    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = Collections.emptyList();
+    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = ObjectLists.emptyList();
 
     @Unique
-    private static final List<SurfaceRules.RuleSource> bts$empty_source_list = Collections.emptyList();
+    private static final List<SurfaceRules.RuleSource> bts$empty_source_list = ObjectLists.emptyList();
 
     @Unique
     private static final SurfaceRules.RuleSource[] bts$empty_source_array = new SurfaceRules.RuleSource[0];
@@ -47,7 +49,7 @@ public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourceP
         for (int i = 0; i < size; i++) {
             bts$primitiveArray[i] = list.get(i);
         }
-        bts$primitiveList = Arrays.asList(bts$primitiveArray);
+        bts$primitiveList = new ObjectArrayList<>(bts$primitiveArray);
     }
 
     @Inject(method = "sequence", at = @At("HEAD"), cancellable = true)
@@ -81,7 +83,7 @@ public class MixinSurfaceRules$SequenceRuleSource implements SequenceRuleSourceP
         this.bts$primitiveArray = array == null ? bts$empty_source_array : array;
         this.bts$primitiveList = this.bts$primitiveArray.length == 0
                 ? bts$empty_source_list
-                : Arrays.asList(this.bts$primitiveArray);
+                : new ObjectArrayList<>(this.bts$primitiveArray);
     }
 
     @Override

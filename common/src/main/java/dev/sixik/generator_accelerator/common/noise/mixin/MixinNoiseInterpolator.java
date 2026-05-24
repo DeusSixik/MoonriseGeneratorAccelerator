@@ -43,6 +43,15 @@ public abstract class MixinNoiseInterpolator implements
     @Unique
     private int bts$soaIndex = -1;
 
+    private double mul$cellWidth;
+    private double mul$cellHeight;
+
+    @Inject(method = "<init>", at = @At("RETURN"))
+    public void bts$init(CallbackInfo ci) {
+        this.mul$cellWidth = 1.0 / field_34622.cellWidth;
+        this.mul$cellHeight = 1.0 / field_34622.cellHeight;
+    }
+
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/levelgen/NoiseChunk$NoiseInterpolator;allocateSlice(II)[[D"))
     private double[][] bts$allocate(NoiseChunk.NoiseInterpolator instance, int cellCountY, int cellCountXZ) {
         return new double[cellCountXZ + 1][cellCountY + 1];
@@ -106,9 +115,9 @@ public abstract class MixinNoiseInterpolator implements
             return this.value;
         }
 
-        final double deltaX = (double) chunk.inCellX / (double) chunk.cellWidth;
-        final double deltaY = (double) chunk.inCellY / (double) chunk.cellHeight;
-        final double deltaZ = (double) chunk.inCellZ / (double) chunk.cellWidth;
+        final double deltaX = (double) chunk.inCellX * mul$cellWidth;
+        final double deltaY = (double) chunk.inCellY * mul$cellHeight;
+        final double deltaZ = (double) chunk.inCellZ * mul$cellWidth;
 
         final double lerpY00 = noise000 + deltaY * (noise010 - noise000);
         final double lerpY10 = noise100 + deltaY * (noise110 - noise100);

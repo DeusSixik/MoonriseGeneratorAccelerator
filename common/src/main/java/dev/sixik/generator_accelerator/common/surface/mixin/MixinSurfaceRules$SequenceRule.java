@@ -1,6 +1,9 @@
 package dev.sixik.generator_accelerator.common.surface.mixin;
 
 import dev.sixik.generator_accelerator.common.surface.SequenceRulePrimitive;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectCollections;
+import it.unimi.dsi.fastutil.objects.ObjectLists;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import org.jetbrains.annotations.NotNull;
@@ -24,7 +27,7 @@ public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
     private static final SurfaceRules.SurfaceRule[] bts$empty_rule_array = new SurfaceRules.SurfaceRule[0];
 
     @Unique
-    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = Collections.emptyList();
+    private static final List<SurfaceRules.SurfaceRule> bts$empty_rule_list = ObjectLists.emptyList();
 
     @Unique
     private SurfaceRules.SurfaceRule[] bts$primitiveArray = bts$empty_rule_array;
@@ -37,7 +40,7 @@ public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
         this.bts$primitiveArray = array == null ? bts$empty_rule_array : array;
         this.bts$primitiveList = this.bts$primitiveArray.length == 0
                 ? bts$empty_rule_list
-                : Arrays.asList(this.bts$primitiveArray);
+                : new ObjectArrayList<>(this.bts$primitiveArray);
     }
 
     @Override
@@ -54,7 +57,7 @@ public class MixinSurfaceRules$SequenceRule implements SequenceRulePrimitive {
             return;
         }
         this.bts$primitiveArray = list.toArray(new SurfaceRules.SurfaceRule[size]);
-        this.bts$primitiveList = Arrays.asList(this.bts$primitiveArray);
+        this.bts$primitiveList = new ObjectArrayList<>(this.bts$primitiveArray);;
     }
 
     @Inject(method = "rules", at = @At("HEAD"), cancellable = true)

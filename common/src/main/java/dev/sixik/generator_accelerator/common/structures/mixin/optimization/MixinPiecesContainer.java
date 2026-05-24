@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.StructurePiece;
 import net.minecraft.world.level.levelgen.structure.pieces.PiecesContainer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -27,10 +28,11 @@ public class MixinPiecesContainer {
         this.bts$chunkGrid = new Long2ObjectOpenHashMap<>();
 
         for (StructurePiece piece : pieces) {
-            int minX = piece.getBoundingBox().minX() >> 4;
-            int maxX = piece.getBoundingBox().maxX() >> 4;
-            int minZ = piece.getBoundingBox().minZ() >> 4;
-            int maxZ = piece.getBoundingBox().maxZ() >> 4;
+            final BoundingBox boundingBox = piece.getBoundingBox();
+            int minX = boundingBox.minX() >> 4;
+            int maxX = boundingBox.maxX() >> 4;
+            int minZ = boundingBox.minZ() >> 4;
+            int maxZ = boundingBox.maxZ() >> 4;
 
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {

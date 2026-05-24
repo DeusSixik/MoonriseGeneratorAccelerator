@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
@@ -18,7 +19,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 public final class DensityFunctionCompiler {
     public static final Logger LOGGER = LoggerFactory.getLogger(DensityFunctionCompiler.class);

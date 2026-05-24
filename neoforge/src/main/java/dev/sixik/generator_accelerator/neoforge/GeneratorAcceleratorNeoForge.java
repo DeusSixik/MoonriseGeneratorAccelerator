@@ -9,6 +9,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLLoadCompleteEvent;
 import net.neoforged.fml.loading.FMLEnvironment;
+import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -19,7 +20,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 @Mod(GeneratorAccelerator.MOD_ID)
 public final class GeneratorAcceleratorNeoForge {
     public GeneratorAcceleratorNeoForge(IEventBus modEventBus, ModContainer modContainer) {
-        GeneratorAccelerator.init(GeneratorAccelerator.Platform.NEOFORGE, !FMLEnvironment.production);
+        GeneratorAccelerator.init(GeneratorAccelerator.Platform.NEOFORGE, !FMLEnvironment.production, FMLPaths.GAMEDIR.get());
         DensityFunctionCompiler.init();
         var bus = NeoForge.EVENT_BUS;
         bus.addListener(this::onServerStarting);

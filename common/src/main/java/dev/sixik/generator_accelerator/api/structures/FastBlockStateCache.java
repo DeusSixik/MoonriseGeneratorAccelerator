@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
@@ -27,12 +28,14 @@ public class FastBlockStateCache {
     public static boolean[] LIGHT_EMITTING_STATES;
     public static boolean[] IS_BLOCK_MOTION_STATES;
     public static boolean[] IS_BLOCK_MOTION_BLOCKING_STATES;
+    public static boolean[] IS_FLUID_STATES_EMPTY;
     public static int[] TAG_MASK;
 
     public static final int TAG_STONE_ORE_REPLACEABLES = 1 << 0;
     public static final int TAG_DEEPSLATE_ORE_REPLACEABLES = 1 << 1;
     public static final int TAG_DIRT = 1 << 2;
     public static final int TAG_NYLIUM = 1 << 3;
+    public static final int BLOCK_LEAVES = 1 << 4;
 
     public static final byte FLUID_KIND_EMPTY = 0;
     public static final byte FLUID_KIND_WATER = 1;
@@ -76,6 +79,7 @@ public class FastBlockStateCache {
         if (registrySize <= 1) {
             return;
         }
+
         if (initialized && size == registrySize && STATES != null && AIR_STATES != null
                 && BLOCK_BY_STATE != null && FLUID_STATES != null && FLUID_KIND_BY_STATE != null
                 && EMPTY_STATES != null && RANDOM_TICKING_BLOCK_STATES != null
@@ -121,10 +125,12 @@ public class FastBlockStateCache {
             boolean[] lightEmittingStates = new boolean[capacity];
             boolean[] isBlocksMotion = new boolean[capacity];
             boolean[] isBlockMotionBlocking = new boolean[capacity];
+            boolean[] isFluidStatesEmpty = new boolean[capacity];
 
             for (int i = 0; i < capacity; i++) {
                 states[i] = air;
                 fluidStates[i] = air.getFluidState();
+                isFluidStatesEmpty[i] = air.getFluidState().isEmpty();
                 airStates[i] = true;
                 emptyStates[i] = true;
                 fluidEmptyStates[i] = true;
@@ -169,6 +175,7 @@ public class FastBlockStateCache {
             LIGHT_EMITTING_STATES = lightEmittingStates;
             IS_BLOCK_MOTION_STATES = isBlocksMotion;
             IS_BLOCK_MOTION_BLOCKING_STATES = isBlockMotionBlocking;
+            IS_FLUID_STATES_EMPTY = isFluidStatesEmpty;
             size = registrySize;
             initBlockIds();
 
@@ -389,6 +396,8 @@ public class FastBlockStateCache {
                 flags |= TAG_DIRT;
             if(state.is(BlockTags.NYLIUM))
                 flags |= TAG_NYLIUM;
+            if(state.getBlock() instanceof LeavesBlock)
+                flags |= BLOCK_LEAVES;
 
             newTagMask[i] = flags;
         }

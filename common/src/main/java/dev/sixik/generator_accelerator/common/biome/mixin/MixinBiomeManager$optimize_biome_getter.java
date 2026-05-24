@@ -66,9 +66,9 @@ public class MixinBiomeManager$optimize_biome_getter {
         /*
             Pre-calculate fractions
          */
-        final double fracX = (double) (x & 3) / 4.0D;
-        final double fracY = (double) (y & 3) / 4.0D;
-        final double fracZ = (double) (z & 3) / 4.0D;
+        final double fracX = (double) (x & 3) * 0.25D;
+        final double fracY = (double) (y & 3) * 0.25D;
+        final double fracZ = (double) (z & 3) * 0.25D;
 
         int bestCornerIndex = 0;
         double minDistance = Double.POSITIVE_INFINITY;
@@ -141,7 +141,7 @@ public class MixinBiomeManager$optimize_biome_getter {
      */
     @Unique
     private static double bts$getFiddle(long l) {
-        double d = (double) ((int) (l >> 24) & 1023) / 1024.0D;
+        double d = (double) ((int) (l >> 24) & 1023) * 0.0009765625D;
         return (d - 0.5D) * 0.9D;
     }
 
