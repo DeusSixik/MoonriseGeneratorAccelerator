@@ -61,8 +61,8 @@ public abstract class MixinStructureTemplate {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     public void bts$init(CallbackInfo ci) {
-        this.palettes = Collections.emptyList();
-        this.entityInfoList = Collections.emptyList();
+        this.palettes = new ObjectArrayList<>();
+        this.entityInfoList = new ObjectArrayList<>();
     }
 
     /**
@@ -101,11 +101,11 @@ public abstract class MixinStructureTemplate {
         );
         List<StructureTemplate.StructureEntityInfo> entities = bl
                 ? generator_accelerator$collectEntityList(level, min, max)
-                : Collections.emptyList();
+                : new ObjectArrayList<>();
 
         synchronized (this.generator_accelerator$templateMutationLock) {
             this.size = vec3i;
-            this.palettes = Collections.singletonList(palette);
+            this.palettes = new ObjectArrayList<>(List.of(palette));
             this.entityInfoList = entities;
         }
     }
@@ -307,11 +307,11 @@ public abstract class MixinStructureTemplate {
     @Unique
     private static <T> List<T> generator_accelerator$publishList(ObjectArrayList<T> list) {
         if (list.isEmpty()) {
-            return Collections.emptyList();
+            return new ObjectArrayList<>();
         }
 
         list.trim();
-        return Collections.unmodifiableList(list);
+        return new ObjectArrayList<>(list);
     }
 
     @Unique
