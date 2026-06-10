@@ -9,7 +9,7 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.pools.JigsawJunction;
 import org.spongepowered.asm.mixin.*;
 
-@Mixin(Beardifier.class)
+@Mixin(value = Beardifier.class, priority = 900)
 public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker {
 
     private static final double BURY_RADIUS_SQ = 36.0; // 6.0 * 6.0

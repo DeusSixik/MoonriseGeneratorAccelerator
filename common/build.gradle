@@ -36,6 +36,11 @@ dependencies {
     modCompileOnly ("curse.maven:generation-stages-893457:5711163")
     modCompileOnly ("curse.maven:sdm-gamestages-helper-1087504:5646993")
     modCompileOnly ("curse.maven:game-stages-268655:5790361")
+
+    modCompileOnly ("curse.maven:alexs-caves-924854:5848216")
+
+    modCompileOnly ("curse.maven:qliphoth-awakening-1271707:7653115")
+    modCompileOnly ("curse.maven:regions-unexplored-659110:5558225")
 }
 
 tasks.withType(JavaCompile).configureEach {

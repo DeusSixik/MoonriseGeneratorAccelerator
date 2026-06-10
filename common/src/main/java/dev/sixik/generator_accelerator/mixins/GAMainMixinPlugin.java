@@ -113,6 +113,13 @@ public class GAMainMixinPlugin extends GAMixinPlugin {
                 )
         );
 
+        create("toni.redirected.utils.Utils",
+                new MixinApplier.Param(
+                        "",
+                        "toni.redirected.mixin.net.minecraft.world.level.chunk.ChunkGeneratorMixin"
+                )
+        );
+
         create("net.sixik.sdmgenerationstages.SDMGenerationStages",
                 new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.mixins.common_mixin.biome.compat.sdm_stages.generation_stages.SDMGenerationStages$LevelChunkSectionMixin",

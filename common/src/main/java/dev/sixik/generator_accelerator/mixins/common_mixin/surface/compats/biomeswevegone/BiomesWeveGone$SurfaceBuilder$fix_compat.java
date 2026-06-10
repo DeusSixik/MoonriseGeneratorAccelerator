@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.mixins.common_mixin.surface.compats.biom
 import com.bawnorton.mixinsquared.TargetHandler;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorBlockColumn;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -48,13 +49,9 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
 
     @Shadow
     protected abstract void erodedBadlandsExtension(BlockColumn var1, int var2, int var3, int var4, LevelHeightAccessor var5);
-
-    @TargetHandler(
-            mixin = "dev.sixik.generator_accelerator.mixins.common_mixin.surface.SurfaceSystem$new_build_surface",
-            name = "buildSurface"
-    )
+    
     @Inject(
-            method = {"@MixinSquared:Handler"},
+            method = {"buildSurface"},
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/core/Holder;is(Lnet/minecraft/resources/ResourceKey;)Z",
@@ -66,11 +63,11 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
             boolean pUseLegacyRandomSource, WorldGenerationContext pContext, ChunkAccess pChunk,
             NoiseChunk pNoiseChunk, SurfaceRules.RuleSource pRuleSource, CallbackInfo ci,
 
-            @Local VectorBlockColumn fastColumn,
-            @Local(ordinal = 4) int globalX,
-            @Local(ordinal = 5) int globalZ,
-            @Local(ordinal = 6) int surfaceY,
-            @Local Holder<Biome> biome
+            @Local(type = VectorBlockColumn.class) VectorBlockColumn fastColumn,
+            @Local(ordinal = 4, type = int.class) int globalX,
+            @Local(ordinal = 5, type = int.class) int globalZ,
+            @Local(ordinal = 6, type = int.class) int surfaceY,
+            @Local(type = Holder.class) Holder<Biome> biome
     ) {
         if (biome.is(BWGBiomes.SHATTERED_GLACIER) || biome.is(BWGBiomes.ERODED_BOREALIS)) {
             this.erodedBadlandsExtension(fastColumn, globalX, globalZ, surfaceY, pChunk);
@@ -80,7 +77,7 @@ public abstract class BiomesWeveGone$SurfaceBuilder$fix_compat implements BandsC
     @Override
     public BlockState getBandsState(BandsRuleSource bandsRuleSource, SimpleWeightedRandomList<BlockState> bandStates, IntProvider bandSizeProvider, IntProvider bandsCountProvider, int x, int y, int z, float frequency, int noiseScale) {
         BlockState[] blockStates = this.bandsLookup.computeIfAbsent(bandsRuleSource, (key) -> {
-            List<BlockState> states = new ArrayList();
+            List<BlockState> states = new ObjectArrayList<>();
             RandomSource random = this.noiseRandom.at(BlockPos.ZERO);
             int bandsCount = bandsCountProvider.sample(random);
 

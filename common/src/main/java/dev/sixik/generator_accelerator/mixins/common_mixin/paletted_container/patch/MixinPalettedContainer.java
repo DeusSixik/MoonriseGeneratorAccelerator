@@ -84,7 +84,7 @@ public abstract class MixinPalettedContainer<T> implements PaletteResize<T>, Pal
      * @reason
      */
     @Overwrite
-    private T getAndSet(int index, T value) {
+    public T getAndSet(int index, T value) {
         int paletteIdx = this.data.palette.idFor(value);
         PalettedContainer.Data<T> data = this.data;
         int prev = data.storage().getAndSet(index, paletteIdx);
@@ -96,7 +96,7 @@ public abstract class MixinPalettedContainer<T> implements PaletteResize<T>, Pal
      * @reason
      */
     @Overwrite
-    protected T get(int index) {
+    public T get(int index) {
         PalettedContainer.Data<T> data = this.data;
         return this.readPalette(data, data.storage().get(index));
     }

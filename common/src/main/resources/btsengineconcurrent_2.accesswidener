@@ -265,3 +265,5 @@ extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer g
 
 extendable method net/minecraft/world/level/levelgen/feature/TreeFeature place (Lnet/minecraft/world/level/levelgen/feature/FeaturePlaceContext;)Z
 extendable method net/minecraft/world/level/levelgen/Aquifer$NoiseBasedAquifer similarity (II)D
+
+extendable method net/minecraft/world/level/chunk/PalettedContainer get (I)Ljava/lang/Object;
