@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GAChunkStatusPipelineTest {
     private static final String[] CONFIG_PROPERTIES = {
+            "ga.config.schedulerWorldgenWorkers",
             "ga.config.schedulerNoiseWorkers",
             "ga.config.schedulerWorkspaceWorkers",
             "ga.config.schedulerTransactionalWorkers",
@@ -32,6 +33,7 @@ class GAChunkStatusPipelineTest {
     @BeforeEach
     void setUp() throws Exception {
         clearConfigProperties();
+        System.setProperty("ga.config.schedulerWorldgenWorkers", "2");
         System.setProperty("ga.config.schedulerNoiseWorkers", "1");
         System.setProperty("ga.config.schedulerWorkspaceWorkers", "2");
         System.setProperty("ga.config.schedulerTransactionalWorkers", "2");
@@ -63,7 +65,7 @@ class GAChunkStatusPipelineTest {
                 }
         ).get(10, TimeUnit.SECONDS);
 
-        assertTrue(threadName.get().startsWith("GA-WORKSPACE-"), threadName.get());
+        assertTrue(threadName.get().startsWith("GA-WORLDGEN-"), threadName.get());
         Map<?, ?> surface = stageSnapshot("surface");
         assertEquals(1L, surface.get("submitted"));
         assertEquals(1L, surface.get("completed"));

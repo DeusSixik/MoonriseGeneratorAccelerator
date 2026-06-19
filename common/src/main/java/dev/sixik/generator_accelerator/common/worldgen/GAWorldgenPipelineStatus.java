@@ -124,10 +124,11 @@ public final class GAWorldgenPipelineStatus {
         out.put("workspaceBackedPlacementReads", contextBound && DecorationWorkspaceBridge.enabled());
         out.put("schedulerNoiseLaneRuntime", Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")));
         out.put("schedulerCompileLaneRuntime", true);
-        out.put("schedulerPoolsLazy", true);
+        out.put("schedulerAdaptiveWorldgenPoolRuntime", true);
+        out.put("schedulerPhysicalLanePoolsRuntime", false);
         out.put("schedulerWorkspaceLaneRuntime", true);
         out.put("schedulerTransactionalLaneRuntime", true);
-        out.put("schedulerSerialLaneRuntime", false);
+        out.put("schedulerSerialLaneRuntime", true);
         out.put("schedulerCommitLaneRuntime", true);
         out.put("classifierRuntimeDecision", true);
         out.put("classifierRegistryScanRuntime", true);

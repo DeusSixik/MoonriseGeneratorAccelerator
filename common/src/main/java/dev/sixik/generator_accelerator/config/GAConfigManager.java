@@ -81,6 +81,7 @@ public class GAConfigManager {
         config.enableStructuresPatch = boolOverride("ga.config.enableStructuresPatch", config.enableStructuresPatch);
         config.enableSurfacePatch = boolOverride("ga.config.enableSurfacePatch", config.enableSurfacePatch);
 
+        config.schedulerWorldgenWorkers = intOverride("ga.config.schedulerWorldgenWorkers", config.schedulerWorldgenWorkers);
         config.schedulerNoiseWorkers = intOverride("ga.config.schedulerNoiseWorkers", config.schedulerNoiseWorkers);
         config.schedulerCompileWorkers = intOverride("ga.config.schedulerCompileWorkers", config.schedulerCompileWorkers);
         config.schedulerWorkspaceWorkers = intOverride("ga.config.schedulerWorkspaceWorkers", config.schedulerWorkspaceWorkers);

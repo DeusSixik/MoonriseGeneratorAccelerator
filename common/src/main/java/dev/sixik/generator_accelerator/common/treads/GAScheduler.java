@@ -8,6 +8,8 @@ import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.diagnostics.GAWallTimeTelemetry;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -23,13 +25,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Bounded GA-owned worldgen executors. Minecraft/Moonrise still own chunk graph;
- * this only replaces ad-hoc/common-pool work inside GA-controlled hot paths.
+ * GA-owned scheduler facade. Compile work keeps a dedicated pool; worldgen lanes
+ * are logical lanes over one adaptive worker pool with scheduler-side spatial
+ * admission.
  */
 public final class GAScheduler {
     private static final Object INIT_LOCK = new Object();
@@ -51,6 +56,7 @@ public final class GAScheduler {
     private static final AtomicLong MAX_COMMIT_BACKLOG = new AtomicLong();
     private static final AtomicLong MAX_MAILBOX_BACKLOG = new AtomicLong();
     private static final AtomicLong BOTTLENECK_THROTTLES = new AtomicLong();
+    private static final ThreadLocal<GAScheduledTask> CURRENT_TASK = new ThreadLocal<>();
 
     private static volatile boolean initialized;
     private static volatile ForkJoinPool noisePool;
@@ -59,6 +65,7 @@ public final class GAScheduler {
     private static volatile ForkJoinPool transactionalPool;
     private static volatile ForkJoinPool serialPool;
     private static volatile ForkJoinPool commitPool;
+    private static volatile GAAdaptiveWorldgenScheduler adaptiveWorldgen;
     private static volatile ConfigSnapshot configSnapshot = ConfigSnapshot.defaults();
 
     static {
@@ -82,10 +89,15 @@ public final class GAScheduler {
             ConfigSnapshot snapshot = ConfigSnapshot.from(config, processors, isDev);
 
             configSnapshot = snapshot;
+            adaptiveWorldgen = new GAAdaptiveWorldgenScheduler(snapshot);
             initialized = true;
         }
     }
 
+    /**
+     * Legacy executor accessors are retained for old call sites and tests. Runtime
+     * scheduling through this class uses the adaptive worldgen pool for worldgen lanes.
+     */
     public static ForkJoinPool noisePool() {
         return forkJoinPool(Lane.NOISE);
     }
@@ -126,90 +138,98 @@ public final class GAScheduler {
         }
     }
 
+    public static ConflictRegion conflictRegion(int chunkX, int chunkZ, int radius) {
+        ensureInitialized();
+        if (radius <= 0) {
+            return null;
+        }
+        return ConflictRegion.of(chunkX, chunkZ, radius, configSnapshot.spatialConflictStripes());
+    }
+
+    public static boolean currentTaskHoldsConflictRegion() {
+        GAScheduledTask task = CURRENT_TASK.get();
+        return task != null && task.region != null;
+    }
+
+    public static void retainCurrentConflictRegionUntil(CompletableFuture<?> future) {
+        if (future == null) {
+            return;
+        }
+        GAScheduledTask task = CURRENT_TASK.get();
+        if (task == null || task.region == null || task.regionReleased.get()) {
+            return;
+        }
+        if (task.regionRetained.compareAndSet(false, true)) {
+            future.whenComplete((ignored, throwable) -> task.releaseRetainedRegion());
+        }
+    }
+
     public static <T> CompletableFuture<T> supplyAsync(Lane lane, Supplier<T> supplier) {
+        return supplyAsync(lane, 0, null, supplier);
+    }
+
+    public static <T> CompletableFuture<T> supplyAsync(
+            Lane lane,
+            int priority,
+            ConflictRegion region,
+            Supplier<T> supplier
+    ) {
         ensureInitialized();
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
         if (isCurrentLaneWorker(lane)) {
             INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
             try {
                 return CompletableFuture.completedFuture(runMeasured(lane, task));
             } catch (Throwable throwable) {
                 return failedFuture(throwable);
             }
         }
-        ForkJoinPool pool = forkJoinPool(lane);
-        long queued = queuedTaskEstimate(lane, pool);
-        updateMax(MAX_QUEUED, index, queued);
-
-        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
-        boolean reservedQueueSlot = false;
-        if (maxQueuedTasks > 0) {
-            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
-            if (!reservedQueueSlot) {
-                ADMISSION_REJECTED.incrementAndGet(index);
-                if (lane.canInlineWhenBacklogged()) {
-                    INLINE_RUNS.incrementAndGet(index);
-                    try {
-                        return CompletableFuture.completedFuture(runGoverned(lane, task));
-                    } catch (Throwable throwable) {
-                        return failedFuture(throwable);
-                    }
-                }
-                FAILED.incrementAndGet(index);
-                return failedFuture(new RejectedExecutionException(
-                        "GA scheduler lane " + lane.jsonName() + " queue is full: "
-                                + ADMITTED_QUEUED[index].get() + " >= " + maxQueuedTasks
-                ));
-            }
+        if (lane == Lane.COMPILE) {
+            return supplyOnForkJoin(lane, task);
         }
-        ADMISSION_ACCEPTED.incrementAndGet(index);
 
-        AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
-        try {
-            CompletableFuture<T> future = new CompletableFuture<>();
-            future.whenComplete((ignored, throwable) -> {
-                if (future.isCancelled()) {
-                    releaseQueueSlotIfHeld(lane, queueSlotHeld);
-                }
-            });
-            pool.execute(() -> {
-                releaseQueueSlotIfHeld(lane, queueSlotHeld);
-                if (future.isCancelled()) {
-                    return;
-                }
-                completeFromSupplier(future, () -> runGoverned(lane, task));
-            });
+        CompletableFuture<T> future = new CompletableFuture<>();
+        AtomicBoolean queueSlotHeld = reserveQueueSlotOrReject(lane, future);
+        if (future.isCompletedExceptionally()) {
             return future;
-        } catch (RejectedExecutionException rejected) {
-            releaseQueueSlotIfHeld(lane, queueSlotHeld);
-            ADMISSION_REJECTED.incrementAndGet(index);
-            if (lane.canInlineWhenBacklogged()) {
-                INLINE_RUNS.incrementAndGet(index);
-                try {
-                    return CompletableFuture.completedFuture(runGoverned(lane, task));
-                } catch (Throwable throwable) {
-                    rejected.addSuppressed(throwable);
-                    return failedFuture(rejected);
-                }
-            }
-            FAILED.incrementAndGet(index);
-            return failedFuture(rejected);
         }
+
+        GAScheduledTask scheduled = new GAScheduledTask(
+                lane,
+                priority,
+                region,
+                false,
+                queueSlotHeld,
+                () -> {
+                    if (!future.isCancelled()) {
+                        completeFromSupplier(future, () -> runMeasured(lane, task));
+                    }
+                },
+                throwable -> future.completeExceptionally(throwable)
+        );
+        future.whenComplete((ignored, throwable) -> {
+            if (future.isCancelled()) {
+                scheduled.cancel();
+            }
+        });
+        adaptiveWorldgen.submit(scheduled);
+        return future;
     }
 
     /**
-     * Runs bounded nested worldgen work without governor throttling. This is for
-     * parent tasks that synchronously join child tasks; throttling them can
-     * deadlock all workers while parents wait for children.
+     * Runs bounded nested worldgen work. Nested work bypasses credit throttling,
+     * but still respects spatial conflict regions unless it is inlined to avoid a
+     * self-deadlock.
      */
     public static <T> CompletableFuture<T> supplyNestedAsync(Lane lane, Supplier<T> supplier) {
         ensureInitialized();
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
-        if (isCurrentLaneWorker(lane)) {
+        if (isCurrentLaneWorker(lane) || shouldInlineNestedFromGaWorker(lane)) {
             INLINE_RUNS.incrementAndGet(index);
             ADMISSION_ACCEPTED.incrementAndGet(index);
             try {
@@ -218,27 +238,32 @@ public final class GAScheduler {
                 return failedFuture(throwable);
             }
         }
-        if (shouldInlineNestedFromGaWorker(lane)) {
-            INLINE_RUNS.incrementAndGet(index);
-            ADMISSION_ACCEPTED.incrementAndGet(index);
-            try {
-                return CompletableFuture.completedFuture(runMeasured(lane, task));
-            } catch (Throwable throwable) {
-                return failedFuture(throwable);
-            }
+        if (lane == Lane.COMPILE) {
+            return supplyNestedOnForkJoin(lane, task);
         }
+
+        CompletableFuture<T> future = new CompletableFuture<>();
         ADMISSION_ACCEPTED.incrementAndGet(index);
-        ForkJoinPool pool = forkJoinPool(lane);
-        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
-        try {
-            CompletableFuture<T> future = new CompletableFuture<>();
-            pool.execute(() -> completeFromSupplier(future, () -> runMeasured(lane, task)));
-            return future;
-        } catch (RejectedExecutionException rejected) {
-            ADMISSION_REJECTED.incrementAndGet(index);
-            FAILED.incrementAndGet(index);
-            return failedFuture(rejected);
-        }
+        GAScheduledTask scheduled = new GAScheduledTask(
+                lane,
+                0,
+                null,
+                true,
+                null,
+                () -> {
+                    if (!future.isCancelled()) {
+                        completeFromSupplier(future, () -> runMeasured(lane, task));
+                    }
+                },
+                throwable -> future.completeExceptionally(throwable)
+        );
+        future.whenComplete((ignored, throwable) -> {
+            if (future.isCancelled()) {
+                scheduled.cancel();
+            }
+        });
+        adaptiveWorldgen.submit(scheduled);
+        return future;
     }
 
     public static void execute(Lane lane, Runnable runnable) {
@@ -246,6 +271,16 @@ public final class GAScheduler {
     }
 
     public static void executeAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
+        executeAsync(lane, 0, null, runnable, failureHandler);
+    }
+
+    public static void executeAsync(
+            Lane lane,
+            int priority,
+            ConflictRegion region,
+            Runnable runnable,
+            Consumer<Throwable> failureHandler
+    ) {
         ensureInitialized();
         Supplier<Void> task = wrapWorkspaceContext(() -> {
             runnable.run();
@@ -255,68 +290,28 @@ public final class GAScheduler {
         SUBMITTED.incrementAndGet(index);
         if (isCurrentLaneWorker(lane)) {
             INLINE_RUNS.incrementAndGet(index);
-            try {
-                runMeasured(lane, task);
-            } catch (Throwable throwable) {
-                notifyFailure(failureHandler, throwable);
-            }
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            runMeasuredWithFailureCallback(lane, task, failureHandler);
             return;
         }
-        ForkJoinPool pool = forkJoinPool(lane);
-        long queued = queuedTaskEstimate(lane, pool);
-        updateMax(MAX_QUEUED, index, queued);
-
-        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
-        boolean reservedQueueSlot = false;
-        if (maxQueuedTasks > 0) {
-            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
-            if (!reservedQueueSlot) {
-                ADMISSION_REJECTED.incrementAndGet(index);
-                if (lane.canInlineWhenBacklogged()) {
-                    INLINE_RUNS.incrementAndGet(index);
-                    try {
-                        runGoverned(lane, task);
-                    } catch (Throwable throwable) {
-                        notifyFailure(failureHandler, throwable);
-                    }
-                    return;
-                }
-                FAILED.incrementAndGet(index);
-                notifyFailure(failureHandler, new RejectedExecutionException(
-                        "GA scheduler lane " + lane.jsonName() + " queue is full: "
-                                + ADMITTED_QUEUED[index].get() + " >= " + maxQueuedTasks
-                ));
-                return;
-            }
+        if (lane == Lane.COMPILE) {
+            executeOnForkJoin(lane, task, failureHandler);
+            return;
         }
-        ADMISSION_ACCEPTED.incrementAndGet(index);
 
-        AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
-        try {
-            pool.execute(() -> {
-                releaseQueueSlotIfHeld(lane, queueSlotHeld);
-                try {
-                    runGoverned(lane, task);
-                } catch (Throwable throwable) {
-                    notifyFailure(failureHandler, throwable);
-                }
-            });
-        } catch (RejectedExecutionException rejected) {
-            releaseQueueSlotIfHeld(lane, queueSlotHeld);
-            ADMISSION_REJECTED.incrementAndGet(index);
-            if (lane.canInlineWhenBacklogged()) {
-                INLINE_RUNS.incrementAndGet(index);
-                try {
-                    runGoverned(lane, task);
-                } catch (Throwable throwable) {
-                    rejected.addSuppressed(throwable);
-                    notifyFailure(failureHandler, rejected);
-                }
-                return;
-            }
-            FAILED.incrementAndGet(index);
-            notifyFailure(failureHandler, rejected);
+        AtomicBoolean queueSlotHeld = reserveQueueSlotOrNotify(lane, failureHandler);
+        if (queueSlotHeld == QUEUE_REJECTED) {
+            return;
         }
+        adaptiveWorldgen.submit(new GAScheduledTask(
+                lane,
+                priority,
+                region,
+                false,
+                queueSlotHeld,
+                () -> runMeasuredWithFailureCallback(lane, task, failureHandler),
+                failureHandler
+        ));
     }
 
     /**
@@ -331,55 +326,30 @@ public final class GAScheduler {
         });
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
-        if (isCurrentLaneWorker(lane)) {
+        if (isCurrentLaneWorker(lane) || shouldInlineNestedFromGaWorker(lane)) {
             INLINE_RUNS.incrementAndGet(index);
             ADMISSION_ACCEPTED.incrementAndGet(index);
-            try {
-                runMeasured(lane, task);
-            } catch (Throwable throwable) {
-                notifyFailure(failureHandler, throwable);
-            }
+            runMeasuredWithFailureCallback(lane, task, failureHandler);
             return;
         }
-        if (shouldInlineNestedFromGaWorker(lane)) {
-            INLINE_RUNS.incrementAndGet(index);
-            ADMISSION_ACCEPTED.incrementAndGet(index);
-            try {
-                runMeasured(lane, task);
-            } catch (Throwable throwable) {
-                notifyFailure(failureHandler, throwable);
-            }
+        if (lane == Lane.COMPILE) {
+            executeNestedOnForkJoin(lane, task, failureHandler);
             return;
         }
         ADMISSION_ACCEPTED.incrementAndGet(index);
-        ForkJoinPool pool = forkJoinPool(lane);
-        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
-        try {
-            pool.execute(() -> {
-                try {
-                    runMeasured(lane, task);
-                } catch (Throwable throwable) {
-                    notifyFailure(failureHandler, throwable);
-                }
-            });
-        } catch (RejectedExecutionException rejected) {
-            ADMISSION_REJECTED.incrementAndGet(index);
-            FAILED.incrementAndGet(index);
-            notifyFailure(failureHandler, rejected);
-        }
+        adaptiveWorldgen.submit(new GAScheduledTask(
+                lane,
+                0,
+                null,
+                true,
+                null,
+                () -> runMeasuredWithFailureCallback(lane, task, failureHandler),
+                failureHandler
+        ));
     }
 
     public static void invokeBlocking(Lane lane, Runnable runnable) throws InterruptedException, ExecutionException {
         ensureInitialized();
-        if (isCurrentLaneWorker(lane)) {
-            int index = lane.ordinal();
-            SUBMITTED.incrementAndGet(index);
-            runMeasured(lane, () -> {
-                runnable.run();
-                return null;
-            });
-            return;
-        }
         if (isCurrentGaWorker()) {
             int index = lane.ordinal();
             SUBMITTED.incrementAndGet(index);
@@ -394,8 +364,11 @@ public final class GAScheduler {
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         executeAsync(lane, () -> {
-            runnable.run();
-            done.countDown();
+            try {
+                runnable.run();
+            } finally {
+                done.countDown();
+            }
         }, throwable -> {
             failure.compareAndSet(null, throwable);
             done.countDown();
@@ -417,6 +390,8 @@ public final class GAScheduler {
             lanes.put(lane.jsonName(), laneSnapshot(lane));
         }
         out.put("lanes", lanes);
+        out.put("adaptive", adaptiveWorldgen.snapshot());
+        out.put("spatial", adaptiveWorldgen.spatialSnapshot());
         out.put("governor", governorSnapshot());
         return out;
     }
@@ -424,18 +399,20 @@ public final class GAScheduler {
     public static String summary() {
         ensureInitialized();
         StringBuilder builder = new StringBuilder(256);
-        boolean first = true;
+        builder.append("adaptive(worldgenWorkers=")
+                .append(configSnapshot.worldgenWorkers())
+                .append(", active=")
+                .append(adaptiveWorldgen.activeWorkers())
+                .append(", queued=")
+                .append(adaptiveWorldgen.totalQueued())
+                .append(")");
         for (Lane lane : Lane.values()) {
-            if (!first) {
-                builder.append("; ");
-            }
-            first = false;
-            ForkJoinPool pool = existingPool(lane);
             int index = lane.ordinal();
-            builder.append(lane.jsonName())
-                    .append("(workers=").append(pool == null ? workersFor(lane, configSnapshot) : pool.getParallelism())
+            builder.append("; ")
+                    .append(lane.jsonName())
+                    .append("(credits=").append(lane == Lane.COMPILE ? 0 : adaptiveWorldgen.credits(lane))
                     .append(", active=").append(ACTIVE[index].get())
-                    .append(", queued=").append(queuedTaskEstimate(lane, pool))
+                    .append(", queued=").append(queuedTaskEstimate(lane))
                     .append(", submitted=").append(SUBMITTED.get(index))
                     .append(", completed=").append(COMPLETED.get(index))
                     .append(')');
@@ -462,6 +439,11 @@ public final class GAScheduler {
         MAX_MAILBOX_BACKLOG.set(0L);
         BOTTLENECK_THROTTLES.set(0L);
         COMPILE_GOVERNOR_RUNNING.set(0);
+        resetAdmissionForTests();
+        GAAdaptiveWorldgenScheduler scheduler = adaptiveWorldgen;
+        if (scheduler != null) {
+            scheduler.resetMetrics();
+        }
     }
 
     public static void shutdownForTests() {
@@ -471,6 +453,7 @@ public final class GAScheduler {
         ForkJoinPool oldTransactionalPool;
         ForkJoinPool oldSerialPool;
         ForkJoinPool oldCommitPool;
+        GAAdaptiveWorldgenScheduler oldAdaptive;
 
         synchronized (INIT_LOCK) {
             oldNoisePool = noisePool;
@@ -479,6 +462,7 @@ public final class GAScheduler {
             oldTransactionalPool = transactionalPool;
             oldSerialPool = serialPool;
             oldCommitPool = commitPool;
+            oldAdaptive = adaptiveWorldgen;
 
             noisePool = null;
             compilePool = null;
@@ -486,12 +470,15 @@ public final class GAScheduler {
             transactionalPool = null;
             serialPool = null;
             commitPool = null;
+            adaptiveWorldgen = null;
             configSnapshot = ConfigSnapshot.defaults();
             resetMetrics();
-            resetAdmissionForTests();
             initialized = false;
         }
 
+        if (oldAdaptive != null) {
+            oldAdaptive.shutdown();
+        }
         shutdownPool(oldNoisePool);
         shutdownPool(oldCompilePool);
         shutdownPool(oldWorkspacePool);
@@ -501,18 +488,20 @@ public final class GAScheduler {
     }
 
     private static Map<String, Object> laneSnapshot(Lane lane) {
-        ForkJoinPool pool = existingPool(lane);
+        ForkJoinPool pool = lane == Lane.COMPILE ? existingPool(lane) : null;
         int index = lane.ordinal();
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("parallelism", pool == null ? workersFor(lane, configSnapshot) : pool.getParallelism());
-        out.put("poolSize", pool == null ? 0 : pool.getPoolSize());
-        out.put("runningThreadCount", pool == null ? 0 : pool.getRunningThreadCount());
-        out.put("activeThreadCount", pool == null ? 0 : pool.getActiveThreadCount());
+        out.put("parallelism", lane == Lane.COMPILE
+                ? (pool == null ? workersFor(lane, configSnapshot) : pool.getParallelism())
+                : configSnapshot.worldgenWorkers());
+        out.put("poolSize", lane == Lane.COMPILE ? (pool == null ? 0 : pool.getPoolSize()) : configSnapshot.worldgenWorkers());
+        out.put("runningThreadCount", lane == Lane.COMPILE ? (pool == null ? 0 : pool.getRunningThreadCount()) : adaptiveWorldgen.runningWorkers());
+        out.put("activeThreadCount", lane == Lane.COMPILE ? (pool == null ? 0 : pool.getActiveThreadCount()) : adaptiveWorldgen.activeWorkers());
         out.put("activeTasks", ACTIVE[index].get());
-        out.put("queuedTaskEstimate", queuedTaskEstimate(lane, pool));
+        out.put("queuedTaskEstimate", queuedTaskEstimate(lane));
         out.put("queuedAdmissionSlots", ADMITTED_QUEUED[index].get());
-        out.put("queuedSubmissionCount", pool == null ? 0 : pool.getQueuedSubmissionCount());
-        out.put("stealCount", pool == null ? 0L : pool.getStealCount());
+        out.put("queuedSubmissionCount", lane == Lane.COMPILE ? (pool == null ? 0 : pool.getQueuedSubmissionCount()) : adaptiveWorldgen.queued(lane));
+        out.put("stealCount", lane == Lane.COMPILE ? (pool == null ? 0L : pool.getStealCount()) : 0L);
         out.put("submitted", SUBMITTED.get(index));
         out.put("completed", COMPLETED.get(index));
         out.put("failed", FAILED.get(index));
@@ -524,6 +513,10 @@ public final class GAScheduler {
         out.put("executionNanos", EXECUTION_NANOS.get(index));
         out.put("maxActiveTasks", MAX_ACTIVE.get(index));
         out.put("maxQueuedTaskEstimate", MAX_QUEUED.get(index));
+        out.put("credits", lane == Lane.COMPILE ? 0 : adaptiveWorldgen.credits(lane));
+        out.put("ewmaNanos", lane == Lane.COMPILE ? 0L : adaptiveWorldgen.ewmaNanos(lane));
+        out.put("spatialDeferred", lane == Lane.COMPILE ? 0L : adaptiveWorldgen.spatialDeferred(lane));
+        out.put("creditDeferred", lane == Lane.COMPILE ? 0L : adaptiveWorldgen.creditDeferred(lane));
         return out;
     }
 
@@ -538,7 +531,7 @@ public final class GAScheduler {
         updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cpuTarget", config.cpuTarget());
-        out.put("worldgenWorkers", worldgenWorkers(config));
+        out.put("worldgenWorkers", config.worldgenWorkers());
         out.put("worldgenPressureTarget", worldgenPressureTarget(config));
         out.put("worldgenPressure", worldgenPressure);
         out.put("maxWorldgenPressure", MAX_WORLDGEN_PRESSURE.get());
@@ -559,12 +552,120 @@ public final class GAScheduler {
         return out;
     }
 
+    private static <T> CompletableFuture<T> supplyOnForkJoin(Lane lane, Supplier<T> task) {
+        int index = lane.ordinal();
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane));
+        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
+        boolean reservedQueueSlot = false;
+        if (maxQueuedTasks > 0) {
+            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
+            if (!reservedQueueSlot) {
+                ADMISSION_REJECTED.incrementAndGet(index);
+                if (lane.canInlineWhenBacklogged()) {
+                    INLINE_RUNS.incrementAndGet(index);
+                    try {
+                        return CompletableFuture.completedFuture(runGoverned(lane, task));
+                    } catch (Throwable throwable) {
+                        return failedFuture(throwable);
+                    }
+                }
+                FAILED.incrementAndGet(index);
+                return failedFuture(queueFull(lane, maxQueuedTasks));
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
+        try {
+            CompletableFuture<T> future = new CompletableFuture<>();
+            future.whenComplete((ignored, throwable) -> {
+                if (future.isCancelled()) {
+                    releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                }
+            });
+            pool.execute(() -> {
+                releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                if (!future.isCancelled()) {
+                    completeFromSupplier(future, () -> runGoverned(lane, task));
+                }
+            });
+            return future;
+        } catch (RejectedExecutionException rejected) {
+            releaseQueueSlotIfHeld(lane, queueSlotHeld);
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            return failedFuture(rejected);
+        }
+    }
+
+    private static <T> CompletableFuture<T> supplyNestedOnForkJoin(Lane lane, Supplier<T> task) {
+        int index = lane.ordinal();
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane));
+        try {
+            CompletableFuture<T> future = new CompletableFuture<>();
+            pool.execute(() -> completeFromSupplier(future, () -> runMeasured(lane, task)));
+            return future;
+        } catch (RejectedExecutionException rejected) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            return failedFuture(rejected);
+        }
+    }
+
+    private static void executeOnForkJoin(Lane lane, Supplier<Void> task, Consumer<Throwable> failureHandler) {
+        int index = lane.ordinal();
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane));
+        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
+        boolean reservedQueueSlot = false;
+        if (maxQueuedTasks > 0) {
+            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
+            if (!reservedQueueSlot) {
+                ADMISSION_REJECTED.incrementAndGet(index);
+                if (lane.canInlineWhenBacklogged()) {
+                    INLINE_RUNS.incrementAndGet(index);
+                    runGovernedWithFailureCallback(lane, task, failureHandler);
+                    return;
+                }
+                FAILED.incrementAndGet(index);
+                notifyFailure(failureHandler, queueFull(lane, maxQueuedTasks));
+                return;
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        AtomicBoolean queueSlotHeld = reservedQueueSlot ? new AtomicBoolean(true) : null;
+        try {
+            pool.execute(() -> {
+                releaseQueueSlotIfHeld(lane, queueSlotHeld);
+                runGovernedWithFailureCallback(lane, task, failureHandler);
+            });
+        } catch (RejectedExecutionException rejected) {
+            releaseQueueSlotIfHeld(lane, queueSlotHeld);
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, rejected);
+        }
+    }
+
+    private static void executeNestedOnForkJoin(Lane lane, Supplier<Void> task, Consumer<Throwable> failureHandler) {
+        int index = lane.ordinal();
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        ForkJoinPool pool = forkJoinPool(lane);
+        updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane));
+        try {
+            pool.execute(() -> runMeasuredWithFailureCallback(lane, task, failureHandler));
+        } catch (RejectedExecutionException rejected) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, rejected);
+        }
+    }
+
     private static <T> T runGoverned(Lane lane, Supplier<T> supplier) {
         if (lane == Lane.COMPILE) {
             return runCompileGoverned(supplier);
-        }
-        if (lane.canThrottleWorldgen()) {
-            return runWorldgenGoverned(lane, supplier);
         }
         return runMeasured(lane, supplier);
     }
@@ -617,53 +718,6 @@ public final class GAScheduler {
         }
     }
 
-    private static <T> T runWorldgenGoverned(Lane lane, Supplier<T> supplier) {
-        long waitStart = 0L;
-        boolean throttled = false;
-        for (;;) {
-            ConfigSnapshot config = configSnapshot;
-            long commitBacklog = commitBacklog();
-            long mailboxBacklog = mailboxBacklog();
-            double heapUsedRatio = heapUsedRatio();
-            updateMax(MAX_COMMIT_BACKLOG, commitBacklog);
-            updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
-            boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
-            int limit = worldgenActiveLimit(config, bottleneckActive);
-            long active = activeWorldgenWorkers();
-            if (active < limit) {
-                break;
-            }
-            if (!throttled) {
-                throttled = true;
-                waitStart = System.nanoTime();
-                GOVERNOR_THROTTLED.incrementAndGet(lane.ordinal());
-                if (bottleneckActive) {
-                    BOTTLENECK_THROTTLES.incrementAndGet();
-                }
-            }
-            LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(250L));
-            if (Thread.interrupted()) {
-                Thread.currentThread().interrupt();
-                throw new RejectedExecutionException("GA scheduler " + lane.jsonName()
-                        + " lane interrupted while throttled by worldgen governor");
-            }
-        }
-        if (throttled) {
-            long waited = System.nanoTime() - waitStart;
-            GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), waited);
-            GAWallTimeTelemetry.addElapsed(GAWallTimeTelemetry.Stage.SCHEDULER_WAIT_IDLE, waited);
-        }
-        return runMeasured(lane, supplier);
-    }
-
-    private static long activeWorldgenWorkers() {
-        long active = 0L;
-        for (Lane lane : Lane.worldgenThrottleLanes()) {
-            active += ACTIVE[lane.ordinal()].get();
-        }
-        return active;
-    }
-
     private static <T> T runMeasured(Lane lane, Supplier<T> supplier) {
         int index = lane.ordinal();
         int active = ACTIVE[index].incrementAndGet();
@@ -679,6 +733,22 @@ public final class GAScheduler {
         } finally {
             EXECUTION_NANOS.addAndGet(index, System.nanoTime() - start);
             ACTIVE[index].decrementAndGet();
+        }
+    }
+
+    private static void runMeasuredWithFailureCallback(Lane lane, Supplier<Void> task, Consumer<Throwable> failureHandler) {
+        try {
+            runMeasured(lane, task);
+        } catch (Throwable throwable) {
+            notifyFailure(failureHandler, throwable);
+        }
+    }
+
+    private static void runGovernedWithFailureCallback(Lane lane, Supplier<Void> task, Consumer<Throwable> failureHandler) {
+        try {
+            runGoverned(lane, task);
+        } catch (Throwable throwable) {
+            notifyFailure(failureHandler, throwable);
         }
     }
 
@@ -704,7 +774,11 @@ public final class GAScheduler {
         );
     }
 
-    private static long queuedTaskEstimate(Lane lane, ForkJoinPool pool) {
+    private static long queuedTaskEstimate(Lane lane) {
+        if (lane != Lane.COMPILE && adaptiveWorldgen != null) {
+            return Math.max(adaptiveWorldgen.queued(lane), ADMITTED_QUEUED[lane.ordinal()].get());
+        }
+        ForkJoinPool pool = existingPool(lane);
         long forkJoinEstimate = pool == null ? 0L : pool.getQueuedTaskCount() + pool.getQueuedSubmissionCount();
         return Math.max(forkJoinEstimate, ADMITTED_QUEUED[lane.ordinal()].get());
     }
@@ -743,6 +817,10 @@ public final class GAScheduler {
     }
 
     private static long worldgenPressure() {
+        GAAdaptiveWorldgenScheduler scheduler = adaptiveWorldgen;
+        if (scheduler != null) {
+            return scheduler.worldgenPressure();
+        }
         long pressure = 0L;
         for (Lane lane : Lane.worldgenPressureLanes()) {
             int index = lane.ordinal();
@@ -760,17 +838,7 @@ public final class GAScheduler {
     }
 
     private static int worldgenPressureTarget(ConfigSnapshot config) {
-        return Math.max(1, (int) Math.ceil(worldgenWorkers(config) * config.cpuTarget()));
-    }
-
-    private static int worldgenWorkers(ConfigSnapshot config) {
-        return Math.max(1,
-                config.noiseWorkers()
-                        + config.workspaceWorkers()
-                        + config.transactionalWorkers()
-                        + config.serialWorkers()
-                        + config.commitWorkers()
-        );
+        return Math.max(1, (int) Math.ceil(config.worldgenWorkers() * config.cpuTarget()));
     }
 
     private static int worldgenActiveLimit(ConfigSnapshot config) {
@@ -778,7 +846,7 @@ public final class GAScheduler {
     }
 
     private static int worldgenActiveLimit(ConfigSnapshot config, boolean bottleneckActive) {
-        int cpuLimit = Math.max(1, (int) Math.ceil(worldgenWorkers(config) * config.cpuTarget()));
+        int cpuLimit = Math.max(1, (int) Math.ceil(config.worldgenWorkers() * config.cpuTarget()));
         if (!bottleneckActive) {
             return cpuLimit;
         }
@@ -797,8 +865,10 @@ public final class GAScheduler {
     }
 
     private static long commitBacklog() {
-        ForkJoinPool commit = existingPool(Lane.COMMIT);
-        return ACTIVE[Lane.COMMIT.ordinal()].get() + queuedTaskEstimate(Lane.COMMIT, commit);
+        if (adaptiveWorldgen != null) {
+            return ACTIVE[Lane.COMMIT.ordinal()].get() + adaptiveWorldgen.queued(Lane.COMMIT);
+        }
+        return ACTIVE[Lane.COMMIT.ordinal()].get() + queuedTaskEstimate(Lane.COMMIT);
     }
 
     private static long mailboxBacklog() {
@@ -813,6 +883,49 @@ public final class GAScheduler {
         }
         long used = runtime.totalMemory() - runtime.freeMemory();
         return Math.max(0.0D, Math.min(1.0D, (double) used / (double) max));
+    }
+
+    private static final AtomicBoolean QUEUE_REJECTED = new AtomicBoolean(false);
+
+    private static AtomicBoolean reserveQueueSlotOrReject(Lane lane, CompletableFuture<?> future) {
+        int index = lane.ordinal();
+        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
+        boolean reservedQueueSlot = false;
+        if (maxQueuedTasks > 0) {
+            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
+            if (!reservedQueueSlot) {
+                ADMISSION_REJECTED.incrementAndGet(index);
+                FAILED.incrementAndGet(index);
+                future.completeExceptionally(queueFull(lane, maxQueuedTasks));
+                return QUEUE_REJECTED;
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        return reservedQueueSlot ? new AtomicBoolean(true) : null;
+    }
+
+    private static AtomicBoolean reserveQueueSlotOrNotify(Lane lane, Consumer<Throwable> failureHandler) {
+        int index = lane.ordinal();
+        int maxQueuedTasks = configSnapshot.maxQueuedTasks();
+        boolean reservedQueueSlot = false;
+        if (maxQueuedTasks > 0) {
+            reservedQueueSlot = tryReserveQueueSlot(lane, maxQueuedTasks);
+            if (!reservedQueueSlot) {
+                ADMISSION_REJECTED.incrementAndGet(index);
+                FAILED.incrementAndGet(index);
+                notifyFailure(failureHandler, queueFull(lane, maxQueuedTasks));
+                return QUEUE_REJECTED;
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        return reservedQueueSlot ? new AtomicBoolean(true) : null;
+    }
+
+    private static RejectedExecutionException queueFull(Lane lane, int maxQueuedTasks) {
+        return new RejectedExecutionException(
+                "GA scheduler lane " + lane.jsonName() + " queue is full: "
+                        + ADMITTED_QUEUED[lane.ordinal()].get() + " >= " + maxQueuedTasks
+        );
     }
 
     private static boolean tryReserveQueueSlot(Lane lane, int maxQueuedTasks) {
@@ -834,7 +947,7 @@ public final class GAScheduler {
     }
 
     private static void releaseQueueSlotIfHeld(Lane lane, AtomicBoolean queueSlotHeld) {
-        if (queueSlotHeld != null && queueSlotHeld.compareAndSet(true, false)) {
+        if (queueSlotHeld != null && queueSlotHeld != QUEUE_REJECTED && queueSlotHeld.compareAndSet(true, false)) {
             releaseQueueSlot(lane);
         }
     }
@@ -885,23 +998,34 @@ public final class GAScheduler {
     }
 
     private static boolean isCurrentLaneWorker(Lane lane) {
-        return Thread.currentThread().getName().startsWith("GA-" + lane.name() + "-");
+        GAScheduledTask current = CURRENT_TASK.get();
+        if (current != null) {
+            return current.lane == lane;
+        }
+        return lane == Lane.COMPILE && Thread.currentThread().getName().startsWith("GA-COMPILE-");
     }
 
     private static boolean isCurrentGaWorker() {
-        return Thread.currentThread().getName().startsWith("GA-");
+        return CURRENT_TASK.get() != null || Thread.currentThread().getName().startsWith("GA-");
     }
 
     private static boolean shouldInlineNestedFromGaWorker(Lane lane) {
-        if (!isCurrentGaWorker() || !lane.canThrottleWorldgen()) {
+        if (lane == Lane.COMPILE || !lane.isAdaptiveWorldgen()) {
             return false;
+        }
+        GAScheduledTask current = CURRENT_TASK.get();
+        if (current == null) {
+            return false;
+        }
+        if (current.region != null) {
+            return true;
         }
         ConfigSnapshot config = configSnapshot;
         long commitBacklog = commitBacklog();
         long mailboxBacklog = mailboxBacklog();
         double heapUsedRatio = heapUsedRatio();
         boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
-        return activeWorldgenWorkers() >= worldgenActiveLimit(config, bottleneckActive);
+        return adaptiveWorldgen.activeWorkers() >= worldgenActiveLimit(config, bottleneckActive);
     }
 
     private static void updateMax(AtomicLongArray array, int index, long value) {
@@ -924,6 +1048,24 @@ public final class GAScheduler {
         } while (!value.compareAndSet(current, next));
     }
 
+    private static int nextPowerOfTwo(int value) {
+        int highest = Integer.highestOneBit(value);
+        if (highest == value) {
+            return value;
+        }
+        return highest >= (1 << 30) ? 1 << 30 : highest << 1;
+    }
+
+    private static int stripe(int chunkX, int chunkZ, int mask) {
+        long x = chunkX * 0x9E3779B97F4A7C15L;
+        long z = chunkZ * 0xC2B2AE3D27D4EB4FL;
+        long h = x ^ Long.rotateLeft(z, 31);
+        h ^= h >>> 33;
+        h *= 0xff51afd7ed558ccdL;
+        h ^= h >>> 33;
+        return (int) h & mask;
+    }
+
     public enum Lane {
         NOISE,
         COMPILE,
@@ -932,7 +1074,7 @@ public final class GAScheduler {
         SERIAL,
         COMMIT;
 
-        String jsonName() {
+        public String jsonName() {
             return this.name().toLowerCase(Locale.ROOT);
         }
 
@@ -940,20 +1082,669 @@ public final class GAScheduler {
             return this == COMPILE;
         }
 
-        boolean canThrottleWorldgen() {
-            return this == NOISE || this == WORKSPACE || this == TRANSACTIONAL;
+        boolean isAdaptiveWorldgen() {
+            return this != COMPILE;
         }
 
         static Lane[] worldgenPressureLanes() {
             return new Lane[]{NOISE, WORKSPACE, TRANSACTIONAL, SERIAL, COMMIT};
         }
+    }
 
-        static Lane[] worldgenThrottleLanes() {
-            return new Lane[]{NOISE, WORKSPACE, TRANSACTIONAL};
+    public record ConflictRegion(int centerX, int centerZ, int radius, int[] stripes) {
+        private static ConflictRegion of(int centerX, int centerZ, int radius, int stripeCount) {
+            int safeRadius = Math.max(0, radius);
+            int safeStripeCount = nextPowerOfTwo(Math.max(1024, stripeCount));
+            int mask = safeStripeCount - 1;
+            int[] values = new int[(safeRadius * 2 + 1) * (safeRadius * 2 + 1)];
+            int size = 0;
+            for (int dz = -safeRadius; dz <= safeRadius; dz++) {
+                for (int dx = -safeRadius; dx <= safeRadius; dx++) {
+                    int stripe = stripe(centerX + dx, centerZ + dz, mask);
+                    boolean duplicate = false;
+                    for (int i = 0; i < size; i++) {
+                        if (values[i] == stripe) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        values[size++] = stripe;
+                    }
+                }
+            }
+            int[] compact = Arrays.copyOf(values, size);
+            Arrays.sort(compact);
+            return new ConflictRegion(centerX, centerZ, safeRadius, compact);
+        }
+    }
+
+    private static final class GAScheduledTask {
+        private static final AtomicLong NEXT_SEQUENCE = new AtomicLong();
+
+        private final Lane lane;
+        private final int priority;
+        private final long sequence;
+        private final ConflictRegion region;
+        private final boolean nested;
+        private final AtomicBoolean queueSlotHeld;
+        private final Runnable runnable;
+        private final Consumer<Throwable> failureHandler;
+        private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final AtomicBoolean regionRetained = new AtomicBoolean();
+        private final AtomicBoolean regionReleased = new AtomicBoolean();
+        private GAAdaptiveWorldgenScheduler owner;
+
+        private GAScheduledTask(
+                Lane lane,
+                int priority,
+                ConflictRegion region,
+                boolean nested,
+                AtomicBoolean queueSlotHeld,
+                Runnable runnable,
+                Consumer<Throwable> failureHandler
+        ) {
+            this.lane = lane;
+            this.priority = priority;
+            this.sequence = NEXT_SEQUENCE.getAndIncrement();
+            this.region = region;
+            this.nested = nested;
+            this.queueSlotHeld = queueSlotHeld;
+            this.runnable = runnable;
+            this.failureHandler = failureHandler;
+        }
+
+        private void cancel() {
+            if (!this.cancelled.compareAndSet(false, true)) {
+                return;
+            }
+            releaseQueueSlotIfHeld(this.lane, this.queueSlotHeld);
+            GAAdaptiveWorldgenScheduler scheduler = this.owner;
+            if (scheduler != null) {
+                scheduler.cancelQueued(this);
+            }
+        }
+
+        private void run() {
+            if (this.cancelled.get()) {
+                return;
+            }
+            try {
+                this.runnable.run();
+            } catch (Throwable throwable) {
+                notifyFailure(this.failureHandler, throwable);
+            }
+        }
+
+        private void releaseRetainedRegion() {
+            GAAdaptiveWorldgenScheduler scheduler = this.owner;
+            if (scheduler != null && this.region != null && this.regionReleased.compareAndSet(false, true)) {
+                scheduler.releaseRegion(this);
+            }
+        }
+    }
+
+    private static final class GALaneState {
+        private static final long EWMA_UNINITIALIZED = -1L;
+        private final Lane lane;
+        private final int cap;
+        private long queued;
+        private int active;
+        private int credits;
+        private long ewmaNanos = EWMA_UNINITIALIZED;
+        private long spatialDeferred;
+        private long creditDeferred;
+
+        private GALaneState(Lane lane, int cap) {
+            this.lane = lane;
+            this.cap = Math.max(1, cap);
+        }
+
+        private void recordElapsed(long nanos) {
+            long safe = Math.max(0L, nanos);
+            if (this.ewmaNanos == EWMA_UNINITIALIZED) {
+                this.ewmaNanos = safe;
+                return;
+            }
+            this.ewmaNanos = ((this.ewmaNanos * 7L) + safe) >>> 3;
+        }
+
+        private long visibleEwma() {
+            return this.ewmaNanos == EWMA_UNINITIALIZED ? defaultCostNanos(this.lane) : this.ewmaNanos;
+        }
+
+        private static long defaultCostNanos(Lane lane) {
+            return switch (lane) {
+                case NOISE -> TimeUnit.MILLISECONDS.toNanos(20L);
+                case TRANSACTIONAL -> TimeUnit.MILLISECONDS.toNanos(8L);
+                case WORKSPACE -> TimeUnit.MILLISECONDS.toNanos(4L);
+                case SERIAL, COMMIT -> TimeUnit.MILLISECONDS.toNanos(2L);
+                case COMPILE -> TimeUnit.MILLISECONDS.toNanos(1L);
+            };
+        }
+    }
+
+    private static final class GASpatialConflictMap {
+        private final long[] ownerByStripe;
+        private long nextOwner = 1L;
+        private int activeRegions;
+        private int maxActiveRegions;
+        private long deferredTasks;
+
+        private GASpatialConflictMap(int stripeCount) {
+            this.ownerByStripe = new long[nextPowerOfTwo(Math.max(1024, stripeCount))];
+        }
+
+        private boolean canAcquire(ConflictRegion region) {
+            if (region == null) {
+                return true;
+            }
+            for (int stripe : region.stripes()) {
+                if (ownerByStripe[stripe] != 0L) {
+                    deferredTasks++;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void acquire(GAScheduledTask task) {
+            ConflictRegion region = task.region;
+            if (region == null) {
+                return;
+            }
+            long owner = nextOwner++;
+            if (owner == 0L) {
+                owner = nextOwner++;
+            }
+            for (int stripe : region.stripes()) {
+                ownerByStripe[stripe] = owner;
+            }
+            activeRegions++;
+            maxActiveRegions = Math.max(maxActiveRegions, activeRegions);
+        }
+
+        private void release(GAScheduledTask task) {
+            ConflictRegion region = task.region;
+            if (region == null) {
+                return;
+            }
+            for (int stripe : region.stripes()) {
+                ownerByStripe[stripe] = 0L;
+            }
+            activeRegions = Math.max(0, activeRegions - 1);
+        }
+
+        private Map<String, Object> snapshot() {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("stripeCount", ownerByStripe.length);
+            out.put("activeRegions", activeRegions);
+            out.put("maxActiveRegions", maxActiveRegions);
+            out.put("deferredTasks", deferredTasks);
+            return out;
+        }
+
+        private void resetMetrics() {
+            maxActiveRegions = activeRegions;
+            deferredTasks = 0L;
+        }
+    }
+
+    private static final class GAAdaptiveWorldgenScheduler {
+        private static final long CREDIT_RECALC_NANOS = TimeUnit.MILLISECONDS.toNanos(10L);
+
+        private final ConfigSnapshot config;
+        private final ReentrantLock lock = new ReentrantLock();
+        private final Condition workAvailable = lock.newCondition();
+        private final ArrayList<GAScheduledTask> queue = new ArrayList<>();
+        private final GALaneState[] lanes = new GALaneState[Lane.values().length];
+        private final GASpatialConflictMap spatial;
+        private final AdaptiveWorker[] workers;
+        private final AtomicInteger activeWorkers = new AtomicInteger();
+        private final AtomicInteger runningWorkers = new AtomicInteger();
+        private final AtomicInteger parkedWorkers = new AtomicInteger();
+        private final AtomicLong dispatchWakeups = new AtomicLong();
+        private volatile boolean shutdown;
+        private long lastCreditRecalcNanos;
+
+        private GAAdaptiveWorldgenScheduler(ConfigSnapshot config) {
+            this.config = config;
+            this.spatial = new GASpatialConflictMap(config.spatialConflictStripes());
+            for (Lane lane : Lane.values()) {
+                if (lane == Lane.COMPILE) {
+                    continue;
+                }
+                lanes[lane.ordinal()] = new GALaneState(lane, switch (lane) {
+                    case NOISE -> config.noiseWorkers();
+                    case WORKSPACE -> config.workspaceWorkers();
+                    case TRANSACTIONAL -> config.transactionalWorkers();
+                    case SERIAL -> 1;
+                    case COMMIT -> 1;
+                    case COMPILE -> 1;
+                });
+            }
+            this.workers = new AdaptiveWorker[config.worldgenWorkers()];
+            for (int i = 0; i < workers.length; i++) {
+                workers[i] = new AdaptiveWorker(this, i + 1);
+                workers[i].start();
+            }
+        }
+
+        private void submit(GAScheduledTask task) {
+            task.owner = this;
+            lock.lock();
+            try {
+                if (shutdown) {
+                    releaseQueueSlotIfHeld(task.lane, task.queueSlotHeld);
+                    notifyFailure(task.failureHandler, new RejectedExecutionException("GA adaptive worldgen scheduler is shut down"));
+                    return;
+                }
+                GALaneState state = laneState(task.lane);
+                state.queued++;
+                queue.add(task);
+                updateMax(MAX_QUEUED, task.lane.ordinal(), state.queued);
+                recalculateCredits(true);
+                signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private GAScheduledTask takeTask() throws InterruptedException {
+            lock.lock();
+            try {
+                for (;;) {
+                    if (shutdown && queue.isEmpty()) {
+                        return null;
+                    }
+                    recalculateCredits(false);
+                    GAScheduledTask task = selectTask();
+                    if (task != null) {
+                        GALaneState state = laneState(task.lane);
+                        queue.remove(task);
+                        state.queued = Math.max(0L, state.queued - 1L);
+                        state.active++;
+                        activeWorkers.incrementAndGet();
+                        releaseQueueSlotIfHeld(task.lane, task.queueSlotHeld);
+                        if (task.region != null) {
+                            spatial.acquire(task);
+                        }
+                        return task;
+                    }
+                    parkedWorkers.incrementAndGet();
+                    try {
+                        workAvailable.await(CREDIT_RECALC_NANOS, TimeUnit.NANOSECONDS);
+                    } finally {
+                        parkedWorkers.decrementAndGet();
+                    }
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private GAScheduledTask selectTask() {
+            int activeTarget = activeTarget();
+            if (activeWorkers.get() >= activeTarget) {
+                return null;
+            }
+            GAScheduledTask best = null;
+            for (GAScheduledTask task : queue) {
+                if (task.cancelled.get()) {
+                    continue;
+                }
+                GALaneState state = laneState(task.lane);
+                if (state.active >= state.cap) {
+                    state.creditDeferred++;
+                    continue;
+                }
+                if (!task.nested && state.active >= state.credits) {
+                    state.creditDeferred++;
+                    continue;
+                }
+                if (!spatial.canAcquire(task.region)) {
+                    state.spatialDeferred++;
+                    continue;
+                }
+                if (best == null
+                        || task.priority > best.priority
+                        || (task.priority == best.priority && task.sequence < best.sequence)) {
+                    best = task;
+                }
+            }
+            return best;
+        }
+
+        private void complete(GAScheduledTask task, long elapsedNanos) {
+            lock.lock();
+            try {
+                GALaneState state = laneState(task.lane);
+                state.active = Math.max(0, state.active - 1);
+                state.recordElapsed(elapsedNanos);
+                activeWorkers.updateAndGet(value -> Math.max(0, value - 1));
+                if (task.region != null && !task.regionRetained.get() && task.regionReleased.compareAndSet(false, true)) {
+                    spatial.release(task);
+                }
+                recalculateCredits(true);
+                signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void releaseRegion(GAScheduledTask task) {
+            lock.lock();
+            try {
+                spatial.release(task);
+                signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void cancelQueued(GAScheduledTask task) {
+            lock.lock();
+            try {
+                if (queue.remove(task)) {
+                    GALaneState state = laneState(task.lane);
+                    state.queued = Math.max(0L, state.queued - 1L);
+                    recalculateCredits(true);
+                }
+                signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void recalculateCredits(boolean force) {
+            long now = System.nanoTime();
+            if (!force && now - lastCreditRecalcNanos < CREDIT_RECALC_NANOS) {
+                return;
+            }
+            lastCreditRecalcNanos = now;
+            int target = activeTarget();
+            int totalBase = 0;
+            double totalScore = 0.0D;
+            for (Lane lane : Lane.worldgenPressureLanes()) {
+                GALaneState state = laneState(lane);
+                boolean hasWork = state.queued > 0L || state.active > 0;
+                int base = hasWork ? Math.min(state.cap, Math.max(1, state.active)) : 0;
+                state.credits = base;
+                totalBase += base;
+                if (state.queued > 0L && base < state.cap) {
+                    totalScore += laneScore(state);
+                }
+            }
+            int remaining = Math.max(0, target - totalBase);
+            if (remaining <= 0 || totalScore <= 0.0D) {
+                return;
+            }
+            for (Lane lane : Lane.worldgenPressureLanes()) {
+                GALaneState state = laneState(lane);
+                if (state.queued <= 0L || state.credits >= state.cap) {
+                    continue;
+                }
+                int grant = Math.max(1, (int) Math.floor((laneScore(state) / totalScore) * remaining));
+                state.credits = Math.min(state.cap, state.credits + grant);
+            }
+        }
+
+        private double laneScore(GALaneState state) {
+            double costWeight = Math.max(1.0D, (double) state.visibleEwma() / (double) TimeUnit.MILLISECONDS.toNanos(2L));
+            return Math.max(1.0D, state.queued) * costWeight;
+        }
+
+        private int activeTarget() {
+            long commitBacklog = ACTIVE[Lane.COMMIT.ordinal()].get() + queued(Lane.COMMIT);
+            long mailboxBacklog = mailboxBacklog();
+            double heapUsedRatio = heapUsedRatio();
+            updateMax(MAX_COMMIT_BACKLOG, commitBacklog);
+            updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
+            boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
+            if (bottleneckActive) {
+                BOTTLENECK_THROTTLES.incrementAndGet();
+            }
+            return worldgenActiveLimit(config, bottleneckActive);
+        }
+
+        private GALaneState laneState(Lane lane) {
+            GALaneState state = lanes[lane.ordinal()];
+            if (state == null) {
+                throw new IllegalArgumentException("Compile lane is not part of adaptive worldgen scheduler");
+            }
+            return state;
+        }
+
+        private void signal() {
+            dispatchWakeups.incrementAndGet();
+            if (lock.isHeldByCurrentThread()) {
+                workAvailable.signalAll();
+                return;
+            }
+            lock.lock();
+            try {
+                workAvailable.signalAll();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void shutdown() {
+            ArrayList<GAScheduledTask> pending;
+            lock.lock();
+            try {
+                shutdown = true;
+                pending = new ArrayList<>(queue);
+                queue.clear();
+                for (Lane lane : Lane.worldgenPressureLanes()) {
+                    laneState(lane).queued = 0L;
+                }
+                signal();
+            } finally {
+                lock.unlock();
+            }
+            RejectedExecutionException shutdownFailure =
+                    new RejectedExecutionException("GA adaptive worldgen scheduler is shut down");
+            for (GAScheduledTask task : pending) {
+                task.cancelled.set(true);
+                releaseQueueSlotIfHeld(task.lane, task.queueSlotHeld);
+                notifyFailure(task.failureHandler, shutdownFailure);
+            }
+            for (AdaptiveWorker worker : workers) {
+                worker.interrupt();
+            }
+            for (AdaptiveWorker worker : workers) {
+                try {
+                    worker.join(TimeUnit.SECONDS.toMillis(5L));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+
+        private Map<String, Object> snapshot() {
+            lock.lock();
+            try {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("adaptiveEnabled", true);
+                out.put("worldgenWorkers", config.worldgenWorkers());
+                out.put("activeWorkers", activeWorkers.get());
+                out.put("runningWorkers", runningWorkers.get());
+                out.put("parkedWorkers", parkedWorkers.get());
+                out.put("queuedTasks", queue.size());
+                out.put("dispatchWakeups", dispatchWakeups.get());
+                out.put("activeTarget", activeTarget());
+                return out;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private Map<String, Object> spatialSnapshot() {
+            lock.lock();
+            try {
+                return spatial.snapshot();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void resetMetrics() {
+            lock.lock();
+            try {
+                dispatchWakeups.set(0L);
+                spatial.resetMetrics();
+                for (Lane lane : Lane.worldgenPressureLanes()) {
+                    GALaneState state = laneState(lane);
+                    state.spatialDeferred = 0L;
+                    state.creditDeferred = 0L;
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private int activeWorkers() {
+            return activeWorkers.get();
+        }
+
+        private int runningWorkers() {
+            return runningWorkers.get();
+        }
+
+        private long queued(Lane lane) {
+            if (lane == Lane.COMPILE) {
+                return 0L;
+            }
+            lock.lock();
+            try {
+                return laneState(lane).queued;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private long totalQueued() {
+            lock.lock();
+            try {
+                return queue.size();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private int credits(Lane lane) {
+            if (lane == Lane.COMPILE) {
+                return 0;
+            }
+            lock.lock();
+            try {
+                return laneState(lane).credits;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private long ewmaNanos(Lane lane) {
+            if (lane == Lane.COMPILE) {
+                return 0L;
+            }
+            lock.lock();
+            try {
+                return laneState(lane).visibleEwma();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private long spatialDeferred(Lane lane) {
+            if (lane == Lane.COMPILE) {
+                return 0L;
+            }
+            lock.lock();
+            try {
+                return laneState(lane).spatialDeferred;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private long creditDeferred(Lane lane) {
+            if (lane == Lane.COMPILE) {
+                return 0L;
+            }
+            lock.lock();
+            try {
+                return laneState(lane).creditDeferred;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private long worldgenPressure() {
+            lock.lock();
+            try {
+                long pressure = activeWorkers.get();
+                for (Lane lane : Lane.worldgenPressureLanes()) {
+                    pressure += laneState(lane).queued;
+                }
+                return pressure;
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
+    private static final class AdaptiveWorker extends Thread implements GAFastLocalHolder {
+        private final GAAdaptiveWorldgenScheduler scheduler;
+        private final Object[] fastLocals = new Object[GAThread.FAST_THREAD_LOCAL_SIZE];
+
+        private AdaptiveWorker(GAAdaptiveWorldgenScheduler scheduler, int index) {
+            super("GA-WORLDGEN-" + index);
+            this.scheduler = scheduler;
+            setDaemon(true);
+        }
+
+        @Override
+        public Object[] gaFastLocals() {
+            return fastLocals;
+        }
+
+        @Override
+        public void run() {
+            scheduler.runningWorkers.incrementAndGet();
+            try {
+                for (;;) {
+                    GAScheduledTask task;
+                    try {
+                        task = scheduler.takeTask();
+                    } catch (InterruptedException interrupted) {
+                        if (scheduler.shutdown) {
+                            return;
+                        }
+                        continue;
+                    }
+                    if (task == null) {
+                        return;
+                    }
+                    CURRENT_TASK.set(task);
+                    long start = System.nanoTime();
+                    try {
+                        task.run();
+                    } finally {
+                        CURRENT_TASK.remove();
+                        scheduler.complete(task, System.nanoTime() - start);
+                    }
+                }
+            } finally {
+                scheduler.runningWorkers.decrementAndGet();
+            }
         }
     }
 
     private record ConfigSnapshot(
+            int worldgenWorkers,
             int noiseWorkers,
             int compileWorkers,
             int workspaceWorkers,
@@ -965,7 +1756,8 @@ public final class GAScheduler {
             int commitBacklogThrottleThreshold,
             int mailboxBacklogThrottleThreshold,
             double heapPressureTarget,
-            int bottleneckActiveLimit
+            int bottleneckActiveLimit,
+            int spatialConflictStripes
     ) {
         static ConfigSnapshot defaults() {
             int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
@@ -973,30 +1765,34 @@ public final class GAScheduler {
         }
 
         static ConfigSnapshot from(GAConfig config, int processors, boolean isDev) {
-            int worldgenBudget = Math.max(2, processors - (isDev ? 0 : 1));
-            int activeWorldgenBudget = Math.max(1, worldgenBudget - 2);
+            int defaultWorldgen = Math.max(1, processors - 1);
+            int worldgenWorkers = positiveOrDefault(config.schedulerWorldgenWorkers, defaultWorldgen);
+            int activeWorldgenBudget = Math.max(1, worldgenWorkers - 2);
             int defaultNoise = Math.max(1, Math.round(activeWorldgenBudget * 0.60F));
             int defaultWorkspace = Math.max(1, Math.round(activeWorldgenBudget * 0.30F));
             int defaultTransactional = Math.max(1, activeWorldgenBudget - defaultNoise - defaultWorkspace);
             int defaultCompile = Math.min(4, Math.max(1, processors / 3));
             return new ConfigSnapshot(
+                    worldgenWorkers,
                     positiveOrDefault(config.schedulerNoiseWorkers, defaultNoise),
                     positiveOrDefault(config.schedulerCompileWorkers, defaultCompile),
                     positiveOrDefault(config.schedulerWorkspaceWorkers, defaultWorkspace),
                     positiveOrDefault(config.schedulerTransactionalWorkers, defaultTransactional),
-                    serialWorkers(config.schedulerSerialWorkers),
-                    positiveOrDefault(config.schedulerCommitWorkers, 1),
+                    1,
+                    1,
                     Math.max(0, config.schedulerMaxQueuedTasks),
                     config.schedulerCpuTarget <= 0.0D ? 0.85D : Math.min(1.0D, config.schedulerCpuTarget),
                     Math.max(0, config.schedulerCommitBacklogThrottleThreshold),
                     Math.max(0, config.schedulerMailboxBacklogThrottleThreshold),
                     config.schedulerHeapPressureTarget <= 0.0D ? 0.0D : Math.min(1.0D, config.schedulerHeapPressureTarget),
-                    1
+                    1,
+                    nextPowerOfTwo(Math.max(1024, config.chunkPipelineGuardStripes))
             );
         }
 
         Map<String, Object> toMap() {
             Map<String, Object> out = new LinkedHashMap<>();
+            out.put("worldgenWorkers", worldgenWorkers);
             out.put("noiseWorkers", noiseWorkers);
             out.put("compileWorkers", compileWorkers);
             out.put("workspaceWorkers", workspaceWorkers);
@@ -1009,16 +1805,12 @@ public final class GAScheduler {
             out.put("mailboxBacklogThrottleThreshold", mailboxBacklogThrottleThreshold);
             out.put("heapPressureTarget", heapPressureTarget);
             out.put("bottleneckActiveLimit", bottleneckActiveLimit);
+            out.put("spatialConflictStripes", spatialConflictStripes);
             return out;
         }
 
         private static int positiveOrDefault(int value, int fallback) {
             return value > 0 ? value : fallback;
-        }
-
-        private static int serialWorkers(int configuredWorkers) {
-            // Keep unsafe serial lane deterministic even if config requests more.
-            return 1;
         }
     }
 }

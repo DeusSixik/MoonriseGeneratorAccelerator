@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.config.GAConfigManager;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStep;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -138,9 +139,12 @@ public final class GAChunkStatusPipeline {
 
         SUBMITTED.incrementAndGet(stageIndex);
         CompletableFuture<ChunkAccess> scheduled = new CompletableFuture<>();
+        GAScheduler.ConflictRegion region = schedulerConflictRegion(stage, step, chunk);
         GAScheduler.executeAsync(
                 lane,
-                () -> completeScheduledResult(stageIndex, scheduled, runGuarded(stage, step, chunk, task), null),
+                0,
+                region,
+                () -> completeScheduledResult(stageIndex, scheduled, runAdmittedOrGuarded(stage, step, chunk, task), null),
                 failure -> completeScheduledResult(stageIndex, scheduled, null, failure)
         );
         return scheduled;
@@ -175,13 +179,24 @@ public final class GAChunkStatusPipeline {
 
         SUBMITTED.incrementAndGet(stageIndex);
         CompletableFuture<ChunkAccess> scheduled = new CompletableFuture<>();
+        GAScheduler.ConflictRegion region = schedulerConflictRegion(stage, step, chunk);
         GAScheduler.executeAsync(
                 lane,
-                () -> beginGuardedFuture(stage, step, chunk, task,
+                0,
+                region,
+                () -> beginAdmittedOrGuardedFuture(stage, step, chunk, task,
                         (result, failure) -> completeScheduledResult(stageIndex, scheduled, result, failure)),
                 failure -> completeScheduledResult(stageIndex, scheduled, null, failure)
         );
         return scheduled;
+    }
+
+    public static GAScheduler.ConflictRegion schedulerConflictRegion(ChunkStatus status, ChunkStep step, ChunkPos pos) {
+        Stage stage = stageForStatus(status);
+        if (stage == null || pos == null) {
+            return null;
+        }
+        return schedulerConflictRegion(stage, step, pos);
     }
 
     public static Map<String, Object> snapshot() {
@@ -257,6 +272,18 @@ public final class GAChunkStatusPipeline {
         }
     }
 
+    private static ChunkAccess runAdmittedOrGuarded(
+            Stage stage,
+            ChunkStep step,
+            ChunkAccess chunk,
+            Supplier<ChunkAccess> task
+    ) {
+        if (GAScheduler.currentTaskHoldsConflictRegion()) {
+            return runTimed(stage, task);
+        }
+        return runGuarded(stage, step, chunk, task);
+    }
+
     private static CompletableFuture<ChunkAccess> beginGuardedFuture(
             Stage stage,
             ChunkStep step,
@@ -297,6 +324,31 @@ public final class GAChunkStatusPipeline {
         } catch (Throwable throwable) {
             GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
             lease.release();
+            throw throwable;
+        }
+    }
+
+    private static void beginAdmittedOrGuardedFuture(
+            Stage stage,
+            ChunkStep step,
+            ChunkAccess chunk,
+            Supplier<CompletableFuture<ChunkAccess>> task,
+            ChunkCompletionCallback callback
+    ) {
+        if (!GAScheduler.currentTaskHoldsConflictRegion()) {
+            beginGuardedFuture(stage, step, chunk, task, callback);
+            return;
+        }
+        long timer = GAWallTimeTelemetry.start(stage.telemetryStage());
+        try {
+            CompletableFuture<ChunkAccess> future = requireFuture(task.get());
+            GAScheduler.retainCurrentConflictRegionUntil(future);
+            future.whenComplete((result, failure) -> {
+                GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
+                callback.accept(result, failure);
+            });
+        } catch (Throwable throwable) {
+            GAWallTimeTelemetry.end(stage.telemetryStage(), timer);
             throw throwable;
         }
     }
@@ -345,6 +397,46 @@ public final class GAChunkStatusPipeline {
             case NOISE, STRUCTURE_REFERENCES, SURFACE, CARVERS -> stepRadius;
             case STRUCTURE_STARTS -> 0;
         };
+    }
+
+    private static GAScheduler.ConflictRegion schedulerConflictRegion(Stage stage, ChunkStep step, ChunkAccess chunk) {
+        return chunk == null ? null : schedulerConflictRegion(stage, step, chunk.getPos());
+    }
+
+    private static GAScheduler.ConflictRegion schedulerConflictRegion(Stage stage, ChunkStep step, ChunkPos pos) {
+        int radius = writeRadius(stage, step);
+        if (!GUARDS_ENABLED || radius <= 0 || pos == null) {
+            return null;
+        }
+        return GAScheduler.conflictRegion(pos.x, pos.z, radius);
+    }
+
+    private static Stage stageForStatus(ChunkStatus status) {
+        if (status == null) {
+            return null;
+        }
+        if (status == ChunkStatus.NOISE) {
+            return Stage.NOISE;
+        }
+        if (status == ChunkStatus.STRUCTURE_STARTS) {
+            return Stage.STRUCTURE_STARTS;
+        }
+        if (status == ChunkStatus.STRUCTURE_REFERENCES) {
+            return Stage.STRUCTURE_REFERENCES;
+        }
+        if (status == ChunkStatus.SURFACE) {
+            return Stage.SURFACE;
+        }
+        if (status == ChunkStatus.CARVERS) {
+            return Stage.CARVERS;
+        }
+        if (status == ChunkStatus.FEATURES) {
+            return Stage.FEATURES;
+        }
+        if (status == ChunkStatus.SPAWN) {
+            return Stage.SPAWN;
+        }
+        return null;
     }
 
     private static boolean tryAcquireRegion(int centerX, int centerZ, int radius, long token, GuardScratch scratch) {

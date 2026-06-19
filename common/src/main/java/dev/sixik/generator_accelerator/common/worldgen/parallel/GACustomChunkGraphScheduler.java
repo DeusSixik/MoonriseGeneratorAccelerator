@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -163,6 +164,48 @@ public final class GACustomChunkGraphScheduler {
         return out;
     }
 
+    static int priorityScore(
+            ChunkStatus status,
+            int directDependents,
+            int remainingStatusDistance,
+            int chebyshevDistanceFromCenter
+    ) {
+        return statusWeight(status)
+                + directDependents * 64
+                + Math.max(0, remainingStatusDistance) * 32
+                - Math.max(0, chebyshevDistanceFromCenter) * 24;
+    }
+
+    static int compareReadyNodeOrder(int leftPriority, long leftSequence, int rightPriority, long rightSequence) {
+        int priorityCompare = Integer.compare(rightPriority, leftPriority);
+        if (priorityCompare != 0) {
+            return priorityCompare;
+        }
+        return Long.compare(leftSequence, rightSequence);
+    }
+
+    private static int statusWeight(ChunkStatus status) {
+        if (status == ChunkStatus.NOISE) {
+            return 500;
+        }
+        if (status == ChunkStatus.STRUCTURE_STARTS) {
+            return 420;
+        }
+        if (status == ChunkStatus.FEATURES) {
+            return 360;
+        }
+        if (status == ChunkStatus.SURFACE) {
+            return 220;
+        }
+        if (status == ChunkStatus.CARVERS) {
+            return 160;
+        }
+        if (status == ChunkStatus.SPAWN) {
+            return 120;
+        }
+        return 80;
+    }
+
     public static void resetMetrics() {
         TASKS_SUBMITTED.set(0L);
         TASKS_COMPLETED.set(0L);
@@ -247,7 +290,7 @@ public final class GACustomChunkGraphScheduler {
         private final int cacheIndex;
 
         private final ChunkStatus targetStatus;
-        private final ConcurrentLinkedQueue<Node> ready = new ConcurrentLinkedQueue<>();
+        private final PriorityBlockingQueue<Node> ready = new PriorityBlockingQueue<>();
         private final AtomicInteger drainWork = new AtomicInteger();
         private final AtomicInteger remaining = new AtomicInteger();
         private final AtomicInteger activeNodes = new AtomicInteger();
@@ -258,6 +301,7 @@ public final class GACustomChunkGraphScheduler {
         private volatile int nextPhaseId = PHASE_NONE;
         private int storedGenerationEmptyRadius;
         private int initialRadius;
+        private long nodeSequence;
 
         private TaskRun(ChunkMap chunkMap, ChunkGenerationTask task) {
             this.chunkMap = chunkMap;
@@ -377,7 +421,7 @@ public final class GACustomChunkGraphScheduler {
                     if (holder.getChunkIfPresentUnchecked(ChunkStatus.EMPTY) != null) {
                         continue;
                     }
-                    nodes.add(new Node(holder, ChunkStatus.EMPTY, emptyStep, true));
+                    nodes.add(new Node(holder, ChunkStatus.EMPTY, emptyStep, true, this.nodeSequence++));
                 }
             }
             this.startPhase(nodes.elements(), nodes.size(), nextPhaseId);
@@ -422,7 +466,7 @@ public final class GACustomChunkGraphScheduler {
                         }
 
                         ChunkStep step = this.selectStep(status, holder, needsGeneration);
-                        Node node = new Node(holder, status, step, false);
+                        Node node = new Node(holder, status, step, false, this.nodeSequence++);
                         nodes.add(node);
                         index.put(x, z, status, node);
                     }
@@ -509,6 +553,7 @@ public final class GACustomChunkGraphScheduler {
             this.remaining.set(size);
             for (int i = 0; i < size; i++) {
                 Node node = (Node) nodes[i];
+                node.computePriority(this.center, this.targetStatus);
                 if (node.pendingDependencies() == 0) {
                     this.ready.add(node);
                 }
@@ -668,7 +713,12 @@ public final class GACustomChunkGraphScheduler {
 
         private void startStepExecution(Node node, StepCompletionCallback callback) {
             STEP_EXECUTIONS_SUBMITTED.incrementAndGet();
-            GAScheduler.executeAsync(laneFor(node.status), () -> {
+            GAScheduler.ConflictRegion region = GAChunkStatusPipeline.schedulerConflictRegion(
+                    node.status,
+                    node.step,
+                    node.holder.getPos()
+            );
+            GAScheduler.executeAsync(laneFor(node.status), node.priority, region, () -> {
                 CompletableFuture<ChunkResult<ChunkAccess>> future = GAChunkStatusPipeline.withInlineOnCurrentLane(
                         () -> ((MixinGenerationChunkHolderAccessor) node.holder)
                                 .ga$applyStep(node.step, this.chunkMap, this.cache)
@@ -676,6 +726,7 @@ public final class GACustomChunkGraphScheduler {
                 if (future == null) {
                     throw new NullPointerException("Chunk step returned null future for " + node.status + " at " + node.holder.getPos());
                 }
+                GAScheduler.retainCurrentConflictRegionUntil(future);
                 future.whenComplete((result, throwable) -> {
                     if (throwable != null) {
                         notifyStepCallback(callback, null, throwable);
@@ -877,7 +928,7 @@ public final class GACustomChunkGraphScheduler {
         }
     }
 
-    private static final class Node {
+    private static final class Node implements Comparable<Node> {
         private static final AtomicIntegerFieldUpdater<Node> PENDING_DEPENDENCIES =
                 AtomicIntegerFieldUpdater.newUpdater(Node.class, "pendingDependencies");
 
@@ -885,14 +936,17 @@ public final class GACustomChunkGraphScheduler {
         private final ChunkStatus status;
         private final ChunkStep step;
         private final boolean emptyLoad;
+        private final long sequence;
         private volatile int pendingDependencies;
+        private int priority;
         private ObjectArrayList<Node> dependents;
 
-        private Node(GenerationChunkHolder holder, ChunkStatus status, ChunkStep step, boolean emptyLoad) {
+        private Node(GenerationChunkHolder holder, ChunkStatus status, ChunkStep step, boolean emptyLoad, long sequence) {
             this.holder = holder;
             this.status = status;
             this.step = step;
             this.emptyLoad = emptyLoad;
+            this.sequence = sequence;
         }
 
         private boolean isComplete() {
@@ -918,6 +972,19 @@ public final class GACustomChunkGraphScheduler {
                 this.dependents = current;
             }
             current.add(dependent);
+        }
+
+        private void computePriority(ChunkPos center, ChunkStatus targetStatus) {
+            ChunkPos pos = this.holder.getPos();
+            int directDependents = this.dependents == null ? 0 : this.dependents.size();
+            int remainingStatusDistance = Math.max(0, targetStatus.getIndex() - this.status.getIndex());
+            int distance = Math.max(Math.abs(pos.x - center.x), Math.abs(pos.z - center.z));
+            this.priority = priorityScore(this.status, directDependents, remainingStatusDistance, distance);
+        }
+
+        @Override
+        public int compareTo(Node other) {
+            return compareReadyNodeOrder(this.priority, this.sequence, other.priority, other.sequence);
         }
     }
 

@@ -36,16 +36,19 @@ public class GAConfig {
 
     public boolean enableSurfacePatch = true;
 
-    @ConfigComment("GA scheduler noise lane workers. 0 = auto.")
+    @ConfigComment("GA adaptive worldgen worker threads shared by logical worldgen lanes. 0 = auto.")
+    public int schedulerWorldgenWorkers = 0;
+
+    @ConfigComment("GA scheduler noise lane credit hint. 0 = auto.")
     public int schedulerNoiseWorkers = 0;
 
     @ConfigComment("GA scheduler compile/warmup lane workers. 0 = auto.")
     public int schedulerCompileWorkers = 0;
 
-    @ConfigComment("GA scheduler workspace lane workers. 0 = auto.")
+    @ConfigComment("GA scheduler workspace lane credit hint. 0 = auto.")
     public int schedulerWorkspaceWorkers = 0;
 
-    @ConfigComment("GA scheduler transactional lane workers. 0 = auto.")
+    @ConfigComment("GA scheduler transactional lane credit hint. 0 = auto.")
     public int schedulerTransactionalWorkers = 0;
 
     @ConfigComment("GA scheduler serial lane workers. Values above 1 are clamped to 1 for ordered work.")

@@ -21,7 +21,7 @@ public final class GeneratorAccelerator {
         GeneratorAccelerator.platform = platform;
         GADiagnostics.onModInit();
         GAScheduler.init(isDev);
-        CUSTOM_POOL = Boolean.parseBoolean(System.getProperty("ga.scheduler.overrideNoiseExecutor", "true")) ? GAScheduler.noisePool() : null;
+        CUSTOM_POOL = null;
     }
 
     public enum Platform {

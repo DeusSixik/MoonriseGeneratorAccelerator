@@ -154,7 +154,7 @@ class GATransactionLaneRunnerTest {
         }).get(10, TimeUnit.SECONDS);
 
         assertTrue(result.success());
-        assertTrue(threadName.get().startsWith("GA-TRANSACTIONAL-"), threadName.get());
+        assertTrue(threadName.get().startsWith("GA-WORLDGEN-"), threadName.get());
     }
 
     @Test

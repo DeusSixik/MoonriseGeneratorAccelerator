@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GASchedulerTest {
     private static final String[] TEST_CONFIG_PROPERTIES = {
+            "ga.config.schedulerWorldgenWorkers",
             "ga.config.schedulerNoiseWorkers",
             "ga.config.schedulerCompileWorkers",
             "ga.config.schedulerWorkspaceWorkers",
@@ -56,7 +58,7 @@ class GASchedulerTest {
                 Thread.currentThread().getName() + ":" + (Thread.currentThread() instanceof GAFastLocalHolder)
         ).get(10, TimeUnit.SECONDS);
 
-        assertTrue(result.startsWith("GA-NOISE-"), result);
+        assertTrue(result.startsWith("GA-WORLDGEN-"), result);
         assertTrue(result.endsWith(":true"), result);
 
         Map<String, Object> snapshot = GAScheduler.snapshot();
@@ -72,8 +74,8 @@ class GASchedulerTest {
                 Thread.currentThread().getName()
         ).get(10, TimeUnit.SECONDS);
 
-        assertTrue(transactionalThread.startsWith("GA-TRANSACTIONAL-"), transactionalThread);
-        assertTrue(serialThread.startsWith("GA-SERIAL-"), serialThread);
+        assertTrue(transactionalThread.startsWith("GA-WORLDGEN-"), transactionalThread);
+        assertTrue(serialThread.startsWith("GA-WORLDGEN-"), serialThread);
 
         Map<String, Object> snapshot = GAScheduler.snapshot();
         assertTrue(snapshot.get("lanes") instanceof Map<?, ?>);
@@ -124,7 +126,7 @@ class GASchedulerTest {
                 Thread.currentThread().getName()
         ).get(10, TimeUnit.SECONDS);
         ForkJoinPool firstPool = GAScheduler.noisePool();
-        assertTrue(firstThread.startsWith("GA-NOISE-"), firstThread);
+        assertTrue(firstThread.startsWith("GA-WORLDGEN-"), firstThread);
         assertEquals(1L, noiseMetric("submitted"));
 
         GAScheduler.shutdownForTests();
@@ -136,7 +138,7 @@ class GASchedulerTest {
         ForkJoinPool secondPool = GAScheduler.noisePool();
 
         assertNotSame(firstPool, secondPool);
-        assertTrue(secondThread.startsWith("GA-NOISE-"), secondThread);
+        assertTrue(secondThread.startsWith("GA-WORLDGEN-"), secondThread);
         assertEquals(1L, noiseMetric("submitted"));
         assertEquals(1L, noiseMetric("completed"));
     }
@@ -269,7 +271,7 @@ class GASchedulerTest {
         );
 
         String childThread = parent.get(10, TimeUnit.SECONDS);
-        assertTrue(childThread.startsWith("GA-TRANSACTIONAL-"), childThread);
+        assertTrue(childThread.startsWith("GA-WORLDGEN-"), childThread);
         assertEquals(1L, laneMetric(GAScheduler.Lane.TRANSACTIONAL, "inlineRuns"));
     }
 
@@ -381,6 +383,135 @@ class GASchedulerTest {
         }
     }
 
+    @Test
+    void overlappingConflictRegionsNeverRunConcurrently() throws Exception {
+        configureAdaptiveWorkers(2, 2, 1, 1, 1.0D);
+        GAScheduler.ConflictRegion firstRegion = GAScheduler.conflictRegion(0, 0, 1);
+        GAScheduler.ConflictRegion secondRegion = GAScheduler.conflictRegion(0, 0, 1);
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger concurrent = new AtomicInteger();
+        AtomicInteger maxConcurrent = new AtomicInteger();
+
+        CompletableFuture<String> first = GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, 0, firstRegion, () -> {
+            int active = concurrent.incrementAndGet();
+            maxConcurrent.updateAndGet(current -> Math.max(current, active));
+            firstStarted.countDown();
+            awaitLatch(releaseFirst);
+            concurrent.decrementAndGet();
+            return "first";
+        });
+        assertTrue(firstStarted.await(10, TimeUnit.SECONDS));
+
+        CompletableFuture<String> second = GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, 0, secondRegion, () -> {
+            int active = concurrent.incrementAndGet();
+            maxConcurrent.updateAndGet(current -> Math.max(current, active));
+            concurrent.decrementAndGet();
+            return "second";
+        });
+
+        Thread.sleep(200L);
+        assertEquals(1, maxConcurrent.get());
+        assertTrue(((Number) laneMetric(GAScheduler.Lane.NOISE, "spatialDeferred")).longValue() > 0L);
+        releaseFirst.countDown();
+        assertEquals("first", first.get(10, TimeUnit.SECONDS));
+        assertEquals("second", second.get(10, TimeUnit.SECONDS));
+        assertEquals(1, maxConcurrent.get());
+    }
+
+    @Test
+    void nonOverlappingConflictRegionsCanRunConcurrently() throws Exception {
+        configureAdaptiveWorkers(2, 2, 1, 1, 1.0D);
+        CountDownLatch bothStarted = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger concurrent = new AtomicInteger();
+        AtomicInteger maxConcurrent = new AtomicInteger();
+
+        CompletableFuture<String> first = GAScheduler.supplyAsync(
+                GAScheduler.Lane.NOISE,
+                0,
+                GAScheduler.conflictRegion(0, 0, 1),
+                () -> concurrentTask("first", bothStarted, release, concurrent, maxConcurrent)
+        );
+        CompletableFuture<String> second = GAScheduler.supplyAsync(
+                GAScheduler.Lane.NOISE,
+                0,
+                GAScheduler.conflictRegion(4096, 4096, 1),
+                () -> concurrentTask("second", bothStarted, release, concurrent, maxConcurrent)
+        );
+
+        assertTrue(bothStarted.await(10, TimeUnit.SECONDS));
+        release.countDown();
+        assertEquals("first", first.get(10, TimeUnit.SECONDS));
+        assertEquals("second", second.get(10, TimeUnit.SECONDS));
+        assertEquals(2, maxConcurrent.get());
+    }
+
+    @Test
+    void logicalLaneCreditsAllowDifferentQueuedLanesToMakeProgress() throws Exception {
+        configureAdaptiveWorkers(2, 1, 1, 1, 1.0D);
+        CountDownLatch noiseStarted = new CountDownLatch(1);
+        CountDownLatch workspaceStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        CompletableFuture<String> noise = GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, () -> {
+            noiseStarted.countDown();
+            awaitLatch(release);
+            return "noise";
+        });
+        CompletableFuture<String> workspace = GAScheduler.supplyAsync(GAScheduler.Lane.WORKSPACE, () -> {
+            workspaceStarted.countDown();
+            awaitLatch(release);
+            return "workspace";
+        });
+
+        assertTrue(noiseStarted.await(10, TimeUnit.SECONDS));
+        assertTrue(workspaceStarted.await(10, TimeUnit.SECONDS));
+        release.countDown();
+        assertEquals("noise", noise.get(10, TimeUnit.SECONDS));
+        assertEquals("workspace", workspace.get(10, TimeUnit.SECONDS));
+        assertEquals(1L, laneMetric(GAScheduler.Lane.NOISE, "completed"));
+        assertEquals(1L, laneMetric(GAScheduler.Lane.WORKSPACE, "completed"));
+    }
+
+    @Test
+    void ewmaTaskCostUpdatesAfterCompletion() throws Exception {
+        configureAdaptiveWorkers(1, 1, 1, 1, 1.0D);
+        long before = ((Number) laneMetric(GAScheduler.Lane.WORKSPACE, "ewmaNanos")).longValue();
+
+        assertEquals("done", GAScheduler.supplyAsync(GAScheduler.Lane.WORKSPACE, () -> "done")
+                .get(10, TimeUnit.SECONDS));
+
+        long ewma = ((Number) laneMetric(GAScheduler.Lane.WORKSPACE, "ewmaNanos")).longValue();
+        assertTrue(ewma >= 0L, Long.toString(ewma));
+        assertTrue(ewma != before, Long.toString(ewma));
+    }
+
+    @Test
+    void commitBacklogReducesAdaptiveActiveTarget() throws Exception {
+        configureAdaptiveWorkers(4, 2, 2, 1, 1.0D);
+        System.setProperty("ga.config.schedulerCommitBacklogThrottleThreshold", "1");
+        resetCachedConfig();
+        GAScheduler.shutdownForTests();
+
+        CountDownLatch commitStarted = new CountDownLatch(1);
+        CountDownLatch releaseCommit = new CountDownLatch(1);
+        CompletableFuture<String> commit = GAScheduler.supplyAsync(GAScheduler.Lane.COMMIT, () -> {
+            commitStarted.countDown();
+            awaitLatch(releaseCommit);
+            return "commit";
+        });
+        try {
+            assertTrue(commitStarted.await(10, TimeUnit.SECONDS));
+            Map<?, ?> adaptive = (Map<?, ?>) GAScheduler.snapshot().get("adaptive");
+            assertEquals(1, adaptive.get("activeTarget"));
+            releaseCommit.countDown();
+            assertEquals("commit", commit.get(10, TimeUnit.SECONDS));
+        } finally {
+            releaseCommit.countDown();
+        }
+    }
+
     private static Object noiseMetric(String metric) {
         return laneMetric(GAScheduler.Lane.NOISE, metric);
     }
@@ -393,13 +524,47 @@ class GASchedulerTest {
     }
 
     private static void configureBoundedLane(String workerProperty) throws Exception {
+        System.setProperty("ga.config.schedulerWorldgenWorkers", "1");
         System.setProperty(workerProperty, "1");
         System.setProperty("ga.config.schedulerMaxQueuedTasks", "1");
         resetCachedConfig();
         GAScheduler.shutdownForTests();
     }
 
+    private static void configureAdaptiveWorkers(
+            int worldgenWorkers,
+            int noiseWorkers,
+            int workspaceWorkers,
+            int transactionalWorkers,
+            double cpuTarget
+    ) throws Exception {
+        System.setProperty("ga.config.schedulerWorldgenWorkers", Integer.toString(worldgenWorkers));
+        System.setProperty("ga.config.schedulerNoiseWorkers", Integer.toString(noiseWorkers));
+        System.setProperty("ga.config.schedulerWorkspaceWorkers", Integer.toString(workspaceWorkers));
+        System.setProperty("ga.config.schedulerTransactionalWorkers", Integer.toString(transactionalWorkers));
+        System.setProperty("ga.config.schedulerCpuTarget", Double.toString(cpuTarget));
+        System.setProperty("ga.config.schedulerMaxQueuedTasks", "0");
+        resetCachedConfig();
+        GAScheduler.shutdownForTests();
+    }
+
+    private static String concurrentTask(
+            String result,
+            CountDownLatch started,
+            CountDownLatch release,
+            AtomicInteger concurrent,
+            AtomicInteger maxConcurrent
+    ) {
+        int active = concurrent.incrementAndGet();
+        maxConcurrent.updateAndGet(current -> Math.max(current, active));
+        started.countDown();
+        awaitLatch(release);
+        concurrent.decrementAndGet();
+        return result;
+    }
+
     private static void configureGovernorPressure() throws Exception {
+        System.setProperty("ga.config.schedulerWorldgenWorkers", "1");
         System.setProperty("ga.config.schedulerNoiseWorkers", "1");
         System.setProperty("ga.config.schedulerCompileWorkers", "2");
         System.setProperty("ga.config.schedulerWorkspaceWorkers", "1");
