@@ -38,51 +38,5 @@ side = "BOTH"
 [[mixins]]
 config = "generator_accelerator.mixins.json"
 
-[[mixins]]
-config = "generator_accelerator_neoforge.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_density_compiler.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_benchmark.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_biome.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_blender.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_noise.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_aquifer.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_flat_block_structure.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_heightmap.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_beardifier.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_surface.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_paletted_container.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_structures.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_features.mixins.json"
-
-[[mixins]]
-config = "generator_accelerator_modernfix.mixins.json"
-
-
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"
