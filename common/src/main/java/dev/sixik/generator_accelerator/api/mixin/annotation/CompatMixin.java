@@ -16,6 +16,7 @@ import java.lang.annotation.Target;
  * @Mixin(SomeTarget.class)
  * @CompatMixin(
  *         mod = SomeModMainClass.class,
+ *         disableByClass = SomeForeignMixin.class,
  *         disable = {
  *                 "com.example.foreign.mixin.TargetMixin"
  *         }
@@ -58,6 +59,11 @@ public @interface CompatMixin {
      * Foreign mixin class names that should be cancelled while this compat mixin is active.
      */
     String[] disable() default {};
+
+    /**
+     * Foreign mixin classes on the compile classpath that should be cancelled while this compat mixin is active.
+     */
+    Class<?>[] disableByClass() default {};
 
     /**
      * Match mode for {@link #mods()} and {@link #modClassNames()}.

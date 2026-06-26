@@ -159,7 +159,7 @@ def gaReadSingleStringArgument = { String arguments ->
 }
 
 def gaReadAllSingleStringAnnotations = { String text, String annotationName ->
-    def matcher = (text =~ /(?s)@${java.util.regex.Pattern.quote(annotationName)}\s*\(\s*"((?:\\.|[^"\\])*)"\s*\)/)
+    def matcher = (text =~ /(?s)@${java.util.regex.Pattern.quote(annotationName)}\s*\(\s*(?:value\s*=\s*)?"((?:\\.|[^"\\])*)"\s*\)/)
     def values = []
     while (matcher.find()) {
         values << gaDecodeJavaString(matcher.group(1))
@@ -168,7 +168,7 @@ def gaReadAllSingleStringAnnotations = { String text, String annotationName ->
 }
 
 def gaReadAllSingleClassAnnotations = { Map metadata, String text, String annotationName ->
-    def matcher = (text =~ /@${java.util.regex.Pattern.quote(annotationName)}\s*\(\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\.class\s*\)/)
+    def matcher = (text =~ /@${java.util.regex.Pattern.quote(annotationName)}\s*\(\s*(?:valueByClass\s*=\s*)?([A-Za-z_$][A-Za-z0-9_$.]*)\s*\.class\s*\)/)
     def values = []
     while (matcher.find()) {
         def rawName = matcher.group(1)
@@ -612,8 +612,9 @@ tasks.register("generateGAMixinMetadata") {
                 def requireModClassesArgs = gaReadAnnotationArguments(metadata.text, "RequireModClasses")
                 def requireModClassNamesArgs = gaReadAnnotationArguments(metadata.text, "RequireModClassNames")
                 def disableSingleMixins = gaReadAllSingleStringAnnotations(metadata.text, "DisableMixin")
+                def disableSingleMixinsByClass = gaReadAllSingleClassAnnotations(metadata, metadata.text, "DisableMixin")
                 def disableMixinsArgs = gaReadAnnotationArguments(metadata.text, "DisableMixins")
-                def hasCompatShortcut = compatMixinArgs != null || !requireModClasses.isEmpty() || !requireModClassNames.isEmpty() || requireModClassesArgs != null || requireModClassNamesArgs != null || !disableSingleMixins.isEmpty() || disableMixinsArgs != null
+                def hasCompatShortcut = compatMixinArgs != null || !requireModClasses.isEmpty() || !requireModClassNames.isEmpty() || requireModClassesArgs != null || requireModClassNamesArgs != null || !disableSingleMixins.isEmpty() || !disableSingleMixinsByClass.isEmpty() || disableMixinsArgs != null
                 if (mixinCompatArgs != null || hasCompatShortcut) {
 
                     def requiredClasses = []
@@ -632,6 +633,7 @@ tasks.register("generateGAMixinMetadata") {
                         def compatModClassName = gaReadNamedStringArgument(compatMixinArgs, "modClassName")
                         def compatModClassNames = gaReadNamedStringArrayArgument(compatMixinArgs, "modClassNames")
                         def compatDisable = gaReadNamedStringArrayArgument(compatMixinArgs, "disable")
+                        def compatDisableByClass = gaReadNamedClassNameArrayArgument(metadata, compatMixinArgs, "disableByClass")
 
                         requiredClasses.addAll(compatMod)
                         requiredClasses.addAll(compatMods)
@@ -640,6 +642,7 @@ tasks.register("generateGAMixinMetadata") {
                         }
                         requiredClassNames.addAll(compatModClassNames)
                         disableMixins.addAll(compatDisable)
+                        disableMixins.addAll(compatDisableByClass)
                     }
 
                     requiredClasses.addAll(requireModClasses)
@@ -653,9 +656,12 @@ tasks.register("generateGAMixinMetadata") {
                         requiredClassNames.addAll(fromValue.isEmpty() ? gaReadPositionalStringArrayArgument(requireModClassNamesArgs) : fromValue)
                     }
                     disableMixins.addAll(disableSingleMixins)
+                    disableMixins.addAll(disableSingleMixinsByClass)
                     if (disableMixinsArgs != null) {
                         def disableMixinsValue = gaReadNamedStringArrayArgument(disableMixinsArgs, "value")
+                        def disableMixinsValueByClass = gaReadNamedClassNameArrayArgument(metadata, disableMixinsArgs, "valueByClass")
                         disableMixins.addAll(disableMixinsValue.isEmpty() ? gaReadPositionalStringArrayArgument(disableMixinsArgs) : disableMixinsValue)
+                        disableMixins.addAll(disableMixinsValueByClass)
                     }
 
                     compatMixins << [

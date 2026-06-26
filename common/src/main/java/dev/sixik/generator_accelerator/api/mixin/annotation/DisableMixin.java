@@ -19,5 +19,10 @@ public @interface DisableMixin {
     /**
      * Fully qualified foreign mixin class name to cancel while the owning compat mixin is active.
      */
-    String value();
+    String value() default "";
+
+    /**
+     * Foreign mixin class on the compile classpath to cancel while the owning compat mixin is active.
+     */
+    Class<?> valueByClass() default void.class;
 }
