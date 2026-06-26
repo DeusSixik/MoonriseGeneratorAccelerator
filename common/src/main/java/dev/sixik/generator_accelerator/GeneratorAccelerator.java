@@ -13,14 +13,28 @@ public final class GeneratorAccelerator {
     public static final String MOD_ID = "generator_accelerator";
     public static final Logger LOGGER = LoggerFactory.getLogger(LOGGER_NAME);
 
-    public static Platform platform = null;
-    public static Path gameFolder;
+    private static Platform platform = null;
+    private static Path gameFolder;
+    private static boolean devMode;
 
     public static ConcurrentMap<ChunkPos, Long> chunkGenerationTimes = new ConcurrentHashMap<>();
 
     public static void init(Platform platform, boolean isDev, Path gameFolder) {
         GeneratorAccelerator.platform = platform;
         GeneratorAccelerator.gameFolder = gameFolder;
+        GeneratorAccelerator.devMode = isDev;
+    }
+
+    public static Path getGameFolder() {
+        return gameFolder;
+    }
+
+    public static Platform getPlatform() {
+        return platform;
+    }
+
+    public static boolean isDevMode() {
+        return devMode;
     }
 
     public enum Platform {
