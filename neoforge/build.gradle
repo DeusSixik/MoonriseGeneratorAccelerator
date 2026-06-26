@@ -80,9 +80,18 @@ dependencies {
 
 processResources {
     inputs.property 'version', project.version
+    def commonProject = project(':common')
+    def commonMixinConfigListFile = commonProject.ext.gaGeneratedCommonMixinConfigListFile
+    dependsOn commonProject.tasks.named('generateGAMixinMetadata')
+    inputs.file commonMixinConfigListFile
 
     filesMatching('META-INF/neoforge.mods.toml') {
-        expand version: project.version
+        def mixinConfigs = commonMixinConfigListFile.readLines('UTF-8').findAll { !it.isBlank() }
+        def mixinBlocks = mixinConfigs.collect { String configName -> "[[mixins]]\nconfig = \"${configName}\"" }.join('\n\n')
+        expand(
+                version: project.version,
+                gaMixinBlocks: mixinBlocks
+        )
     }
 }
 

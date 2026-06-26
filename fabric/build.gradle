@@ -55,9 +55,21 @@ dependencies {
 
 processResources {
     inputs.property 'version', project.version
+    def commonProject = project(':common')
+    def commonMixinConfigListFile = commonProject.ext.gaGeneratedCommonMixinConfigListFile
+    dependsOn commonProject.tasks.named('generateGAMixinMetadata')
+    inputs.file commonMixinConfigListFile
 
     filesMatching('fabric.mod.json') {
         expand version: project.version
+    }
+
+    doLast {
+        def mixinConfigs = commonMixinConfigListFile.readLines('UTF-8').findAll { !it.isBlank() }
+        def outputFile = file("${destinationDir}/fabric.mod.json")
+        def parsed = new groovy.json.JsonSlurper().parse(outputFile) as Map
+        parsed.mixins = mixinConfigs
+        outputFile.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(parsed)) + System.lineSeparator(), 'UTF-8')
     }
 }
 

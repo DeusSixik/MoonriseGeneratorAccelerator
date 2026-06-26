@@ -35,8 +35,7 @@ ordering = "AFTER"
 side = "BOTH"
 
 
-[[mixins]]
-config = "generator_accelerator.mixins.json"
+${gaMixinBlocks}
 
 [[accessTransformers]]
 file="META-INF/accesstransformer.cfg"

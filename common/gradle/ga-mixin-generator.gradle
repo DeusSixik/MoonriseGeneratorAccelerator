@@ -5,9 +5,17 @@ import org.gradle.api.GradleException
 def gaMixinJavaDir = file("src/main/java")
 def gaMixinResourcesDir = file("src/main/resources")
 def gaGeneratedMixinJavaDir = layout.buildDirectory.dir("generated/sources/gaMixin/main/java").get().asFile
+def gaGeneratedMixinResourcesDir = layout.buildDirectory.dir("generated/resources/gaMixin/main").get().asFile
+def gaGeneratedMixinMetadataDir = layout.buildDirectory.dir("generated/gaMixinMetadata/main").get().asFile
+def gaGeneratedCommonMixinConfigListFile = new File(gaGeneratedMixinMetadataDir, "common-mixin-configs.txt")
+def gaGeneratedManagedCommonMixinConfigListFile = new File(gaGeneratedMixinMetadataDir, "managed-common-mixin-configs.txt")
 def gaConfigFile = file("src/main/java/dev/sixik/generator_accelerator/api/config/GAConfig.java")
 def gaGeneratedConfigStart = "// @generatedMixinConfigFields:start"
 def gaGeneratedConfigEnd = "// @generatedMixinConfigFields:end"
+
+ext.gaGeneratedMixinResourcesDir = gaGeneratedMixinResourcesDir
+ext.gaGeneratedCommonMixinConfigListFile = gaGeneratedCommonMixinConfigListFile
+ext.gaGeneratedManagedCommonMixinConfigListFile = gaGeneratedManagedCommonMixinConfigListFile
 
 def gaReadText = { File file ->
     file.getText("UTF-8")
@@ -319,6 +327,20 @@ def gaExtractJavaMetadata = { File file ->
     ]
 }
 
+def gaExtractPackageMetadata = { File file ->
+    def text = gaReadText(file)
+    def packageMatcher = (text =~ /(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;/)
+    if (!packageMatcher.find()) {
+        return null
+    }
+
+    [
+            file       : file,
+            text       : text,
+            packageName: packageMatcher.group(1)
+    ]
+}
+
 def gaFindTokenFromMixinPackage = { String packageName ->
     def segments = packageName.split(/\./) as List<String>
     def mixinIndex = segments.indexOf("mixin")
@@ -342,6 +364,47 @@ def gaFindTokenFromPluginPackage = { String packageName ->
         return segments.get(segments.size() - 1)
     }
     throw new GradleException("Unable to resolve module token from plugin package '${packageName}'")
+}
+
+def gaFindTokenFromModulePackage = { String packageName ->
+    def segments = packageName.split(/\./) as List<String>
+    def commonIndex = segments.indexOf("common")
+    if (commonIndex >= 0 && commonIndex + 1 < segments.size()) {
+        return segments.get(commonIndex + 1)
+    }
+    if (!segments.isEmpty()) {
+        return segments.get(segments.size() - 1)
+    }
+    throw new GradleException("Unable to resolve module token from package '${packageName}'")
+}
+
+def gaIsMixinClass = { String text ->
+    text =~ /(?m)^\s*@Mixin\s*\(/
+}
+
+def gaHasSourceAnnotation = { String text, String annotationName ->
+    gaReadAnnotationArguments(text, annotationName) != null || (text =~ /(?m)^\s*@${java.util.regex.Pattern.quote(annotationName)}\b/).find()
+}
+
+def gaFindMixinSimpleName = { String fullMixinClass, String mixinPackage ->
+    if (!fullMixinClass.startsWith(mixinPackage + ".")) {
+        throw new GradleException("Mixin ${fullMixinClass} is outside generated mixin package ${mixinPackage}")
+    }
+    return fullMixinClass.substring(mixinPackage.length() + 1)
+}
+
+def gaRenderGeneratedMixinJson = { Map moduleEntry ->
+    def mixinMap = new LinkedHashMap<String, Object>()
+    mixinMap.put("required", true)
+    mixinMap.put("package", moduleEntry.mixinPackage)
+    mixinMap.put("compatibilityLevel", "JAVA_21")
+    mixinMap.put("minVersion", "0.8")
+    if (moduleEntry.pluginClass != null && !moduleEntry.pluginClass.toString().isBlank()) {
+        mixinMap.put("plugin", moduleEntry.pluginClass)
+    }
+    mixinMap.put("mixins", moduleEntry.mixins)
+    mixinMap.put("injectors", [defaultRequire: 1])
+    JsonOutput.prettyPrint(JsonOutput.toJson(mixinMap)) + System.lineSeparator()
 }
 
 def gaValidateJavaIdentifier = { String value, String label ->
@@ -538,6 +601,7 @@ def gaRenderMixinCanceller = { List<Map> compatEntries, String eol ->
 sourceSets {
     main {
         java.srcDir gaGeneratedMixinJavaDir
+        resources.srcDir gaGeneratedMixinResourcesDir
     }
 }
 
@@ -548,10 +612,14 @@ tasks.register("generateGAMixinMetadata") {
     inputs.dir(gaMixinJavaDir)
     inputs.dir(gaMixinResourcesDir)
     outputs.dir(gaGeneratedMixinJavaDir)
+    outputs.dir(gaGeneratedMixinResourcesDir)
+    outputs.dir(gaGeneratedMixinMetadataDir)
     outputs.upToDateWhen { false }
 
     doLast {
         delete(gaGeneratedMixinJavaDir)
+        delete(gaGeneratedMixinResourcesDir)
+        delete(gaGeneratedMixinMetadataDir)
 
         def javaFiles = fileTree(gaMixinJavaDir).matching {
             include "**/*.java"
@@ -560,11 +628,42 @@ tasks.register("generateGAMixinMetadata") {
         def mixinPlugins = []
         def annotatedMixins = []
         def compatMixins = []
+        def automaticMixinModules = []
+        def mixinClassEntries = []
 
         javaFiles.each { File javaFile ->
+            if (javaFile.name == "package-info.java") {
+                def packageMetadata = gaExtractPackageMetadata(javaFile)
+                if (packageMetadata == null) {
+                    return
+                }
+
+                def automaticMixinArgs = gaReadAnnotationArguments(packageMetadata.text, "AutomaticMixin")
+                if (automaticMixinArgs != null || gaHasSourceAnnotation(packageMetadata.text, "AutomaticMixin")) {
+                    def explicitToken = gaReadNamedStringArgument(automaticMixinArgs, "value") ?: gaReadSingleStringArgument(automaticMixinArgs)
+                    def token = explicitToken?.trim() ? explicitToken.trim() : gaFindTokenFromModulePackage(packageMetadata.packageName)
+                    automaticMixinModules << [
+                            token       : token,
+                            packageName : packageMetadata.packageName,
+                            mixinPackage: packageMetadata.packageName + ".mixin",
+                            file        : javaFile
+                    ]
+                }
+                return
+            }
+
             def metadata = gaExtractJavaMetadata(javaFile)
             if (metadata == null) {
                 return
+            }
+
+            if (metadata.packageName.contains(".mixin") && gaIsMixinClass(metadata.text)) {
+                mixinClassEntries << [
+                        metadata              : metadata,
+                        fullName              : metadata.fullName,
+                        packageName           : metadata.packageName,
+                        disabledAutoRegister  : gaHasSourceAnnotation(metadata.text, "DissableMixinRegister")
+                ]
             }
 
             def autoPluginArgs = gaReadAnnotationArguments(metadata.text, "AutoMixinPlugin")
@@ -685,6 +784,31 @@ tasks.register("generateGAMixinMetadata") {
             }
         }
 
+        def automaticModulesByToken = [:] as LinkedHashMap<String, Map>
+        automaticMixinModules.each { Map moduleEntry ->
+            def previous = automaticModulesByToken.putIfAbsent(moduleEntry.token, moduleEntry)
+            if (previous != null) {
+                throw new GradleException("Multiple @AutomaticMixin packages resolved to token '${moduleEntry.token}': ${previous.packageName} and ${moduleEntry.packageName}")
+            }
+        }
+
+        automaticModulesByToken.each { String token, Map moduleEntry ->
+            def pluginEntry = pluginsByToken.get(token)
+            if (pluginEntry == null) {
+                throw new GradleException("No @AutoMixinPlugin class found for automatic mixin token '${token}' used by package ${moduleEntry.packageName}")
+            }
+
+            moduleEntry.pluginClass = pluginEntry.className
+            moduleEntry.mixins = mixinClassEntries.findAll { Map mixinEntry ->
+                mixinEntry.packageName == moduleEntry.mixinPackage || mixinEntry.packageName.startsWith(moduleEntry.mixinPackage + ".")
+            }.findAll { Map mixinEntry ->
+                !mixinEntry.disabledAutoRegister
+            }.collect { Map mixinEntry ->
+                gaFindMixinSimpleName(mixinEntry.fullName, moduleEntry.mixinPackage)
+            }.unique().sort()
+            moduleEntry.generatedFileName = "${token}.generator_accelerator.mixins.json"
+        }
+
         def configFieldsByName = [:] as LinkedHashMap<String, Map>
         annotatedMixins.each { Map mixinEntry ->
             def pluginEntry = pluginsByToken.get(mixinEntry.token)
@@ -724,7 +848,13 @@ tasks.register("generateGAMixinMetadata") {
         def cancellerFile = new File(gaGeneratedMixinJavaDir, "dev/sixik/generator_accelerator/api/mixin/generated/GeneratedGAMixinCanceller.java")
         gaWriteTextIfChanged(cancellerFile, gaRenderMixinCanceller(compatMixins, System.lineSeparator()))
 
+        automaticModulesByToken.each { String token, Map moduleEntry ->
+            def generatedJsonFile = new File(gaGeneratedMixinResourcesDir, moduleEntry.generatedFileName)
+            gaWriteTextIfChanged(generatedJsonFile, gaRenderGeneratedMixinJson(moduleEntry))
+        }
+
         def seenPluginTokens = new LinkedHashSet<String>()
+        def managedCommonMixinConfigNames = new LinkedHashSet<String>()
         fileTree(gaMixinResourcesDir).matching {
             include "**/*.mixins.json"
         }.files.sort { left, right -> left.path <=> right.path }.each { File jsonFile ->
@@ -742,7 +872,24 @@ tasks.register("generateGAMixinMetadata") {
             def updated = gaApplyPluginFieldToMixinJson(parsed as Map, pluginEntry.className)
             gaWriteTextIfChanged(jsonFile, JsonOutput.prettyPrint(JsonOutput.toJson(updated)) + System.lineSeparator())
             seenPluginTokens.add(token)
+            managedCommonMixinConfigNames.add(jsonFile.name)
         }
+
+        def commonMixinConfigNames = new LinkedHashSet<String>(managedCommonMixinConfigNames)
+        automaticModulesByToken.each { String token, Map moduleEntry ->
+            seenPluginTokens.add(token)
+            commonMixinConfigNames.add(moduleEntry.generatedFileName)
+        }
+
+        gaWriteTextIfChanged(
+                gaGeneratedManagedCommonMixinConfigListFile,
+                managedCommonMixinConfigNames.toList().sort().join(System.lineSeparator()) + System.lineSeparator()
+        )
+
+        gaWriteTextIfChanged(
+                gaGeneratedCommonMixinConfigListFile,
+                commonMixinConfigNames.toList().sort().join(System.lineSeparator()) + System.lineSeparator()
+        )
 
         pluginsByToken.each { String token, Map pluginEntry ->
             if (!seenPluginTokens.contains(token)) {
