@@ -303,7 +303,7 @@ def gaReadNamedClassNameArrayArgument = { Map metadata, String arguments, String
 def gaExtractJavaMetadata = { File file ->
     def text = gaReadText(file)
     def packageMatcher = (text =~ /(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;/)
-    def typeMatcher = (text =~ /\b(?:class|record|interface|enum)\s+([A-Za-z0-9_]+)/)
+    def typeMatcher = (text =~ /\b(?:class|record|interface|enum)\s+([A-Za-z0-9_$]+)/)
     if (!packageMatcher.find() || !typeMatcher.find()) {
         return null
     }
