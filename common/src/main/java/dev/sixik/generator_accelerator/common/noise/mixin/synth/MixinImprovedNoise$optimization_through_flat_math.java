@@ -76,7 +76,7 @@ public abstract class MixinImprovedNoise$optimization_through_flat_math {
         final double inputX = x + this.xo;
         final double inputY = y + this.yo;
         final double inputZ = z + this.zo;
-        
+
         final int gridX = (int) Math.floor(inputX);
         final int gridY = (int) Math.floor(inputY);
         final int gridZ = (int) Math.floor(inputZ);
