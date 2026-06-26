@@ -1,0 +1,71 @@
+package dev.sixik.generator_accelerator.api.config;
+
+import ca.spottedleaf.yamlconfig.adapter.TypeAdapterRegistry;
+import ca.spottedleaf.yamlconfig.config.YamlConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.nio.file.Paths;
+
+public class GAConfigHolder {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GAConfigHolder.class);
+    private static boolean initialized = false;
+
+    private static final File CONFIG_FILE = Paths.get(System.getProperty("user.dir"))
+            .resolve("config").resolve("generator_accelerator.yml").toFile();
+    private static final TypeAdapterRegistry CONFIG_ADAPTER = new TypeAdapterRegistry();
+    private static final YamlConfig<GAConfig> CONFIG;
+
+    static {
+        try {
+            CONFIG = new YamlConfig<>(GAConfig.class, new GAConfig(), CONFIG_ADAPTER);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private GAConfigHolder() { }
+
+    public static YamlConfig<GAConfig> getConfigRaw() {
+        if(!initialized && reloadConfig()) {
+            initialized = true;
+        }
+
+        return CONFIG;
+    }
+
+    public static GAConfig getConfig() {
+        return getConfigRaw().config;
+    }
+
+    public static boolean reloadConfig() {
+        synchronized (CONFIG) {
+            if(CONFIG_FILE.exists()) {
+                try {
+                    CONFIG.load(CONFIG_FILE);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to load config, using defaults", e);
+                    return false;
+                }
+            }
+
+            CONFIG.callInitialisers();
+            return saveConfig();
+        }
+    }
+
+    public static boolean saveConfig() {
+        synchronized (CONFIG) {
+            try {
+                CONFIG.save(CONFIG_FILE);
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("Failed to save config", e);
+                return false;
+            }
+        }
+    }
+
+}

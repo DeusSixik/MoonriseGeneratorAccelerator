@@ -51,13 +51,13 @@ dependencies {
     include(minecraftRuntimeLibraries("com.github.ben-manes.caffeine:caffeine:3.1.8"))
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
     include(minecraftRuntimeLibraries("com.github.DeusSixik:JavaNativeCollections:$rootProject.java_native_collections_version"))
-
+    include(minecraftRuntimeLibraries("org.yaml:snakeyaml:2.2"))
+    include(minecraftRuntimeLibraries("ca.spottedleaf:yamlconfig:1.0.2"))
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
     compileOnlyApi "curse.maven:confluence-1209464:7677430"
 
-    modRuntimeOnly "curse.maven:shadow-config-1421861:8010596"
     modRuntimeOnly "curse.maven:spark-361579:6225208"
 
     if (project.hasProperty('withMoonrise')) {

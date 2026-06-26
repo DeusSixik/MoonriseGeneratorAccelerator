@@ -1,12 +1,15 @@
 {
-  "required": true,
-  "package": "dev.sixik.generator_accelerator.mixins.common_mixin",
-  "compatibilityLevel": "JAVA_21",
-  "minVersion": "0.8",
-  "mixins": [
-
-  ],
-  "injectors": {
-    "defaultRequire": 1
-  }
+    "required": true,
+    "package": "dev.sixik.generator_accelerator.common.basic.mixin",
+    "compatibilityLevel": "JAVA_21",
+    "minVersion": "0.8",
+    "plugin": "dev.sixik.generator_accelerator.common.basic.BasicGAMixinPlugin",
+    "mixins": [
+        "ExampleCompatMixin",
+        "ExampleCompatTest2Mixin",
+        "ExampleGeneratedToggleMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
 }

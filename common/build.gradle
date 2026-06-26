@@ -10,6 +10,8 @@ test {
     useJUnitPlatform()
 }
 
+apply from: file("gradle/ga-mixin-generator.gradle")
+
 def surfaceQuickBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceCompilerQuickBenchmark"
 def surfaceQuickBenchmarkArgs = [
         "--warmup=${findProperty('surfaceQuickWarmup') ?: '600'}",
@@ -113,9 +115,6 @@ dependencies {
     modCompileOnlyApi "curse.maven:natures-spirit-1044992:6962784"
     modCompileOnlyApi "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 
-//    modCompileOnly "curse.maven:shadow-config-1421861:7625074"
-    modCompileOnly files("./libs/shadowconfig-common-1.1a.jar")
-
     modCompileOnly "curse.maven:owo-lib-532610:6446006"
     modCompileOnly "curse.maven:lithostitched-936015:8101993" // 1.7.7-neoforge-21.1
 
@@ -137,6 +136,9 @@ dependencies {
 
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
+
+    compileOnly("org.yaml:snakeyaml:2.2")
+    compileOnly("ca.spottedleaf:yamlconfig:1.0.2")
 }
 
 def dfcNativeRootDir = file("natives")

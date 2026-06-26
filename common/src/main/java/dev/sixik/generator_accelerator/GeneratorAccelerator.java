@@ -1,12 +1,10 @@
 package dev.sixik.generator_accelerator;
 
-import net.minecraft.world.level.ChunkPos;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 public final class GeneratorAccelerator {
     private static final String LOGGER_NAME = "Generator Accelerator";
@@ -16,8 +14,6 @@ public final class GeneratorAccelerator {
     private static Platform platform = null;
     private static Path gameFolder;
     private static boolean devMode;
-
-    public static ConcurrentMap<ChunkPos, Long> chunkGenerationTimes = new ConcurrentHashMap<>();
 
     public static void init(Platform platform, boolean isDev, Path gameFolder) {
         GeneratorAccelerator.platform = platform;

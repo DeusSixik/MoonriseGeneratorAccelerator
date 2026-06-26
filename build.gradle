@@ -47,6 +47,12 @@ allprojects {
             name = 'NeoForged'
             url = 'https://maven.neoforged.net/releases'
         }
+        maven {
+            url "https://repo.papermc.io/repository/maven-public/"
+            mavenContent {
+                includeGroup("ca.spottedleaf")
+            }
+        }
         maven { url = "https://maven.createmod.net" } // Ponder, Flywheel
         maven { url = "https://maven.ithundxr.dev/snapshots" }
         maven { url = "https://maven.blamejared.com" }

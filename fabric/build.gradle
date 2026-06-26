@@ -38,7 +38,8 @@ dependencies {
     include(minecraftRuntimeLibraries("com.github.JCTools.JCTools:jctools-core:v4.0.3"))
     include(minecraftRuntimeLibraries("com.github.DeusSixik:JavaNativeCollections:$rootProject.java_native_collections_version"))
 
-    modRuntimeOnly files("./libs/shadowconfig-fabric-1.1a.jar")
+    include(minecraftRuntimeLibraries("org.yaml:snakeyaml:2.2"))
+    include(minecraftRuntimeLibraries("ca.spottedleaf:yamlconfig:1.0.2"))
 
     modRuntimeOnly 'me.lucko:fabric-permissions-api:0.3.3'
 //    modRuntimeOnly "curse.maven:spark-361579:5759670"
