@@ -17,7 +17,6 @@ public final class DfcCacheFastPath {
 
     public static final double CACHE_MISS = Double.longBitsToDouble(MISS_BITS);
 
-    private static final LongAdder ELIGIBLE_CALLS = new LongAdder();
     private static final LongAdder HITS = new LongAdder();
     private static final LongAdder MISSES = new LongAdder();
     private static final LongAdder DISABLED_FALLBACKS = new LongAdder();
@@ -30,12 +29,13 @@ public final class DfcCacheFastPath {
                         long disabledFallbacks, long nonAccessFallbacks) {}
 
     public static Stats snapshotStats() {
-        return new Stats(ELIGIBLE_CALLS.sum(), HITS.sum(), MISSES.sum(),
+        long hits = HITS.sum();
+        long misses = MISSES.sum();
+        return new Stats(hits + misses, hits, misses,
                 DISABLED_FALLBACKS.sum(), NON_ACCESS_FALLBACKS.sum());
     }
 
     public static void resetStats() {
-        ELIGIBLE_CALLS.reset();
         HITS.reset();
         MISSES.reset();
         DISABLED_FALLBACKS.reset();
@@ -44,9 +44,6 @@ public final class DfcCacheFastPath {
 
     public static double tryWrapperDirectRead(DensityFunction extern, DensityFunction.FunctionContext context) {
         if (extern instanceof DfcCellCacheAccess acc) {
-            if (STATS_ENABLED) {
-                ELIGIBLE_CALLS.increment();
-            }
             double v = acc.dfc$tryDirectRead(context);
             if (STATS_ENABLED) {
                 if (Double.doubleToRawLongBits(v) != MISS_BITS) {
@@ -64,15 +61,41 @@ public final class DfcCacheFastPath {
     }
 
     /**
+     * Typed fast path for call sites that already proved {@code extern instanceof DfcCellCacheAccess}.
+     */
+    public static double computeKnownAccess(
+            DensityFunction extern, DfcCellCacheAccess access, DensityFunction.FunctionContext context) {
+        double v = access.dfc$tryDirectRead(context);
+        if (Double.doubleToRawLongBits(v) != MISS_BITS) {
+            if (STATS_ENABLED) {
+                HITS.increment();
+            }
+            return v;
+        }
+        if (STATS_ENABLED) {
+            MISSES.increment();
+        }
+        return extern.compute(context);
+    }
+
+    /**
+     * Slow path for marker sites that were flagged optimistically but don't expose direct-read access.
+     */
+    public static double computeKnownNonAccess(
+            DensityFunction extern, DensityFunction.FunctionContext context) {
+        if (STATS_ENABLED) {
+            NON_ACCESS_FALLBACKS.increment();
+        }
+        return extern.compute(context);
+    }
+
+    /**
      * Marker call sites flagged at compile time for NoiseChunk cache wrappers: try
      * {@link DfcCellCacheAccess#dfc$tryDirectRead} before {@link DensityFunction#compute}.
      */
     public static double computeWithOptionalDirectRead(
             DensityFunction extern, DensityFunction.FunctionContext context) {
         if (extern instanceof DfcCellCacheAccess acc) {
-            if (STATS_ENABLED) {
-                ELIGIBLE_CALLS.increment();
-            }
             double v = acc.dfc$tryDirectRead(context);
             if (Double.doubleToRawLongBits(v) != MISS_BITS) {
                 if (STATS_ENABLED) {

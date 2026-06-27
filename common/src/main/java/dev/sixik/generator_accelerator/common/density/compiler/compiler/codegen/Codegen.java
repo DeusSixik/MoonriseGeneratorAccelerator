@@ -138,6 +138,10 @@ public final class Codegen {
     /** {@link DfcCacheFastPath#computeWithOptionalDirectRead}. */
     private static final String CACHE_FAST_READ_DESC =
             "(" + DENSITY_FUNCTION_DESC + "L" + FUNCTION_CONTEXT_INTERNAL + ";)D";
+    private static final String DFC_CELL_CACHE_ACCESS_INTERNAL = Type.getInternalName(DfcCellCacheAccess.class);
+    private static final String DFC_CELL_CACHE_ACCESS_DESC = "L" + DFC_CELL_CACHE_ACCESS_INTERNAL + ";";
+    private static final String CACHE_FAST_TYPED_READ_DESC =
+            "(" + DENSITY_FUNCTION_DESC + DFC_CELL_CACHE_ACCESS_DESC + "L" + FUNCTION_CONTEXT_INTERNAL + ";)D";
     private static final String CONTEXT_PROVIDER_INTERNAL =
             "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider";
     private static final String METHOD_HANDLE_INTERNAL = "java/lang/invoke/MethodHandle";
@@ -5224,11 +5228,31 @@ public final class Codegen {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
             }
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
             if (pool.externHasCacheWrapperFastPath(idx)) {
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                int externSlot = allocRefSlot();
+                mv.visitInsn(Opcodes.DUP);
+                mv.visitVarInsn(Opcodes.ASTORE, externSlot);
+                mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_CACHE_ACCESS_INTERNAL);
+                Label slowCompute = new Label();
+                Label end = new Label();
+                mv.visitJumpInsn(Opcodes.IFEQ, slowCompute);
+
+                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
+                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
+                mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_CACHE_ACCESS_INTERNAL);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeKnownAccess",
+                        CACHE_FAST_TYPED_READ_DESC, false);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(slowCompute);
+                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeKnownNonAccess",
                         CACHE_FAST_READ_DESC, false);
+                mv.visitLabel(end);
             } else {
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
                 mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
                         "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
             }
