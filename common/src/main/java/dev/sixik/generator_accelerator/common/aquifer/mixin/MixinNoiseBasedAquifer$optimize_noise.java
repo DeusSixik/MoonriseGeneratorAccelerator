@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class MixinNoiseBasedAquifer$optimize_noise {
     @Unique
     private static boolean ga$statsEnabled() {
-        return GeneratorAccelerator.isDevMode();
+        return GeneratorAccelerator.isUseProfiler();
     }
 
     @Shadow

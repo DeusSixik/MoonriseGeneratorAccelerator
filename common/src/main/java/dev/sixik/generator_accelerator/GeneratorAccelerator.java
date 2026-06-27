@@ -15,12 +15,17 @@ public final class GeneratorAccelerator {
     private static Platform platform = null;
     private static Path gameFolder;
     private static boolean devMode;
+    private static final boolean useProfiler = true;
 
     public static void init(Platform platform, boolean isDev, Path gameFolder) {
         GeneratorAccelerator.platform = platform;
         GeneratorAccelerator.gameFolder = gameFolder;
         GeneratorAccelerator.devMode = isDev;
         DfcConfigBridge.applySystemPropertiesFromConfig();
+    }
+
+    public static boolean isUseProfiler() {
+        return useProfiler;
     }
 
     public static Path getGameFolder() {

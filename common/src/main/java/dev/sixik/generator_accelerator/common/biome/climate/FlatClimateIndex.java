@@ -208,7 +208,7 @@ public class FlatClimateIndex<T> {
     private final ThreadLocal<SearchContext> ctx = ThreadLocal.withInitial(SearchContext::new);
 
     private static boolean statsEnabled() {
-        return GeneratorAccelerator.isDevMode();
+        return GeneratorAccelerator.isUseProfiler();
     }
 
     public static Stats snapshotStats() {
