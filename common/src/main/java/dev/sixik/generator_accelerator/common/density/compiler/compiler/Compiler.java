@@ -512,9 +512,10 @@ public final class Compiler {
     }
 
     private static String describeInlinedNoiseCoordinate(IRNode.InlinedNoise in, ConstantPool pool, int depth) {
-        String coords = "x=" + describeSplineCoordinate(in.coordX(), pool, depth)
-                + ",y=" + describeSplineCoordinate(in.coordY(), pool, depth)
-                + ",z=" + describeSplineCoordinate(in.coordZ(), pool, depth);
+        int coordDepth = Math.max(depth, 3);
+        String coords = "x=" + describeSplineCoordinate(in.coordX(), pool, coordDepth)
+                + ",y=" + describeSplineCoordinate(in.coordY(), pool, coordDepth)
+                + ",z=" + describeSplineCoordinate(in.coordZ(), pool, coordDepth);
         if (pool == null || in.specPoolIndex() < 0 || in.specPoolIndex() >= pool.noiseSpecCount()) {
             return "InlinedNoise(" + coords + ")";
         }

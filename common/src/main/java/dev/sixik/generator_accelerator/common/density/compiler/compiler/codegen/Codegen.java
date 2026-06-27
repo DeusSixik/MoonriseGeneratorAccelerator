@@ -4490,6 +4490,103 @@ public final class Codegen {
             mv.visitInsn(Opcodes.DMUL);
         }
 
+        private record InlinedNoiseAxisPlan(boolean constZero, int blockIntSlot, double blockScale, int coordSlot) {
+            static InlinedNoiseAxisPlan zeroAxis() {
+                return new InlinedNoiseAxisPlan(true, 0, 0.0D, -1);
+            }
+
+            static InlinedNoiseAxisPlan block(int blockIntSlot, double blockScale) {
+                return new InlinedNoiseAxisPlan(false, blockIntSlot, blockScale, -1);
+            }
+
+            static InlinedNoiseAxisPlan slot(int coordSlot) {
+                return new InlinedNoiseAxisPlan(false, 0, 0.0D, coordSlot);
+            }
+        }
+
+        private InlinedNoiseAxisPlan analyzeInlinedNoiseAxis(IRNode axis) {
+            if (axis instanceof IRNode.Const c && c.value() == 0.0D) {
+                return InlinedNoiseAxisPlan.zeroAxis();
+            }
+            if (axis instanceof IRNode.BlockX) {
+                return InlinedNoiseAxisPlan.block(2, 1.0D);
+            }
+            if (axis instanceof IRNode.BlockY) {
+                return InlinedNoiseAxisPlan.block(3, 1.0D);
+            }
+            if (axis instanceof IRNode.BlockZ) {
+                return InlinedNoiseAxisPlan.block(4, 1.0D);
+            }
+            if (axis instanceof IRNode.Bin bin && bin.op() == IRNode.BinOp.MUL) {
+                InlinedNoiseAxisPlan mulPlan = analyzeScaledBlockAxis(bin.left(), bin.right());
+                if (mulPlan != null) {
+                    return mulPlan;
+                }
+            }
+            return InlinedNoiseAxisPlan.slot(coordinateSlot(axis));
+        }
+
+        private InlinedNoiseAxisPlan analyzeScaledBlockAxis(IRNode left, IRNode right) {
+            if (left instanceof IRNode.Const c) {
+                Integer slot = blockIntSlot(right);
+                if (slot != null) {
+                    return InlinedNoiseAxisPlan.block(slot, c.value());
+                }
+            }
+            if (right instanceof IRNode.Const c) {
+                Integer slot = blockIntSlot(left);
+                if (slot != null) {
+                    return InlinedNoiseAxisPlan.block(slot, c.value());
+                }
+            }
+            return null;
+        }
+
+        private Integer blockIntSlot(IRNode axis) {
+            if (axis instanceof IRNode.BlockX) {
+                return 2;
+            }
+            if (axis instanceof IRNode.BlockY) {
+                return 3;
+            }
+            if (axis instanceof IRNode.BlockZ) {
+                return 4;
+            }
+            return null;
+        }
+
+        private InlinedNoiseAxisPlan scaleAxisPlanForSecond(InlinedNoiseAxisPlan axis, double secondScale) {
+            if (axis.constZero() || Double.compare(secondScale, 1.0D) == 0) {
+                return axis;
+            }
+            if (axis.blockIntSlot() != 0) {
+                return InlinedNoiseAxisPlan.block(axis.blockIntSlot(), axis.blockScale() * secondScale);
+            }
+            int scaledSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DLOAD, axis.coordSlot());
+            mv.visitLdcInsn(secondScale);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitVarInsn(Opcodes.DSTORE, scaledSlot);
+            return InlinedNoiseAxisPlan.slot(scaledSlot);
+        }
+
+        private void emitAxisCoordinateValue(InlinedNoiseAxisPlan axis) {
+            if (axis.constZero()) {
+                mv.visitInsn(Opcodes.DCONST_0);
+                return;
+            }
+            if (axis.blockIntSlot() != 0) {
+                mv.visitVarInsn(Opcodes.ILOAD, axis.blockIntSlot());
+                mv.visitInsn(Opcodes.I2D);
+                if (Double.compare(axis.blockScale(), 1.0D) != 0) {
+                    mv.visitLdcInsn(axis.blockScale());
+                    mv.visitInsn(Opcodes.DMUL);
+                }
+                return;
+            }
+            mv.visitVarInsn(Opcodes.DLOAD, axis.coordSlot());
+        }
+
         /* ---------------- Tier-3 inlined noise emission ---------------- */
 
         /**
@@ -4526,10 +4623,9 @@ public final class Codegen {
                 }
             }
             var spec = pool.noiseSpec(n.specPoolIndex());
-            int cxSlot = coordinateSlot(n.coordX());
-            boolean cyConstZero = n.coordY() instanceof IRNode.Const c && c.value() == 0.0D;
-            int cySlot = cyConstZero ? -1 : coordinateSlot(n.coordY());
-            int czSlot = coordinateSlot(n.coordZ());
+            InlinedNoiseAxisPlan cxPlan = analyzeInlinedNoiseAxis(n.coordX());
+            InlinedNoiseAxisPlan cyPlan = analyzeInlinedNoiseAxis(n.coordY());
+            InlinedNoiseAxisPlan czPlan = analyzeInlinedNoiseAxis(n.coordZ());
 
             if (CodegenNativeNoise.emitNativeOps()) {
                 Label fallback = new Label();
@@ -4542,59 +4638,34 @@ public final class Codegen {
                 mv.visitInsn(Opcodes.LCMP);
                 mv.visitJumpInsn(Opcodes.IFEQ, fallback);
                 mv.visitVarInsn(Opcodes.LLOAD, hSlot);
-                mv.visitVarInsn(Opcodes.DLOAD, cxSlot);
-                if (cyConstZero) {
-                    mv.visitInsn(Opcodes.DCONST_0);
-                } else {
-                    mv.visitVarInsn(Opcodes.DLOAD, cySlot);
-                }
-                mv.visitVarInsn(Opcodes.DLOAD, czSlot);
+                emitAxisCoordinateValue(cxPlan);
+                emitAxisCoordinateValue(cyPlan);
+                emitAxisCoordinateValue(czPlan);
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, NATIVE_BRIDGE_INTERNAL, "normalNoiseStackSample1",
                         "(JDDD)D", false);
                 mv.visitJumpInsn(Opcodes.GOTO, afterNative);
                 mv.visitLabel(fallback);
-                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot, cyConstZero);
+                emitInlinedNoiseJavaTail(n, spec, cxPlan, cyPlan, czPlan);
                 mv.visitLabel(afterNative);
             } else {
-                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot, cyConstZero);
+                emitInlinedNoiseJavaTail(n, spec, cxPlan, cyPlan, czPlan);
             }
         }
 
         private void emitInlinedNoiseJavaTail(IRNode.InlinedNoise n, dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec spec,
-                                              int cxSlot, int cySlot, int czSlot, boolean cyConstZero) {
-            emitBranchSum(spec.first(), n.specPoolIndex(), 0, cxSlot, cySlot, czSlot, false, cyConstZero, false);
+                                              InlinedNoiseAxisPlan cxPlan,
+                                              InlinedNoiseAxisPlan cyPlan,
+                                              InlinedNoiseAxisPlan czPlan) {
+            emitBranchSum(spec.first(), n.specPoolIndex(), 0, cxPlan, cyPlan, czPlan);
             var second = spec.second();
-            int sCx, sCy, sCz;
-            if (second.activeOctaves().length > 0 && Double.compare(second.inputCoordScale(), 1.0) != 0) {
-                sCx = allocDoubleSlot();
-                mv.visitVarInsn(Opcodes.DLOAD, cxSlot);
-                mv.visitLdcInsn(second.inputCoordScale());
-                mv.visitInsn(Opcodes.DMUL);
-                mv.visitVarInsn(Opcodes.DSTORE, sCx);
-                if (cyConstZero) {
-                    sCy = -1;
-                } else {
-                    sCy = allocDoubleSlot();
-                    mv.visitVarInsn(Opcodes.DLOAD, cySlot);
-                    mv.visitLdcInsn(second.inputCoordScale());
-                    mv.visitInsn(Opcodes.DMUL);
-                    mv.visitVarInsn(Opcodes.DSTORE, sCy);
-                }
-                sCz = allocDoubleSlot();
-                mv.visitVarInsn(Opcodes.DLOAD, czSlot);
-                mv.visitLdcInsn(second.inputCoordScale());
-                mv.visitInsn(Opcodes.DMUL);
-                mv.visitVarInsn(Opcodes.DSTORE, sCz);
-            } else {
-                sCx = cxSlot;
-                sCy = cySlot;
-                sCz = czSlot;
-            }
+            InlinedNoiseAxisPlan sCx = scaleAxisPlanForSecond(cxPlan, second.inputCoordScale());
+            InlinedNoiseAxisPlan sCy = scaleAxisPlanForSecond(cyPlan, second.inputCoordScale());
+            InlinedNoiseAxisPlan sCz = scaleAxisPlanForSecond(czPlan, second.inputCoordScale());
             int secondCount = second.activeOctaves().length;
             for (int i = 0; i < secondCount; i++) {
                 emitOctaveContribution(n.specPoolIndex(), 1, i,
                         second.inputFactors()[i], second.ampValueFactors()[i],
-                        sCx, sCy, sCz, false, cyConstZero, false);
+                        sCx, sCy, sCz);
                 mv.visitInsn(Opcodes.DADD);
             }
             mv.visitLdcInsn(spec.valueFactor());
@@ -4608,8 +4679,10 @@ public final class Codegen {
          * has something to accumulate into.
          */
         private void emitBranchSum(dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec.PerlinSpec branch,
-                                   int specIdx, int branchIdx, int cxSlot, int cySlot, int czSlot,
-                                   boolean cxConstZero, boolean cyConstZero, boolean czConstZero) {
+                                   int specIdx, int branchIdx,
+                                   InlinedNoiseAxisPlan cxPlan,
+                                   InlinedNoiseAxisPlan cyPlan,
+                                   InlinedNoiseAxisPlan czPlan) {
             int count = branch.activeOctaves().length;
             if (count == 0) {
                 mv.visitInsn(Opcodes.DCONST_0);
@@ -4619,19 +4692,26 @@ public final class Codegen {
             for (int i = 0; i < count; i++) {
                 emitOctaveContribution(specIdx, branchIdx, i,
                         branch.inputFactors()[i], branch.ampValueFactors()[i],
-                        cxSlot, cySlot, czSlot, cxConstZero, cyConstZero, czConstZero);
+                        cxPlan, cyPlan, czPlan);
                 if (i > 0) mv.visitInsn(Opcodes.DADD);
             }
         }
 
-        private void emitWrappedAxis(int slot, double inputFactor, boolean constantZero) {
-            if (constantZero) {
+        private void emitWrappedAxis(InlinedNoiseAxisPlan axis, double inputFactor) {
+            if (axis.constZero()) {
                 mv.visitInsn(Opcodes.DCONST_0);
                 return;
             }
-            mv.visitVarInsn(Opcodes.DLOAD, slot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
+            if (axis.blockIntSlot() != 0) {
+                mv.visitVarInsn(Opcodes.ILOAD, axis.blockIntSlot());
+                mv.visitInsn(Opcodes.I2D);
+                mv.visitLdcInsn(axis.blockScale() * inputFactor);
+                mv.visitInsn(Opcodes.DMUL);
+            } else {
+                mv.visitVarInsn(Opcodes.DLOAD, axis.coordSlot());
+                mv.visitLdcInsn(inputFactor);
+                mv.visitInsn(Opcodes.DMUL);
+            }
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
                     "wrapAxis", "(D)D", false);
         }
@@ -4647,8 +4727,9 @@ public final class Codegen {
          */
         private void emitOctaveContribution(int specIdx, int branchIdx, int activeOctaveIdx,
                                             double inputFactor, double ampValueFactor,
-                                            int cxSlot, int cySlot, int czSlot,
-                                            boolean cxConstZero, boolean cyConstZero, boolean czConstZero) {
+                                            InlinedNoiseAxisPlan cxPlan,
+                                            InlinedNoiseAxisPlan cyPlan,
+                                            InlinedNoiseAxisPlan czPlan) {
             mv.visitLdcInsn(ampValueFactor);
             mv.visitVarInsn(Opcodes.ALOAD, 0);
             if (castSelfForSubclassNoiseFields) {
@@ -4657,9 +4738,9 @@ public final class Codegen {
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
                     noiseFieldName(specIdx, branchIdx, activeOctaveIdx), IMPROVED_NOISE_DESC);
 
-            emitWrappedAxis(cxSlot, inputFactor, cxConstZero);
-            emitWrappedAxis(cySlot, inputFactor, cyConstZero);
-            emitWrappedAxis(czSlot, inputFactor, czConstZero);
+            emitWrappedAxis(cxPlan, inputFactor);
+            emitWrappedAxis(cyPlan, inputFactor);
+            emitWrappedAxis(czPlan, inputFactor);
 
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IMPROVED_NOISE_INTERNAL,
                     "noise", "(DDD)D", false);
