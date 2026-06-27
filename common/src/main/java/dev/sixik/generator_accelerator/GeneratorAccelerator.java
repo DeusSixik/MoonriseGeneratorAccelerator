@@ -15,7 +15,7 @@ public final class GeneratorAccelerator {
     private static Platform platform = null;
     private static Path gameFolder;
     private static boolean devMode;
-    private static final boolean useProfiler = true;
+    private static final boolean useProfiler = false;
 
     public static void init(Platform platform, boolean isDev, Path gameFolder) {
         GeneratorAccelerator.platform = platform;

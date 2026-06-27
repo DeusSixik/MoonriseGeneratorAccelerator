@@ -93,13 +93,13 @@ public abstract class MixinSimpleBitStorage {
 
     static {
         for (int bits = 1; bits < BETTER_MAGIC.length; ++bits) {
-            BETTER_MAGIC[bits] = (int) getUnsignedDivisorMagic(64L / (long) bits, 20);
+            BETTER_MAGIC[bits] = (int) getUnsignedDivisorMagic(64L / (long) bits);
         }
 
     }
 
-
-    private static long getUnsignedDivisorMagic(final long divisor, final int bits) {
-        return ((1L << bits) - 1L) / divisor + 1L;
+    @Unique
+    private static long getUnsignedDivisorMagic(final long divisor) {
+        return ((1L << 20) - 1L) / divisor + 1L;
     }
 }
