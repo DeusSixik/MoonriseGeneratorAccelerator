@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -7,7 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * ({@code pkg.CompiledDF_xxx}, without the VM-added {@code /0x...} suffix).
  */
 public final class DfcCompiledClassRegistry {
+    private static final int MAX_ENTRIES = Integer.getInteger("ga.dfc.registry.maxEntries", 4096);
     private static final ConcurrentHashMap<String, Entry> ENTRIES = new ConcurrentHashMap<>();
+    private static final Deque<String> INSERTION_ORDER = new ArrayDeque<>();
 
     private DfcCompiledClassRegistry() {
     }
@@ -23,9 +27,17 @@ public final class DfcCompiledClassRegistry {
                               boolean latticeEmitted, boolean slabInnerProgramPresent,
                               boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized,
                               String rootDebug) {
-        ENTRIES.putIfAbsent(normalize(classInternalName), new Entry(
-                normalize(classInternalName), sourceRootClass, latticeEmitted, slabInnerProgramPresent,
-                cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug));
+        String normalized = normalize(classInternalName);
+        Entry newEntry = new Entry(
+                normalized, sourceRootClass, latticeEmitted, slabInnerProgramPresent,
+                cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug);
+        Entry previous = ENTRIES.putIfAbsent(normalized, newEntry);
+        if (previous == null) {
+            synchronized (INSERTION_ORDER) {
+                INSERTION_ORDER.addLast(normalized);
+                trimToBudget();
+            }
+        }
     }
 
     public static Entry lookup(String runtimeClassName) {
@@ -34,6 +46,19 @@ public final class DfcCompiledClassRegistry {
 
     public static void clear() {
         ENTRIES.clear();
+        synchronized (INSERTION_ORDER) {
+            INSERTION_ORDER.clear();
+        }
+    }
+
+    private static void trimToBudget() {
+        while (ENTRIES.size() > MAX_ENTRIES) {
+            String oldest = INSERTION_ORDER.pollFirst();
+            if (oldest == null) {
+                return;
+            }
+            ENTRIES.remove(oldest);
+        }
     }
 
     private static String normalize(String name) {
