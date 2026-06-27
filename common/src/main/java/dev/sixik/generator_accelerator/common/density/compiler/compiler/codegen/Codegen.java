@@ -4311,14 +4311,70 @@ public final class Codegen {
         }
 
         private void emitYClampedGradient(IRNode.YClampedGradient g) {
+            int fromY = g.fromY();
+            int toY = g.toY();
+            double fromValue = g.fromValue();
+            double toValue = g.toValue();
+
+            if (fromY == toY || !Double.isFinite(fromValue) || !Double.isFinite(toValue)) {
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                mv.visitInsn(Opcodes.I2D);
+                mv.visitLdcInsn((double) fromY);
+                mv.visitLdcInsn((double) toY);
+                mv.visitLdcInsn(fromValue);
+                mv.visitLdcInsn(toValue);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/util/Mth", "clampedMap",
+                        "(DDDDD)D", false);
+                return;
+            }
+
+            double slope = (toValue - fromValue) / (double) (toY - fromY);
+            Label interior = new Label();
+            Label end = new Label();
+
+            if (fromY < toY) {
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                ldcInt(fromY);
+                mv.visitJumpInsn(Opcodes.IF_ICMPGT, interior);
+                mv.visitLdcInsn(fromValue);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(interior);
+                Label upper = new Label();
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                ldcInt(toY);
+                mv.visitJumpInsn(Opcodes.IF_ICMPLT, upper);
+                mv.visitLdcInsn(toValue);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(upper);
+            } else {
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                ldcInt(fromY);
+                mv.visitJumpInsn(Opcodes.IF_ICMPLT, interior);
+                mv.visitLdcInsn(fromValue);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(interior);
+                Label lower = new Label();
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                ldcInt(toY);
+                mv.visitJumpInsn(Opcodes.IF_ICMPGT, lower);
+                mv.visitLdcInsn(toValue);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(lower);
+            }
+
             mv.visitVarInsn(Opcodes.ILOAD, 3);
+            ldcInt(fromY);
+            mv.visitInsn(Opcodes.ISUB);
             mv.visitInsn(Opcodes.I2D);
-            mv.visitLdcInsn((double) g.fromY());
-            mv.visitLdcInsn((double) g.toY());
-            mv.visitLdcInsn(g.fromValue());
-            mv.visitLdcInsn(g.toValue());
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/util/Mth", "clampedMap",
-                    "(DDDDD)D", false);
+            mv.visitLdcInsn(slope);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitLdcInsn(fromValue);
+            mv.visitInsn(Opcodes.DADD);
+            mv.visitLabel(end);
         }
 
         /* ---------------- noise samples ---------------- */
@@ -4467,7 +4523,8 @@ public final class Codegen {
             }
             var spec = pool.noiseSpec(n.specPoolIndex());
             int cxSlot = coordinateSlot(n.coordX());
-            int cySlot = coordinateSlot(n.coordY());
+            boolean cyConstZero = n.coordY() instanceof IRNode.Const c && c.value() == 0.0D;
+            int cySlot = cyConstZero ? -1 : coordinateSlot(n.coordY());
             int czSlot = coordinateSlot(n.coordZ());
 
             if (CodegenNativeNoise.emitNativeOps()) {
@@ -4482,22 +4539,26 @@ public final class Codegen {
                 mv.visitJumpInsn(Opcodes.IFEQ, fallback);
                 mv.visitVarInsn(Opcodes.LLOAD, hSlot);
                 mv.visitVarInsn(Opcodes.DLOAD, cxSlot);
-                mv.visitVarInsn(Opcodes.DLOAD, cySlot);
+                if (cyConstZero) {
+                    mv.visitInsn(Opcodes.DCONST_0);
+                } else {
+                    mv.visitVarInsn(Opcodes.DLOAD, cySlot);
+                }
                 mv.visitVarInsn(Opcodes.DLOAD, czSlot);
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, NATIVE_BRIDGE_INTERNAL, "normalNoiseStackSample1",
                         "(JDDD)D", false);
                 mv.visitJumpInsn(Opcodes.GOTO, afterNative);
                 mv.visitLabel(fallback);
-                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot);
+                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot, cyConstZero);
                 mv.visitLabel(afterNative);
             } else {
-                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot);
+                emitInlinedNoiseJavaTail(n, spec, cxSlot, cySlot, czSlot, cyConstZero);
             }
         }
 
         private void emitInlinedNoiseJavaTail(IRNode.InlinedNoise n, dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec spec,
-                                              int cxSlot, int cySlot, int czSlot) {
-            emitBranchSum(spec.first(), n.specPoolIndex(), 0, cxSlot, cySlot, czSlot);
+                                              int cxSlot, int cySlot, int czSlot, boolean cyConstZero) {
+            emitBranchSum(spec.first(), n.specPoolIndex(), 0, cxSlot, cySlot, czSlot, false, cyConstZero, false);
             var second = spec.second();
             int sCx, sCy, sCz;
             if (second.activeOctaves().length > 0 && Double.compare(second.inputCoordScale(), 1.0) != 0) {
@@ -4506,11 +4567,15 @@ public final class Codegen {
                 mv.visitLdcInsn(second.inputCoordScale());
                 mv.visitInsn(Opcodes.DMUL);
                 mv.visitVarInsn(Opcodes.DSTORE, sCx);
-                sCy = allocDoubleSlot();
-                mv.visitVarInsn(Opcodes.DLOAD, cySlot);
-                mv.visitLdcInsn(second.inputCoordScale());
-                mv.visitInsn(Opcodes.DMUL);
-                mv.visitVarInsn(Opcodes.DSTORE, sCy);
+                if (cyConstZero) {
+                    sCy = -1;
+                } else {
+                    sCy = allocDoubleSlot();
+                    mv.visitVarInsn(Opcodes.DLOAD, cySlot);
+                    mv.visitLdcInsn(second.inputCoordScale());
+                    mv.visitInsn(Opcodes.DMUL);
+                    mv.visitVarInsn(Opcodes.DSTORE, sCy);
+                }
                 sCz = allocDoubleSlot();
                 mv.visitVarInsn(Opcodes.DLOAD, czSlot);
                 mv.visitLdcInsn(second.inputCoordScale());
@@ -4525,7 +4590,7 @@ public final class Codegen {
             for (int i = 0; i < secondCount; i++) {
                 emitOctaveContribution(n.specPoolIndex(), 1, i,
                         second.inputFactors()[i], second.ampValueFactors()[i],
-                        sCx, sCy, sCz);
+                        sCx, sCy, sCz, false, cyConstZero, false);
                 mv.visitInsn(Opcodes.DADD);
             }
             mv.visitLdcInsn(spec.valueFactor());
@@ -4539,7 +4604,8 @@ public final class Codegen {
          * has something to accumulate into.
          */
         private void emitBranchSum(dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec.PerlinSpec branch,
-                                   int specIdx, int branchIdx, int cxSlot, int cySlot, int czSlot) {
+                                   int specIdx, int branchIdx, int cxSlot, int cySlot, int czSlot,
+                                   boolean cxConstZero, boolean cyConstZero, boolean czConstZero) {
             int count = branch.activeOctaves().length;
             if (count == 0) {
                 mv.visitInsn(Opcodes.DCONST_0);
@@ -4549,9 +4615,21 @@ public final class Codegen {
             for (int i = 0; i < count; i++) {
                 emitOctaveContribution(specIdx, branchIdx, i,
                         branch.inputFactors()[i], branch.ampValueFactors()[i],
-                        cxSlot, cySlot, czSlot);
+                        cxSlot, cySlot, czSlot, cxConstZero, cyConstZero, czConstZero);
                 if (i > 0) mv.visitInsn(Opcodes.DADD);
             }
+        }
+
+        private void emitWrappedAxis(int slot, double inputFactor, boolean constantZero) {
+            if (constantZero) {
+                mv.visitInsn(Opcodes.DCONST_0);
+                return;
+            }
+            mv.visitVarInsn(Opcodes.DLOAD, slot);
+            mv.visitLdcInsn(inputFactor);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
+                    "wrapAxis", "(D)D", false);
         }
 
         /**
@@ -4565,7 +4643,8 @@ public final class Codegen {
          */
         private void emitOctaveContribution(int specIdx, int branchIdx, int activeOctaveIdx,
                                             double inputFactor, double ampValueFactor,
-                                            int cxSlot, int cySlot, int czSlot) {
+                                            int cxSlot, int cySlot, int czSlot,
+                                            boolean cxConstZero, boolean cyConstZero, boolean czConstZero) {
             mv.visitLdcInsn(ampValueFactor);
             mv.visitVarInsn(Opcodes.ALOAD, 0);
             if (castSelfForSubclassNoiseFields) {
@@ -4574,23 +4653,9 @@ public final class Codegen {
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
                     noiseFieldName(specIdx, branchIdx, activeOctaveIdx), IMPROVED_NOISE_DESC);
 
-            mv.visitVarInsn(Opcodes.DLOAD, cxSlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
-
-            mv.visitVarInsn(Opcodes.DLOAD, cySlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
-
-            mv.visitVarInsn(Opcodes.DLOAD, czSlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
+            emitWrappedAxis(cxSlot, inputFactor, cxConstZero);
+            emitWrappedAxis(cySlot, inputFactor, cyConstZero);
+            emitWrappedAxis(czSlot, inputFactor, czConstZero);
 
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IMPROVED_NOISE_INTERNAL,
                     "noise", "(DDD)D", false);
@@ -4642,17 +4707,25 @@ public final class Codegen {
         /* ---------------- spline ---------------- */
 
         private void emitMultipointSpline(IRNode.Spline.Multipoint mp) {
-            // Compute coordinate, spill to slot, then dispatch to the right segment.
-            emit(mp.coordinate());
-            mv.visitInsn(Opcodes.D2F);
-            int fSlot = allocFloatSlot();
-            mv.visitVarInsn(Opcodes.FSTORE, fSlot);
-
             float[] locs = mp.locations();
             int n = locs.length;
             Label end = new Label();
             boolean binarySearch = useBinarySplineSearch(n);
             boolean lutSearch = useSplineSegmentLut(n, locs);
+            int searchMode = lutSearch ? DfcSplineStats.SEARCH_LUT
+                    : (binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR);
+            boolean point4RightConstantFast = n == 4
+                    && !lutSearch
+                    && mp.derivatives()[n - 1] == 0.0F
+                    && mp.values().get(n - 1) instanceof IRNode.Spline.Constant;
+            // Compute coordinate once. For the hot point4/right-extrapolation case we first
+            // test the right boundary in double precision and only materialize the float local
+            // when we know we need the interior/left dispatcher.
+            emit(mp.coordinate());
+            int coordSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DSTORE, coordSlot);
+            int fSlot = allocFloatSlot();
+
             int splineTimingStartSlot = -1;
             int splineTimingResultSlot = -1;
             if (SPLINE_RUNTIME_STATS_ENABLED) {
@@ -4668,6 +4741,36 @@ public final class Codegen {
             // own subexpressions, but those spills are invalidated before the next
             // sibling arm runs (slot indices and IRNode→slot bindings are reset).
             BranchScope snap = snapshotBranch();
+
+            if (point4RightConstantFast) {
+                Label rightFast = new Label();
+                mv.visitVarInsn(Opcodes.DLOAD, coordSlot);
+                mv.visitLdcInsn((double) locs[n - 1]);
+                mv.visitInsn(Opcodes.DCMPL);
+                mv.visitJumpInsn(Opcodes.IFGE, rightFast);
+
+                mv.visitVarInsn(Opcodes.DLOAD, coordSlot);
+                mv.visitInsn(Opcodes.D2F);
+                mv.visitVarInsn(Opcodes.FSTORE, fSlot);
+                emitFourPointSpline(fSlot, mp, snap, end, searchMode,
+                        splineTimingStartSlot, splineTimingResultSlot, true);
+
+                mv.visitLabel(rightFast);
+                restoreBranch(snap);
+                emitSplineAsFloat(mp.values().get(n - 1));
+                emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                restoreBranch(snap);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
+            mv.visitVarInsn(Opcodes.DLOAD, coordSlot);
+            mv.visitInsn(Opcodes.D2F);
+            mv.visitVarInsn(Opcodes.FSTORE, fSlot);
 
             if (n == 1) {
                 emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
@@ -4688,9 +4791,8 @@ public final class Codegen {
             }
 
             if (n == 4 && !lutSearch) {
-                emitFourPointSpline(fSlot, mp, snap, end,
-                        binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR,
-                        splineTimingStartSlot, splineTimingResultSlot);
+                emitFourPointSpline(fSlot, mp, snap, end, searchMode,
+                        splineTimingStartSlot, splineTimingResultSlot, false);
                 mv.visitLabel(end);
                 mv.visitInsn(Opcodes.F2D);
                 return;
@@ -4803,17 +4905,20 @@ public final class Codegen {
         private void emitFourPointSpline(int fSlot, IRNode.Spline.Multipoint mp,
                                          BranchScope snap, Label end,
                                          int searchMode,
-                                         int splineTimingStartSlot, int splineTimingResultSlot) {
+                                         int splineTimingStartSlot, int splineTimingResultSlot,
+                                         boolean rightAlreadyChecked) {
             float[] locs = mp.locations();
             Label leftExt = new Label();
             Label segment1 = new Label();
             Label segment2 = new Label();
-            Label rightExt = new Label();
+            Label rightExt = rightAlreadyChecked ? null : new Label();
 
-            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
-            mv.visitLdcInsn(locs[3]);
-            mv.visitInsn(Opcodes.FCMPL);
-            mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+            if (!rightAlreadyChecked) {
+                mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+                mv.visitLdcInsn(locs[3]);
+                mv.visitInsn(Opcodes.FCMPL);
+                mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+            }
 
             mv.visitVarInsn(Opcodes.FLOAD, fSlot);
             mv.visitLdcInsn(locs[0]);
@@ -4861,12 +4966,14 @@ public final class Codegen {
             restoreBranch(snap);
             mv.visitJumpInsn(Opcodes.GOTO, end);
 
-            mv.visitLabel(rightExt);
-            restoreBranch(snap);
-            emitLinearExtend(fSlot, locs, mp.derivatives(), 3, mp.values().get(3));
-            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
-                    splineTimingStartSlot, splineTimingResultSlot);
-            restoreBranch(snap);
+            if (!rightAlreadyChecked) {
+                mv.visitLabel(rightExt);
+                restoreBranch(snap);
+                emitLinearExtend(fSlot, locs, mp.derivatives(), 3, mp.values().get(3));
+                emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                restoreBranch(snap);
+            }
         }
 
         private void emitLinearSplineSegments(int fSlot, IRNode.Spline.Multipoint mp,

@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.Gl
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
@@ -129,7 +130,7 @@ public final class Compiler {
             final double fMax = maxVal;
             final String fClassName = className;
             final String fRootDebug = describeRootForCellFillDebug(irRoot);
-            final String fSplineDebug = describeDominantSpline(irRoot);
+            final String fSplineDebug = describeDominantSpline(irRoot, fPool);
 
             GlobalCompileCache g = GlobalCompileCache.INSTANCE;
             GlobalCompileCache.LookupResult lo = g.getOrCompile(shapeFp, exactFp, () -> {
@@ -440,7 +441,7 @@ public final class Compiler {
         return root.getClass().getSimpleName();
     }
 
-    private static String describeDominantSpline(IRNode root) {
+    private static String describeDominantSpline(IRNode root, ConstantPool pool) {
         IdentityHashMap<IRNode, Boolean> seen = new IdentityHashMap<>();
         Deque<IRNode> stack = new ArrayDeque<>();
         stack.push(root);
@@ -466,6 +467,7 @@ public final class Compiler {
         float[] derivs = best.derivatives();
         int n = locs.length;
         return "points=" + n
+                + ",coord=" + describeSplineCoordinate(best.coordinate(), pool, 2)
                 + ",loc0=" + locs[0]
                 + ",loc1=" + (n > 1 ? locs[1] : locs[0])
                 + ",locLast=" + locs[n - 1]
@@ -473,6 +475,69 @@ public final class Compiler {
                 + ",dLast=" + derivs[n - 1]
                 + ",v0=" + best.values().get(0).getClass().getSimpleName()
                 + ",vLast=" + best.values().get(n - 1).getClass().getSimpleName();
+    }
+
+    private static String describeSplineCoordinate(IRNode node, ConstantPool pool, int depth) {
+        if (node == null) {
+            return "null";
+        }
+        if (depth <= 0) {
+            return node.getClass().getSimpleName();
+        }
+        return switch (node) {
+            case IRNode.Const c -> "Const(" + c.value() + ")";
+            case IRNode.BlockX ignored -> "BlockX";
+            case IRNode.BlockY ignored -> "BlockY";
+            case IRNode.BlockZ ignored -> "BlockZ";
+            case IRNode.Bin bin -> "Bin(" + bin.op() + ","
+                    + describeSplineCoordinate(bin.left(), pool, depth - 1) + ","
+                    + describeSplineCoordinate(bin.right(), pool, depth - 1) + ")";
+            case IRNode.Unary unary -> "Unary(" + unary.op() + ","
+                    + describeSplineCoordinate(unary.input(), pool, depth - 1) + ")";
+            case IRNode.Clamp clamp -> "Clamp(" + describeSplineCoordinate(clamp.input(), pool, depth - 1) + ")";
+            case IRNode.RangeChoice rc -> "RangeChoice(" + describeSplineCoordinate(rc.input(), pool, depth - 1) + ")";
+            case IRNode.InlinedNoise in -> describeInlinedNoiseCoordinate(in, pool, depth - 1);
+            case IRNode.InlinedBlendedNoise ignored -> "InlinedBlendedNoise";
+            case IRNode.Noise ignored -> "Noise";
+            case IRNode.ShiftedNoise ignored -> "ShiftedNoise";
+            case IRNode.ShiftA ignored -> "ShiftA";
+            case IRNode.ShiftB ignored -> "ShiftB";
+            case IRNode.Shift ignored -> "Shift";
+            case IRNode.Marker marker -> describeMarkerCoordinate(marker, pool);
+            case IRNode.Invoke ignored -> "Invoke";
+            case IRNode.Spline.Constant ignored -> "SplineConst";
+            case IRNode.Spline.Multipoint ignored -> "SplineMultipoint";
+            default -> node.getClass().getSimpleName();
+        };
+    }
+
+    private static String describeInlinedNoiseCoordinate(IRNode.InlinedNoise in, ConstantPool pool, int depth) {
+        String coords = "x=" + describeSplineCoordinate(in.coordX(), pool, depth)
+                + ",y=" + describeSplineCoordinate(in.coordY(), pool, depth)
+                + ",z=" + describeSplineCoordinate(in.coordZ(), pool, depth);
+        if (pool == null || in.specPoolIndex() < 0 || in.specPoolIndex() >= pool.noiseSpecCount()) {
+            return "InlinedNoise(" + coords + ")";
+        }
+        NoiseSpec spec = pool.noiseSpec(in.specPoolIndex());
+        return "InlinedNoise(octaves=" + spec.totalActiveOctaves()
+                + ",valueFactor=" + spec.valueFactor()
+                + ",secondScale=" + spec.second().inputCoordScale()
+                + "," + coords + ")";
+    }
+
+    private static String describeMarkerCoordinate(IRNode.Marker marker, ConstantPool pool) {
+        if (pool == null || marker.externIndex() < 0 || marker.externIndex() >= pool.externCount()) {
+            return "Marker";
+        }
+        DensityFunction extern = pool.extern(marker.externIndex());
+        if (extern == null) {
+            return "Marker(null)";
+        }
+        String type = extern.getClass().getSimpleName();
+        if (extern instanceof net.minecraft.world.level.levelgen.DensityFunctions.MarkerOrMarked mm) {
+            return "Marker(" + mm.type() + "," + type + ")";
+        }
+        return "Marker(" + type + ")";
     }
 
     /** Diagnostic snapshot of one compile() call. */
