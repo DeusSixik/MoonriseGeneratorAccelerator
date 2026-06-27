@@ -208,19 +208,26 @@ public final class GAConfig {
 
     @Serializable(
             comment = """
-                    Example toggle generated from @MixinOnConfig.
-                    Enable it to allow ExampleGeneratedToggleMixin to load.
-                    """
-    )
-    public boolean enableBasicExampleMixinTest = false;
-
-    @Serializable(
-            comment = """
                     Enables the Density Function Compiler mixin module.
                     Also disables conflicting C2ME DFC mixins when their compat classes are present.
                     """
     )
     public boolean enableDensityCompilerPatch = true;
+
+    @Serializable(
+            comment = """
+                    Enables optimization for "ImprovedNoise, perlinNoise, SimplexNoise"
+                    """
+    )
+    public boolean enableNoisePath = true;
+
+    @Serializable(
+            comment = """
+                    Example toggle generated from @MixinOnConfig.
+                    Enable it to allow ExampleGeneratedToggleMixin to load.
+                    """
+    )
+    public boolean enableBasicExampleMixinTest = false;
 
     @Serializable(
             comment = """

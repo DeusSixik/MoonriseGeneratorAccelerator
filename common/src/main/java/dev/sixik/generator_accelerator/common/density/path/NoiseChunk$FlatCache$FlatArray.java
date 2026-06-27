@@ -1,4 +1,4 @@
-package dev.sixik.generator_accelerator.common.noise.path;
+package dev.sixik.generator_accelerator.common.density.path;
 
 public interface NoiseChunk$FlatCache$FlatArray {
 

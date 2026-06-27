@@ -2,7 +2,7 @@ package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
-import dev.sixik.generator_accelerator.common.noise.path.NoiseChunk$FlatCache$FlatArray;
+import dev.sixik.generator_accelerator.common.density.path.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.spongepowered.asm.mixin.Final;

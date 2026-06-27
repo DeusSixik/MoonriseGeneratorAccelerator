@@ -1,6 +1,6 @@
-package dev.sixik.generator_accelerator.common.noise.mixin.density;
+package dev.sixik.generator_accelerator.common.density.mixin.density;
 
-import dev.sixik.generator_accelerator.common.noise.path.NoiseChunk$FlatCache$FlatArray;
+import dev.sixik.generator_accelerator.common.density.path.NoiseChunk$FlatCache$FlatArray;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;

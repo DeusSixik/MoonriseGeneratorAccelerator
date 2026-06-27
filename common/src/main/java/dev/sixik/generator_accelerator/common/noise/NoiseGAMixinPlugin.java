@@ -9,6 +9,6 @@ public class NoiseGAMixinPlugin extends GAMixinPlugin {
 
     @Override
     public boolean isConfigEnable(GAConfig config) {
-        return true;
+        return config.enableNoisePath;
     }
 }
