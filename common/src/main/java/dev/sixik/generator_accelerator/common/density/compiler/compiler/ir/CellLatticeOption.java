@@ -55,6 +55,9 @@ import java.util.Optional;
  */
 public final class CellLatticeOption {
 
+    private static final int CONFIGURED_MIN_HOIST_SIZE =
+            Math.max(3, Integer.getInteger("dfc.codegen.latticeMinHoistSize", 5));
+
     /**
      * Minimum number of distinct IR nodes a hoist candidate must contain
      * before we consider it a worthwhile lattice hoist. Below this, the
@@ -63,7 +66,7 @@ public final class CellLatticeOption {
      * call site anyway. Tuned against the {@code YClampedGradient} chain
      * which sits at exactly 5 IR nodes (gradient, mul, add, clamp, etc.).
      */
-    public static final int MIN_HOIST_SIZE = 5;
+    public static final int MIN_HOIST_SIZE = CONFIGURED_MIN_HOIST_SIZE;
 
     /** Which axis-slab the hoisted sub-expression varies along. */
     public enum Axis {
@@ -110,8 +113,8 @@ public final class CellLatticeOption {
         subtreeSize(root, sizes);
 
         Optional<LatticePlan> y = findLargestAxisOnly(root, dep, sizes, /* yOnly */ true);
-        if (y.isPresent()) return y;
-        return findLargestAxisOnly(root, dep, sizes, /* yOnly */ false);
+        Optional<LatticePlan> xz = findLargestAxisOnly(root, dep, sizes, /* yOnly */ false);
+        return chooseBestPlan(y, xz);
     }
 
     /** Convenience that computes {@code dep} itself. */
@@ -156,8 +159,6 @@ public final class CellLatticeOption {
         java.util.ArrayDeque<IRNode> stack = new java.util.ArrayDeque<>();
         stack.push(root);
 
-        CoordDep.Flags mutableFlag = new CoordDep.Flags();
-
         while (!stack.isEmpty()) {
             IRNode n = stack.pop();
             if (visited.put(n, Boolean.TRUE) != null) continue;
@@ -189,6 +190,23 @@ public final class CellLatticeOption {
         if (best == null) return Optional.empty();
         Axis ax = yOnly ? Axis.Y_ONLY : Axis.XZ_ONLY;
         return Optional.of(new LatticePlan(root, ax, best, bestSize));
+    }
+
+    private static Optional<LatticePlan> chooseBestPlan(Optional<LatticePlan> y, Optional<LatticePlan> xz) {
+        if (y.isEmpty()) {
+            return xz;
+        }
+        if (xz.isEmpty()) {
+            return y;
+        }
+
+        LatticePlan yPlan = y.get();
+        LatticePlan xzPlan = xz.get();
+        if (yPlan.hoistedNodeCount() != xzPlan.hoistedNodeCount()) {
+            return yPlan.hoistedNodeCount() > xzPlan.hoistedNodeCount() ? y : xz;
+        }
+
+        return y;
     }
 
     /**

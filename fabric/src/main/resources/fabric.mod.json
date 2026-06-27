@@ -16,6 +16,9 @@
   "entrypoints": {
     "main": [
       "dev.sixik.generator_accelerator.fabric.GeneratorAcceleratorFabric"
+    ],
+    "client": [
+      "dev.sixik.generator_accelerator.fabric.client.GeneratorAcceleratorFabricClient"
     ]
   },
   "accessWidener": "btsengineconcurrent.accesswidener",

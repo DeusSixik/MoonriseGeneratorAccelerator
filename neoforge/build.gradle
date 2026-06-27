@@ -76,6 +76,12 @@ dependencies {
 
     modCompileOnly "curse.maven:alexs-caves-unofficial-port-1420348:7981977"
     modCompileOnly "curse.maven:citadel-1-21-1-port-1415723:7982052"
+
+    modRuntimeOnly "foundry.imguimc:imguimc-neoforge-${minecraft_version}:$imguimc_version"
+
+    minecraftRuntimeLibraries("io.github.spair:imgui-java-binding:$imguiVersion")
+    minecraftRuntimeLibraries("io.github.spair:imgui-java-lwjgl3:$imguiVersion")
+    minecraftRuntimeLibraries("io.github.spair:imgui-java-natives-windows:$imguiVersion")
 }
 
 processResources {

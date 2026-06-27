@@ -139,6 +139,8 @@ dependencies {
 
     compileOnly("org.yaml:snakeyaml:2.2")
     compileOnly("ca.spottedleaf:yamlconfig:1.0.2")
+
+    compileOnly "foundry.imguimc:imguimc-common-${minecraft_version}:$imguimc_version"
 }
 
 def dfcNativeRootDir = file("natives")

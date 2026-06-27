@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator;
 
 import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+import dev.sixik.generator_accelerator.common.density.compiler.DfcConfigBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,7 @@ public final class GeneratorAccelerator {
         GeneratorAccelerator.platform = platform;
         GeneratorAccelerator.gameFolder = gameFolder;
         GeneratorAccelerator.devMode = isDev;
+        DfcConfigBridge.applySystemPropertiesFromConfig();
     }
 
     public static Path getGameFolder() {

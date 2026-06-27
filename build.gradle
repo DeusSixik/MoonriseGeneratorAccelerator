@@ -94,6 +94,9 @@ allprojects {
                 includeModule 'me.lucko', 'spark-api'
             }
         }
+        maven {
+            url = 'https://maven.ryanhcode.dev/releases/'
+        }
     }
 }
 
