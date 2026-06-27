@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
@@ -13,10 +14,9 @@ import java.util.concurrent.atomic.LongAdder;
  * Runtime counters for generated cell-fill execution modes.
  */
 public final class DfcCellFillStats {
-    public static volatile boolean ENABLED = Boolean.getBoolean("dfc.cellfill.stats");
+    public static volatile boolean ENABLED = GAConfigHolder.getConfig().dfc.cellFillStats;
     public static volatile boolean RESIDUAL_CLASS_DEBUG_ENABLED =
-            ENABLED && Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug");
-    private static final int MAX_TRACKED_CLASSES = Integer.getInteger("ga.dfc.cellFillStats.maxTrackedClasses", 256);
+            ENABLED && GAConfigHolder.getConfig().dfc.cellFillResidualClassDebug;
 
     private static final LongAdder CELL_SCALAR = new LongAdder();
     private static final LongAdder CELL_COMPILED = new LongAdder();
@@ -253,7 +253,8 @@ public final class DfcCellFillStats {
         if (existing != null) {
             return existing;
         }
-        if (FAST_FILLER_CLASSES.size() >= MAX_TRACKED_CLASSES) {
+        int maxTrackedClasses = Math.max(1, GAConfigHolder.getConfig().dfc.cellFillStatsMaxTrackedClasses);
+        if (FAST_FILLER_CLASSES.size() >= maxTrackedClasses) {
             return null;
         }
         return FAST_FILLER_CLASSES.computeIfAbsent(className, ignored -> new ClassStatsCounter());
@@ -264,7 +265,8 @@ public final class DfcCellFillStats {
         if (existing != null) {
             return existing;
         }
-        if (map.size() >= MAX_TRACKED_CLASSES) {
+        int maxTrackedClasses = Math.max(1, GAConfigHolder.getConfig().dfc.cellFillStatsMaxTrackedClasses);
+        if (map.size() >= maxTrackedClasses) {
             return null;
         }
         return map.computeIfAbsent(className, ignored -> new LongAdder());

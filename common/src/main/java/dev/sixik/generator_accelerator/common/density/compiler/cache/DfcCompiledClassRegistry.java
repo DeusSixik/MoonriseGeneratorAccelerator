@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * ({@code pkg.CompiledDF_xxx}, without the VM-added {@code /0x...} suffix).
  */
 public final class DfcCompiledClassRegistry {
-    private static final int MAX_ENTRIES = Integer.getInteger("ga.dfc.registry.maxEntries", 4096);
     private static final ConcurrentHashMap<String, Entry> ENTRIES = new ConcurrentHashMap<>();
     private static final Deque<String> INSERTION_ORDER = new ArrayDeque<>();
 
@@ -53,7 +54,8 @@ public final class DfcCompiledClassRegistry {
     }
 
     private static void trimToBudget() {
-        while (ENTRIES.size() > MAX_ENTRIES) {
+        int maxEntries = Math.max(1, GAConfigHolder.getConfig().dfc.registryMaxEntries);
+        while (ENTRIES.size() > maxEntries) {
             String oldest = INSERTION_ORDER.pollFirst();
             if (oldest == null) {
                 return;

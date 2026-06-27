@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -13,8 +15,8 @@ import java.util.concurrent.atomic.LongAdder;
  * counters after startup without JVM arguments.
  */
 public final class DfcSplineStats {
-    public static volatile boolean ENABLED = Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
-    private static final int MAX_TRACKED_CLASSES = Integer.getInteger("ga.dfc.splineStats.maxTrackedClasses", 256);
+    public static volatile boolean ENABLED = GAConfigHolder.getConfig().dfc.splineRuntimeStats;
+    private static final int MAX_TRACKED_CLASSES = Math.max(1, GAConfigHolder.getConfig().dfc.splineStatsMaxTrackedClasses);
 
     public static final int SEARCH_LINEAR = 0;
     public static final int SEARCH_BINARY = 1;
@@ -262,7 +264,7 @@ public final class DfcSplineStats {
     }
 
     private static int sampleShift() {
-        int configured = Integer.getInteger("dfc.codegen.splineRuntimeStats.sampleShift", 8);
+        int configured = GAConfigHolder.getConfig().dfc.splineRuntimeStatsSampleShift;
         return Math.max(0, Math.min(20, configured));
     }
 

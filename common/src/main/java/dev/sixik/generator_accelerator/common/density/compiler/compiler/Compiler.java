@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.CompilationFingerprint;
@@ -37,7 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class Compiler {
     private static final boolean LOG_SPLINE_SEARCH =
-            Boolean.getBoolean("dfc.codegen.logSplineSearch");
+            GAConfigHolder.getConfig().dfc.logSplineSearch;
     private static final AtomicInteger SPLINE_LOGGED_ROOTS = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_MULTIPOINTS = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BINARY_USED = new AtomicInteger();
@@ -200,7 +202,11 @@ public final class Compiler {
     }
 
     public static DumpResult dumpCompiledClasses() {
-        Path dumpRoot = Paths.get(System.getProperty("user.dir", "."))
+        Path base = GeneratorAccelerator.getGameFolder();
+        if (base == null) {
+            base = Paths.get(".");
+        }
+        Path dumpRoot = base
                 .resolve(".densitycompiler")
                 .toAbsolutePath()
                 .normalize();

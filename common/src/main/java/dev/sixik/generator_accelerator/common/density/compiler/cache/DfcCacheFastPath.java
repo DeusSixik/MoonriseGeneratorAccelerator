@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
 import java.util.concurrent.atomic.LongAdder;
@@ -21,7 +22,6 @@ public final class DfcCacheFastPath {
     private static final LongAdder MISSES = new LongAdder();
     private static final LongAdder DISABLED_FALLBACKS = new LongAdder();
     private static final LongAdder NON_ACCESS_FALLBACKS = new LongAdder();
-    private static final boolean STATS_ENABLED = Boolean.getBoolean("ga.dfc.cacheFastPath.stats");
 
     private DfcCacheFastPath() {}
 
@@ -45,7 +45,7 @@ public final class DfcCacheFastPath {
     public static double tryWrapperDirectRead(DensityFunction extern, DensityFunction.FunctionContext context) {
         if (extern instanceof DfcCellCacheAccess acc) {
             double v = acc.dfc$tryDirectRead(context);
-            if (STATS_ENABLED) {
+            if (statsEnabled()) {
                 if (Double.doubleToRawLongBits(v) != MISS_BITS) {
                     HITS.increment();
                 } else {
@@ -54,7 +54,7 @@ public final class DfcCacheFastPath {
             }
             return v;
         }
-        if (STATS_ENABLED) {
+        if (statsEnabled()) {
             NON_ACCESS_FALLBACKS.increment();
         }
         return CACHE_MISS;
@@ -67,12 +67,12 @@ public final class DfcCacheFastPath {
             DensityFunction extern, DfcCellCacheAccess access, DensityFunction.FunctionContext context) {
         double v = access.dfc$tryDirectRead(context);
         if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-            if (STATS_ENABLED) {
+            if (statsEnabled()) {
                 HITS.increment();
             }
             return v;
         }
-        if (STATS_ENABLED) {
+        if (statsEnabled()) {
             MISSES.increment();
         }
         return extern.compute(context);
@@ -83,7 +83,7 @@ public final class DfcCacheFastPath {
      */
     public static double computeKnownNonAccess(
             DensityFunction extern, DensityFunction.FunctionContext context) {
-        if (STATS_ENABLED) {
+        if (statsEnabled()) {
             NON_ACCESS_FALLBACKS.increment();
         }
         return extern.compute(context);
@@ -98,19 +98,23 @@ public final class DfcCacheFastPath {
         if (extern instanceof DfcCellCacheAccess acc) {
             double v = acc.dfc$tryDirectRead(context);
             if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-                if (STATS_ENABLED) {
+                if (statsEnabled()) {
                     HITS.increment();
                 }
                 return v;
             }
-            if (STATS_ENABLED) {
+            if (statsEnabled()) {
                 MISSES.increment();
             }
         } else {
-            if (STATS_ENABLED) {
+            if (statsEnabled()) {
                 NON_ACCESS_FALLBACKS.increment();
             }
         }
         return extern.compute(context);
+    }
+
+    private static boolean statsEnabled() {
+        return GAConfigHolder.getConfig().dfc.cacheFastPathStats;
     }
 }

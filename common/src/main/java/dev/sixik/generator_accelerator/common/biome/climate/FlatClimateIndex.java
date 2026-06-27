@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.biome.climate;
 
 import com.mojang.datafixers.util.Pair;
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import net.minecraft.world.level.biome.Climate;
 
 import java.util.ArrayList;
@@ -114,20 +115,14 @@ public class FlatClimateIndex<T> {
     private final boolean hasOffsetDistances;
     private final boolean linearSearch;
 
-    private static final int LINEAR_SEARCH_THRESHOLD =
-            Integer.getInteger("ga.climate.linearSearchThreshold", 0);
-    private static final boolean SECOND_WARM_START =
-            Boolean.parseBoolean(System.getProperty("ga.climate.secondWarmStart", "true"));
-    private static final boolean SORT_CHILDREN_BY_DISTANCE =
-            Boolean.parseBoolean(System.getProperty("ga.climate.sortChildrenByDistance", "true"));
-    private static final boolean ADAPTIVE_QUERY_CACHE =
-            Boolean.parseBoolean(System.getProperty("ga.climate.adaptiveQueryCache", "true"));
+    private static final int LINEAR_SEARCH_THRESHOLD = config().linearSearchThreshold;
+    private static final boolean SECOND_WARM_START = config().secondWarmStart;
+    private static final boolean SORT_CHILDREN_BY_DISTANCE = config().sortChildrenByDistance;
+    private static final boolean ADAPTIVE_QUERY_CACHE = config().adaptiveQueryCache;
     private static final int QUERY_CACHE_SIZE = queryCacheSize();
     private static final int QUERY_CACHE_MASK = QUERY_CACHE_SIZE - 1;
-    private static final int QUERY_CACHE_DISABLE_PROBES =
-            Integer.getInteger("ga.climate.queryCacheDisableProbes", 2048);
-    private static final int QUERY_CACHE_DISABLE_HIT_RATE_SHIFT =
-            Integer.getInteger("ga.climate.queryCacheDisableHitRateShift", 7);
+    private static final int QUERY_CACHE_DISABLE_PROBES = config().queryCacheDisableProbes;
+    private static final int QUERY_CACHE_DISABLE_HIT_RATE_SHIFT = config().queryCacheDisableHitRateShift;
 
     public record Stats(
             long indexBuilds,
@@ -182,7 +177,7 @@ public class FlatClimateIndex<T> {
      * temporary arrays for child sorting, and warm-start tracking.
      * <p>Typical biome R-trees have depth < 10, so 256 provides ample headroom.
      */
-    static final class SearchContext {
+    public static final class SearchContext {
         final int[] stack = new int[256]; // Depth is usually < 10, 256 is safe
         final long[] stackDistances = new long[256];
         final long[] childDistances = new long[6];
@@ -360,11 +355,11 @@ public class FlatClimateIndex<T> {
         return search(this.ctx.get(), t, h, c, e, d, w);
     }
 
-    SearchContext createSearchContext() {
+    public SearchContext createSearchContext() {
         return new SearchContext();
     }
 
-    T search(
+    public T search(
            final SearchContext s,
            final long t,
            final long h,
@@ -950,11 +945,15 @@ public class FlatClimateIndex<T> {
     }
 
     private static int queryCacheSize() {
-        int configured = Integer.getInteger("ga.climate.queryCacheSize", 64);
+        int configured = config().queryCacheSize;
         if (configured <= 0) {
             return 0;
         }
         return Integer.highestOneBit(configured);
+    }
+
+    private static dev.sixik.generator_accelerator.api.config.GAConfig.BiomeClimateConfig config() {
+        return GAConfigHolder.getConfig().biomeClimate;
     }
 
     private static int queryCacheSlot(long t, long h, long c, long e, long d, long w) {

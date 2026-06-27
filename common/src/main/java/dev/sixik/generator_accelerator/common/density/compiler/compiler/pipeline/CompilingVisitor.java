@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipelin
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
@@ -41,7 +42,7 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
 
     private static final CompilingVisitor INSTANCE = new CompilingVisitor();
     private static final boolean COMPILE_MARKER_INNERS =
-            Boolean.getBoolean("dfc.compileMarkerInners");
+            GAConfigHolder.getConfig().dfc.compileMarkerInners;
 
     /**
      * Identity-keyed compile cache. Use weak keys so the source

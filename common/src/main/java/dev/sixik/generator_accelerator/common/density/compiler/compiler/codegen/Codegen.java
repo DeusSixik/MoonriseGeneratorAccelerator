@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
@@ -92,11 +93,11 @@ public final class Codegen {
      * ladder.
      */
     public static final int SPLINE_LINEAR_SEARCH_MAX_POINTS =
-            Math.max(2, Integer.getInteger("dfc.codegen.splineLinearSearchMaxPoints", 3));
+            Math.max(2, GAConfigHolder.getConfig().dfc.splineLinearSearchMaxPoints);
     static final SplineSearchMode SPLINE_SEARCH_MODE =
-            parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
+            parseSplineSearchMode(GAConfigHolder.getConfig().dfc.splineSearchMode);
     public static final boolean SPLINE_RUNTIME_STATS_ENABLED =
-            Boolean.parseBoolean(System.getProperty("dfc.codegen.splineRuntimeStats.emit", "true"));
+            GAConfigHolder.getConfig().dfc.splineRuntimeStatsEmit;
     /**
      * Optional exact LUT-guided segment selection for large interior splines.
      *
@@ -105,11 +106,11 @@ public final class Codegen {
      * bit-for-bit equivalent to the current implementation.
      */
     public static final boolean SPLINE_SEGMENT_LUT_ENABLED =
-            Boolean.getBoolean("dfc.codegen.splineSegmentLut");
+            GAConfigHolder.getConfig().dfc.splineSegmentLut;
     public static final int SPLINE_SEGMENT_LUT_MIN_POINTS =
-            Math.max(5, Integer.getInteger("dfc.codegen.splineSegmentLutMinPoints", 9));
+            Math.max(5, GAConfigHolder.getConfig().dfc.splineSegmentLutMinPoints);
     public static final int SPLINE_SEGMENT_LUT_BUCKETS =
-            Math.max(8, Integer.getInteger("dfc.codegen.splineSegmentLutBuckets", 128));
+            Math.max(8, GAConfigHolder.getConfig().dfc.splineSegmentLutBuckets);
 
     private static final String COMPILED_BASE_INTERNAL =
             Type.getInternalName(CompiledDensityFunction.class);
@@ -220,7 +221,7 @@ public final class Codegen {
      * frame-computation failures in the generated override.
      */
     public static final boolean CELL_FILL_DIRECT_EXTERN_RESIDUAL_ENABLED =
-            Boolean.getBoolean("dfc.codegen.cellFillDirectExternResidual");
+            GAConfigHolder.getConfig().dfc.cellFillDirectExternResidual;
     /**
      * Experimental add-extern cell-fill specialization.
      *
@@ -230,7 +231,7 @@ public final class Codegen {
      * future rewrite simplifies the CFG enough to make frame computation stable again.
      */
     public static final boolean CELL_FILL_ADD_EXTERN_OVERRIDE_ENABLED =
-            Boolean.getBoolean("dfc.codegen.cellFillAddExternOverride");
+            GAConfigHolder.getConfig().dfc.cellFillAddExternOverride;
 
     private static SplineSearchMode parseSplineSearchMode(String raw) {
         if (raw == null) {

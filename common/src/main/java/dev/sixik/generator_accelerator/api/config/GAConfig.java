@@ -7,6 +7,68 @@ import ca.spottedleaf.yamlconfig.annotation.Serializable;
 public final class GAConfig {
 
     @Adaptable
+    public static final class BiomeClimateConfig {
+
+        @Serializable(
+                comment = """
+                        Enables second warm-start lookup for climate index searches.
+                        Mirrors old VM arg: -Dga.climate.secondWarmStart=true
+                        """
+        )
+        public boolean secondWarmStart = true;
+
+        @Serializable(
+                comment = """
+                        Enables nearest-first child sorting during climate index traversal.
+                        Mirrors old VM arg: -Dga.climate.sortChildrenByDistance=true
+                        """
+        )
+        public boolean sortChildrenByDistance = true;
+
+        @Serializable(
+                comment = """
+                        Enables adaptive disabling of useless query cache instances.
+                        Mirrors old VM arg: -Dga.climate.adaptiveQueryCache=true
+                        """
+        )
+        public boolean adaptiveQueryCache = true;
+
+        @Serializable(
+                comment = """
+                        Query cache size for biome climate lookups.
+                        Use 0 to disable. Non-power-of-two values are rounded down internally.
+                        Mirrors old VM arg: -Dga.climate.queryCacheSize=64
+                        """
+        )
+        public int queryCacheSize = 64;
+
+        @Serializable(
+                comment = """
+                        Probe count before adaptive cache disable is evaluated.
+                        Mirrors old VM arg: -Dga.climate.queryCacheDisableProbes=2048
+                        """
+        )
+        public int queryCacheDisableProbes = 2048;
+
+        @Serializable(
+                comment = """
+                        Hit-rate shift used by adaptive cache heuristics.
+                        Mirrors old VM arg: -Dga.climate.queryCacheDisableHitRateShift=7
+                        """
+        )
+        public int queryCacheDisableHitRateShift = 7;
+
+        @Serializable(
+                comment = """
+                        Leaf-count threshold for switching to linear search.
+                        0 keeps the tree path always enabled.
+                        Mirrors old VM arg: -Dga.climate.linearSearchThreshold=0
+                        """
+        )
+        public int linearSearchThreshold = 0;
+    }
+
+    @Adaptable
     public static final class DfcDebugConfig {
 
         @Serializable(
@@ -125,6 +187,30 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Maximum tracked spline runtime classes in debug statistics.
+                        Mirrors old VM arg: -Dga.dfc.splineStats.maxTrackedClasses=256
+                        """
+        )
+        public int splineStatsMaxTrackedClasses = 256;
+
+        @Serializable(
+                comment = """
+                        Maximum tracked cell-fill classes in debug statistics.
+                        Mirrors old VM arg: -Dga.dfc.cellFillStats.maxTrackedClasses=256
+                        """
+        )
+        public int cellFillStatsMaxTrackedClasses = 256;
+
+        @Serializable(
+                comment = """
+                        Maximum compiled-class registry entries kept alive.
+                        Mirrors old VM arg: -Dga.dfc.registry.maxEntries=4096
+                        """
+        )
+        public int registryMaxEntries = 4096;
+
+        @Serializable(
+                comment = """
                         Logs additional spline-search debug information.
                         Mirrors old VM arg: -Ddfc.codegen.logSplineSearch=true
                         """
@@ -193,7 +279,7 @@ public final class GAConfig {
                     Do not change, used internally.
                     """
     )
-    public int version = 2;
+    public int version = 3;
 
     @Serializable(
             comment = """
@@ -207,9 +293,18 @@ public final class GAConfig {
 
     @Serializable(
             comment = """
+                    Biome climate index tuning options.
+                    These values are applied to the old biome system properties on startup,
+                    so you no longer need to manage biome VM args manually.
+                    """
+    )
+    public BiomeClimateConfig biomeClimate = new BiomeClimateConfig();
+
+    @Serializable(
+            comment = """
                     Density Function Compiler debug and tuning options.
                     These values are applied to the old DFC system properties on startup,
-                    so you no longer need to manage most DFC VM args manually.
+                    so you no longer need to manage DFC VM args manually.
                     """
     )
     public DfcDebugConfig dfc = new DfcDebugConfig();
@@ -238,6 +333,16 @@ public final class GAConfig {
                     """
     )
     public boolean enableExampleCompatMixin = true;
+
+    @Serializable(
+            comment = """
+                    TerraBlender rebuilds a full uniqueness Area for every biome chunk.
+                    The Area is already locked and deterministic, so sharing the cloned source's existing
+                    Area avoids large per-chunk array allocation. Restore vanilla TerraBlender behaviour with
+                    If `false` a pack depends on per-chunk caches.
+                    """
+    )
+    public boolean terraBlenderRecreateUniquenessPerChunk = true;
 
     // @generatedMixinConfigFields:end
 }

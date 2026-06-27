@@ -10,12 +10,12 @@ import java.nio.file.Paths;
 
 public class GAConfigHolder {
 
-    private static final int CURRENT_CONFIG_VERSION = 2;
+    private static final int CURRENT_CONFIG_VERSION = 3;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GAConfigHolder.class);
     private static boolean initialized = false;
 
-    private static final File CONFIG_FILE = Paths.get(System.getProperty("user.dir"))
+    private static final File CONFIG_FILE = Paths.get(".")
             .resolve("config").resolve("generator_accelerator.yml").toFile();
     private static final TypeAdapterRegistry CONFIG_ADAPTER = new TypeAdapterRegistry();
     private static final YamlConfig<GAConfig> CONFIG;
@@ -67,6 +67,13 @@ public class GAConfigHolder {
         if (config.version < 2 && config.dfc != null && config.dfc.splineLinearSearchMaxPoints == 4) {
             config.dfc.splineLinearSearchMaxPoints = 3;
             LOGGER.info("Migrated DFC splineLinearSearchMaxPoints from legacy default 4 to 3.");
+        }
+
+        if (config.dfc == null) {
+            config.dfc = new GAConfig.DfcDebugConfig();
+        }
+        if (config.biomeClimate == null) {
+            config.biomeClimate = new GAConfig.BiomeClimateConfig();
         }
 
         config.version = CURRENT_CONFIG_VERSION;

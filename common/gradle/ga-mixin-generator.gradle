@@ -300,6 +300,34 @@ def gaReadNamedClassNameArrayArgument = { Map metadata, String arguments, String
     []
 }
 
+def gaReadNamedClassNameArgument = { Map metadata, String arguments, String name ->
+    def values = gaReadNamedClassNameArrayArgument(metadata, arguments, name)
+    values.isEmpty() ? null : values[0]
+}
+
+def gaReadCompatSingleClassArgument = { Map metadata, String arguments, String name ->
+    if (arguments == null) {
+        return null
+    }
+    def matcher = (arguments =~ /\b${java.util.regex.Pattern.quote(name)}\s*=\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\.class/)
+    if (!matcher.find()) {
+        return null
+    }
+    return gaResolveClassReference.call(metadata, matcher.group(1))
+}
+
+def gaReadCompatSingleClassArgumentFromSource = { Map metadata, String annotationName, String name ->
+    def text = metadata.text
+    if (text == null) {
+        return null
+    }
+    def matcher = (text =~ /(?s)@${java.util.regex.Pattern.quote(annotationName)}\s*\(.*?\b${java.util.regex.Pattern.quote(name)}\s*=\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\.class.*?\)/)
+    if (!matcher.find()) {
+        return null
+    }
+    return gaResolveClassReference.call(metadata, matcher.group(1))
+}
+
 def gaExtractJavaMetadata = { File file ->
     def text = gaReadText(file)
     def packageMatcher = (text =~ /(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;/)
@@ -727,7 +755,14 @@ tasks.register("generateGAMixinMetadata") {
                     }
 
                     if (compatMixinArgs != null) {
-                        def compatMod = gaReadNamedClassNameArrayArgument(metadata, compatMixinArgs, "mod")
+                        def compatMod = []
+                        def compatModSingle = gaReadCompatSingleClassArgument(metadata, compatMixinArgs, "mod")
+                        if (compatModSingle == null || compatModSingle.isBlank()) {
+                            compatModSingle = gaReadCompatSingleClassArgumentFromSource(metadata, "CompatMixin", "mod")
+                        }
+                        if (compatModSingle != null && !compatModSingle.isBlank()) {
+                            compatMod.add(compatModSingle)
+                        }
                         def compatMods = gaReadNamedClassNameArrayArgument(metadata, compatMixinArgs, "mods")
                         def compatModClassName = gaReadNamedStringArgument(compatMixinArgs, "modClassName")
                         def compatModClassNames = gaReadNamedStringArrayArgument(compatMixinArgs, "modClassNames")

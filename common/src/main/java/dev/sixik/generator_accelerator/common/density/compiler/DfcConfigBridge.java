@@ -19,29 +19,43 @@ public final class DfcConfigBridge {
                 return;
             }
 
-            GAConfig.DfcDebugConfig config = GAConfigHolder.getConfig().dfc;
-            setBoolean("dfc.codegen.splineRuntimeStats", config.splineRuntimeStats);
-            setInt("dfc.codegen.splineRuntimeStats.sampleShift", config.splineRuntimeStatsSampleShift);
-            setBoolean("dfc.codegen.splineRuntimeStats.emit", config.splineRuntimeStatsEmit);
-            setBoolean("dfc.codegen.splineSegmentLut", config.splineSegmentLut);
-            setInt("dfc.codegen.splineSegmentLutMinPoints", config.splineSegmentLutMinPoints);
-            setInt("dfc.codegen.splineSegmentLutBuckets", config.splineSegmentLutBuckets);
-            setString("dfc.codegen.splineSearchMode", config.splineSearchMode);
-            setInt("dfc.codegen.splineLinearSearchMaxPoints", config.splineLinearSearchMaxPoints);
-            setBoolean("dfc.cellfill.stats", config.cellFillStats);
-            setBoolean("dfc.cellfill.stats.residualClassDebug", config.cellFillResidualClassDebug);
-            setBoolean("dfc.cellfill.parity", config.cellFillParity);
-            setInt("dfc.cellfill.parity.maxChecks", config.cellFillParityMaxChecks);
-            setDouble("dfc.cellfill.parity.epsilon", config.cellFillParityEpsilon);
-            setBoolean("ga.dfc.cacheFastPath.stats", config.cacheFastPathStats);
-            setBoolean("dfc.codegen.logSplineSearch", config.logSplineSearch);
-            setInt("dfc.codegen.latticeMinHoistSize", config.latticeMinHoistSize);
-            setBoolean("dfc.compileMarkerInners", config.compileMarkerInners);
-            setBoolean("dfc.codegen.cellFillDirectExternResidual", config.cellFillDirectExternResidual);
-            setBoolean("dfc.codegen.cellFillAddExternOverride", config.cellFillAddExternOverride);
-            setBoolean("dfc.warmer.rawDensityFunctions", config.warmerRawDensityFunctions);
-            setBudget("dfc.warmer.maxSettings", config.warmerMaxSettings);
-            setBudget("dfc.warmer.maxDensityFunctions", config.warmerMaxDensityFunctions);
+            GAConfig configRoot = GAConfigHolder.getConfig();
+            GAConfig.DfcDebugConfig dfc = configRoot.dfc;
+            GAConfig.BiomeClimateConfig biome = configRoot.biomeClimate;
+
+            setBoolean("dfc.codegen.splineRuntimeStats", dfc.splineRuntimeStats);
+            setInt("dfc.codegen.splineRuntimeStats.sampleShift", dfc.splineRuntimeStatsSampleShift);
+            setBoolean("dfc.codegen.splineRuntimeStats.emit", dfc.splineRuntimeStatsEmit);
+            setBoolean("dfc.codegen.splineSegmentLut", dfc.splineSegmentLut);
+            setInt("dfc.codegen.splineSegmentLutMinPoints", dfc.splineSegmentLutMinPoints);
+            setInt("dfc.codegen.splineSegmentLutBuckets", dfc.splineSegmentLutBuckets);
+            setString("dfc.codegen.splineSearchMode", dfc.splineSearchMode);
+            setInt("dfc.codegen.splineLinearSearchMaxPoints", dfc.splineLinearSearchMaxPoints);
+            setBoolean("dfc.cellfill.stats", dfc.cellFillStats);
+            setBoolean("dfc.cellfill.stats.residualClassDebug", dfc.cellFillResidualClassDebug);
+            setBoolean("dfc.cellfill.parity", dfc.cellFillParity);
+            setInt("dfc.cellfill.parity.maxChecks", dfc.cellFillParityMaxChecks);
+            setDouble("dfc.cellfill.parity.epsilon", dfc.cellFillParityEpsilon);
+            setBoolean("ga.dfc.cacheFastPath.stats", dfc.cacheFastPathStats);
+            setInt("ga.dfc.splineStats.maxTrackedClasses", dfc.splineStatsMaxTrackedClasses);
+            setInt("ga.dfc.cellFillStats.maxTrackedClasses", dfc.cellFillStatsMaxTrackedClasses);
+            setInt("ga.dfc.registry.maxEntries", dfc.registryMaxEntries);
+            setBoolean("dfc.codegen.logSplineSearch", dfc.logSplineSearch);
+            setInt("dfc.codegen.latticeMinHoistSize", dfc.latticeMinHoistSize);
+            setBoolean("dfc.compileMarkerInners", dfc.compileMarkerInners);
+            setBoolean("dfc.codegen.cellFillDirectExternResidual", dfc.cellFillDirectExternResidual);
+            setBoolean("dfc.codegen.cellFillAddExternOverride", dfc.cellFillAddExternOverride);
+            setBoolean("dfc.warmer.rawDensityFunctions", dfc.warmerRawDensityFunctions);
+            setBudget("dfc.warmer.maxSettings", dfc.warmerMaxSettings);
+            setBudget("dfc.warmer.maxDensityFunctions", dfc.warmerMaxDensityFunctions);
+
+            setBoolean("ga.climate.secondWarmStart", biome.secondWarmStart);
+            setBoolean("ga.climate.sortChildrenByDistance", biome.sortChildrenByDistance);
+            setBoolean("ga.climate.adaptiveQueryCache", biome.adaptiveQueryCache);
+            setInt("ga.climate.queryCacheSize", biome.queryCacheSize);
+            setInt("ga.climate.queryCacheDisableProbes", biome.queryCacheDisableProbes);
+            setInt("ga.climate.queryCacheDisableHitRateShift", biome.queryCacheDisableHitRateShift);
+            setInt("ga.climate.linearSearchThreshold", biome.linearSearchThreshold);
 
             applied = true;
         }

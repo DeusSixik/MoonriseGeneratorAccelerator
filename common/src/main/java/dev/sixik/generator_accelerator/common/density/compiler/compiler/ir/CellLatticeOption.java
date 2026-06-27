@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -56,7 +58,7 @@ import java.util.Optional;
 public final class CellLatticeOption {
 
     private static final int CONFIGURED_MIN_HOIST_SIZE =
-            Math.max(3, Integer.getInteger("dfc.codegen.latticeMinHoistSize", 5));
+            Math.max(3, GAConfigHolder.getConfig().dfc.latticeMinHoistSize);
 
     /**
      * Minimum number of distinct IR nodes a hoist candidate must contain
