@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.debug;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.common.biome.climate.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
@@ -15,6 +16,7 @@ import imgui.ImGui;
 import imgui.type.ImBoolean;
 import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiTreeNodeFlags;
+import imgui.flag.ImGuiTabBarFlags;
 import net.minecraft.client.Minecraft;
 
 import java.io.IOException;
@@ -27,9 +29,21 @@ import java.util.List;
 import java.util.Locale;
 
 public final class GADebugOverlay {
+    private enum DebugTab {
+        DFC("DFC"),
+        BIOME("Biome");
+
+        private final String title;
+
+        DebugTab(String title) {
+            this.title = title;
+        }
+    }
+
     private static final DateTimeFormatter DUMP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.ROOT);
     private static boolean visible;
     private static String actionStatus = "";
+    private static DebugTab activeTab = DebugTab.DFC;
 
     private GADebugOverlay() {
     }
@@ -68,29 +82,33 @@ public final class GADebugOverlay {
         visible = open.get();
         drawDumpActions();
         ImGui.separator();
-        drawEnvironment(minecraft);
-        ImGui.separator();
-        drawRouterPipeline();
-        ImGui.separator();
-        drawCellFill();
-        ImGui.separator();
-        drawSplineStats();
-        ImGui.separator();
-        drawRegistryWarmer();
+        if (ImGui.beginTabBar("ga-debug-tabs", ImGuiTabBarFlags.None)) {
+            if (ImGui.beginTabItem(DebugTab.DFC.title)) {
+                activeTab = DebugTab.DFC;
+                drawDfcTab(minecraft);
+                ImGui.endTabItem();
+            }
+            if (ImGui.beginTabItem(DebugTab.BIOME.title)) {
+                activeTab = DebugTab.BIOME;
+                drawBiomeTab(minecraft);
+                ImGui.endTabItem();
+            }
+            ImGui.endTabBar();
+        }
         ImGui.end();
     }
 
     private static void drawDumpActions() {
         if (ImGui.button("Copy Dump")) {
-            String dump = buildDump();
+            String dump = buildDump(activeTab);
             ImGui.setClipboardText(dump);
-            actionStatus = "Copied debug dump to clipboard (" + dump.length() + " chars).";
+            actionStatus = "Copied " + activeTab.title + " debug dump to clipboard (" + dump.length() + " chars).";
         }
 
         ImGui.sameLine();
         if (ImGui.button("Save Dump")) {
             try {
-                Path dumpFile = writeDumpToFile(buildDump());
+                Path dumpFile = writeDumpToFile(activeTab, buildDump(activeTab));
                 actionStatus = "Saved debug dump to " + dumpFile;
             } catch (IOException exception) {
                 actionStatus = "Failed to save dump: " + exception.getMessage();
@@ -101,6 +119,24 @@ public final class GADebugOverlay {
         if (!actionStatus.isBlank()) {
             ImGui.textWrapped(actionStatus);
         }
+    }
+
+    private static void drawDfcTab(Minecraft minecraft) {
+        drawEnvironment(minecraft);
+        ImGui.separator();
+        drawRouterPipeline();
+        ImGui.separator();
+        drawCellFill();
+        ImGui.separator();
+        drawSplineStats();
+        ImGui.separator();
+        drawRegistryWarmer();
+    }
+
+    private static void drawBiomeTab(Minecraft minecraft) {
+        drawEnvironment(minecraft);
+        ImGui.separator();
+        drawBiomeStats();
     }
 
     private static void drawEnvironment(Minecraft minecraft) {
@@ -286,6 +322,47 @@ public final class GADebugOverlay {
         ImGui.text("Budget skips: " + stats.budgetSkips());
     }
 
+    private static void drawBiomeStats() {
+        if (!ImGui.collapsingHeader("Biome Climate", ImGuiTreeNodeFlags.DefaultOpen)) {
+            return;
+        }
+
+        FlatClimateIndex.Stats stats = FlatClimateIndex.snapshotStats();
+        ImGui.text("Index builds: " + stats.indexBuilds());
+        ImGui.text("Last nodes/leaves/values: " + stats.lastNodeCount() + "/"
+                + stats.lastLeafCount() + "/" + stats.lastValueCount());
+        ImGui.text("Bounds bytes: " + stats.lastBoundsBytes());
+        ImGui.text("Active dimension mask: 0x" + Integer.toHexString(stats.activeDimensionMask()));
+        ImGui.text("Full query dimensions: " + stats.fullQueryDimensions());
+        ImGui.text("Has offset distances: " + stats.hasOffsetDistances());
+        ImGui.text("Linear search index: " + stats.linearSearchIndex()
+                + " / threshold=" + stats.linearSearchThreshold());
+        ImGui.text("Query cache size: " + stats.queryCacheSize()
+                + " / adaptive=" + stats.adaptiveQueryCache());
+        ImGui.text("Query cache disable probes: " + stats.queryCacheDisableProbes()
+                + " / hit-rate shift=" + stats.queryCacheDisableHitRateShift());
+        ImGui.text("No-offset cap order: " + stats.noOffsetCapOrder());
+        ImGui.separator();
+        ImGui.text("Searches: " + stats.searches());
+        ImGui.text("Last-value cache hits: " + stats.lastValueCacheHits());
+        ImGui.text("Query cache probes/hits/disables: " + stats.queryCacheProbes()
+                + "/" + stats.queryCacheHits() + "/" + stats.queryCacheDisables());
+        ImGui.text("Linear/tree searches: " + stats.linearSearchCalls() + "/" + stats.treeSearchCalls());
+        ImGui.text("Warm start zero hits: " + stats.warmStartZeroHits());
+        ImGui.text("Second warm start zero hits: " + stats.secondWarmStartZeroHits());
+        ImGui.text("Tree node visits: " + stats.treeNodeVisits());
+        ImGui.text("Tree child tests/accepts: " + stats.treeChildDistanceTests() + "/" + stats.treeChildAccepts());
+        ImGui.text("Tree valid children 0/1/2/3+: " + stats.treeValidChildren0() + "/"
+                + stats.treeValidChildren1() + "/" + stats.treeValidChildren2() + "/" + stats.treeValidChildren3Plus());
+        ImGui.text("Tree valid children 3/4/5/6: " + stats.treeValidChildren3() + "/"
+                + stats.treeValidChildren4() + "/" + stats.treeValidChildren5() + "/" + stats.treeValidChildren6());
+        ImGui.text("No-offset cap exits T/H/C/E/D/W/full: " + stats.noOffsetCapExitT() + "/"
+                + stats.noOffsetCapExitH() + "/" + stats.noOffsetCapExitC() + "/"
+                + stats.noOffsetCapExitE() + "/" + stats.noOffsetCapExitD() + "/"
+                + stats.noOffsetCapExitW() + "/" + stats.noOffsetCapNoEarlyExit());
+        ImGui.text("Linear leaf tests: " + stats.linearLeafTests());
+    }
+
     private static void drawStringList(String label, List<String> values) {
         if (values == null || values.isEmpty()) {
             return;
@@ -313,7 +390,11 @@ public final class GADebugOverlay {
         return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
     }
 
-    private static String buildDump() {
+    private static String buildDump(DebugTab tab) {
+        return tab == DebugTab.BIOME ? buildBiomeDump() : buildDfcDump();
+    }
+
+    private static String buildDfcDump() {
         StringBuilder dump = new StringBuilder(4096);
         Minecraft minecraft = Minecraft.getInstance();
         RouterPipeline.Stats routerStats = RouterPipeline.snapshotStats();
@@ -481,10 +562,72 @@ public final class GADebugOverlay {
         return dump.toString();
     }
 
-    private static Path writeDumpToFile(String dump) throws IOException {
+    private static String buildBiomeDump() {
+        StringBuilder dump = new StringBuilder(1024);
+        Minecraft minecraft = Minecraft.getInstance();
+        FlatClimateIndex.Stats stats = FlatClimateIndex.snapshotStats();
+
+        appendSection(dump, "Environment");
+        appendLine(dump, "devMode", GeneratorAccelerator.isDevMode());
+        appendLine(dump, "platform", GeneratorAccelerator.getPlatform());
+        appendLine(dump, "gameDir", GeneratorAccelerator.getGameFolder());
+        appendLine(dump, "fps", minecraft.getFps());
+        appendLine(dump, "levelLoaded", minecraft.level != null);
+        appendLine(dump, "playerLoaded", minecraft.player != null);
+        appendLine(dump, "screen", minecraft.screen == null ? "none" : minecraft.screen.getClass().getName());
+
+        appendSection(dump, "Biome Climate");
+        appendLine(dump, "indexBuilds", stats.indexBuilds());
+        appendLine(dump, "lastNodeCount", stats.lastNodeCount());
+        appendLine(dump, "lastLeafCount", stats.lastLeafCount());
+        appendLine(dump, "lastValueCount", stats.lastValueCount());
+        appendLine(dump, "lastBoundsBytes", stats.lastBoundsBytes());
+        appendLine(dump, "activeDimensionMask", "0x" + Integer.toHexString(stats.activeDimensionMask()));
+        appendLine(dump, "fullQueryDimensions", stats.fullQueryDimensions());
+        appendLine(dump, "hasOffsetDistances", stats.hasOffsetDistances());
+        appendLine(dump, "linearSearchIndex", stats.linearSearchIndex());
+        appendLine(dump, "linearSearchThreshold", stats.linearSearchThreshold());
+        appendLine(dump, "adaptiveQueryCache", stats.adaptiveQueryCache());
+        appendLine(dump, "queryCacheSize", stats.queryCacheSize());
+        appendLine(dump, "queryCacheDisableProbes", stats.queryCacheDisableProbes());
+        appendLine(dump, "queryCacheDisableHitRateShift", stats.queryCacheDisableHitRateShift());
+        appendLine(dump, "noOffsetCapOrder", stats.noOffsetCapOrder());
+        appendLine(dump, "searches", stats.searches());
+        appendLine(dump, "lastValueCacheHits", stats.lastValueCacheHits());
+        appendLine(dump, "queryCacheProbes", stats.queryCacheProbes());
+        appendLine(dump, "queryCacheHits", stats.queryCacheHits());
+        appendLine(dump, "queryCacheDisables", stats.queryCacheDisables());
+        appendLine(dump, "linearSearchCalls", stats.linearSearchCalls());
+        appendLine(dump, "treeSearchCalls", stats.treeSearchCalls());
+        appendLine(dump, "warmStartZeroHits", stats.warmStartZeroHits());
+        appendLine(dump, "secondWarmStartZeroHits", stats.secondWarmStartZeroHits());
+        appendLine(dump, "treeNodeVisits", stats.treeNodeVisits());
+        appendLine(dump, "treeChildDistanceTests", stats.treeChildDistanceTests());
+        appendLine(dump, "treeChildAccepts", stats.treeChildAccepts());
+        appendLine(dump, "treeValidChildren0", stats.treeValidChildren0());
+        appendLine(dump, "treeValidChildren1", stats.treeValidChildren1());
+        appendLine(dump, "treeValidChildren2", stats.treeValidChildren2());
+        appendLine(dump, "treeValidChildren3", stats.treeValidChildren3());
+        appendLine(dump, "treeValidChildren4", stats.treeValidChildren4());
+        appendLine(dump, "treeValidChildren5", stats.treeValidChildren5());
+        appendLine(dump, "treeValidChildren6", stats.treeValidChildren6());
+        appendLine(dump, "treeValidChildren3Plus", stats.treeValidChildren3Plus());
+        appendLine(dump, "linearLeafTests", stats.linearLeafTests());
+        appendLine(dump, "noOffsetCapExitT", stats.noOffsetCapExitT());
+        appendLine(dump, "noOffsetCapExitH", stats.noOffsetCapExitH());
+        appendLine(dump, "noOffsetCapExitC", stats.noOffsetCapExitC());
+        appendLine(dump, "noOffsetCapExitE", stats.noOffsetCapExitE());
+        appendLine(dump, "noOffsetCapExitD", stats.noOffsetCapExitD());
+        appendLine(dump, "noOffsetCapExitW", stats.noOffsetCapExitW());
+        appendLine(dump, "noOffsetCapNoEarlyExit", stats.noOffsetCapNoEarlyExit());
+        return dump.toString();
+    }
+
+    private static Path writeDumpToFile(DebugTab tab, String dump) throws IOException {
         Path debugDir = GeneratorAccelerator.getGameFolder().resolve("debug");
         Files.createDirectories(debugDir);
-        Path dumpFile = debugDir.resolve("ga-debug-" + LocalDateTime.now().format(DUMP_TIMESTAMP) + ".txt");
+        String prefix = tab == DebugTab.BIOME ? "ga-debug-biome-" : "ga-debug-dfc-";
+        Path dumpFile = debugDir.resolve(prefix + LocalDateTime.now().format(DUMP_TIMESTAMP) + ".txt");
         Files.writeString(dumpFile, dump, StandardCharsets.UTF_8);
         return dumpFile;
     }

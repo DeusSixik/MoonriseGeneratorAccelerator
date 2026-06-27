@@ -38,7 +38,8 @@ public abstract class MixinPerlinNoise$optimize_octave_accumulation {
      */
     @Overwrite
     @Deprecated
-    public double getValue(double x, double y, double z, double yScale, double yMax, boolean useFixedY) {
+    public double getValue(final double x, final double y, final double z,
+                           final double yScale, final double yMax, final boolean useFixedY) {
         final ImprovedNoise[] levels = this.noiseLevels;
         final DoubleList amplitudes = this.amplitudes;
         final int levelCount = levels.length;

@@ -44,7 +44,8 @@ public abstract class MixinSimplexNoise$optimization_through_flat_math {
     };
 
     @Unique
-    private static double ga$cornerNoise3D(int gradientIndex, double x, double y, double z, double offset) {
+    private static double ga$cornerNoise3D(final int gradientIndex, final double x,
+                                           final double y, final double z, final double offset) {
         double atten = offset - x * x - y * y - z * z;
         if (atten < 0.0) {
             return 0.0;
@@ -64,7 +65,7 @@ public abstract class MixinSimplexNoise$optimization_through_flat_math {
      * @reason Flat gradient table and local permutation hoisting for 2D simplex noise.
      */
     @Overwrite
-    public double getValue(double x, double y) {
+    public double getValue(final double x, final double y) {
         final double skew = (x + y) * GA_SIMPLEX_2D_SKEW;
 
         int cellX = (int) (x + skew);
@@ -110,7 +111,7 @@ public abstract class MixinSimplexNoise$optimization_through_flat_math {
      * @reason Flat gradient table and local permutation hoisting for 3D simplex noise.
      */
     @Overwrite
-    public double getValue(double x, double y, double z) {
+    public double getValue(final double x, final double y, final double z) {
         final double skew = (x + y + z) * GA_SIMPLEX_3D_SKEW;
 
         int cellX = (int) (x + skew);

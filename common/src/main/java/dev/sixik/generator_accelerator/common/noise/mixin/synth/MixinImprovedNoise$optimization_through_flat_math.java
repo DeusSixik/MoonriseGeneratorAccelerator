@@ -38,7 +38,8 @@ public abstract class MixinImprovedNoise$optimization_through_flat_math {
      */
     @Deprecated
     @Overwrite
-    public double noise(double x, double y, double z, double yScale, double yMax) {
+    public double noise(final double x, final double y, final double z,
+                        final double yScale, final double yMax) {
         final double inputX = x + this.xo;
         final double inputY = y + this.yo;
         final double inputZ = z + this.zo;
@@ -72,7 +73,8 @@ public abstract class MixinImprovedNoise$optimization_through_flat_math {
      * @reason Fast floor and local hoisting for derivative sampling.
      */
     @Overwrite
-    public double noiseWithDerivative(double x, double y, double z, double[] values) {
+    public double noiseWithDerivative(final double x, final double y, final double z,
+                                      final double[] values) {
         final double inputX = x + this.xo;
         final double inputY = y + this.yo;
         final double inputZ = z + this.zo;
@@ -93,7 +95,8 @@ public abstract class MixinImprovedNoise$optimization_through_flat_math {
      * @reason Local variable hoisting for array 'p' and gradient lookups.
      */
     @Overwrite
-    private double sampleAndLerp(int gridX, int gridY, int gridZ, double x, double wy, double z, double y) {
+    private double sampleAndLerp(final int gridX, final int gridY, final int gridZ,
+                                 final double x, final double wy, final double z, double y) {
         final byte[] p = this.p;
         final double[] grad = GA_FLAT_SIMPLEX_GRAD;
 
@@ -178,7 +181,9 @@ public abstract class MixinImprovedNoise$optimization_through_flat_math {
      * @reason Local hoisting and flattened gradient access for derivative sampling.
      */
     @Overwrite
-    private double sampleWithDerivative(int gridX, int gridY, int gridZ, double x, double y, double z, double[] noiseValues) {
+    private double sampleWithDerivative(final int gridX, final int gridY, final int gridZ,
+                                        final double x,  final double y,  final double z,
+                                        final double[] noiseValues) {
         final byte[] p = this.p;
         final double[] grad = GA_FLAT_SIMPLEX_GRAD;
 

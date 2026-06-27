@@ -197,6 +197,16 @@ public final class GAConfig {
 
     @Serializable(
             comment = """
+                    Enables optimization for "ImprovedNoise, perlinNoise, SimplexNoise"
+                    """
+    )
+    public boolean enableNoisePath = true;
+
+    @Serializable
+    public boolean enableBiomePath = true;
+
+    @Serializable(
+            comment = """
                     Density Function Compiler debug and tuning options.
                     These values are applied to the old DFC system properties on startup,
                     so you no longer need to manage most DFC VM args manually.
@@ -208,26 +218,19 @@ public final class GAConfig {
 
     @Serializable(
             comment = """
-                    Enables the Density Function Compiler mixin module.
-                    Also disables conflicting C2ME DFC mixins when their compat classes are present.
-                    """
-    )
-    public boolean enableDensityCompilerPatch = true;
-
-    @Serializable(
-            comment = """
-                    Enables optimization for "ImprovedNoise, perlinNoise, SimplexNoise"
-                    """
-    )
-    public boolean enableNoisePath = true;
-
-    @Serializable(
-            comment = """
                     Example toggle generated from @MixinOnConfig.
                     Enable it to allow ExampleGeneratedToggleMixin to load.
                     """
     )
     public boolean enableBasicExampleMixinTest = false;
+
+    @Serializable(
+            comment = """
+                    Enables the Density Function Compiler mixin module.
+                    Also disables conflicting C2ME DFC mixins when their compat classes are present.
+                    """
+    )
+    public boolean enableDensityCompilerPatch = true;
 
     @Serializable(
             comment = """
