@@ -227,6 +227,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
         this.cellWidthMask = this.cellWidth - 1;
         this.cellWidthShift = Integer.numberOfTrailingZeros(this.cellWidth);
+        this.cellWidthPowerOfTwo = Integer.bitCount(this.cellWidth) == 1;
 
         int size = this.noiseSizeXZ + 1;
         this.surfaceCache = new int[size * size];
@@ -368,16 +369,27 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         this.inCellY = blockY - this.cellStartBlockY;
 
         final double[] noise000 = this.bts$noise000;
+        final double[] noise100 = this.bts$noise100;
+        final double[] noise001 = this.bts$noise001;
+        final double[] noise101 = this.bts$noise101;
+        final double[] noise010 = this.bts$noise010;
+        final double[] noise110 = this.bts$noise110;
+        final double[] noise011 = this.bts$noise011;
+        final double[] noise111 = this.bts$noise111;
+        final double[] valueXZ00 = this.bts$valueXZ00;
+        final double[] valueXZ10 = this.bts$valueXZ10;
+        final double[] valueXZ01 = this.bts$valueXZ01;
+        final double[] valueXZ11 = this.bts$valueXZ11;
         for (int i = 0; i < noise000.length; i++) {
             final double n000 = noise000[i];
-            final double n100 = this.bts$noise100[i];
-            final double n001 = this.bts$noise001[i];
-            final double n101 = this.bts$noise101[i];
+            final double n100 = noise100[i];
+            final double n001 = noise001[i];
+            final double n101 = noise101[i];
 
-            this.bts$valueXZ00[i] = n000 + delta * (this.bts$noise010[i] - n000);
-            this.bts$valueXZ10[i] = n100 + delta * (this.bts$noise110[i] - n100);
-            this.bts$valueXZ01[i] = n001 + delta * (this.bts$noise011[i] - n001);
-            this.bts$valueXZ11[i] = n101 + delta * (this.bts$noise111[i] - n101);
+            valueXZ00[i] = n000 + delta * (noise010[i] - n000);
+            valueXZ10[i] = n100 + delta * (noise110[i] - n100);
+            valueXZ01[i] = n001 + delta * (noise011[i] - n001);
+            valueXZ11[i] = n101 + delta * (noise111[i] - n101);
         }
     }
 
@@ -389,11 +401,16 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     public void updateForX(int i, double d) {
         this.inCellX = i - this.cellStartBlockX;
         final double[] valueXZ00 = this.bts$valueXZ00;
+        final double[] valueXZ01 = this.bts$valueXZ01;
+        final double[] valueXZ10 = this.bts$valueXZ10;
+        final double[] valueXZ11 = this.bts$valueXZ11;
+        final double[] valueZ0 = this.bts$valueZ0;
+        final double[] valueZ1 = this.bts$valueZ1;
         for (int j = 0; j < valueXZ00.length; j++) {
             final double v0 = valueXZ00[j];
-            final double v1 = this.bts$valueXZ01[j];
-            this.bts$valueZ0[j] = v0 + d * (this.bts$valueXZ10[j] - v0);
-            this.bts$valueZ1[j] = v1 + d * (this.bts$valueXZ11[j] - v1);
+            final double v1 = valueXZ01[j];
+            valueZ0[j] = v0 + d * (valueXZ10[j] - v0);
+            valueZ1[j] = v1 + d * (valueXZ11[j] - v1);
         }
     }
 
@@ -406,9 +423,11 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         this.inCellZ = i - this.cellStartBlockZ;
         ++this.interpolationCounter;
         final double[] valueZ0 = this.bts$valueZ0;
+        final double[] valueZ1 = this.bts$valueZ1;
+        final double[] value = this.bts$value;
         for (int j = 0; j < valueZ0.length; j++) {
             final double v = valueZ0[j];
-            this.bts$value[j] = v + d * (this.bts$valueZ1[j] - v);
+            value[j] = v + d * (valueZ1[j] - v);
         }
     }
 
@@ -551,6 +570,8 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     private int cellWidthMask;
     @Unique
     private int cellWidthShift;
+    @Unique
+    private boolean cellWidthPowerOfTwo;
 
     /**
      * @author Sixik
@@ -558,17 +579,21 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
      */
     @Overwrite
     public NoiseChunk forIndex(int i) {
-        // floorMod (i % 4 -> i & 3)
-        int j = i & this.cellWidthMask; // z
-
-        // floorDiv (i / 4 -> i >> 2)
-        int k = i >> this.cellWidthShift;
-
-        // l = k % cellWidth
-        int l = k & this.cellWidthMask; // x
-
-        // m = (H-1) - (k / cellWidth)
-        int m = (this.cellHeight - 1) - (k >> this.cellWidthShift); // y
+        final int j;
+        final int l;
+        final int m;
+        if (this.cellWidthPowerOfTwo) {
+            final int k = i >> this.cellWidthShift;
+            j = i & this.cellWidthMask;
+            l = k & this.cellWidthMask;
+            m = (this.cellHeight - 1) - (k >> this.cellWidthShift);
+        } else {
+            final int k = i / this.cellWidth;
+            j = i - k * this.cellWidth;
+            final int yPlane = k / this.cellWidth;
+            l = k - yPlane * this.cellWidth;
+            m = (this.cellHeight - 1) - yPlane;
+        }
 
         this.inCellZ = j;
         this.inCellX = l;

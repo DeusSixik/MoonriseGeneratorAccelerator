@@ -27,6 +27,8 @@ public abstract class MixinNoiseChunk$FlatCache$optimization_math implements Den
 
     @Unique
     private double[] bts$array;
+    @Unique
+    private int bts$side;
 
     @Override
     public double[] bts$getArray() {
@@ -64,6 +66,7 @@ public abstract class MixinNoiseChunk$FlatCache$optimization_math implements Den
         if (bl) {
             final int sizeXZ = field_36611.noiseSizeXZ;
             final int side = sizeXZ + 1;
+            this.bts$side = side;
 
             this.bts$array = new double[side * side];
             final double[] flatValues = this.bts$array;
@@ -86,7 +89,7 @@ public abstract class MixinNoiseChunk$FlatCache$optimization_math implements Den
      */
     @Overwrite
     public double compute(FunctionContext functionContext) {
-        final int side = field_36611.noiseSizeXZ + 1;
+        final int side = this.bts$side;
 
         final int k = (functionContext.blockX() >> 2) - field_36611.firstNoiseX;
         final int l = (functionContext.blockZ() >> 2) - field_36611.firstNoiseZ;
