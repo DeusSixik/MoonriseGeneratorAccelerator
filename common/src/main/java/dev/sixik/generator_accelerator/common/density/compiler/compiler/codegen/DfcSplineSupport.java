@@ -9,6 +9,8 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
  */
 public final class DfcSplineSupport {
 
+    public static final int NOT_FOUND = -1;
+
     private DfcSplineSupport() {
     }
 
@@ -57,6 +59,29 @@ public final class DfcSplineSupport {
             segment++;
         }
         return segment;
+    }
+
+    public static int selectSegmentBinary(float[] locations, float coordinate) {
+        if (locations == null || locations.length < 2) {
+            return NOT_FOUND;
+        }
+
+        int segmentCount = locations.length - 1;
+        if (coordinate < locations[0] || coordinate >= locations[segmentCount]) {
+            return NOT_FOUND;
+        }
+
+        int lo = 0;
+        int hi = segmentCount - 1;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (coordinate < locations[mid + 1]) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        return lo;
     }
 
     public record SegmentLut(float minLocation, float bucketScale, float[] locations, int[] segments) {

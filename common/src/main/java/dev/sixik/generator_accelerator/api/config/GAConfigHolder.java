@@ -10,7 +10,7 @@ import java.nio.file.Paths;
 
 public class GAConfigHolder {
 
-    private static final int CURRENT_CONFIG_VERSION = 3;
+    private static final int CURRENT_CONFIG_VERSION = 5;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GAConfigHolder.class);
     private static boolean initialized = false;
@@ -67,6 +67,16 @@ public class GAConfigHolder {
         if (config.version < 2 && config.dfc != null && config.dfc.splineLinearSearchMaxPoints == 4) {
             config.dfc.splineLinearSearchMaxPoints = 3;
             LOGGER.info("Migrated DFC splineLinearSearchMaxPoints from legacy default 4 to 3.");
+        }
+
+        if (config.version < 4 && config.dfc != null && !config.dfc.splineSegmentLut) {
+            config.dfc.splineSegmentLut = true;
+            LOGGER.info("Migrated DFC splineSegmentLut from legacy default false to true.");
+        }
+
+        if (config.version < 5 && config.dfc != null && config.dfc.splineSegmentLut) {
+            config.dfc.splineSegmentLut = false;
+            LOGGER.info("Migrated DFC splineSegmentLut back to false after runtime regression findings.");
         }
 
         if (config.dfc == null) {
