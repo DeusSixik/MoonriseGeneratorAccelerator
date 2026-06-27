@@ -40,6 +40,7 @@ public final class GlobalCompileCache {
             String classInternalName,
             String sourceRootClass,
             String rootDebug,
+            String splineDebug,
             byte[] exactSha256,
             Class<? extends CompiledDensityFunction> cls,
             byte[] bytecode,

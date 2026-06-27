@@ -129,6 +129,7 @@ public final class Compiler {
             final double fMax = maxVal;
             final String fClassName = className;
             final String fRootDebug = describeRootForCellFillDebug(irRoot);
+            final String fSplineDebug = describeDominantSpline(irRoot);
 
             GlobalCompileCache g = GlobalCompileCache.INSTANCE;
             GlobalCompileCache.LookupResult lo = g.getOrCompile(shapeFp, exactFp, () -> {
@@ -180,7 +181,7 @@ public final class Compiler {
                 }
 
                 return new GlobalCompileCache.CopiedClassBundle(
-                        fClassName, df.getClass().getName(), fRootDebug, exactFp, cls, bytecode, ctorMH,
+                        fClassName, df.getClass().getName(), fRootDebug, fSplineDebug, exactFp, cls, bytecode, ctorMH,
                         helperHandles, helpersEmitted, latticeEmitted,
                         emitResult.cellAddLatticeSpecialized(), emitResult.cellAddExternSpecialized(),
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
@@ -294,7 +295,8 @@ public final class Compiler {
                 bundle.slabNativeProgram() != null && bundle.slabNativeProgram().length > 0,
                 bundle.cellAddLatticeSpecialized(),
                 bundle.cellAddExternSpecialized(),
-                bundle.rootDebug());
+                bundle.rootDebug(),
+                bundle.splineDebug());
         if (reusedClassFromCache) {
             RouterPipeline.recordRootFromGlobalClassCache(uniqueNodes, cseSavings);
         } else {
@@ -436,6 +438,41 @@ public final class Compiler {
                     + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none");
         }
         return root.getClass().getSimpleName();
+    }
+
+    private static String describeDominantSpline(IRNode root) {
+        IdentityHashMap<IRNode, Boolean> seen = new IdentityHashMap<>();
+        Deque<IRNode> stack = new ArrayDeque<>();
+        stack.push(root);
+        IRNode.Spline.Multipoint best = null;
+        while (!stack.isEmpty()) {
+            IRNode node = stack.pop();
+            if (seen.put(node, Boolean.TRUE) != null) {
+                continue;
+            }
+            if (node instanceof IRNode.Spline.Multipoint mp) {
+                if (best == null || mp.locations().length > best.locations().length) {
+                    best = mp;
+                }
+            }
+            for (IRNode child : RefCount.children(node)) {
+                stack.push(child);
+            }
+        }
+        if (best == null) {
+            return "none";
+        }
+        float[] locs = best.locations();
+        float[] derivs = best.derivatives();
+        int n = locs.length;
+        return "points=" + n
+                + ",loc0=" + locs[0]
+                + ",loc1=" + (n > 1 ? locs[1] : locs[0])
+                + ",locLast=" + locs[n - 1]
+                + ",d0=" + derivs[0]
+                + ",dLast=" + derivs[n - 1]
+                + ",v0=" + best.values().get(0).getClass().getSimpleName()
+                + ",vLast=" + best.values().get(n - 1).getClass().getSimpleName();
     }
 
     /** Diagnostic snapshot of one compile() call. */

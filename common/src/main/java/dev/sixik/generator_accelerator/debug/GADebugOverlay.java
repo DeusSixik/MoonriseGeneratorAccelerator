@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.MapAllSession;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
@@ -222,6 +223,11 @@ public final class GADebugOverlay {
         List<DfcSplineStats.ClassStats> topClasses = DfcSplineStats.snapshotTopClasses(5);
 
         ImGui.text("Enabled: " + splineStats.enabled());
+        ImGui.text("Search mode: " + Codegen.splineSearchModeName()
+                + " / linearMaxPoints=" + Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS);
+        ImGui.text("Segment LUT: " + Codegen.SPLINE_SEGMENT_LUT_ENABLED
+                + " / minPoints=" + Codegen.SPLINE_SEGMENT_LUT_MIN_POINTS
+                + " / buckets=" + Codegen.SPLINE_SEGMENT_LUT_BUCKETS);
         ImGui.text("Calls linear/binary/lut: " + splineStats.calls() + " / "
                 + splineStats.linearCalls() + " / " + splineStats.binaryCalls() + " / " + splineStats.lutCalls());
         ImGui.text("Exit interior/left/right: " + splineStats.interiorCalls() + " / "
@@ -243,11 +249,22 @@ public final class GADebugOverlay {
                 for (DfcSplineStats.ClassStats stat : topClasses) {
                     ImGui.text(stat.className());
                     ImGui.textDisabled("source=" + stat.sourceRootClass() + ", root=" + stat.rootDebug());
+                    ImGui.textDisabled("spline=" + stat.splineDebug());
                     ImGui.bulletText("calls=" + stat.calls()
                             + ", totalMs=" + formatMillis(stat.totalNanos())
+                            + ", avgNs=" + formatAverageNanos(stat.totalNanos(), stat.calls())
                             + ", linear=" + stat.linearCalls()
                             + ", binary=" + stat.binaryCalls()
                             + ", lut=" + stat.lutCalls());
+                    ImGui.bulletText("interior=" + stat.interiorCalls()
+                            + ", left=" + stat.leftExtrapolationCalls()
+                            + ", right=" + stat.rightExtrapolationCalls());
+                    ImGui.bulletText("point3=" + formatBucket(stat.point3())
+                            + ", point4=" + formatBucket(stat.point4()));
+                    ImGui.bulletText("<=2=" + formatBucket(stat.bucketLe2())
+                            + ", 3..4=" + formatBucket(stat.bucket3To4())
+                            + ", 5..8=" + formatBucket(stat.bucket5To8())
+                            + ", >=9=" + formatBucket(stat.bucketGe9()));
                 }
             }
             ImGui.treePop();
@@ -287,6 +304,13 @@ public final class GADebugOverlay {
 
     private static String formatMillis(long nanos) {
         return String.format(Locale.ROOT, "%.3f", nanos / 1_000_000.0d);
+    }
+
+    private static String formatAverageNanos(long nanos, long calls) {
+        if (calls <= 0L) {
+            return "0.0";
+        }
+        return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
     }
 
     private static String buildDump() {
@@ -403,6 +427,11 @@ public final class GADebugOverlay {
 
         appendSection(dump, "Spline Runtime");
         appendLine(dump, "enabled", splineStats.enabled());
+        appendLine(dump, "searchMode", Codegen.splineSearchModeName());
+        appendLine(dump, "linearMaxPoints", Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS);
+        appendLine(dump, "segmentLutEnabled", Codegen.SPLINE_SEGMENT_LUT_ENABLED);
+        appendLine(dump, "segmentLutMinPoints", Codegen.SPLINE_SEGMENT_LUT_MIN_POINTS);
+        appendLine(dump, "segmentLutBuckets", Codegen.SPLINE_SEGMENT_LUT_BUCKETS);
         appendLine(dump, "calls", splineStats.calls());
         appendLine(dump, "linearCalls", splineStats.linearCalls());
         appendLine(dump, "binaryCalls", splineStats.binaryCalls());
@@ -422,11 +451,22 @@ public final class GADebugOverlay {
                 .map(stat -> stat.className()
                         + "{source=" + stat.sourceRootClass()
                         + ", root=" + stat.rootDebug()
+                        + ", spline=" + stat.splineDebug()
                         + ", calls=" + stat.calls()
                         + ", totalMs=" + formatMillis(stat.totalNanos())
+                        + ", avgNs=" + formatAverageNanos(stat.totalNanos(), stat.calls())
                         + ", linear=" + stat.linearCalls()
                         + ", binary=" + stat.binaryCalls()
                         + ", lut=" + stat.lutCalls()
+                        + ", interior=" + stat.interiorCalls()
+                        + ", left=" + stat.leftExtrapolationCalls()
+                        + ", right=" + stat.rightExtrapolationCalls()
+                        + ", point3=" + formatBucket(stat.point3())
+                        + ", point4=" + formatBucket(stat.point4())
+                        + ", <=2=" + formatBucket(stat.bucketLe2())
+                        + ", 3..4=" + formatBucket(stat.bucket3To4())
+                        + ", 5..8=" + formatBucket(stat.bucket5To8())
+                        + ", >=9=" + formatBucket(stat.bucketGe9())
                         + "}")
                 .toList());
 

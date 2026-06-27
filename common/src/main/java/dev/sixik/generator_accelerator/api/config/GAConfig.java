@@ -69,10 +69,11 @@ public final class GAConfig {
         @Serializable(
                 comment = """
                         Maximum spline point count that still uses linear search in auto mode.
-                        Mirrors old VM arg: -Ddfc.codegen.splineLinearSearchMaxPoints=4
+                        Default is 3 so 4-point splines use exact binary search.
+                        Mirrors old VM arg: -Ddfc.codegen.splineLinearSearchMaxPoints=3
                         """
         )
-        public int splineLinearSearchMaxPoints = 4;
+        public int splineLinearSearchMaxPoints = 3;
 
         @Serializable(
                 comment = """
@@ -192,7 +193,7 @@ public final class GAConfig {
                     Do not change, used internally.
                     """
     )
-    public int version = 1;
+    public int version = 2;
 
     @Serializable(
             comment = """

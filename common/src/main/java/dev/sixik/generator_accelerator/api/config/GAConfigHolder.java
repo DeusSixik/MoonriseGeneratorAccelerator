@@ -10,6 +10,8 @@ import java.nio.file.Paths;
 
 public class GAConfigHolder {
 
+    private static final int CURRENT_CONFIG_VERSION = 2;
+
     private static final Logger LOGGER = LoggerFactory.getLogger(GAConfigHolder.class);
     private static boolean initialized = false;
 
@@ -52,8 +54,22 @@ public class GAConfigHolder {
             }
 
             CONFIG.callInitialisers();
+            migrateConfig(CONFIG.config);
             return saveConfig();
         }
+    }
+
+    private static void migrateConfig(GAConfig config) {
+        if (config == null) {
+            return;
+        }
+
+        if (config.version < 2 && config.dfc != null && config.dfc.splineLinearSearchMaxPoints == 4) {
+            config.dfc.splineLinearSearchMaxPoints = 3;
+            LOGGER.info("Migrated DFC splineLinearSearchMaxPoints from legacy default 4 to 3.");
+        }
+
+        config.version = CURRENT_CONFIG_VERSION;
     }
 
     public static boolean saveConfig() {

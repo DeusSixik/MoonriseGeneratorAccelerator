@@ -255,14 +255,24 @@ public final class DensityFunctionCompiler {
                 + ", linear=" + stats.linearCalls()
                 + ", binary=" + stats.binaryCalls()
                 + ", lut=" + stats.lutCalls()
+                + ", interior=" + stats.interiorCalls()
                 + ", leftExt=" + stats.leftExtrapolationCalls()
                 + ", rightExt=" + stats.rightExtrapolationCalls()
+                + ", point3=" + stats.point3().calls()
+                + "/" + formatNanosMillis(stats.point3().nanos()) + "ms"
+                + ", point4=" + stats.point4().calls()
+                + "/" + formatNanosMillis(stats.point4().nanos()) + "ms"
+                + ", <=2=" + stats.bucketLe2().calls()
+                + "/" + formatNanosMillis(stats.bucketLe2().nanos()) + "ms"
+                + ", 3..4=" + stats.bucket3To4().calls()
+                + "/" + formatNanosMillis(stats.bucket3To4().nanos()) + "ms"
                 + ", 5..8=" + stats.bucket5To8().calls()
                 + "/" + formatNanosMillis(stats.bucket5To8().nanos()) + "ms"
                 + ", >=9=" + stats.bucketGe9().calls()
                 + "/" + formatNanosMillis(stats.bucketGe9().nanos()) + "ms"
                 + ", src=" + stats.sourceRootClass()
                 + ", root=" + stats.rootDebug()
+                + ", spline=" + stats.splineDebug()
                 + "}";
     }
 

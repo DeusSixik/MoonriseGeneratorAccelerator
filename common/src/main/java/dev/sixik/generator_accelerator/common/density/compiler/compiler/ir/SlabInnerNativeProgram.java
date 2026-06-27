@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,7 +41,8 @@ public final class SlabInnerNativeProgram {
     private SlabInnerNativeProgram() {}
 
     public static Optional<Result> tryCompile(IRNode root, CellLatticeOption.LatticePlan plan,
-                                              SlabNativeBatchPlan slabPlan, Set<IRNode> extracted) {
+                                              SlabNativeBatchPlan slabPlan, Set<IRNode> extracted,
+                                              ConstantPool pool) {
         if (plan == null || slabPlan == null || slabPlan.isEmpty()) {
             return Optional.empty();
         }
@@ -50,12 +52,14 @@ public final class SlabInnerNativeProgram {
                 case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
                 case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
                 case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
+                case SlabNativeBatchPlan.InvokeSlot is -> is.invoke();
+                case SlabNativeBatchPlan.ExtractedSlot es -> es.node();
             };
             slabSlots.put(key, s.slotIndex());
         }
         boolean applyBlendDensity = root instanceof IRNode.BlendDensity;
         IRNode compileRoot = applyBlendDensity ? ((IRNode.BlendDensity) root).input() : root;
-        var b = new Builder();
+        var b = new Builder(pool);
         try {
             if (!b.compile(compileRoot, plan.hoistedSubtree(), extracted, slabSlots)) {
                 b.recordFailure();
@@ -156,10 +160,16 @@ public final class SlabInnerNativeProgram {
     }
 
     private static final class Builder {
+        private final ConstantPool pool;
+        private final IdentityHashMap<IRNode, Integer> slabSlotsView = new IdentityHashMap<>();
         private final ByteArrayOutputStream raw = new ByteArrayOutputStream();
         private final List<Double> constList = new ArrayList<>();
         private String unsupportedClass;
         private boolean failedOnExtracted;
+
+        private Builder(ConstantPool pool) {
+            this.pool = pool;
+        }
 
         byte[] bytes() {
             return raw.toByteArray();
@@ -209,19 +219,22 @@ public final class SlabInnerNativeProgram {
 
         boolean compile(IRNode node, IRNode hoisted, Set<IRNode> extracted,
                         IdentityHashMap<IRNode, Integer> slabSlots) throws IOException {
+            if (this.slabSlotsView.isEmpty() && !slabSlots.isEmpty()) {
+                this.slabSlotsView.putAll(slabSlots);
+            }
             if (node == hoisted) {
                 raw.write(OP_HOIST);
                 return true;
-            }
-            if (extracted.contains(node)) {
-                this.failedOnExtracted = true;
-                this.unsupportedClass = node.getClass().getName();
-                return false;
             }
             Integer slab = slabSlots.get(node);
             if (slab != null) {
                 emitSlot(slab);
                 return true;
+            }
+            if (extracted.contains(node)) {
+                this.failedOnExtracted = true;
+                this.unsupportedClass = describeUnsupportedNode(node) + "[extracted]";
+                return false;
             }
             if (node instanceof IRNode.Const c) {
                 emitConst(c.value());
@@ -323,8 +336,40 @@ public final class SlabInnerNativeProgram {
                 raw.write(OP_MAX);
                 return true;
             }
-            this.unsupportedClass = node.getClass().getName();
+            this.unsupportedClass = describeUnsupportedNode(node);
             return false;
+        }
+
+        private String describeUnsupportedNode(IRNode node) {
+            if (node instanceof IRNode.Invoke invoke) {
+                return node.getClass().getName() + "[externIndex=" + invoke.externIndex()
+                        + ", externClass=" + describeExternClass(invoke.externIndex()) + "]";
+            }
+            if (node instanceof IRNode.Marker marker) {
+                return node.getClass().getName() + "[externIndex=" + marker.externIndex()
+                        + ", externClass=" + describeExternClass(marker.externIndex()) + "]";
+            }
+            if (node instanceof IRNode.EndIslands endIslands) {
+                return node.getClass().getName() + "[externIndex=" + endIslands.externIndex()
+                        + ", externClass=" + describeExternClass(endIslands.externIndex()) + "]";
+            }
+            if (node instanceof IRNode.Beardifier beardifier) {
+                return node.getClass().getName() + "[externIndex=" + beardifier.externIndex()
+                        + ", externClass=" + describeExternClass(beardifier.externIndex()) + "]";
+            }
+            Integer slot = slabSlotsView.get(node);
+            if (slot != null) {
+                return node.getClass().getName() + "[slabSlot=" + slot + "]";
+            }
+            return node.getClass().getName();
+        }
+
+        private String describeExternClass(int externIndex) {
+            if (pool == null || externIndex < 0 || externIndex >= pool.externCount()) {
+                return "unknown";
+            }
+            var extern = pool.extern(externIndex);
+            return extern == null ? "null" : extern.getClass().getName();
         }
 
         private boolean emitYClampedGradient(IRNode.YClampedGradient g) throws IOException {

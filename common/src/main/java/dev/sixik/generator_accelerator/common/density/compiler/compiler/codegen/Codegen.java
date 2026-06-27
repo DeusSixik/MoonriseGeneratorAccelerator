@@ -86,12 +86,13 @@ public final class Codegen {
      * already tiny and the bytecode is a little simpler. Larger splines switch to an exact
      * binary-search decision tree for segment selection.
      *
-     * <p>The default stays conservative for 3-4 point splines, but flips 5+ point splines
-     * to binary search because telemetry showed that bucket is common enough to matter while
-     * still being exact and stable in practice.
+     * <p>The default keeps 3-point splines on the tiny linear path, but flips 4+ point
+     * splines to binary search because telemetry showed the 3..4 bucket is hot and the
+     * 4-point case benefits from a balanced exact search more than from the straight-line
+     * ladder.
      */
     public static final int SPLINE_LINEAR_SEARCH_MAX_POINTS =
-            Math.max(2, Integer.getInteger("dfc.codegen.splineLinearSearchMaxPoints", 4));
+            Math.max(2, Integer.getInteger("dfc.codegen.splineLinearSearchMaxPoints", 3));
     static final SplineSearchMode SPLINE_SEARCH_MODE =
             parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
     public static final boolean SPLINE_RUNTIME_STATS_ENABLED =
@@ -415,7 +416,7 @@ public final class Codegen {
                         plan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY);
                 if (nativeOpsEnabled) {
                     slabPlan = SlabNativeBatchPlan.analyze(root, plan, pool.noiseSpecCount(),
-                            pool.blendedNoiseSpecCount()).orElse(null);
+                            pool.blendedNoiseSpecCount(), extracted).orElse(null);
                 }
                 DfcNativePlanningStats.recordSlabPlan(slabPlan != null);
                 boolean yHoist = plan.hoistAxis() == CellLatticeOption.Axis.Y_ONLY;
@@ -433,7 +434,7 @@ public final class Codegen {
                         emitLatticeInnerBatchedHelper(cw, classInternalName, root, plan, helpers, slabPlan,
                                 LATTICE_INNER_BATCHED_XZ_SLICE_NAME, SLAB_INDEX_ARRAY_INDEX);
                     }
-                    var slabProg = SlabInnerNativeProgram.tryCompile(root, plan, slabPlan, extracted);
+                    var slabProg = SlabInnerNativeProgram.tryCompile(root, plan, slabPlan, extracted, pool);
                     if (slabProg.isPresent()) {
                         slabInnerBc = slabProg.get().bytecode();
                         slabInnerConsts = slabProg.get().constants();
@@ -445,7 +446,7 @@ public final class Codegen {
                     }
                     DfcNativePlanningStats.recordSlabInnerVm(nativeSlabVm);
                 }
-                emitLatticeFillArrayOverride(cw, classInternalName, slabPlan, pool, nativeSlabVm,
+                emitLatticeFillArrayOverride(cw, classInternalName, slabPlan, pool, helpers, nativeSlabVm,
                         slabInnerApplyBlendDensity, plan);
                 latticeEmitted = true;
             }
@@ -890,6 +891,8 @@ public final class Codegen {
                         helpers.extracted, ns.noise().coordX(), ns.noise().coordY(), ns.noise().coordZ());
                 case SlabNativeBatchPlan.BlendedSlot ignored -> CoordinateSlotUse.ALL;
                 case SlabNativeBatchPlan.MarkerSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.InvokeSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.ExtractedSlot ignored -> CoordinateSlotUse.NONE;
             };
             emitCoordPrologue(mv, slotUse);
             switch (s) {
@@ -927,6 +930,10 @@ public final class Codegen {
                     mv.visitInsn(Opcodes.DASTORE);
                 }
                 case SlabNativeBatchPlan.MarkerSlot ignored -> {
+                }
+                case SlabNativeBatchPlan.InvokeSlot ignored -> {
+                }
+                case SlabNativeBatchPlan.ExtractedSlot ignored -> {
                 }
             }
             mv.visitInsn(Opcodes.RETURN);
@@ -959,6 +966,8 @@ public final class Codegen {
                         helpers.extracted, ns.noise().coordX(), ns.noise().coordY(), ns.noise().coordZ());
                 case SlabNativeBatchPlan.BlendedSlot ignored -> CoordinateSlotUse.ALL;
                 case SlabNativeBatchPlan.MarkerSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.InvokeSlot ignored -> CoordinateSlotUse.NONE;
+                case SlabNativeBatchPlan.ExtractedSlot ignored -> CoordinateSlotUse.NONE;
             };
             emitCoordPrologue(mv, slotUse);
             switch (s) {
@@ -996,6 +1005,10 @@ public final class Codegen {
                     mv.visitInsn(Opcodes.DASTORE);
                 }
                 case SlabNativeBatchPlan.MarkerSlot ignored -> {
+                }
+                case SlabNativeBatchPlan.InvokeSlot ignored -> {
+                }
+                case SlabNativeBatchPlan.ExtractedSlot ignored -> {
                 }
             }
             mv.visitInsn(Opcodes.RETURN);
@@ -1050,6 +1063,8 @@ public final class Codegen {
                 case SlabNativeBatchPlan.NormalSlot ns -> ns.noise();
                 case SlabNativeBatchPlan.BlendedSlot bs -> bs.noise();
                 case SlabNativeBatchPlan.MarkerSlot ms -> ms.marker();
+                case SlabNativeBatchPlan.InvokeSlot is -> is.invoke();
+                case SlabNativeBatchPlan.ExtractedSlot es -> es.node();
             };
             slabMap.put(key, s.slotIndex());
         }
@@ -1132,13 +1147,14 @@ public final class Codegen {
     private static void emitLatticeFillArrayOverride(ClassWriter cw, String classInternalName,
                                                      SlabNativeBatchPlan slabPlan,
                                                      ConstantPool pool,
+                                                     HelperRegistry helpers,
                                                      boolean nativeSlabInnerVm,
                                                      boolean nativeSlabInnerApplyBlendDensity,
                                                      CellLatticeOption.LatticePlan latticePlan) {
         if (slabPlan == null) {
             emitLatticeFillArrayScalarOnly(cw, classInternalName, latticePlan);
         } else {
-            emitLatticeFillArrayWithOptionalSlabBatch(cw, classInternalName, slabPlan, pool, nativeSlabInnerVm,
+            emitLatticeFillArrayWithOptionalSlabBatch(cw, classInternalName, slabPlan, pool, helpers, nativeSlabInnerVm,
                     nativeSlabInnerApplyBlendDensity, latticePlan);
         }
     }
@@ -2125,6 +2141,26 @@ public final class Codegen {
                 "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
     }
 
+    private static void emitExtractedSlotHelperCompute(MethodVisitor mv, String classInternalName,
+                                                       HelperRegistry helpers, IRNode node) {
+        int idx = helpers.indexOf(node);
+        if (INDY_HELPERS_ENABLED) {
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 3);
+            mv.visitInvokeDynamicInsn(helperName(idx), HELPER_DESC, HELPER_BSM);
+            return;
+        }
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitFieldInsn(Opcodes.GETFIELD, COMPILED_BASE_INTERNAL,
+                "helperHandles", METHOD_HANDLE_ARRAY_DESC);
+        ldcIntStatic(mv, idx);
+        mv.visitInsn(Opcodes.AALOAD);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL,
+                "invokeExact", HELPER_DESC, false);
+    }
+
     private static void emitArrayAccumulateFromTemp(MethodVisitor mv, int tempLocal, int indexLocal) {
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ILOAD, indexLocal);
@@ -2732,11 +2768,12 @@ public final class Codegen {
     private static void emitLatticeFillArrayWithOptionalSlabBatch(ClassWriter cw, String classInternalName,
                                                                   SlabNativeBatchPlan slabPlan,
                                                                   ConstantPool pool,
+                                                                  HelperRegistry helpers,
                                                                   boolean nativeSlabInnerVm,
                                                                   boolean nativeSlabInnerApplyBlendDensity,
                                                                   CellLatticeOption.LatticePlan latticePlan) {
         if (latticePlan.hoistAxis() == CellLatticeOption.Axis.XZ_ONLY) {
-            emitLatticeFillArrayWithOptionalSlabBatchXz(cw, classInternalName, slabPlan, pool,
+            emitLatticeFillArrayWithOptionalSlabBatchXz(cw, classInternalName, slabPlan, pool, helpers,
                     nativeSlabInnerVm, nativeSlabInnerApplyBlendDensity);
             return;
         }
@@ -2779,7 +2816,9 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.IFLE, slabSetupDone);
 
             for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-                if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+                if (s instanceof SlabNativeBatchPlan.MarkerSlot
+                        || s instanceof SlabNativeBatchPlan.InvokeSlot
+                        || s instanceof SlabNativeBatchPlan.ExtractedSlot) {
                     continue;
                 }
                 emitNativeHandleFieldLoad(mv, classInternalName, s.nativeHandleIndex(nn), false);
@@ -2871,6 +2910,27 @@ public final class Codegen {
                 mv.visitVarInsn(Opcodes.ILOAD, 29);
                 emitMarkerSlotCompute(mv, classInternalName, pool, ms.marker().externIndex(), 3);
                 mv.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.InvokeSlot is) {
+                mv.visitVarInsn(Opcodes.ALOAD, 3);
+                mv.visitVarInsn(Opcodes.ILOAD, 29);
+                mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                mv.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(mv, si);
+                mv.visitInsn(Opcodes.AALOAD);
+                mv.visitVarInsn(Opcodes.ILOAD, 29);
+                emitDirectExternCompute(mv, classInternalName, pool,
+                        new DirectExternResidual(is.invoke().externIndex(), false), 3);
+                mv.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.ExtractedSlot es) {
+                mv.visitVarInsn(Opcodes.ALOAD, 3);
+                mv.visitVarInsn(Opcodes.ILOAD, 29);
+                mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                mv.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(mv, si);
+                mv.visitInsn(Opcodes.AALOAD);
+                mv.visitVarInsn(Opcodes.ILOAD, 29);
+                emitExtractedSlotHelperCompute(mv, classInternalName, helpers, es.node());
+                mv.visitInsn(Opcodes.DASTORE);
             } else {
                 mv.visitVarInsn(Opcodes.ALOAD, 0);
                 mv.visitVarInsn(Opcodes.ALOAD, 3);
@@ -2889,7 +2949,9 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.GOTO, prepXHead);
             mv.visitLabel(prepXEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.InvokeSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.ExtractedSlot)) {
                 emitNativeHandleFieldLoad(mv, classInternalName, slot.nativeHandleIndex(nn), false);
                 mv.visitVarInsn(Opcodes.ALOAD, 33);
                 mv.visitVarInsn(Opcodes.ALOAD, 34);
@@ -2951,6 +3013,7 @@ public final class Codegen {
     private static void emitLatticeFillArrayWithOptionalSlabBatchXz(ClassWriter cw, String classInternalName,
                                                                     SlabNativeBatchPlan slabPlan,
                                                                     ConstantPool pool,
+                                                                    HelperRegistry helpers,
                                                                     boolean nativeSlabInnerVm,
                                                                     boolean nativeSlabInnerApplyBlendDensity) {
         String desc = "([DL" + CONTEXT_PROVIDER_INTERNAL + ";)V";
@@ -2991,7 +3054,9 @@ public final class Codegen {
         int nn = pool.noiseSpecCount();
         if (!slabPlan.isEmpty()) {
             for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-                if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+                if (s instanceof SlabNativeBatchPlan.MarkerSlot
+                        || s instanceof SlabNativeBatchPlan.InvokeSlot
+                        || s instanceof SlabNativeBatchPlan.ExtractedSlot) {
                     continue;
                 }
                 emitNativeHandleFieldLoad(body, classInternalName, s.nativeHandleIndex(nn), false);
@@ -3090,6 +3155,51 @@ public final class Codegen {
                 body.visitVarInsn(Opcodes.ILOAD, 29);
                 emitMarkerSlotCompute(body, classInternalName, pool, ms.marker().externIndex(), 3);
                 body.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.InvokeSlot is) {
+                body.visitVarInsn(Opcodes.ILOAD, 40);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitVarInsn(Opcodes.ILOAD, 7);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitInsn(Opcodes.IADD);
+                body.visitVarInsn(Opcodes.ILOAD, 8);
+                body.visitInsn(Opcodes.IADD);
+                body.visitVarInsn(Opcodes.ISTORE, 53);
+                body.visitVarInsn(Opcodes.ALOAD, 3);
+                body.visitVarInsn(Opcodes.ILOAD, 53);
+                body.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                body.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(body, si);
+                body.visitInsn(Opcodes.AALOAD);
+                body.visitVarInsn(Opcodes.ILOAD, 29);
+                emitDirectExternCompute(body, classInternalName, pool,
+                        new DirectExternResidual(is.invoke().externIndex(), false), 3);
+                body.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.ExtractedSlot es) {
+                body.visitVarInsn(Opcodes.ILOAD, 40);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitVarInsn(Opcodes.ILOAD, 7);
+                body.visitVarInsn(Opcodes.ILOAD, 4);
+                body.visitInsn(Opcodes.IMUL);
+                body.visitInsn(Opcodes.IADD);
+                body.visitVarInsn(Opcodes.ILOAD, 8);
+                body.visitInsn(Opcodes.IADD);
+                body.visitVarInsn(Opcodes.ISTORE, 53);
+                body.visitVarInsn(Opcodes.ALOAD, 3);
+                body.visitVarInsn(Opcodes.ILOAD, 53);
+                body.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                body.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(body, si);
+                body.visitInsn(Opcodes.AALOAD);
+                body.visitVarInsn(Opcodes.ILOAD, 29);
+                emitExtractedSlotHelperCompute(body, classInternalName, helpers, es.node());
+                body.visitInsn(Opcodes.DASTORE);
             } else {
                 body.visitVarInsn(Opcodes.ALOAD, 0);
                 body.visitVarInsn(Opcodes.ALOAD, 3);
@@ -3104,7 +3214,9 @@ public final class Codegen {
             body.visitJumpInsn(Opcodes.GOTO, prepYHead);
             body.visitLabel(prepYEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.InvokeSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.ExtractedSlot)) {
                 emitNativeHandleFieldLoad(body, classInternalName, slot.nativeHandleIndex(nn), false);
                 body.visitVarInsn(Opcodes.ALOAD, 33);
                 body.visitVarInsn(Opcodes.ALOAD, 34);
@@ -3173,7 +3285,7 @@ public final class Codegen {
         mv.visitInsn(Opcodes.RETURN);
 
         mv.visitLabel(sliceCheck);
-        emitLatticeFillArraySliceXzNativeFastPath(mv, classInternalName, slabPlan, pool, fallback);
+        emitLatticeFillArraySliceXzNativeFastPath(mv, classInternalName, slabPlan, pool, helpers, fallback);
 
         mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -3199,6 +3311,7 @@ public final class Codegen {
                                                                   String classInternalName,
                                                                   SlabNativeBatchPlan slabPlan,
                                                                   ConstantPool pool,
+                                                                  HelperRegistry helpers,
                                                                   Label fallback) {
         Label notSlice = new Label();
         Label scalarColumn = new Label();
@@ -3235,7 +3348,9 @@ public final class Codegen {
 
         int nn = pool.noiseSpecCount();
         for (SlabNativeBatchPlan.Slot s : slabPlan.slots()) {
-            if (s instanceof SlabNativeBatchPlan.MarkerSlot) {
+            if (s instanceof SlabNativeBatchPlan.MarkerSlot
+                    || s instanceof SlabNativeBatchPlan.InvokeSlot
+                    || s instanceof SlabNativeBatchPlan.ExtractedSlot) {
                 continue;
             }
             emitNativeHandleFieldLoad(mv, classInternalName, s.nativeHandleIndex(nn), false);
@@ -3274,6 +3389,27 @@ public final class Codegen {
                 mv.visitVarInsn(Opcodes.ILOAD, 40);
                 emitMarkerSlotCompute(mv, classInternalName, pool, ms.marker().externIndex(), 3);
                 mv.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.InvokeSlot is) {
+                mv.visitVarInsn(Opcodes.ALOAD, 3);
+                mv.visitVarInsn(Opcodes.ILOAD, 40);
+                mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                mv.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(mv, si);
+                mv.visitInsn(Opcodes.AALOAD);
+                mv.visitVarInsn(Opcodes.ILOAD, 40);
+                emitDirectExternCompute(mv, classInternalName, pool,
+                        new DirectExternResidual(is.invoke().externIndex(), false), 3);
+                mv.visitInsn(Opcodes.DASTORE);
+            } else if (slot instanceof SlabNativeBatchPlan.ExtractedSlot es) {
+                mv.visitVarInsn(Opcodes.ALOAD, 3);
+                mv.visitVarInsn(Opcodes.ILOAD, 40);
+                mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+                mv.visitVarInsn(Opcodes.ALOAD, 32);
+                ldcIntStatic(mv, si);
+                mv.visitInsn(Opcodes.AALOAD);
+                mv.visitVarInsn(Opcodes.ILOAD, 40);
+                emitExtractedSlotHelperCompute(mv, classInternalName, helpers, es.node());
+                mv.visitInsn(Opcodes.DASTORE);
             } else {
                 mv.visitVarInsn(Opcodes.ALOAD, 0);
                 mv.visitVarInsn(Opcodes.ALOAD, 3);
@@ -3289,7 +3425,9 @@ public final class Codegen {
             mv.visitJumpInsn(Opcodes.GOTO, prepHead);
             mv.visitLabel(prepEnd);
 
-            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)) {
+            if (!(slot instanceof SlabNativeBatchPlan.MarkerSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.InvokeSlot)
+                    && !(slot instanceof SlabNativeBatchPlan.ExtractedSlot)) {
                 emitNativeHandleFieldLoad(mv, classInternalName, slot.nativeHandleIndex(nn), false);
                 mv.visitVarInsn(Opcodes.ALOAD, 33);
                 mv.visitVarInsn(Opcodes.ALOAD, 34);
@@ -4542,18 +4680,34 @@ public final class Codegen {
                 return;
             }
 
+            if (n == 3 && !binarySearch && !lutSearch) {
+                emitThreePointSpline(fSlot, mp, snap, end, splineTimingStartSlot, splineTimingResultSlot);
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
+            if (n == 4 && !lutSearch) {
+                emitFourPointSpline(fSlot, mp, snap, end,
+                        binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
             Label leftExt = new Label();
             Label rightExt = new Label();
-
-            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
-            mv.visitLdcInsn(locs[0]);
-            mv.visitInsn(Opcodes.FCMPG);
-            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
 
             mv.visitVarInsn(Opcodes.FLOAD, fSlot);
             mv.visitLdcInsn(locs[n - 1]);
             mv.visitInsn(Opcodes.FCMPL);
             mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
 
             if (lutSearch) {
                 emitLutSplineSegments(fSlot, mp, snap, end, splineTimingStartSlot, splineTimingResultSlot);
@@ -4592,11 +4746,135 @@ public final class Codegen {
             mv.visitInsn(Opcodes.F2D);
         }
 
+        private void emitThreePointSpline(int fSlot, IRNode.Spline.Multipoint mp,
+                                          BranchScope snap, Label end,
+                                          int splineTimingStartSlot, int splineTimingResultSlot) {
+            float[] locs = mp.locations();
+            Label leftExt = new Label();
+            Label secondSegment = new Label();
+            Label rightExt = new Label();
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[2]);
+            mv.visitInsn(Opcodes.FCMPL);
+            mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[1]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, secondSegment);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 0);
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(secondSegment);
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 1);
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(leftExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(rightExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 2, mp.values().get(2));
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+        }
+
+        private void emitFourPointSpline(int fSlot, IRNode.Spline.Multipoint mp,
+                                         BranchScope snap, Label end,
+                                         int searchMode,
+                                         int splineTimingStartSlot, int splineTimingResultSlot) {
+            float[] locs = mp.locations();
+            Label leftExt = new Label();
+            Label segment1 = new Label();
+            Label segment2 = new Label();
+            Label rightExt = new Label();
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[3]);
+            mv.visitInsn(Opcodes.FCMPL);
+            mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[1]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, segment1);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 0);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(segment1);
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[2]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, segment2);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 1);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(segment2);
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 2);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(leftExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(rightExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 3, mp.values().get(3));
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+        }
+
         private void emitLinearSplineSegments(int fSlot, IRNode.Spline.Multipoint mp,
                                               BranchScope snap, Label end,
                                               int splineTimingStartSlot, int splineTimingResultSlot) {
             float[] locs = mp.locations();
-            for (int i = 0; i < locs.length - 1; i++) {
+            int lastSegment = locs.length - 2;
+            for (int i = 0; i < lastSegment; i++) {
                 mv.visitVarInsn(Opcodes.FLOAD, fSlot);
                 mv.visitLdcInsn(locs[i + 1]);
                 mv.visitInsn(Opcodes.FCMPG);
@@ -4610,6 +4888,14 @@ public final class Codegen {
                 mv.visitJumpInsn(Opcodes.GOTO, end);
                 mv.visitLabel(notThis);
             }
+            // The caller already handled left/right extrapolation, so falling through here
+            // means the coordinate must belong to the last interior segment.
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, lastSegment);
+            emitSplineRuntimeRecord(locs.length, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
         }
 
         private void emitBinarySplineSegments(int fSlot, IRNode.Spline.Multipoint mp,

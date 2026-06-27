@@ -162,6 +162,7 @@ public final class DfcSplineStats {
                     className,
                     entry != null ? entry.sourceRootClass() : "unknown",
                     entry != null ? entry.rootDebug() : "unknown",
+                    entry != null ? entry.splineDebug() : "unknown",
                     counter.calls.sum(),
                     counter.linearCalls.sum(),
                     counter.binaryCalls.sum(),
@@ -170,6 +171,8 @@ public final class DfcSplineStats {
                     counter.leftExtrapolationCalls.sum(),
                     counter.rightExtrapolationCalls.sum(),
                     counter.totalNanos.sum(),
+                    new BucketStats(counter.point3Calls.sum(), counter.point3Nanos.sum()),
+                    new BucketStats(counter.point4Calls.sum(), counter.point4Nanos.sum()),
                     new BucketStats(counter.bucketLe2Calls.sum(), counter.bucketLe2Nanos.sum()),
                     new BucketStats(counter.bucket3To4Calls.sum(), counter.bucket3To4Nanos.sum()),
                     new BucketStats(counter.bucket5To8Calls.sum(), counter.bucket5To8Nanos.sum()),
@@ -214,6 +217,7 @@ public final class DfcSplineStats {
     public record ClassStats(String className,
                              String sourceRootClass,
                              String rootDebug,
+                             String splineDebug,
                              long calls,
                              long linearCalls,
                              long binaryCalls,
@@ -222,6 +226,8 @@ public final class DfcSplineStats {
                              long leftExtrapolationCalls,
                              long rightExtrapolationCalls,
                              long totalNanos,
+                             BucketStats point3,
+                             BucketStats point4,
                              BucketStats bucketLe2,
                              BucketStats bucket3To4,
                              BucketStats bucket5To8,
@@ -284,6 +290,10 @@ public final class DfcSplineStats {
         private final LongAdder leftExtrapolationCalls = new LongAdder();
         private final LongAdder rightExtrapolationCalls = new LongAdder();
         private final LongAdder totalNanos = new LongAdder();
+        private final LongAdder point3Calls = new LongAdder();
+        private final LongAdder point3Nanos = new LongAdder();
+        private final LongAdder point4Calls = new LongAdder();
+        private final LongAdder point4Nanos = new LongAdder();
         private final LongAdder bucketLe2Calls = new LongAdder();
         private final LongAdder bucketLe2Nanos = new LongAdder();
         private final LongAdder bucket3To4Calls = new LongAdder();
@@ -307,6 +317,13 @@ public final class DfcSplineStats {
                 case EXIT_LEFT_EXTRAPOLATION -> leftExtrapolationCalls.add(weight);
                 case EXIT_RIGHT_EXTRAPOLATION -> rightExtrapolationCalls.add(weight);
                 default -> interiorCalls.add(weight);
+            }
+            if (pointCount == 3) {
+                point3Calls.add(weight);
+                point3Nanos.add(nanos);
+            } else if (pointCount == 4) {
+                point4Calls.add(weight);
+                point4Nanos.add(nanos);
             }
             if (pointCount <= 2) {
                 bucketLe2Calls.add(weight);

@@ -20,17 +20,18 @@ public final class DfcCompiledClassRegistry {
                         boolean latticeEmitted, boolean slabInnerProgramPresent,
                         boolean cellAddLatticeSpecialized,
                         boolean cellAddExternSpecialized,
-                        String rootDebug) {
+                        String rootDebug,
+                        String splineDebug) {
     }
 
     public static void record(String classInternalName, String sourceRootClass,
                               boolean latticeEmitted, boolean slabInnerProgramPresent,
                               boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized,
-                              String rootDebug) {
+                              String rootDebug, String splineDebug) {
         String normalized = normalize(classInternalName);
         Entry newEntry = new Entry(
                 normalized, sourceRootClass, latticeEmitted, slabInnerProgramPresent,
-                cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug);
+                cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug, splineDebug);
         Entry previous = ENTRIES.putIfAbsent(normalized, newEntry);
         if (previous == null) {
             synchronized (INSERTION_ORDER) {

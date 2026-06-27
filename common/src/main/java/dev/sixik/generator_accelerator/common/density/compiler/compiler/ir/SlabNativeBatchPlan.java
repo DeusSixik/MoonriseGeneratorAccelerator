@@ -17,7 +17,7 @@ import java.util.Optional;
  */
 public final class SlabNativeBatchPlan {
 
-    public sealed interface Slot permits NormalSlot, BlendedSlot, MarkerSlot {
+    public sealed interface Slot permits NormalSlot, BlendedSlot, MarkerSlot, InvokeSlot, ExtractedSlot {
         /** Index into {@code nativeSlabOut[slotIndex]} in {@code lattice_inner_batched}. */
         int slotIndex();
 
@@ -46,6 +46,20 @@ public final class SlabNativeBatchPlan {
         }
     }
 
+    public record InvokeSlot(int slotIndex, IRNode.Invoke invoke) implements Slot {
+        @Override
+        public int nativeHandleIndex(int noiseSpecCount) {
+            return -1;
+        }
+    }
+
+    public record ExtractedSlot(int slotIndex, IRNode node) implements Slot {
+        @Override
+        public int nativeHandleIndex(int noiseSpecCount) {
+            return -1;
+        }
+    }
+
     private final List<Slot> slots;
 
     private SlabNativeBatchPlan(List<Slot> slots) {
@@ -67,7 +81,8 @@ public final class SlabNativeBatchPlan {
      * @param blendedNoiseSpecCount blended spec count (handle indices {@code noiseSpecCount + j})
      */
     public static Optional<SlabNativeBatchPlan> analyze(IRNode root, CellLatticeOption.LatticePlan plan,
-                                                        int noiseSpecCount, int blendedNoiseSpecCount) {
+                                                        int noiseSpecCount, int blendedNoiseSpecCount,
+                                                        java.util.Set<IRNode> extracted) {
         if (plan.hoistAxis() != CellLatticeOption.Axis.Y_ONLY
                 && plan.hoistAxis() != CellLatticeOption.Axis.XZ_ONLY) {
             return Optional.empty();
@@ -77,7 +92,7 @@ public final class SlabNativeBatchPlan {
         IdentityHashMap<IRNode, Boolean> assigned = new IdentityHashMap<>();
         int[] nextIdx = {0};
 
-        collectSlots(root, hoisted, out, assigned, nextIdx);
+        collectSlots(root, hoisted, extracted, out, assigned, nextIdx);
         if (out.isEmpty()) {
             DfcNativePlanningStats.recordSlabPlanMissingNoSlots();
             return Optional.empty();
@@ -98,7 +113,9 @@ public final class SlabNativeBatchPlan {
                     DfcNativePlanningStats.recordSlabPlanMissingBadHandleIndex();
                     return Optional.empty();
                 }
-            } else if (!(s instanceof MarkerSlot)) {
+            } else if (!(s instanceof MarkerSlot)
+                    && !(s instanceof InvokeSlot)
+                    && !(s instanceof ExtractedSlot)) {
                 DfcNativePlanningStats.recordSlabPlanMissingBadHandleIndex();
                 return Optional.empty();
             }
@@ -110,9 +127,16 @@ public final class SlabNativeBatchPlan {
      * DFS from {@code n}. When {@code n == hoisted}, stop descending — {@code lattice_inner}
      * treats the hoisted node as a single spilled value and never visits its children.
      */
-    private static void collectSlots(IRNode n, IRNode hoisted, List<Slot> out,
+    private static void collectSlots(IRNode n, IRNode hoisted, java.util.Set<IRNode> extracted,
+                                     List<Slot> out,
                                      IdentityHashMap<IRNode, Boolean> assigned, int[] nextIdx) {
         if (n == hoisted) {
+            return;
+        }
+        if (extracted != null && extracted.contains(n)) {
+            if (assigned.put(n, Boolean.TRUE) == null) {
+                out.add(new ExtractedSlot(nextIdx[0]++, n));
+            }
             return;
         }
         if (n instanceof IRNode.InlinedNoise in) {
@@ -127,9 +151,13 @@ public final class SlabNativeBatchPlan {
             if (assigned.put(marker, Boolean.TRUE) == null) {
                 out.add(new MarkerSlot(nextIdx[0]++, marker));
             }
+        } else if (n instanceof IRNode.Invoke invoke) {
+            if (assigned.put(invoke, Boolean.TRUE) == null) {
+                out.add(new InvokeSlot(nextIdx[0]++, invoke));
+            }
         }
         for (IRNode c : RefCount.children(n)) {
-            collectSlots(c, hoisted, out, assigned, nextIdx);
+            collectSlots(c, hoisted, extracted, out, assigned, nextIdx);
         }
     }
 
