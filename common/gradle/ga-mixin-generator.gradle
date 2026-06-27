@@ -303,7 +303,7 @@ def gaReadNamedClassNameArrayArgument = { Map metadata, String arguments, String
 def gaExtractJavaMetadata = { File file ->
     def text = gaReadText(file)
     def packageMatcher = (text =~ /(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;/)
-    def typeMatcher = (text =~ /\b(?:class|record|interface|enum)\s+([A-Za-z0-9_$]+)/)
+    def typeMatcher = (text =~ /(?m)^\s*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*(?:class|record|interface|enum)\s+([A-Za-z0-9_$]+)\b/)
     if (!packageMatcher.find() || !typeMatcher.find()) {
         return null
     }
@@ -510,13 +510,13 @@ def gaRenderMixinBootstrap = { Map<String, List<Map>> mixinsByPlugin, Map<String
     } else {
         pluginClasses.each { String pluginClass ->
             lines << "            case \"${pluginClass}\" -> {"
-            mixinsByPlugin.find { entry -> entry.key.toString() == pluginClass }?.value
-                    .sort { left, right -> left.mixinClass <=> right.mixinClass }
+            def configMixins = mixinsByPlugin.find { entry -> entry.key.toString() == pluginClass }?.value ?: []
+            configMixins.sort { left, right -> left.mixinClass <=> right.mixinClass }
                     .each { Map entry ->
                         lines << "                plugin.addMixinToConfig(\"${entry.mixinClass}\", (config) -> config.${entry.name});"
                     }
-            compatByPlugin.find { entry -> entry.key.toString() == pluginClass }?.value
-                    .sort { left, right -> left.mixinClass <=> right.mixinClass }
+            def compatMixinsForPlugin = compatByPlugin.find { entry -> entry.key.toString() == pluginClass }?.value ?: []
+            compatMixinsForPlugin.sort { left, right -> left.mixinClass <=> right.mixinClass }
                     .each { Map entry ->
                         def requiredClasses = (entry.requiredClasses + entry.requiredClassNames).findAll { it != null && !it.toString().isBlank() }.unique()
                         def disableArgs = entry.disableMixins.isEmpty()

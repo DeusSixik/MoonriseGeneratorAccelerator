@@ -25,6 +25,14 @@ public final class GAConfig {
 
     @Serializable(
             comment = """
+                    Enables the Density Function Compiler mixin module.
+                    Also disables conflicting C2ME DFC mixins when their compat classes are present.
+                    """
+    )
+    public boolean enableDensityCompilerPatch = true;
+
+    @Serializable(
+            comment = """
                     Generated mixin toggle for dev.sixik.generator_accelerator.common.basic.mixin.ExampleCompatMixin.
                     """
     )

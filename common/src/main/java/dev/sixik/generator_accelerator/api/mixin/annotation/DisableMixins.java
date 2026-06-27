@@ -12,12 +12,12 @@ import java.lang.annotation.Target;
  * @DisableMixins({
  *         "com.example.mixin.One",
  *         "com.example.mixin.Two"
- * })
+ * )
  *
  * @DisableMixins(valueByClass = {
  *         SomeForeignMixin.class,
  *         AnotherForeignMixin.class
- * })
+ * )
  * }</pre>
  */
 @Target(ElementType.TYPE)
