@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.debug;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.aquifer.AquiferStats;
+import dev.sixik.generator_accelerator.common.beardifier.BeardifierStats;
 import dev.sixik.generator_accelerator.common.biome.climate.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
@@ -130,6 +131,8 @@ public final class GADebugOverlay {
         drawCellFill();
         ImGui.separator();
         drawAquiferStats();
+        ImGui.separator();
+        drawBeardifierStats();
         ImGui.separator();
         drawSplineStats();
         ImGui.separator();
@@ -330,6 +333,36 @@ public final class GADebugOverlay {
         ImGui.text("Aquifer status timed calls/ns: " + stats.aquiferStatusTimedCalls() + "/" + stats.aquiferStatusTotalNanos());
     }
 
+    private static void drawBeardifierStats() {
+        if (!ImGui.collapsingHeader("Beardifier", ImGuiTreeNodeFlags.DefaultOpen)) {
+            return;
+        }
+
+        BeardifierStats.Stats stats = BeardifierStats.snapshotStats();
+        ImGui.text("Compute/fill/accumulate cells: " + stats.computeCellCalls() + "/"
+                + stats.fillCellCalls() + "/" + stats.accumulateCellCalls());
+        ImGui.text("Cell active pieces/junctions: " + stats.cellActivePieces() + "/" + stats.cellActiveJunctions());
+        ImGui.text("Outside influence / empty active: " + stats.outsideInfluenceReturns() + "/"
+                + stats.emptyActiveReturns());
+        ImGui.text("Columns processed: " + stats.columnsProcessed());
+        ImGui.text("Column cache hits: " + stats.columnCacheHits());
+        ImGui.text("Direct compute fallbacks: " + stats.directComputeFallbacks());
+        ImGui.text("Empty columns after filter: " + stats.emptyColumnsAfterFilter());
+        ImGui.text("Column pieces before/after filter: " + stats.columnPiecesBeforeFilter() + "/"
+                + stats.columnPiecesAfterFilter());
+        ImGui.text("Column junctions before/after filter: " + stats.columnJunctionsBeforeFilter() + "/"
+                + stats.columnJunctionsAfterFilter());
+        ImGui.text("Filtered bury/thin/box/encapsulate: " + stats.filteredBuryPieces() + "/"
+                + stats.filteredThinPieces() + "/" + stats.filteredBoxPieces() + "/"
+                + stats.filteredEncapsulatePieces());
+        ImGui.text("Compute cell timed calls/ns: " + stats.computeCellTimedCalls() + "/"
+                + stats.computeCellTotalNanos());
+        ImGui.text("Rebuild column timed calls/ns: " + stats.rebuildColumnTimedCalls() + "/"
+                + stats.rebuildColumnTotalNanos());
+        ImGui.text("Direct compute timed calls/ns: " + stats.directComputeTimedCalls() + "/"
+                + stats.directComputeTotalNanos());
+    }
+
     private static void drawRegistryWarmer() {
         if (!ImGui.collapsingHeader("Registry Warmer", ImGuiTreeNodeFlags.DefaultOpen)) {
             return;
@@ -429,6 +462,7 @@ public final class GADebugOverlay {
         DfcNativePlanningStats.Stats nativePlanningStats = DfcNativePlanningStats.snapshot();
         DfcSplineStats.Stats splineStats = DfcSplineStats.snapshot();
         AquiferStats.Stats aquiferStats = AquiferStats.snapshotStats();
+        BeardifierStats.Stats beardifierStats = BeardifierStats.snapshotStats();
         RegistryWarmer.Stats registryWarmerStats = RegistryWarmer.snapshotStats();
         List<DfcSplineStats.ClassStats> topSplineClasses = DfcSplineStats.snapshotTopClasses(5);
 
@@ -591,6 +625,33 @@ public final class GADebugOverlay {
         appendLine(dump, "lazyThirdTotalNanos", aquiferStats.lazyThirdTotalNanos());
         appendLine(dump, "aquiferStatusTimedCalls", aquiferStats.aquiferStatusTimedCalls());
         appendLine(dump, "aquiferStatusTotalNanos", aquiferStats.aquiferStatusTotalNanos());
+
+        appendSection(dump, "Beardifier");
+        appendLine(dump, "computeCellCalls", beardifierStats.computeCellCalls());
+        appendLine(dump, "fillCellCalls", beardifierStats.fillCellCalls());
+        appendLine(dump, "accumulateCellCalls", beardifierStats.accumulateCellCalls());
+        appendLine(dump, "cellActivePieces", beardifierStats.cellActivePieces());
+        appendLine(dump, "cellActiveJunctions", beardifierStats.cellActiveJunctions());
+        appendLine(dump, "outsideInfluenceReturns", beardifierStats.outsideInfluenceReturns());
+        appendLine(dump, "emptyActiveReturns", beardifierStats.emptyActiveReturns());
+        appendLine(dump, "columnsProcessed", beardifierStats.columnsProcessed());
+        appendLine(dump, "columnCacheHits", beardifierStats.columnCacheHits());
+        appendLine(dump, "directComputeFallbacks", beardifierStats.directComputeFallbacks());
+        appendLine(dump, "emptyColumnsAfterFilter", beardifierStats.emptyColumnsAfterFilter());
+        appendLine(dump, "columnPiecesBeforeFilter", beardifierStats.columnPiecesBeforeFilter());
+        appendLine(dump, "columnPiecesAfterFilter", beardifierStats.columnPiecesAfterFilter());
+        appendLine(dump, "columnJunctionsBeforeFilter", beardifierStats.columnJunctionsBeforeFilter());
+        appendLine(dump, "columnJunctionsAfterFilter", beardifierStats.columnJunctionsAfterFilter());
+        appendLine(dump, "filteredBuryPieces", beardifierStats.filteredBuryPieces());
+        appendLine(dump, "filteredThinPieces", beardifierStats.filteredThinPieces());
+        appendLine(dump, "filteredBoxPieces", beardifierStats.filteredBoxPieces());
+        appendLine(dump, "filteredEncapsulatePieces", beardifierStats.filteredEncapsulatePieces());
+        appendLine(dump, "computeCellTimedCalls", beardifierStats.computeCellTimedCalls());
+        appendLine(dump, "computeCellTotalNanos", beardifierStats.computeCellTotalNanos());
+        appendLine(dump, "rebuildColumnTimedCalls", beardifierStats.rebuildColumnTimedCalls());
+        appendLine(dump, "rebuildColumnTotalNanos", beardifierStats.rebuildColumnTotalNanos());
+        appendLine(dump, "directComputeTimedCalls", beardifierStats.directComputeTimedCalls());
+        appendLine(dump, "directComputeTotalNanos", beardifierStats.directComputeTotalNanos());
 
         appendSection(dump, "Registry Warmer");
         appendLine(dump, "calls", registryWarmerStats.calls());
