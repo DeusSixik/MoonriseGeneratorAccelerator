@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.debug;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.common.aquifer.AquiferStats;
 import dev.sixik.generator_accelerator.common.biome.climate.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
@@ -127,6 +128,8 @@ public final class GADebugOverlay {
         drawRouterPipeline();
         ImGui.separator();
         drawCellFill();
+        ImGui.separator();
+        drawAquiferStats();
         ImGui.separator();
         drawSplineStats();
         ImGui.separator();
@@ -307,6 +310,26 @@ public final class GADebugOverlay {
         }
     }
 
+    private static void drawAquiferStats() {
+        if (!ImGui.collapsingHeader("Aquifer", ImGuiTreeNodeFlags.DefaultOpen)) {
+            return;
+        }
+
+        AquiferStats.Stats stats = AquiferStats.snapshotStats();
+        ImGui.text("computeSubstance calls: " + stats.computeSubstanceCalls());
+        ImGui.text("Positive density returns: " + stats.positiveDensityReturns());
+        ImGui.text("Global lava returns: " + stats.globalLavaReturns());
+        ImGui.text("Refresh dist calls: " + stats.refreshDistCalls());
+        ImGui.text("Barrier noise computes: " + stats.barrierNoiseComputes());
+        ImGui.text("Water-below-lava returns: " + stats.waterBelowLavaReturns());
+        ImGui.text("Pressure abort returns: " + stats.pressureAbortReturns());
+        ImGui.text("Final solid returns: " + stats.finalSolidReturns());
+        ImGui.text("Lazy third resolves: " + stats.lazyThirdResolves());
+        ImGui.text("Refresh dist timed calls/ns: " + stats.refreshDistTimedCalls() + "/" + stats.refreshDistTotalNanos());
+        ImGui.text("Lazy third timed calls/ns: " + stats.lazyThirdTimedCalls() + "/" + stats.lazyThirdTotalNanos());
+        ImGui.text("Aquifer status timed calls/ns: " + stats.aquiferStatusTimedCalls() + "/" + stats.aquiferStatusTotalNanos());
+    }
+
     private static void drawRegistryWarmer() {
         if (!ImGui.collapsingHeader("Registry Warmer", ImGuiTreeNodeFlags.DefaultOpen)) {
             return;
@@ -405,6 +428,7 @@ public final class GADebugOverlay {
         DfcCellFillParity.Stats parityStats = DfcCellFillParity.snapshotStats();
         DfcNativePlanningStats.Stats nativePlanningStats = DfcNativePlanningStats.snapshot();
         DfcSplineStats.Stats splineStats = DfcSplineStats.snapshot();
+        AquiferStats.Stats aquiferStats = AquiferStats.snapshotStats();
         RegistryWarmer.Stats registryWarmerStats = RegistryWarmer.snapshotStats();
         List<DfcSplineStats.ClassStats> topSplineClasses = DfcSplineStats.snapshotTopClasses(5);
 
@@ -550,6 +574,23 @@ public final class GADebugOverlay {
                         + ", >=9=" + formatBucket(stat.bucketGe9())
                         + "}")
                 .toList());
+
+        appendSection(dump, "Aquifer");
+        appendLine(dump, "computeSubstanceCalls", aquiferStats.computeSubstanceCalls());
+        appendLine(dump, "positiveDensityReturns", aquiferStats.positiveDensityReturns());
+        appendLine(dump, "globalLavaReturns", aquiferStats.globalLavaReturns());
+        appendLine(dump, "refreshDistCalls", aquiferStats.refreshDistCalls());
+        appendLine(dump, "barrierNoiseComputes", aquiferStats.barrierNoiseComputes());
+        appendLine(dump, "waterBelowLavaReturns", aquiferStats.waterBelowLavaReturns());
+        appendLine(dump, "pressureAbortReturns", aquiferStats.pressureAbortReturns());
+        appendLine(dump, "finalSolidReturns", aquiferStats.finalSolidReturns());
+        appendLine(dump, "lazyThirdResolves", aquiferStats.lazyThirdResolves());
+        appendLine(dump, "refreshDistTimedCalls", aquiferStats.refreshDistTimedCalls());
+        appendLine(dump, "refreshDistTotalNanos", aquiferStats.refreshDistTotalNanos());
+        appendLine(dump, "lazyThirdTimedCalls", aquiferStats.lazyThirdTimedCalls());
+        appendLine(dump, "lazyThirdTotalNanos", aquiferStats.lazyThirdTotalNanos());
+        appendLine(dump, "aquiferStatusTimedCalls", aquiferStats.aquiferStatusTimedCalls());
+        appendLine(dump, "aquiferStatusTotalNanos", aquiferStats.aquiferStatusTotalNanos());
 
         appendSection(dump, "Registry Warmer");
         appendLine(dump, "calls", registryWarmerStats.calls());
