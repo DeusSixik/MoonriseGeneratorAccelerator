@@ -51,10 +51,9 @@ import java.util.List;
  * <ul>
  *   <li>{@code dfc$ctorSession} — installed lazily by the constructor's first
  *       {@code mapAll} redirect and reused for the duration of {@code <init>}.
- *       It is intentionally <em>not</em> cleared at the end of {@code <init>} so
- *       that any post-construction internal {@code mapAll} call (vanilla doesn't
- *       have one but a mod might) can still benefit. The session weakly references
- *       the original visitor only for the lifetime of the chunk.</li>
+ *       It is cleared before the constructed chunk escapes because {@code mapAll}
+ *       creates chunk-local wrapper graphs; retaining the session pins transient
+ *       density functions and defeats GC.</li>
  *
  *   <li>{@code dfc$samplerSession} — scoped to a single
  *       {@code cachedClimateSampler} invocation. Cleared at HEAD and RETURN so
@@ -98,7 +97,13 @@ public abstract class NoiseChunkSessionMixin {
             session = (visitor instanceof MapAllSession existing) ? existing : new MapAllSession(visitor);
             this.dfc$ctorSession = session;
         }
-        return self.mapAll(session);
+        try {
+            return self.mapAll(session);
+        } finally {
+            if (this.dfc$ctorSession == session) {
+                this.dfc$ctorSession = null;
+            }
+        }
     }
 
     @Inject(method = "cachedClimateSampler", at = @At("HEAD"))

@@ -144,6 +144,7 @@ public final class Codegen {
             Type.getInternalName(DfcSplineSupport.SegmentLut.class);
     private static final String DFC_SPLINE_SEGMENT_LUT_DESC = "L" + DFC_SPLINE_SEGMENT_LUT_INTERNAL + ";";
     private static final String DFC_SPLINE_SELECT_SEGMENT_DESC = "(" + DFC_SPLINE_SEGMENT_LUT_DESC + "F)I";
+    private static final String DFC_SPLINE_SELECT_BINARY_DESC = "([FF)I";
     private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL =
             "dev/sixik/generator_accelerator/common/noise/DfcNoiseChunkSliceAccess";
     private static final String DFC_VECTOR_SUPPORT_INTERNAL = Type.getInternalName(DfcVectorSupport.class);
@@ -4522,17 +4523,22 @@ public final class Codegen {
         /* ---------------- spline ---------------- */
 
         private void emitMultipointSpline(IRNode.Spline.Multipoint mp) {
-            // Compute coordinate, spill to slot, then dispatch to the right segment.
-            emit(mp.coordinate());
-            mv.visitInsn(Opcodes.D2F);
-            int fSlot = allocFloatSlot();
-            mv.visitVarInsn(Opcodes.FSTORE, fSlot);
-
             float[] locs = mp.locations();
             int n = locs.length;
             Label end = new Label();
             boolean binarySearch = useBinarySplineSearch(n);
             boolean lutSearch = useSplineSegmentLut(n, locs);
+            int searchMode = lutSearch ? DfcSplineStats.SEARCH_LUT
+                    : (binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR);
+            boolean point4RightConstantFast = n == 4
+                    && !lutSearch
+                    && mp.derivatives()[n - 1] == 0.0F
+                    && mp.values().get(n - 1) instanceof IRNode.Spline.Constant;
+
+            emit(mp.coordinate());
+            mv.visitInsn(Opcodes.D2F);
+            int fSlot = allocFloatSlot();
+            mv.visitVarInsn(Opcodes.FSTORE, fSlot);
             int splineTimingStartSlot = -1;
             int splineTimingResultSlot = -1;
             if (SPLINE_RUNTIME_STATS_ENABLED) {
@@ -4549,6 +4555,29 @@ public final class Codegen {
             // sibling arm runs (slot indices and IRNode→slot bindings are reset).
             BranchScope snap = snapshotBranch();
 
+            if (point4RightConstantFast) {
+                Label rightFast = new Label();
+                mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+                mv.visitLdcInsn(locs[n - 1]);
+                mv.visitInsn(Opcodes.FCMPL);
+                mv.visitJumpInsn(Opcodes.IFGE, rightFast);
+
+                emitFourPointSpline(fSlot, mp, snap, end, searchMode,
+                        splineTimingStartSlot, splineTimingResultSlot, true);
+
+                mv.visitLabel(rightFast);
+                restoreBranch(snap);
+                emitSplineAsFloat(mp.values().get(n - 1));
+                emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                restoreBranch(snap);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
             if (n == 1) {
                 emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
                 emitSplineRuntimeRecord(n, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
@@ -4560,18 +4589,33 @@ public final class Codegen {
                 return;
             }
 
+            if (n == 3 && !binarySearch && !lutSearch) {
+                emitThreePointSpline(fSlot, mp, snap, end, splineTimingStartSlot, splineTimingResultSlot);
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
+            if (n == 4 && !lutSearch) {
+                emitFourPointSpline(fSlot, mp, snap, end, searchMode,
+                        splineTimingStartSlot, splineTimingResultSlot, false);
+                mv.visitLabel(end);
+                mv.visitInsn(Opcodes.F2D);
+                return;
+            }
+
             Label leftExt = new Label();
             Label rightExt = new Label();
-
-            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
-            mv.visitLdcInsn(locs[0]);
-            mv.visitInsn(Opcodes.FCMPG);
-            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
 
             mv.visitVarInsn(Opcodes.FLOAD, fSlot);
             mv.visitLdcInsn(locs[n - 1]);
             mv.visitInsn(Opcodes.FCMPL);
             mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
 
             if (lutSearch) {
                 emitLutSplineSegments(fSlot, mp, snap, end, splineTimingStartSlot, splineTimingResultSlot);
@@ -4588,10 +4632,7 @@ public final class Codegen {
             mv.visitLabel(leftExt);
             restoreBranch(snap);
             emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
-            emitSplineRuntimeRecord(n,
-                    lutSearch ? DfcSplineStats.SEARCH_LUT
-                            : (binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR),
-                    DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
+            emitSplineRuntimeRecord(n, searchMode, DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
                     splineTimingStartSlot, splineTimingResultSlot);
             restoreBranch(snap);
             mv.visitJumpInsn(Opcodes.GOTO, end);
@@ -4599,10 +4640,7 @@ public final class Codegen {
             mv.visitLabel(rightExt);
             restoreBranch(snap);
             emitLinearExtend(fSlot, locs, mp.derivatives(), n - 1, mp.values().get(n - 1));
-            emitSplineRuntimeRecord(n,
-                    lutSearch ? DfcSplineStats.SEARCH_LUT
-                            : (binarySearch ? DfcSplineStats.SEARCH_BINARY : DfcSplineStats.SEARCH_LINEAR),
-                    DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+            emitSplineRuntimeRecord(n, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
                     splineTimingStartSlot, splineTimingResultSlot);
             restoreBranch(snap);
 
@@ -4610,11 +4648,140 @@ public final class Codegen {
             mv.visitInsn(Opcodes.F2D);
         }
 
+        private void emitThreePointSpline(int fSlot, IRNode.Spline.Multipoint mp,
+                                          BranchScope snap, Label end,
+                                          int splineTimingStartSlot, int splineTimingResultSlot) {
+            float[] locs = mp.locations();
+            Label leftExt = new Label();
+            Label secondSegment = new Label();
+            Label rightExt = new Label();
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[2]);
+            mv.visitInsn(Opcodes.FCMPL);
+            mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[1]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, secondSegment);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 0);
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(secondSegment);
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 1);
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(leftExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(rightExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 2, mp.values().get(2));
+            emitSplineRuntimeRecord(3, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+        }
+
+        private void emitFourPointSpline(int fSlot, IRNode.Spline.Multipoint mp,
+                                         BranchScope snap, Label end,
+                                         int searchMode,
+                                         int splineTimingStartSlot, int splineTimingResultSlot,
+                                         boolean rightAlreadyChecked) {
+            float[] locs = mp.locations();
+            Label leftExt = new Label();
+            Label segment1 = new Label();
+            Label segment2 = new Label();
+            Label rightExt = rightAlreadyChecked ? null : new Label();
+
+            if (!rightAlreadyChecked) {
+                mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+                mv.visitLdcInsn(locs[3]);
+                mv.visitInsn(Opcodes.FCMPL);
+                mv.visitJumpInsn(Opcodes.IFGE, rightExt);
+            }
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[0]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, leftExt);
+
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[1]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, segment1);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 0);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(segment1);
+            mv.visitVarInsn(Opcodes.FLOAD, fSlot);
+            mv.visitLdcInsn(locs[2]);
+            mv.visitInsn(Opcodes.FCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, segment2);
+
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 1);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(segment2);
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, 2);
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(leftExt);
+            restoreBranch(snap);
+            emitLinearExtend(fSlot, locs, mp.derivatives(), 0, mp.values().get(0));
+            emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_LEFT_EXTRAPOLATION,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            if (!rightAlreadyChecked) {
+                mv.visitLabel(rightExt);
+                restoreBranch(snap);
+                emitLinearExtend(fSlot, locs, mp.derivatives(), 3, mp.values().get(3));
+                emitSplineRuntimeRecord(4, searchMode, DfcSplineStats.EXIT_RIGHT_EXTRAPOLATION,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                restoreBranch(snap);
+            }
+        }
+
         private void emitLinearSplineSegments(int fSlot, IRNode.Spline.Multipoint mp,
                                               BranchScope snap, Label end,
                                               int splineTimingStartSlot, int splineTimingResultSlot) {
             float[] locs = mp.locations();
-            for (int i = 0; i < locs.length - 1; i++) {
+            int lastSegment = locs.length - 2;
+            for (int i = 0; i < lastSegment; i++) {
                 mv.visitVarInsn(Opcodes.FLOAD, fSlot);
                 mv.visitLdcInsn(locs[i + 1]);
                 mv.visitInsn(Opcodes.FCMPG);
@@ -4628,13 +4795,20 @@ public final class Codegen {
                 mv.visitJumpInsn(Opcodes.GOTO, end);
                 mv.visitLabel(notThis);
             }
+            restoreBranch(snap);
+            emitInterpolatedSegment(fSlot, mp, lastSegment);
+            emitSplineRuntimeRecord(locs.length, DfcSplineStats.SEARCH_LINEAR, DfcSplineStats.EXIT_INTERIOR,
+                    splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
         }
 
         private void emitBinarySplineSegments(int fSlot, IRNode.Spline.Multipoint mp,
                                               BranchScope snap, Label end,
                                               int loSegment, int hiSegment,
                                               int splineTimingStartSlot, int splineTimingResultSlot) {
-            if (loSegment == hiSegment) {
+            int segmentCount = hiSegment - loSegment + 1;
+            if (segmentCount == 1) {
                 restoreBranch(snap);
                 emitInterpolatedSegment(fSlot, mp, loSegment);
                 emitSplineRuntimeRecord(mp.locations().length, DfcSplineStats.SEARCH_BINARY,
@@ -4645,18 +4819,45 @@ public final class Codegen {
                 return;
             }
 
-            int midSegment = (loSegment + hiSegment) >>> 1;
-            Label right = new Label();
+            int locationsIndex = pool.internSpline(mp.locations().clone());
+            int segmentSlot = allocIntSlot();
+            Label fallback = new Label();
+            Label[] cases = new Label[segmentCount];
+            for (int i = 0; i < segmentCount; i++) {
+                cases[i] = new Label();
+            }
+
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitFieldInsn(Opcodes.GETFIELD, COMPILED_BASE_INTERNAL, "splines", OBJECT_ARRAY_DESC);
+            ldcInt(locationsIndex);
+            mv.visitInsn(Opcodes.AALOAD);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, "[F");
             mv.visitVarInsn(Opcodes.FLOAD, fSlot);
-            mv.visitLdcInsn(mp.locations()[midSegment + 1]);
-            mv.visitInsn(Opcodes.FCMPG);
-            mv.visitJumpInsn(Opcodes.IFGE, right);
-            emitBinarySplineSegments(fSlot, mp, snap, end, loSegment, midSegment,
-                    splineTimingStartSlot, splineTimingResultSlot);
-            mv.visitLabel(right);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_SPLINE_SUPPORT_INTERNAL, "selectSegmentBinary",
+                    DFC_SPLINE_SELECT_BINARY_DESC, false);
+            mv.visitVarInsn(Opcodes.ISTORE, segmentSlot);
+
+            mv.visitVarInsn(Opcodes.ILOAD, segmentSlot);
+            mv.visitTableSwitchInsn(loSegment, hiSegment, fallback, cases);
+            for (int i = 0; i < segmentCount; i++) {
+                mv.visitLabel(cases[i]);
+                restoreBranch(snap);
+                emitInterpolatedSegment(fSlot, mp, loSegment + i);
+                emitSplineRuntimeRecord(mp.locations().length, DfcSplineStats.SEARCH_BINARY,
+                        DfcSplineStats.EXIT_INTERIOR,
+                        splineTimingStartSlot, splineTimingResultSlot);
+                restoreBranch(snap);
+                mv.visitJumpInsn(Opcodes.GOTO, end);
+            }
+
+            mv.visitLabel(fallback);
             restoreBranch(snap);
-            emitBinarySplineSegments(fSlot, mp, snap, end, midSegment + 1, hiSegment,
+            emitInterpolatedSegment(fSlot, mp, hiSegment);
+            emitSplineRuntimeRecord(mp.locations().length, DfcSplineStats.SEARCH_BINARY,
+                    DfcSplineStats.EXIT_INTERIOR,
                     splineTimingStartSlot, splineTimingResultSlot);
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
         }
 
         private void emitLutSplineSegments(int fSlot, IRNode.Spline.Multipoint mp,

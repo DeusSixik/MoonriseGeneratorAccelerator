@@ -7,6 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * ({@code pkg.CompiledDF_xxx}, without the VM-added {@code /0x...} suffix).
  */
 public final class DfcCompiledClassRegistry {
+    private static final int MAX_ENTRIES = Math.max(1,
+            Integer.getInteger("dfc.compiledClassRegistry.maxEntries", 512));
     private static final ConcurrentHashMap<String, Entry> ENTRIES = new ConcurrentHashMap<>();
 
     private DfcCompiledClassRegistry() {
@@ -23,9 +25,18 @@ public final class DfcCompiledClassRegistry {
                               boolean latticeEmitted, boolean slabInnerProgramPresent,
                               boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized,
                               String rootDebug) {
-        ENTRIES.putIfAbsent(normalize(classInternalName), new Entry(
-                normalize(classInternalName), sourceRootClass, latticeEmitted, slabInnerProgramPresent,
+        String normalized = normalize(classInternalName);
+        if (ENTRIES.containsKey(normalized)) {
+            return;
+        }
+        synchronized (ENTRIES) {
+            if (ENTRIES.containsKey(normalized) || ENTRIES.size() >= MAX_ENTRIES) {
+                return;
+            }
+            ENTRIES.put(normalized, new Entry(
+                normalized, sourceRootClass, latticeEmitted, slabInnerProgramPresent,
                 cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug));
+        }
     }
 
     public static Entry lookup(String runtimeClassName) {

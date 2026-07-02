@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class DfcSplineStats {
     public static volatile boolean ENABLED = Boolean.getBoolean("dfc.codegen.splineRuntimeStats");
+    private static final int MAX_TRACKED_CLASSES = Math.max(1,
+            Integer.getInteger("dfc.codegen.splineRuntimeStats.maxTrackedClasses", 256));
 
     public static final int SEARCH_LINEAR = 0;
     public static final int SEARCH_BINARY = 1;
@@ -126,8 +128,10 @@ public final class DfcSplineStats {
 
         String normalizedClassName = normalizeClassName(className);
         if (!normalizedClassName.isEmpty()) {
-            CLASS_COUNTERS.computeIfAbsent(normalizedClassName, ignored -> new ClassStatsCounter())
-                    .record(pointCount, searchMode, exitKind, weightedNanos, weight);
+            ClassStatsCounter counter = trackedClassStatsCounter(normalizedClassName);
+            if (counter != null) {
+                counter.record(pointCount, searchMode, exitKind, weightedNanos, weight);
+            }
         }
     }
 
@@ -255,6 +259,25 @@ public final class DfcSplineStats {
     private static int sampleShift() {
         int configured = Integer.getInteger("dfc.codegen.splineRuntimeStats.sampleShift", 8);
         return Math.max(0, Math.min(20, configured));
+    }
+
+    private static ClassStatsCounter trackedClassStatsCounter(String className) {
+        ClassStatsCounter existing = CLASS_COUNTERS.get(className);
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (CLASS_COUNTERS) {
+            existing = CLASS_COUNTERS.get(className);
+            if (existing != null) {
+                return existing;
+            }
+            if (CLASS_COUNTERS.size() >= MAX_TRACKED_CLASSES) {
+                return null;
+            }
+            ClassStatsCounter created = new ClassStatsCounter();
+            CLASS_COUNTERS.put(className, created);
+            return created;
+        }
     }
 
     private static final class SamplerState {

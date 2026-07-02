@@ -239,7 +239,11 @@ public final class IRBuilder {
         }
 
         if (df instanceof DensityFunctions.Spline splineDf) {
-            return new SplineInliner(this).inline(splineDf.spline());
+            try {
+                return new SplineInliner(this).inline(splineDf.spline());
+            } catch (SplineInliner.UnsupportedSplineException ignored) {
+                return invokeOpaque(df);
+            }
         }
 
         if (df instanceof BlendedNoise blended && df.getClass() == BlendedNoise.class) {

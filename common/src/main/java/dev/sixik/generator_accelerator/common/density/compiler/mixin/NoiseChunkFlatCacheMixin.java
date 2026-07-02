@@ -14,8 +14,7 @@ import org.spongepowered.asm.mixin.Shadow;
  * (2D layout over quart indices).
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$FlatCache")
-public abstract class NoiseChunkFlatCacheMixin
-        implements DfcCellCacheAccess, NoiseChunk$FlatCache$FlatArray {
+public abstract class NoiseChunkFlatCacheMixin implements DfcCellCacheAccess {
 
     @Shadow
     @Final
@@ -33,9 +32,11 @@ public abstract class NoiseChunkFlatCacheMixin
         final int l = (context.blockZ() >> 2) - field_36611.firstNoiseZ;
 
         if (k >= 0 && l >= 0 && k < side && l < side) {
-            final double[] flat = bts$getArray();
-            if (flat != null && flat.length >= side * side) {
-                return flat[k * side + l];
+            if (this instanceof NoiseChunk$FlatCache$FlatArray flatAccess) {
+                final double[] flat = flatAccess.bts$getArray();
+                if (flat != null && flat.length >= side * side) {
+                    return flat[k * side + l];
+                }
             }
 
             final double[][] vanillaValues = this.values;

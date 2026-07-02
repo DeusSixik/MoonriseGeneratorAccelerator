@@ -30,6 +30,8 @@ public final class DfcCellFillStats {
     private static final ConcurrentHashMap<String, ClassStatsCounter> FAST_FILLER_CLASSES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> SOURCE_FILLER_CLASSES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> RESIDUAL_EXTERN_FALLBACK_CLASSES = new ConcurrentHashMap<>();
+    private static final int MAX_TRACKED_CLASSES = Math.max(1,
+            Integer.getInteger("dfc.cellfill.stats.maxTrackedClasses", 256));
 
     private DfcCellFillStats() {
     }
@@ -87,20 +89,26 @@ public final class DfcCellFillStats {
             return;
         }
         if (sourceFiller != null) {
-            SOURCE_FILLER_CLASSES.computeIfAbsent(sourceFiller.getClass().getName(), ignored -> new LongAdder())
-                    .increment();
+            LongAdder sourceCounter = trackedLongAdder(SOURCE_FILLER_CLASSES, sourceFiller.getClass().getName());
+            if (sourceCounter != null) {
+                sourceCounter.increment();
+            }
         }
         if (filler instanceof CompiledDensityFunction compiled) {
             CELL_COMPILED.increment();
             boolean nativeSlabInner = compiled.dfc$hasNativeSlabInnerProgram();
-            FAST_FILLER_CLASSES.computeIfAbsent(filler.getClass().getName(), ignored -> new ClassStatsCounter())
-                    .record(nativeSlabInner);
+            ClassStatsCounter fastCounter = trackedClassStatsCounter(filler.getClass().getName());
+            if (fastCounter != null) {
+                fastCounter.record(nativeSlabInner);
+            }
             if (nativeSlabInner) {
                 CELL_NATIVE_SLAB_INNER.increment();
             }
         } else {
-            FAST_FILLER_CLASSES.computeIfAbsent(filler.getClass().getName(), ignored -> new ClassStatsCounter())
-                    .record(false);
+            ClassStatsCounter fastCounter = trackedClassStatsCounter(filler.getClass().getName());
+            if (fastCounter != null) {
+                fastCounter.record(false);
+            }
             CELL_UNKNOWN.increment();
         }
     }
@@ -199,9 +207,10 @@ public final class DfcCellFillStats {
         if (!RESIDUAL_CLASS_DEBUG_ENABLED || residualExtern == null) {
             return;
         }
-        RESIDUAL_EXTERN_FALLBACK_CLASSES
-                .computeIfAbsent(residualExtern.getClass().getName(), ignored -> new LongAdder())
-                .increment();
+        LongAdder counter = trackedLongAdder(RESIDUAL_EXTERN_FALLBACK_CLASSES, residualExtern.getClass().getName());
+        if (counter != null) {
+            counter.increment();
+        }
     }
 
     public static void recordColumnScalar() {
@@ -238,5 +247,43 @@ public final class DfcCellFillStats {
     }
 
     private record SourceClassStats(String className, long calls) {
+    }
+
+    private static ClassStatsCounter trackedClassStatsCounter(String className) {
+        ClassStatsCounter existing = FAST_FILLER_CLASSES.get(className);
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (FAST_FILLER_CLASSES) {
+            existing = FAST_FILLER_CLASSES.get(className);
+            if (existing != null) {
+                return existing;
+            }
+            if (FAST_FILLER_CLASSES.size() >= MAX_TRACKED_CLASSES) {
+                return null;
+            }
+            ClassStatsCounter created = new ClassStatsCounter();
+            FAST_FILLER_CLASSES.put(className, created);
+            return created;
+        }
+    }
+
+    private static LongAdder trackedLongAdder(ConcurrentHashMap<String, LongAdder> map, String className) {
+        LongAdder existing = map.get(className);
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (map) {
+            existing = map.get(className);
+            if (existing != null) {
+                return existing;
+            }
+            if (map.size() >= MAX_TRACKED_CLASSES) {
+                return null;
+            }
+            LongAdder created = new LongAdder();
+            map.put(className, created);
+            return created;
+        }
     }
 }
