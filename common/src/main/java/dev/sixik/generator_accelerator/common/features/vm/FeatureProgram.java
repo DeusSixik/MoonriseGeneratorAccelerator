@@ -40,6 +40,7 @@ public final class FeatureProgram {
     private final EnvironmentScanData[] environmentScans;
     private final IntProvider[] countProviders;
     private final GA$PlacementModifierExtension[] rawModifiers;
+    private final boolean compatibleWithVm;
 
     @SuppressWarnings("unchecked")
     FeatureProgram(
@@ -59,7 +60,8 @@ public final class FeatureProgram {
             GenerationStep.Carving[] carvingSteps,
             EnvironmentScanData[] environmentScans,
             IntProvider[] countProviders,
-            GA$PlacementModifierExtension[] rawModifiers
+            GA$PlacementModifierExtension[] rawModifiers,
+            boolean compatibleWithVm
     ) {
         this.opcodes = opcodes;
         this.modifiers = modifiers;
@@ -81,6 +83,7 @@ public final class FeatureProgram {
         this.environmentScans = environmentScans;
         this.countProviders = countProviders;
         this.rawModifiers = rawModifiers;
+        this.compatibleWithVm = compatibleWithVm;
     }
 
     int[] opcodes() {
@@ -177,6 +180,10 @@ public final class FeatureProgram {
 
     public GA$PlacementModifierExtension rawModifier(int index) {
         return this.rawModifiers[index];
+    }
+
+    public boolean compatibleWithVm() {
+        return this.compatibleWithVm;
     }
 
     public static final class RandomOffsetData {

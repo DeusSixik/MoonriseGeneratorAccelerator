@@ -51,7 +51,12 @@ public final class FeatureScratch {
     }
 
     void reset() {
-        // Buffers clear on acquire by depth; release must stay zero-cost in hot path.
+        // Buffers clear on acquire by depth; trim only unusually large retained arrays on release.
+        for (LongScratchBuffer buffer : this.buffers) {
+            if (buffer != null) {
+                buffer.trimIfExcessivelyOversized();
+            }
+        }
         this.biomeFilterScratch.clear();
         for (ReusableFeaturePlaceContext context : this.featurePlaceContexts) {
             if (context != null) {

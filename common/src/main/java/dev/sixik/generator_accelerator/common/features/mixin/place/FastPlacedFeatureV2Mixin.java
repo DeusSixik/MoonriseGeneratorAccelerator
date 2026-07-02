@@ -53,6 +53,9 @@ public class FastPlacedFeatureV2Mixin {
             program = FeatureProgramCache.getOrCompile(this.placement, this.feature);
             this.ga$featureProgram = program;
         }
+        if (!program.compatibleWithVm()) {
+            return original.call(context, random, startPos);
+        }
         return FeatureVm.execute(program, context, random, startPos);
     }
 

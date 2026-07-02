@@ -108,7 +108,7 @@ public class GAConfig {
     public long chunkPipelineGuardMaxParkNanos = 250000L;
 
     @ConfigComment("Enable GA custom chunk graph scheduler. This bypasses the vanilla layer-barrier worldgen mailbox and schedules ready DAG nodes directly.")
-    public boolean enableCustomChunkGraphScheduler = true;
+    public boolean enableCustomChunkGraphScheduler = false;
 
     @ConfigComment("Load the full generation-radius EMPTY dependency shell before building a custom chunk DAG.")
     public boolean chunkGraphEagerEmptyRadius = true;

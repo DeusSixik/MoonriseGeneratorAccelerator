@@ -16,9 +16,11 @@ import net.minecraft.util.valueproviders.IntProvider;
 import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.feature.ConfiguredFeature;
+import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.heightproviders.HeightProvider;
 import net.minecraft.world.level.levelgen.placement.CarvingMaskPlacement;
 import net.minecraft.world.level.levelgen.placement.BiomeFilter;
+import net.minecraft.world.level.levelgen.placement.BlockPredicateFilter;
 import net.minecraft.world.level.levelgen.placement.CountOnEveryLayerPlacement;
 import net.minecraft.world.level.levelgen.placement.EnvironmentScanPlacement;
 import net.minecraft.world.level.levelgen.placement.FixedPlacement;
@@ -56,11 +58,16 @@ public final class FeaturePlacementCompiler {
         FeatureProgram.EnvironmentScanData[] environmentScans = new FeatureProgram.EnvironmentScanData[size];
         IntProvider[] countProviders = new IntProvider[size];
         GA$PlacementModifierExtension[] rawModifiers = new GA$PlacementModifierExtension[size];
+        boolean compatibleWithVm = isCompatibleFeature(feature);
 
         for (int i = 0; i < size; i++) {
             PlacementModifier modifier = placement.get(i);
             modifiers[i] = modifier;
             int opcode = opcodeFor(modifier);
+            if (!isCompatibleModifier(modifier, opcode)) {
+                opcode = FeatureOpcode.VANILLA_FALLBACK;
+                compatibleWithVm = false;
+            }
             opcodes[i] = opcode;
             compileModifierData(
                     modifier,
@@ -106,8 +113,52 @@ public final class FeaturePlacementCompiler {
                 carvingSteps,
                 environmentScans,
                 countProviders,
-                rawModifiers
+                rawModifiers,
+                compatibleWithVm
         );
+    }
+
+    private static boolean isCompatibleFeature(Holder<ConfiguredFeature<?, ?>> featureHolder) {
+        try {
+            ConfiguredFeature<?, ?> configuredFeature = featureHolder.value();
+            Feature<?> feature = configuredFeature.feature();
+            return isMinecraftClass(feature.getClass());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isCompatibleModifier(PlacementModifier modifier, int opcode) {
+        if (opcode == FeatureOpcode.RAW_MODIFIER) {
+            return true;
+        }
+        if (opcode == FeatureOpcode.VANILLA_FALLBACK) {
+            return false;
+        }
+
+        Class<?> type = modifier.getClass();
+        return switch (opcode) {
+            case FeatureOpcode.IN_SQUARE -> type == InSquarePlacement.class;
+            case FeatureOpcode.HEIGHT_RANGE -> type == HeightRangePlacement.class;
+            case FeatureOpcode.HEIGHTMAP -> type == HeightmapPlacement.class;
+            case FeatureOpcode.RANDOM_OFFSET -> type == RandomOffsetPlacement.class;
+            case FeatureOpcode.REPEATING -> type == RepeatingPlacement.class;
+            case FeatureOpcode.BIOME_FILTER -> type == BiomeFilter.class;
+            case FeatureOpcode.PLACEMENT_FILTER -> isVanillaPlacementFilter(type);
+            case FeatureOpcode.FIXED -> type == FixedPlacement.class;
+            case FeatureOpcode.CARVING_MASK -> type == CarvingMaskPlacement.class;
+            case FeatureOpcode.ENVIRONMENT_SCAN -> type == EnvironmentScanPlacement.class;
+            case FeatureOpcode.COUNT_ON_EVERY_LAYER -> type == CountOnEveryLayerPlacement.class;
+            default -> false;
+        };
+    }
+
+    private static boolean isVanillaPlacementFilter(Class<?> type) {
+        return type == BlockPredicateFilter.class || isMinecraftClass(type);
+    }
+
+    private static boolean isMinecraftClass(Class<?> type) {
+        return type.getName().startsWith("net.minecraft.");
     }
 
     private static int opcodeFor(PlacementModifier modifier) {

@@ -30,6 +30,10 @@ public interface GA$PlacementModifierExtension {
                 output.add(legacyOutput.getLong(i));
             }
         } finally {
+            if (legacyOutput.elements().length > 131_072) {
+                legacyOutput.size(0);
+                legacyOutput.trim(16_384);
+            }
             legacyOutput.clear();
         }
     }
