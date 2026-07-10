@@ -37,10 +37,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * with per-node dependency dispatch over GA-owned lanes.
  */
 public final class GACustomChunkGraphScheduler {
-    private static final ObjectArrayList<ChunkStatus> STATUS_LIST = new ObjectArrayList<>(ChunkStatus.getStatusList());
-    private static final Object[] STATUS_RAW_LIST = STATUS_LIST.elements();
-    private static final int STATUS_RAW_LIST_SIZE = STATUS_LIST.size();
-
     private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
     private static final boolean ENABLED = booleanProperty(
             "ga.chunkGraph.enabled",
@@ -53,6 +49,10 @@ public final class GACustomChunkGraphScheduler {
     private static final boolean COALESCE_IN_FLIGHT = booleanProperty(
             "ga.chunkGraph.coalesceInFlight",
             CONFIG.chunkGraphCoalesceInFlight
+    );
+    private static final boolean ALLOW_STARTUP_INTERCEPT = booleanProperty(
+            "ga.chunkGraph.allowStartupIntercept",
+            false
     );
     private static final int IN_FLIGHT_BUCKETS = nextPowerOfTwo(Math.max(1024, intProperty(
             "ga.chunkGraph.inFlightBuckets",
@@ -90,6 +90,7 @@ public final class GACustomChunkGraphScheduler {
     private static final AtomicLong STALLED_PHASES = new AtomicLong();
     private static final ConcurrentLinkedQueue<TaskRun> ACTIVE_RUNS = new ConcurrentLinkedQueue<>();
     private static volatile boolean shutdownRequested;
+    private static volatile boolean startupPhase = true;
 
     private GACustomChunkGraphScheduler() {
     }
@@ -98,8 +99,12 @@ public final class GACustomChunkGraphScheduler {
         return ENABLED;
     }
 
+    public static boolean canInterceptGenerationTasks() {
+        return ENABLED && !shutdownRequested && (ALLOW_STARTUP_INTERCEPT || !startupPhase);
+    }
+
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
-        if (!ENABLED || shutdownRequested) {
+        if (!canInterceptGenerationTasks()) {
             return false;
         }
         TASKS_SUBMITTED.incrementAndGet();
@@ -128,11 +133,19 @@ public final class GACustomChunkGraphScheduler {
 
     public static void resetShutdownRequest() {
         shutdownRequested = false;
+        startupPhase = true;
+    }
+
+    public static void markServerTickStarted() {
+        startupPhase = false;
     }
 
     public static Map<String, Object> snapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("enabled", ENABLED);
+        out.put("canInterceptGenerationTasks", canInterceptGenerationTasks());
+        out.put("allowStartupIntercept", ALLOW_STARTUP_INTERCEPT);
+        out.put("startupPhase", startupPhase);
         out.put("eagerEmptyRadius", EAGER_EMPTY_RADIUS);
         out.put("coalesceInFlight", COALESCE_IN_FLIGHT);
         out.put("inFlightBuckets", IN_FLIGHT_BUCKETS);
@@ -397,8 +410,10 @@ public final class GACustomChunkGraphScheduler {
             ObjectArrayList<Node> nodes = new ObjectArrayList<>();
             NodeIndex index = new NodeIndex(this.center, targetStep.getAccumulatedRadiusOf(ChunkStatus.EMPTY));
 
-            for (int i = 0; i < STATUS_RAW_LIST_SIZE; i++) {
-                ChunkStatus status = (ChunkStatus) STATUS_RAW_LIST[i];
+            Object[] statusRawList = statusRawList();
+            int statusRawListSize = statusRawListSize();
+            for (int i = 0; i < statusRawListSize; i++) {
+                ChunkStatus status = (ChunkStatus) statusRawList[i];
                 if (status == ChunkStatus.EMPTY || status.isAfter(this.targetStatus)) {
                     continue;
                 }
@@ -934,6 +949,20 @@ public final class GACustomChunkGraphScheduler {
         }
     }
 
+    private static Object[] statusRawList() {
+        return StatusListHolder.STATUS_RAW_LIST;
+    }
+
+    private static int statusRawListSize() {
+        return StatusListHolder.STATUS_RAW_LIST_SIZE;
+    }
+
+    private static final class StatusListHolder {
+        private static final ObjectArrayList<ChunkStatus> STATUS_LIST = new ObjectArrayList<>(ChunkStatus.getStatusList());
+        private static final Object[] STATUS_RAW_LIST = STATUS_LIST.elements();
+        private static final int STATUS_RAW_LIST_SIZE = STATUS_LIST.size();
+    }
+
     private static final class ListenerBatch {
         private final StepCompletionCallback first;
         private final ObjectArrayList<StepCompletionCallback> rest;
@@ -968,7 +997,7 @@ public final class GACustomChunkGraphScheduler {
             this.minX = center.x - radius;
             this.minZ = center.z - radius;
             this.width = radius * 2 + 1;
-            this.statusCount = STATUS_RAW_LIST_SIZE;
+            this.statusCount = statusRawListSize();
             this.nodes = new Node[this.width * this.width * this.statusCount];
         }
 

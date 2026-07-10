@@ -4,14 +4,14 @@ import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
 import dev.sixik.generator_accelerator.common.surface.vector.rules.VectorSequenceRule;
-import dev.worldgen.lithostitched.worldgen.surface.condition.AllOfCondition;
-import dev.worldgen.lithostitched.worldgen.surface.condition.AnyOfCondition;
-import dev.worldgen.lithostitched.worldgen.surface.condition.BiomeCondition;
-import dev.worldgen.lithostitched.worldgen.surface.condition.SlopeCondition;
-import dev.worldgen.lithostitched.worldgen.surface.condition.internal.TagFilledCondition;
-import dev.worldgen.lithostitched.worldgen.surface.rule.BandlandsRule;
-import dev.worldgen.lithostitched.worldgen.surface.rule.ReferenceRule;
-import dev.worldgen.lithostitched.worldgen.surface.rule.TransientMergedRule;
+import dev.worldgen.lithostitched.impl.worldgen.surface.condition.AllOfCondition;
+import dev.worldgen.lithostitched.impl.worldgen.surface.condition.AnyOfCondition;
+import dev.worldgen.lithostitched.impl.worldgen.surface.condition.BiomeCondition;
+import dev.worldgen.lithostitched.impl.worldgen.surface.condition.SlopeCondition;
+import dev.worldgen.lithostitched.impl.worldgen.surface.condition.internal.TagFilledCondition;
+import dev.worldgen.lithostitched.impl.worldgen.surface.rule.BandlandsRule;
+import dev.worldgen.lithostitched.impl.worldgen.surface.rule.ReferenceRule;
+import dev.worldgen.lithostitched.impl.worldgen.surface.rule.TransientMergedRule;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,9 +19,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Lithostitched$CompilerData {
-
-
-
     @Nullable
     public static VectorRule compileRule(SurfaceRules.RuleSource ruleSource) {
 

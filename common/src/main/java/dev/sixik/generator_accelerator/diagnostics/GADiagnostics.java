@@ -6,7 +6,9 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePl
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceMetrics;
+import dev.sixik.generator_accelerator.common.surface_compiler.SurfaceMetrics;
+import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceRuntime;
+import dev.sixik.generator_accelerator.common.surface_compiler.semantic.MojangSurfaceHarness;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.GAWorldgenPipelineStatus;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics;
@@ -553,54 +555,35 @@ public final class GADiagnostics {
 
     private static Map<String, Object> surfaceCompilerSnapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("enabled", SurfaceMetrics.ENABLED);
-        out.put("compiledPrograms", SurfaceMetrics.compiledPrograms());
-        out.put("irPrograms", SurfaceMetrics.irPrograms());
-        out.put("irFallbacks", SurfaceMetrics.irFallbacks());
-        out.put("irFallbackRuleNodes", SurfaceMetrics.irFallbackRuleNodes());
-        out.put("irFallbackConditionNodes", SurfaceMetrics.irFallbackConditionNodes());
-        out.put("interpretedPrograms", SurfaceMetrics.interpretedPrograms());
-        out.put("optimizedPrograms", SurfaceMetrics.optimizedPrograms());
-        out.put("cacheHits", SurfaceMetrics.cacheHits());
-        out.put("cacheMisses", SurfaceMetrics.cacheMisses());
-        out.put("lastEntryHits", SurfaceMetrics.lastEntryHits());
-        out.put("unsupportedPrograms", SurfaceMetrics.unsupportedPrograms());
-        out.put("unsupportedCacheHits", SurfaceMetrics.unsupportedCacheHits());
-        out.put("vanillaFallbacks", SurfaceMetrics.vanillaFallbacks());
-        out.put("sectionsProcessed", SurfaceMetrics.sectionsProcessed());
-        out.put("emptySectionsSkipped", SurfaceMetrics.emptySectionsSkipped());
-        out.put("rawBlockArrayMisses", SurfaceMetrics.rawBlockArrayMisses());
-        out.put("stonelessSectionsSkipped", SurfaceMetrics.stonelessSectionsSkipped());
-        out.put("fallbackIslands", SurfaceMetrics.fallbackIslands());
-        out.put("conditionCacheHits", SurfaceMetrics.conditionCacheHits());
-        out.put("conditionCacheMisses", SurfaceMetrics.conditionCacheMisses());
-        out.put("activeMaskEarlyExits", SurfaceMetrics.activeMaskEarlyExits());
-
-        Map<String, Object> nanos = new LinkedHashMap<>();
-        nanos.put("cacheLookup", SurfaceMetrics.cacheLookupNanos());
-        nanos.put("compile", SurfaceMetrics.compileNanos());
-        nanos.put("biomePrep", SurfaceMetrics.biomePrepNanos());
-        nanos.put("surfaceDepth", SurfaceMetrics.surfaceDepthNanos());
-        nanos.put("secondarySurface", SurfaceMetrics.secondarySurfaceNanos());
-        nanos.put("preliminarySurface", SurfaceMetrics.preliminarySurfaceNanos());
-        nanos.put("stoneDepth", SurfaceMetrics.stoneDepthNanos());
-        nanos.put("stoneMaskLoad", SurfaceMetrics.stoneMaskLoadNanos());
-        nanos.put("programApply", SurfaceMetrics.programApplyNanos());
-        nanos.put("fluidPostprocess", SurfaceMetrics.fluidPostprocessNanos());
-        nanos.put("frozenOcean", SurfaceMetrics.frozenOceanNanos());
-        nanos.put("fallbackRuleBridge", SurfaceMetrics.fallbackRuleBridgeNanos());
-        nanos.put("fallbackConditionBridge", SurfaceMetrics.fallbackConditionBridgeNanos());
-        out.put("nanos", nanos);
-
-        Map<String, Object> conditions = new TreeMap<>();
-        for (String kind : SurfaceMetrics.conditionKinds()) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("count", SurfaceMetrics.conditionEvalCount(kind));
-            item.put("nanos", SurfaceMetrics.conditionEvalNanos(kind));
-            conditions.put(kind, item);
-        }
-        out.put("conditions", conditions);
+        Map<String, Object> metrics = SurfaceMetrics.snapshot();
+        out.put("metrics", metrics);
+        out.put("telemetry", SurfaceRuntime.telemetry().snapshot());
+        out.put("opaqueNodes", SurfaceRuntime.telemetry().opaqueNodes());
+        out.put("adapterStats", SurfaceRuntime.telemetry().adapterStats());
+        out.put("fallbacks", SurfaceRuntime.fallbackReporter().events());
+        out.put("oracleHarness", new MojangSurfaceHarness().snapshot(null));
+        out.put("summary", surfaceCompilerSummary(metrics));
         return out;
+    }
+
+    private static Map<String, Object> surfaceCompilerSummary(Map<String, Object> metrics) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        long tier0 = number(metrics.get("tier0Plans"));
+        long tier1 = number(metrics.get("tier1Plans"));
+        long tier2 = number(metrics.get("tier2Plans"));
+        long vanilla = number(metrics.get("vanillaPlans"));
+        long total = Math.max(1L, tier0 + tier1 + tier2 + vanilla);
+        out.put("optimizedPlanShare", (tier0 + tier1 + tier2) / (double) total);
+        out.put("directPlanShare", tier0 / (double) total);
+        out.put("fallbackPlanShare", vanilla / (double) total);
+        out.put("kernelLoadersLive", metrics.get("liveKernelClassLoaders"));
+        out.put("coverage", metrics.get("coverage"));
+        out.put("latency", metrics.get("latency"));
+        return out;
+    }
+
+    private static long number(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
     }
 
     private static Map<String, Object> densityCompilerSnapshot() {
@@ -781,3 +764,4 @@ public final class GADiagnostics {
     public record DumpResult(Path jsonPath, Path jfrPath, Path zipPath, boolean recordingStopped) {
     }
 }
+

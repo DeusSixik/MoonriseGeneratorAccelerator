@@ -12,7 +12,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline
 import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
 import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineCompatibility;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgramCache;
+import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceRuntime;
 
 public final class GARuntimeCaches {
     private GARuntimeCaches() {
@@ -22,7 +22,7 @@ public final class GARuntimeCaches {
         FeatureCacheEpoch.bump();
         DecorationPipelineCompatibility.clearSessionCaches();
         SharedWeakCache.clearAll();
-        SurfaceProgramCache.clear();
+        SurfaceRuntime.clearCaches();
         CarverReplaceableCache.clear();
         NoiseSpecCache.clear();
         GlobalCompileCache.INSTANCE.clear();
@@ -34,3 +34,4 @@ public final class GARuntimeCaches {
         RegistryWarmer.clear();
     }
 }
+

@@ -1,31 +1,27 @@
 package dev.sixik.generator_accelerator.common.surface.benchmark;
 
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceCompilerConfig;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceProgram;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceRuleCompiler;
-import dev.sixik.generator_accelerator.common.surface.compiler.SurfaceScratch;
-import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
-import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
-import com.mojang.datafixers.util.Either;
+import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.surface_compiler.cow.CowSectionWriter;
+import dev.sixik.generator_accelerator.common.surface_compiler.cow.SectionCowManager;
+import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceExecutionPlan;
+import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceRuntime;
 import net.minecraft.SharedConstants;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderOwner;
 import net.minecraft.server.Bootstrap;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.tags.TagKey;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.SurfaceRules;
-import net.minecraft.world.level.levelgen.VerticalAnchor;
 
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Optional;
-import java.util.function.Predicate;
-import java.util.stream.Stream;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 public final class SurfaceProgramApplyQuickBenchmark {
     private static volatile long sink;
@@ -33,182 +29,147 @@ public final class SurfaceProgramApplyQuickBenchmark {
     private SurfaceProgramApplyQuickBenchmark() {
     }
 
-    @SuppressWarnings("unchecked")
     public static void main(String[] args) {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
 
         Options options = Options.parse(args);
-        SurfaceRules.RuleSource rule = buildRule();
-        SurfaceProgram program = SurfaceRuleCompiler.compile(rule);
-        Holder<Biome>[] biomes = (Holder<Biome>[]) new Holder<?>[256];
-        for (int xz = 0; xz < 256; xz++) {
-            biomes[xz] = new TestBiomeHolder((xz & 1) == 0 ? Biomes.PLAINS : Biomes.DESERT);
-        }
-        VectorChunkContext ctx = new VectorChunkContext(biomes, Block.getId(Blocks.STONE.defaultBlockState()), null, null, null);
-        ctx.updateForSection(0, 64, 0);
-        fillContext(ctx);
-
-        int[] rawBlockData = new int[4096];
-        SurfaceScratch scratch = new SurfaceScratch();
-        Mask4096 stoneMask = new Mask4096();
-        stoneMask.fill();
+        SurfaceRules.RuleSource rule = SurfaceRules.state(Blocks.STONE.defaultBlockState());
+        SurfaceExecutionPlan plan = SurfaceRuntime.prepare(rule);
+        ChunkFixture directFixture = ChunkFixture.create();
+        ChunkFixture cowFixture = ChunkFixture.create();
 
         System.out.printf(Locale.ROOT,
-                "surface.apply ir=%s metrics=%s opcodes=%d test_block_opcodes=%d warmup=%d iterations=%d samples=%d%n",
-                SurfaceCompilerConfig.IR,
-                SurfaceCompilerConfig.METRICS,
-                program.opcodeCount(),
-                program.testBlockOpcodeCount(),
+                "surface.runtime.chunk_apply tier=%s commit=%s fallback=%s warmup=%d iterations=%d samples=%d writes=%d%n",
+                plan.tier(),
+                plan.commitMode(),
+                plan.fallbackReason(),
                 options.warmup,
                 options.iterations,
-                options.samples);
+                options.samples,
+                options.writesPerChunk);
 
         for (int i = 0; i < options.warmup; i++) {
-            runOnce(program, rawBlockData, stoneMask, ctx, scratch);
+            sink += directRawApply(directFixture, options.writesPerChunk);
+            sink += cowShadowApply(cowFixture, options.writesPerChunk);
+            sink += cowCommitApply(cowFixture, options.writesPerChunk);
         }
 
-        long[] sampleNanos = new long[options.samples];
+        long[] directNanos = new long[options.samples];
+        long[] shadowNanos = new long[options.samples];
+        long[] commitNanos = new long[options.samples];
         for (int sample = 0; sample < options.samples; sample++) {
-            long start = System.nanoTime();
+            long directStart = System.nanoTime();
             for (int i = 0; i < options.iterations; i++) {
-                runOnce(program, rawBlockData, stoneMask, ctx, scratch);
+                sink += directRawApply(directFixture, options.writesPerChunk);
             }
-            long elapsed = System.nanoTime() - start;
-            sampleNanos[sample] = elapsed;
+            long directElapsed = System.nanoTime() - directStart;
+
+            long shadowStart = System.nanoTime();
+            for (int i = 0; i < options.iterations; i++) {
+                sink += cowShadowApply(cowFixture, options.writesPerChunk);
+            }
+            long shadowElapsed = System.nanoTime() - shadowStart;
+
+            long commitStart = System.nanoTime();
+            for (int i = 0; i < options.iterations; i++) {
+                sink += cowCommitApply(cowFixture, options.writesPerChunk);
+            }
+            long commitElapsed = System.nanoTime() - commitStart;
+
+            directNanos[sample] = directElapsed;
+            shadowNanos[sample] = shadowElapsed;
+            commitNanos[sample] = commitElapsed;
             System.out.printf(Locale.ROOT,
-                    "sample=%d total_ms=%.3f ns_per_apply=%.1f applies_per_sec=%.0f%n",
+                    "sample=%d direct_ms=%.3f shadow_ms=%.3f commit_ms=%.3f direct_ns_per_chunk=%.1f shadow_ns_per_chunk=%.1f commit_ns_per_chunk=%.1f shadow_over_direct=%.2fx commit_over_direct=%.2fx%n",
                     sample + 1,
-                    elapsed / 1_000_000.0,
-                    elapsed / (double) options.iterations,
-                    options.iterations * 1_000_000_000.0 / elapsed);
+                    directElapsed / 1_000_000.0,
+                    shadowElapsed / 1_000_000.0,
+                    commitElapsed / 1_000_000.0,
+                    directElapsed / (double) options.iterations,
+                    shadowElapsed / (double) options.iterations,
+                    commitElapsed / (double) options.iterations,
+                    shadowElapsed / (double) Math.max(1L, directElapsed),
+                    commitElapsed / (double) Math.max(1L, directElapsed));
         }
 
-        Arrays.sort(sampleNanos);
+        Arrays.sort(directNanos);
+        Arrays.sort(shadowNanos);
+        Arrays.sort(commitNanos);
         System.out.printf(Locale.ROOT,
-                "result best_ns_per_apply=%.1f median_ns_per_apply=%.1f worst_ns_per_apply=%.1f sink=%d%n",
-                sampleNanos[0] / (double) options.iterations,
-                sampleNanos[sampleNanos.length / 2] / (double) options.iterations,
-                sampleNanos[sampleNanos.length - 1] / (double) options.iterations,
+                "result direct_best_ns_per_chunk=%.1f direct_median_ns_per_chunk=%.1f direct_worst_ns_per_chunk=%.1f "
+                        + "direct_p95_ns_per_chunk=%.1f shadow_best_ns_per_chunk=%.1f shadow_median_ns_per_chunk=%.1f shadow_worst_ns_per_chunk=%.1f "
+                        + "shadow_p95_ns_per_chunk=%.1f commit_best_ns_per_chunk=%.1f commit_median_ns_per_chunk=%.1f commit_worst_ns_per_chunk=%.1f "
+                        + "commit_p95_ns_per_chunk=%.1f shadow_median_over_direct=%.2fx commit_median_over_direct=%.2fx sink=%d%n",
+                directNanos[0] / (double) options.iterations,
+                directNanos[directNanos.length / 2] / (double) options.iterations,
+                directNanos[directNanos.length - 1] / (double) options.iterations,
+                percentile(directNanos, 0.95) / (double) options.iterations,
+                shadowNanos[0] / (double) options.iterations,
+                shadowNanos[shadowNanos.length / 2] / (double) options.iterations,
+                shadowNanos[shadowNanos.length - 1] / (double) options.iterations,
+                percentile(shadowNanos, 0.95) / (double) options.iterations,
+                commitNanos[0] / (double) options.iterations,
+                commitNanos[commitNanos.length / 2] / (double) options.iterations,
+                commitNanos[commitNanos.length - 1] / (double) options.iterations,
+                percentile(commitNanos, 0.95) / (double) options.iterations,
+                shadowNanos[shadowNanos.length / 2] / (double) Math.max(1L, directNanos[directNanos.length / 2]),
+                commitNanos[commitNanos.length / 2] / (double) Math.max(1L, directNanos[directNanos.length / 2]),
                 sink);
     }
 
-    private static void runOnce(SurfaceProgram program, int[] rawBlockData, Mask4096 stoneMask, VectorChunkContext ctx, SurfaceScratch scratch) {
-        Arrays.fill(rawBlockData, ctx.STONE_ID);
-        program.apply(rawBlockData, stoneMask, ctx, scratch);
-        sink += rawBlockData[0] + rawBlockData[4095];
+    private static long directRawApply(ChunkFixture fixture, int writes) {
+        int dirt = Block.getId(Blocks.DIRT.defaultBlockState());
+        long checksum = 0L;
+        for (int i = 0; i < writes; i++) {
+            int index = writeIndex(i);
+            fixture.raw[index] = dirt;
+            checksum += fixture.raw[index] + index;
+        }
+        return checksum;
     }
 
-    private static void fillContext(VectorChunkContext ctx) {
-        for (int xz = 0; xz < 256; xz++) {
-            ctx.surfaceDepths[xz] = (xz & 1) == 0 ? 0 : 3;
-            ctx.surfaceHeights[xz] = (short) (((xz >> 4) & 1) == 0 ? 64 : 70);
-        }
-        Arrays.fill(ctx.secondarySurfaceNoises, 0.25D);
-        Arrays.fill(ctx.minSurfaceLevels, 68);
-        Arrays.fill(ctx.waterHeights, Integer.MIN_VALUE);
-        for (int i = 0; i < 4096; i++) {
-            int y = i >> 8;
-            ctx.stoneDepthAbove[i] = (byte) (16 - y);
-            ctx.stoneDepthBelow[i] = (byte) (y + 1);
-        }
+    private static long cowShadowApply(ChunkFixture fixture, int writes) {
+        SectionCowManager manager = new SectionCowManager(fixture.chunk);
+        CowSectionWriter writer = manager.writerForY(0);
+        long checksum = writeCowShadow(writer, writes);
+        manager.discard();
+        return checksum + writer.rawCopy()[writeIndex(writes - 1)];
     }
 
-    private static SurfaceRules.RuleSource buildRule() {
-        SurfaceRules.ConditionSource y66 = SurfaceRules.yBlockCheck(VerticalAnchor.absolute(66), 0);
-        SurfaceRules.ConditionSource y70 = SurfaceRules.yBlockCheck(VerticalAnchor.absolute(70), 0);
-        SurfaceRules.ConditionSource y72WithDepth = SurfaceRules.yBlockCheck(VerticalAnchor.absolute(69), 1);
-        SurfaceRules.ConditionSource abovePreliminary = SurfaceRules.abovePreliminarySurface();
-        SurfaceRules.ConditionSource hole = SurfaceRules.hole();
-        SurfaceRules.ConditionSource steep = SurfaceRules.steep();
-        SurfaceRules.ConditionSource plains = SurfaceRules.isBiome(Biomes.PLAINS);
-        SurfaceRules.ConditionSource notPlains = SurfaceRules.not(plains);
-        SurfaceRules.RuleSource grass = SurfaceRules.state(Blocks.GRASS_BLOCK.defaultBlockState());
-        SurfaceRules.RuleSource dirt = SurfaceRules.state(Blocks.DIRT.defaultBlockState());
-        SurfaceRules.RuleSource gravel = SurfaceRules.state(Blocks.GRAVEL.defaultBlockState());
-        SurfaceRules.RuleSource sand = SurfaceRules.state(Blocks.SAND.defaultBlockState());
-        SurfaceRules.RuleSource clay = SurfaceRules.state(Blocks.CLAY.defaultBlockState());
-        SurfaceRules.RuleSource stone = SurfaceRules.state(Blocks.STONE.defaultBlockState());
-        return SurfaceRules.sequence(
-                SurfaceRules.ifTrue(plains, SurfaceRules.ifTrue(y70, clay)),
-                SurfaceRules.ifTrue(notPlains, SurfaceRules.ifTrue(y70, sand)),
-                SurfaceRules.ifTrue(hole, SurfaceRules.ifTrue(y70, sand)),
-                SurfaceRules.ifTrue(steep, gravel),
-                SurfaceRules.ifTrue(y70, grass),
-                SurfaceRules.ifTrue(y66, dirt),
-                SurfaceRules.ifTrue(abovePreliminary, gravel),
-                SurfaceRules.ifTrue(y72WithDepth, stone),
-                stone
-        );
+    private static long cowCommitApply(ChunkFixture fixture, int writes) {
+        SectionCowManager manager = new SectionCowManager(fixture.chunk);
+        CowSectionWriter writer = manager.writerForY(0);
+        long checksum = writeCowShadow(writer, writes);
+        manager.commit();
+        return checksum + fixture.raw[writeIndex(writes - 1)];
     }
 
-    private record TestBiomeHolder(ResourceKey<Biome> key) implements Holder<Biome> {
-        @Override
-        public Biome value() {
-            return null;
+    private static long writeCowShadow(CowSectionWriter writer, int writes) {
+        long checksum = 0L;
+        for (int i = 0; i < writes; i++) {
+            int index = writeIndex(i);
+            writer.setBlockState(index & 15, (index >>> 8) & 15, (index >>> 4) & 15, Blocks.DIRT.defaultBlockState());
+            checksum += index;
         }
-
-        @Override
-        public boolean isBound() {
-            return true;
-        }
-
-        @Override
-        public boolean is(ResourceLocation location) {
-            return this.key.location().equals(location);
-        }
-
-        @Override
-        public boolean is(ResourceKey<Biome> key) {
-            return this.key.equals(key);
-        }
-
-        @Override
-        public boolean is(Predicate<ResourceKey<Biome>> predicate) {
-            return predicate.test(this.key);
-        }
-
-        @Override
-        public boolean is(TagKey<Biome> tagKey) {
-            return false;
-        }
-
-        @Override
-        public boolean is(Holder<Biome> holder) {
-            return holder.unwrapKey().filter(this.key::equals).isPresent();
-        }
-
-        @Override
-        public Stream<TagKey<Biome>> tags() {
-            return Stream.empty();
-        }
-
-        @Override
-        public Either<ResourceKey<Biome>, Biome> unwrap() {
-            return Either.left(this.key);
-        }
-
-        @Override
-        public Optional<ResourceKey<Biome>> unwrapKey() {
-            return Optional.of(this.key);
-        }
-
-        @Override
-        public Kind kind() {
-            return Kind.REFERENCE;
-        }
-
-        @Override
-        public boolean canSerializeIn(HolderOwner<Biome> holderOwner) {
-            return true;
-        }
+        return checksum;
     }
 
-    private record Options(int warmup, int iterations, int samples) {
+    private static int writeIndex(int ordinal) {
+        return (ordinal * 37) & 4095;
+    }
+
+    private static long percentile(long[] sorted, double percentile) {
+        int index = (int) Math.ceil(sorted.length * percentile) - 1;
+        return sorted[Math.max(0, Math.min(sorted.length - 1, index))];
+    }
+
+    private record Options(int warmup, int iterations, int samples, int writesPerChunk) {
         private static Options parse(String[] args) {
-            int warmup = 3000;
-            int iterations = 12000;
+            int warmup = 500;
+            int iterations = 2000;
             int samples = 5;
+            int writesPerChunk = 256;
             for (String arg : args) {
                 if (arg.startsWith("--warmup=")) {
                     warmup = parsePositive(arg, "--warmup=");
@@ -216,9 +177,11 @@ public final class SurfaceProgramApplyQuickBenchmark {
                     iterations = parsePositive(arg, "--iterations=");
                 } else if (arg.startsWith("--samples=")) {
                     samples = parsePositive(arg, "--samples=");
+                } else if (arg.startsWith("--writes=")) {
+                    writesPerChunk = parsePositive(arg, "--writes=");
                 }
             }
-            return new Options(warmup, iterations, samples);
+            return new Options(warmup, iterations, samples, writesPerChunk);
         }
 
         private static int parsePositive(String arg, String prefix) {
@@ -227,6 +190,37 @@ public final class SurfaceProgramApplyQuickBenchmark {
                 throw new IllegalArgumentException(prefix + " must be positive");
             }
             return value;
+        }
+    }
+
+    private static final class ChunkFixture {
+        private final int[] raw;
+        private final ChunkAccess chunk;
+
+        private ChunkFixture(int[] raw, ChunkAccess chunk) {
+            this.raw = raw;
+            this.chunk = chunk;
+        }
+
+        private static ChunkFixture create() {
+            int[] raw = new int[4096];
+            LevelChunkSection section = mock(LevelChunkSection.class,
+                    withSettings().extraInterfaces(LevelChunkSection$FlatBlockArray.class));
+            when(((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData()).thenReturn(raw);
+            when(((LevelChunkSection$FlatBlockArray) section).bts$copyRawBlockDataForGeneration(any(int[].class)))
+                    .thenAnswer(invocation -> {
+                        System.arraycopy(invocation.getArgument(0), 0, raw, 0, raw.length);
+                        return true;
+                    });
+
+            ChunkAccess chunk = mock(ChunkAccess.class);
+            when(chunk.getPos()).thenReturn(new ChunkPos(0, 0));
+            when(chunk.getMinBuildHeight()).thenReturn(0);
+            when(chunk.getSection(0)).thenReturn(section);
+            for (Heightmap.Types type : Heightmap.Types.values()) {
+                when(chunk.getOrCreateHeightmapUnprimed(type)).thenReturn(mock(Heightmap.class));
+            }
+            return new ChunkFixture(raw, chunk);
         }
     }
 }

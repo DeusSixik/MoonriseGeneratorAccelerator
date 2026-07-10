@@ -16,8 +16,6 @@ def surfaceQuickBenchmarkArgs = [
         "--iterations=${findProperty('surfaceQuickIterations') ?: '1400'}",
         "--samples=${findProperty('surfaceQuickSamples') ?: '5'}"
 ]
-def surfaceColumnIntervalFlag = "-Dga.surface.compiler.columnInterval=${findProperty('surfaceColumnInterval') ?: 'true'}"
-def surfaceDagFlag = "-Dga.surface.compiler.dag=${findProperty('surfaceDag') ?: 'true'}"
 def surfaceApplyBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceProgramApplyQuickBenchmark"
 def surfaceApplyBenchmarkArgs = [
         "--warmup=${findProperty('surfaceApplyWarmup') ?: '3000'}",
@@ -25,64 +23,64 @@ def surfaceApplyBenchmarkArgs = [
         "--samples=${findProperty('surfaceApplySamples') ?: '5'}"
 ]
 
-tasks.register("surfaceQuickBenchmarkLegacy", JavaExec) {
+tasks.register("surfaceQuickBenchmarkRuntime", JavaExec) {
     group = "benchmark"
-    description = "Runs a very quick Surface Rule Compiler compile benchmark with the legacy compiler."
+    description = "Runs a very quick Surface Compiler 2.0 prepare benchmark."
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceQuickBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    jvmArgs "-Dga.surface.metrics=false"
     args surfaceQuickBenchmarkArgs
 }
 
-tasks.register("surfaceQuickBenchmarkIr", JavaExec) {
+tasks.register("surfaceQuickBenchmarkSafe", JavaExec) {
     group = "benchmark"
-    description = "Runs a very quick Surface Rule Compiler compile benchmark with the IR compiler."
+    description = "Runs a very quick Surface Compiler 2.0 safe-mode prepare benchmark."
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceQuickBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    jvmArgs "-Dga.surface.metrics=false", "-Dga.surface.compiler.paranoid=true"
     args surfaceQuickBenchmarkArgs
 }
 
-tasks.named("surfaceQuickBenchmarkIr") {
-    mustRunAfter tasks.named("surfaceQuickBenchmarkLegacy")
+tasks.named("surfaceQuickBenchmarkSafe") {
+    mustRunAfter tasks.named("surfaceQuickBenchmarkRuntime")
 }
 
 tasks.register("surfaceQuickBenchmark") {
     group = "benchmark"
-    description = "Runs very quick legacy and IR Surface Rule Compiler benchmarks for comparison."
-    dependsOn "surfaceQuickBenchmarkLegacy", "surfaceQuickBenchmarkIr"
+    description = "Runs very quick Surface Compiler 2.0 runtime benchmarks."
+    dependsOn "surfaceQuickBenchmarkRuntime", "surfaceQuickBenchmarkSafe"
 }
 
-tasks.register("surfaceApplyQuickBenchmarkLegacy", JavaExec) {
+tasks.register("surfaceApplyQuickBenchmarkRuntime", JavaExec) {
     group = "benchmark"
-    description = "Runs a very quick SurfaceProgram.apply benchmark with the legacy compiler."
+    description = "Runs a very quick Surface Compiler 2.0 dispatch benchmark."
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceApplyBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=false", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    jvmArgs "-Dga.surface.metrics=false"
     args surfaceApplyBenchmarkArgs
 }
 
-tasks.register("surfaceApplyQuickBenchmarkIr", JavaExec) {
+tasks.register("surfaceApplyQuickBenchmarkSafe", JavaExec) {
     group = "benchmark"
-    description = "Runs a very quick SurfaceProgram.apply benchmark with the IR compiler."
+    description = "Runs a very quick Surface Compiler 2.0 safe-mode dispatch benchmark."
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = surfaceApplyBenchmarkMain
-    jvmArgs "-Dga.surface.compiler.ir=true", "-Dga.surface.metrics=false", surfaceColumnIntervalFlag, surfaceDagFlag
+    jvmArgs "-Dga.surface.metrics=false", "-Dga.surface.compiler.paranoid=true"
     args surfaceApplyBenchmarkArgs
 }
 
-tasks.named("surfaceApplyQuickBenchmarkIr") {
-    mustRunAfter tasks.named("surfaceApplyQuickBenchmarkLegacy")
+tasks.named("surfaceApplyQuickBenchmarkSafe") {
+    mustRunAfter tasks.named("surfaceApplyQuickBenchmarkRuntime")
 }
 
 tasks.register("surfaceApplyQuickBenchmark") {
     group = "benchmark"
-    description = "Runs very quick legacy and IR SurfaceProgram.apply benchmarks for comparison."
-    dependsOn "surfaceApplyQuickBenchmarkLegacy", "surfaceApplyQuickBenchmarkIr"
+    description = "Runs very quick Surface Compiler 2.0 dispatch benchmarks."
+    dependsOn "surfaceApplyQuickBenchmarkRuntime", "surfaceApplyQuickBenchmarkSafe"
 }
 
 dependencies {
@@ -117,7 +115,7 @@ dependencies {
     modCompileOnly files("./libs/shadowconfig-common-1.1a.jar")
 
     modCompileOnly "curse.maven:owo-lib-532610:6446006"
-    modCompileOnly "curse.maven:lithostitched-936015:8101993" // 1.7.7-neoforge-21.1
+    modCompileOnly "curse.maven:lithostitched-936015:8378498" // 1.7.7-neoforge-21.1
 
     modCompileOnly "curse.maven:oh-the-biomes-weve-gone-1070751:7745142"
 
@@ -134,6 +132,7 @@ dependencies {
     modCompileOnly "curse.maven:biolith-852512:7074761"
     modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
     modCompileOnly "curse.maven:dynamictrees-252818:7661136"
+    modCompileOnly "curse.maven:regions-unexplored-659110:8226385"
 
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")

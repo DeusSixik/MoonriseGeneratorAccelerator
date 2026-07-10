@@ -9,12 +9,19 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.function.BooleanSupplier;
+
 @Mixin(MinecraftServer.class)
 public class MixinMinecraftServer {
 
     @Inject(method = "runServer", at = @At("HEAD"))
     public void ga$resetCustomGraphShutdown(CallbackInfo ci) {
         GACustomChunkGraphScheduler.resetShutdownRequest();
+    }
+
+    @Inject(method = "tickServer", at = @At("HEAD"))
+    public void ga$enableCustomGraphAfterStartup(BooleanSupplier hasTimeLeft, CallbackInfo ci) {
+        GACustomChunkGraphScheduler.markServerTickStarted();
     }
 
     @Inject(method = "runServer", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;buildServerStatus()Lnet/minecraft/network/protocol/status/ServerStatus;", shift = At.Shift.AFTER))

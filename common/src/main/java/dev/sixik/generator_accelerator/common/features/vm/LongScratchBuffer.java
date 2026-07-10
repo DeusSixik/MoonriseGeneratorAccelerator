@@ -4,7 +4,7 @@ import java.util.Arrays;
 
 public final class LongScratchBuffer {
     private static final int EXCESSIVE_RETAINED_CAPACITY = 131_072;
-    private static final int TRIMMED_CAPACITY = 16_384;
+    private static final int TRIMMED_CAPACITY = 262_144;
 
     private long[] values;
     private final int initialCapacity;

@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
-import dev.sixik.generator_accelerator.common.surface.compiler.mask.Mask4096;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 import net.minecraft.core.Holder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
@@ -228,3 +228,4 @@ public class VectorChunkContext {
         }
     }
 }
+
