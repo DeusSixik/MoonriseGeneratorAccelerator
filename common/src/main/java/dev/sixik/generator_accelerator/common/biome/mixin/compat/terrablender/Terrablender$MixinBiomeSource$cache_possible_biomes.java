@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -22,8 +23,8 @@ import java.util.function.Supplier;
 @Mixin(value = BiomeSource.class, priority = 1600)
 public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes implements GA$BiomeSourceExtern {
 
-    @Shadow(remap = false)
-    private boolean hasAppended;
+    @Unique
+    private boolean ga$hasAppended;
 
     @Mutable
     @Shadow
@@ -42,7 +43,7 @@ public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes implem
     )
     @Inject(method = "@MixinSquared:Handler", at = @At("HEAD"), cancellable = true, remap = false)
     private void ga$cacheDeferredPossibleBiomes(List<Holder<Biome>> biomes, CallbackInfo ci) {
-        if (this.hasAppended) {
+        if (this.ga$hasAppended) {
             ci.cancel();
             return;
         }
@@ -54,7 +55,7 @@ public abstract class Terrablender$MixinBiomeSource$cache_possible_biomes implem
 
         Set<Holder<Biome>> cached = Collections.unmodifiableSet(merged);
         this.possibleBiomes = () -> cached;
-        this.hasAppended = true;
+        this.ga$hasAppended = true;
         ci.cancel();
     }
 }

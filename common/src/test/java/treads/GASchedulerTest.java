@@ -355,6 +355,68 @@ class GASchedulerTest {
     }
 
     @Test
+    void worldgenGovernorSerializesDifferentLanesAtLimitOne() throws Exception {
+        configureGovernorPressure();
+        CountDownLatch noiseStarted = new CountDownLatch(1);
+        CountDownLatch releaseNoise = new CountDownLatch(1);
+        CountDownLatch workspaceStarted = new CountDownLatch(1);
+        CompletableFuture<String> noise = GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, () -> {
+            noiseStarted.countDown();
+            awaitLatch(releaseNoise);
+            return "noise";
+        });
+        CompletableFuture<String> workspace = null;
+        try {
+            assertTrue(noiseStarted.await(10, TimeUnit.SECONDS));
+            workspace = GAScheduler.supplyAsync(GAScheduler.Lane.WORKSPACE, () -> {
+                workspaceStarted.countDown();
+                return "workspace";
+            });
+
+            Thread.sleep(200L);
+            assertEquals(1L, workspaceStarted.getCount(), "workspace lane should wait for the global worldgen slot");
+            assertEquals(1, governorSnapshot().get("worldgenGovernorRunning"));
+            assertTrue(waitForLaneMetricAtLeast(GAScheduler.Lane.WORKSPACE, "governorThrottled", 1L));
+
+            releaseNoise.countDown();
+            assertEquals("noise", noise.get(10, TimeUnit.SECONDS));
+            assertTrue(workspaceStarted.await(10, TimeUnit.SECONDS));
+            assertEquals("workspace", workspace.get(10, TimeUnit.SECONDS));
+        } finally {
+            releaseNoise.countDown();
+            noise.cancel(true);
+            if (workspace != null) {
+                workspace.cancel(true);
+            }
+        }
+    }
+
+    @Test
+    void resetMetricsDoesNotClearLiveWorldgenGovernorState() throws Exception {
+        configureGovernorPressure();
+        CountDownLatch noiseStarted = new CountDownLatch(1);
+        CountDownLatch releaseNoise = new CountDownLatch(1);
+        CompletableFuture<String> noise = GAScheduler.supplyAsync(GAScheduler.Lane.NOISE, () -> {
+            noiseStarted.countDown();
+            awaitLatch(releaseNoise);
+            return "noise";
+        });
+        try {
+            assertTrue(noiseStarted.await(10, TimeUnit.SECONDS));
+            assertEquals(1, governorSnapshot().get("worldgenGovernorRunning"));
+
+            GAScheduler.resetMetrics();
+
+            assertEquals(1, governorSnapshot().get("worldgenGovernorRunning"));
+            releaseNoise.countDown();
+            assertEquals("noise", noise.get(10, TimeUnit.SECONDS));
+        } finally {
+            releaseNoise.countDown();
+            noise.cancel(true);
+        }
+    }
+
+    @Test
     void admissionMetricsTrackAcceptsAndQueueRejections() throws Exception {
         configureBoundedLane("ga.config.schedulerNoiseWorkers");
         CountDownLatch started = new CountDownLatch(1);

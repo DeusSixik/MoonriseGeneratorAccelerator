@@ -4,6 +4,7 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;
 import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
+import dev.sixik.generator_accelerator.config.GAConfigManager;
 
 public class GACoreMixinPlugin extends GAMixinPlugin {
     private static final String LITHIUM = "net.caffeinemc.mods.lithium.common.LithiumMod";
@@ -13,6 +14,8 @@ public class GACoreMixinPlugin extends GAMixinPlugin {
             "net.regions_unexplored.mixin.WorldCarverMixin",
             new MixinApplier.Param[0]
     );
+    static final String C2ME_CHUNK_SYSTEM_MIXIN_PATTERN =
+            "com.ishland.c2me.rewrites.chunksystem.mixin.*";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -23,6 +26,19 @@ public class GACoreMixinPlugin extends GAMixinPlugin {
                 "com.ishland.c2me.opts.worldgen.general.mixin.random_instances.MixinRedirectAtomicSimpleRandom",
                 "com.ishland.c2me.opts.worldgen.general.mixin.random_instances.MixinRedirectAtomicSimpleRandomStatic"
         ));
+
+        GAConfigManager.getConfigOrLoad()
+                .filter(GACoreMixinPlugin::shouldOwnC2meChunkSystem)
+                .ifPresent(config -> {
+                    create(
+                            GeneratorAccelerator.C2ME_MOD,
+                            new MixinApplier.Param("", C2ME_CHUNK_SYSTEM_MIXIN_PATTERN)
+                    );
+                    GeneratorAccelerator.LOGGER.info(
+                            "GA custom chunk graph owns chunk scheduling; registered C2ME cancellation pattern {}",
+                            C2ME_CHUNK_SYSTEM_MIXIN_PATTERN
+                    );
+                });
 
         // GA overwrites FlowingFluid's spread/occlusion hot path. Lithium injects into
         // the same methods, so keep Lithium's unrelated patches and drop only this one.
@@ -40,6 +56,14 @@ public class GACoreMixinPlugin extends GAMixinPlugin {
 
     @Override
     public boolean isConfigEnable(GAConfig config) {
-        return true;
+        return config.enableCorePatch;
+    }
+
+    public static boolean shouldOwnC2meChunkSystem(GAConfig config) {
+        String override = System.getProperty("ga.chunkGraph.enabled");
+        boolean chunkGraphEnabled = override == null
+                ? config.enableCustomChunkGraphScheduler
+                : Boolean.parseBoolean(override);
+        return config.enableCorePatch && chunkGraphEnabled;
     }
 }

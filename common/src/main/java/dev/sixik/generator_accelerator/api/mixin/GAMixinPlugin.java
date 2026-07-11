@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.api.mixin;
 import com.mojang.logging.LogUtils;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.objectweb.asm.tree.ClassNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,19 +11,30 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public abstract class GAMixinPlugin implements IMixinConfigPlugin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("GeneratorAccelerator Mixin");
 
-    public static List<MixinApplier> MixinAppliers = new ObjectArrayList<>();
+    public static final List<MixinApplier> MixinAppliers = new CopyOnWriteArrayList<>();
 
     public void create(String modClass, MixinApplier.Param... params) {
+        if (!isMixinSetEnabled()) {
+            return;
+        }
         MixinAppliers.add(new MixinApplier(modClass, params));
     }
 
     public void createAll(String[] modClasses, MixinApplier.Param... params) {
+        if (!isMixinSetEnabled()) {
+            return;
+        }
         MixinAppliers.add(new MixinApplier(String.join(";", modClasses), params));
+    }
+
+    private boolean isMixinSetEnabled() {
+        return GAConfigManager.getConfigOrLoad().map(this::isConfigEnable).orElse(false);
     }
 
     @Override

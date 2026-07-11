@@ -25,8 +25,7 @@ public class GAStructuresMixinPlugin extends GAMixinPlugin {
 
         create(GeneratorAccelerator.C2ME_MOD, new MixinApplier.Param("",
                 "com.ishland.c2me.fixes.worldgen.threading_issues.mixin.threading.MixinStructure",
-                "com.ishland.c2me.fixes.worldgen.threading_issues.mixin.threading.MixinStructurePalettedBlockInfoList",
-                "com.ishland.c2me.fixes.worldgen.threading_issues.mixin.threading.MixinStructureChecker"
+                "com.ishland.c2me.fixes.worldgen.threading_issues.mixin.threading.MixinStructurePalettedBlockInfoList"
         ));
     }
 }

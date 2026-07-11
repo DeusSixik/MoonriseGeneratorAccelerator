@@ -20,6 +20,8 @@ class GACustomChunkGraphSchedulerTest {
 
         assertEquals(true, snapshot.get("enabled"));
         assertTrue(snapshot.containsKey("eagerEmptyRadius"));
+        assertTrue(snapshot.containsKey("c2meChunkSystemClassPresent"));
+        assertTrue(snapshot.containsKey("moonriseChunkSystemClassPresent"));
         assertEquals(0L, snapshot.get("tasksSubmitted"));
         assertEquals(0L, snapshot.get("tasksCompleted"));
         assertEquals(0L, snapshot.get("tasksFailed"));

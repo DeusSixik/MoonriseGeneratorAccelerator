@@ -19,6 +19,9 @@ public interface MixinChunkGenerationTaskAccessor {
     @Accessor("markedForCancellation")
     boolean ga$isMarkedForCancellation();
 
+    @Accessor("markedForCancellation")
+    void ga$setMarkedForCancellation(boolean value);
+
     @Invoker("releaseClaim")
     void ga$releaseClaim();
 }

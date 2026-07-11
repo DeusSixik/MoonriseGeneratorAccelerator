@@ -149,7 +149,8 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
             for (int cellZ = 0; cellZ < cellCountZ; ++cellZ) {
                 int sectionIndex = topSectionIndex;
                 LevelChunkSection section = workspaceTerrainWrites ? null : chunkAccess.getSection(sectionIndex);
-                LevelChunkSection$FlatBlockArray flatSection = section == null ? null : LevelChunkSection$FlatBlockArray.get(section);
+                LevelChunkSection$FlatBlockArray flatSection =
+                        section instanceof LevelChunkSection$FlatBlockArray flatBlockArray ? flatBlockArray : null;
                 int loadedSectionIndex = section == null ? Integer.MIN_VALUE : sectionIndex;
                 int baseBlockZ = minBlockZ + cellZ * cellWidth;
 
@@ -164,7 +165,9 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                             sectionIndex = newSectionIndex;
                             if (!workspaceTerrainWrites) {
                                 section = chunkAccess.getSection(sectionIndex);
-                                flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                                flatSection = section instanceof LevelChunkSection$FlatBlockArray flatBlockArray
+                                        ? flatBlockArray
+                                        : null;
                                 loadedSectionIndex = sectionIndex;
                             }
                         }
@@ -273,11 +276,14 @@ public abstract class MixinNoiseBasedChunkGenerator$fast_do_fill {
                                 } else {
                                     if (section == null || loadedSectionIndex != sectionIndex) {
                                         section = chunkAccess.getSection(sectionIndex);
-                                        flatSection = LevelChunkSection$FlatBlockArray.get(section);
+                                        flatSection = section instanceof LevelChunkSection$FlatBlockArray flatBlockArray
+                                                ? flatBlockArray
+                                                : null;
                                         loadedSectionIndex = sectionIndex;
                                     }
                                     int localIndex = (localY << 8) | (localZ << 4) | localX;
-                                    if (!flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
+                                    if (flatSection == null
+                                            || !flatSection.bts$setRawBlockStateForGeneration(localIndex, stateId)) {
                                         section.setBlockState(localX, localY, localZ, blockState, false);
                                     }
                                     if (GA$MIRROR_DIRECT_TERRAIN_WRITES) {

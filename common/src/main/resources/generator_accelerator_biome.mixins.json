@@ -15,7 +15,6 @@
     "compat.biolith.Biolith$AllOfCriterion$fast_iter",
     "compat.biolith.Biolith$AnyOfCriterion$fast_iter",
     "compat.biolith.Biolith$MixinSearchTree$fast",
-    "compat.biolith.Biolith$SubBiomeRequestAccessor",
     "compat.biolith.Biolith$SubBiomeRequestSet$fast_iter",
     "compat.terrablender.Terrablender$Area$lock_free_cache",
     "compat.terrablender.Terrablender$AreaContext$thread_local_random",

@@ -45,6 +45,7 @@ public final class ConstantPool {
     private final BitSet cacheWrapperFastPathExtern = new BitSet();
 
     private final List<Object> splines = new ArrayList<>();
+    private final Map<Object, Integer> generatedSplineIndex = new java.util.HashMap<>();
 
     /**
      * Per-noise specialization data keyed by {@link NormalNoise} identity. Each entry
@@ -104,6 +105,55 @@ public final class ConstantPool {
         int next = splines.size();
         splines.add(spline);
         return next;
+    }
+
+    /**
+     * Interns the location array used by generated binary spline search.
+     * Content-based deduplication keeps the slot stable across the pre-fingerprint
+     * materialization pass and the later bytecode emission pass.
+     */
+    public int internSplineLocations(float[] locations) {
+        SplineLocationsKey key = new SplineLocationsKey(locations);
+        return internGeneratedSpline(key, locations.clone());
+    }
+
+    /**
+     * Interns the exact LUT used by generated spline segment selection.
+     */
+    public int internSplineSegmentLut(float[] locations, int bucketCount) {
+        SplineSegmentLutKey key = new SplineSegmentLutKey(new SplineLocationsKey(locations), bucketCount);
+        return internGeneratedSpline(key, DfcSplineSupport.buildSegmentLut(locations, bucketCount));
+    }
+
+    private int internGeneratedSpline(Object key, Object spline) {
+        Integer existing = generatedSplineIndex.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        int next = splines.size();
+        splines.add(spline);
+        generatedSplineIndex.put(key, next);
+        return next;
+    }
+
+    private record SplineLocationsKey(float[] locations) {
+        private SplineLocationsKey {
+            locations = locations.clone();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof SplineLocationsKey other
+                    && java.util.Arrays.equals(locations, other.locations);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Arrays.hashCode(locations);
+        }
+    }
+
+    private record SplineSegmentLutKey(SplineLocationsKey locations, int bucketCount) {
     }
 
     public double[] finishConstants() {

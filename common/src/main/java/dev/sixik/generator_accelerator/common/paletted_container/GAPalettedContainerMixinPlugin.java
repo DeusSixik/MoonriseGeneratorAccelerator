@@ -9,7 +9,6 @@ import java.util.Arrays;
 public class GAPalettedContainerMixinPlugin extends GAMixinPlugin {
     private static final String LITHIUM = "net.caffeinemc.mods.lithium.common.LithiumMod";
     private static final String MODERNFIX = "org.embeddedt.modernfix.ModernFix";
-    private static final String LITHIUM_NO_LOCKING_LEVEL_CHUNK_SECTION = "net.caffeinemc.mods.lithium.mixin.chunk.no_locking.LevelChunkSectionMixin";
     private static final String LITHIUM_NO_LOCKING_PALETTED_CONTAINER = "net.caffeinemc.mods.lithium.mixin.chunk.no_locking.PalettedContainerMixin";
     private static final String LITHIUM_NO_VALIDATION_SIMPLE_BIT_STORAGE = "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.SimpleBitStorageMixin";
     private static final String LITHIUM_NO_VALIDATION_ZERO_BIT_STORAGE = "net.caffeinemc.mods.lithium.mixin.chunk.no_validation.ZeroBitStorageMixin";
@@ -51,7 +50,6 @@ public class GAPalettedContainerMixinPlugin extends GAMixinPlugin {
                 ),
                 new MixinApplier.Param(
                 "",
-                        LITHIUM_NO_LOCKING_LEVEL_CHUNK_SECTION,
                         LITHIUM_NO_LOCKING_PALETTED_CONTAINER
                 ),
                 new MixinApplier.Param(

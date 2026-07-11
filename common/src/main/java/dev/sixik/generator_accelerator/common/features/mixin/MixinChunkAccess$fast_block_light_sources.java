@@ -45,7 +45,10 @@ public abstract class MixinChunkAccess$fast_block_light_sources {
         for (int sectionIndex = 0; sectionIndex < this.sections.length; sectionIndex++) {
             int sectionY = minSection + sectionIndex;
             LevelChunkSection section = this.sections[sectionIndex];
-            if (!LevelChunkSection$FlatBlockArray.get(section).bts$maybeHasLightEmission()) {
+            boolean mayEmitLight = section instanceof LevelChunkSection$FlatBlockArray flatBlockArray
+                    ? flatBlockArray.bts$maybeHasLightEmission()
+                    : section.getStates().maybeHas(state -> state.getLightEmission() != 0);
+            if (!mayEmitLight) {
                 continue;
             }
 

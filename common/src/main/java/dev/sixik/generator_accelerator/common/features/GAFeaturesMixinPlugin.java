@@ -220,10 +220,8 @@ public class GAFeaturesMixinPlugin extends GAMixinPlugin {
         try {
             Class.forName(modClassPath, false, getClass().getClassLoader());
             return true;
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException | LinkageError e) {
             return false;
-        } catch (LinkageError e) {
-            return true;
         }
     }
 }

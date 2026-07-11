@@ -127,6 +127,11 @@ public final class Compiler {
 
             Set<IRNode> extracted = Splitter.plan(root, rc, pool);
 
+            // Codegen uses constructor-supplied spline search tables. Materialize those
+            // bindings before fingerprinting so a shape-cache hit receives the exact
+            // same pool layout as the compile that originally emitted the class.
+            Codegen.prepareRuntimeBindings(root, pool);
+
             byte[] exactFp = CompilationFingerprint.sha256(root, pool, minVal, maxVal);
             byte[] shapeFp = CompilationFingerprint.shapeSha256(root, pool, minVal, maxVal);
             // Use _ rather than $: hidden class bytecode with `$` in its own name

@@ -5,6 +5,9 @@ import net.shadowking21.shadowconfig.annotation.ConfigComment;
 
 public class GAConfig {
 
+    @ConfigComment("Enable core worldgen, carver, block-state, fluid, and scheduler mixins")
+    public boolean enableCorePatch = true;
+
     @ConfigComment("Enable Aquifer Patch")
     public boolean enableAquiferPatch = true;
 

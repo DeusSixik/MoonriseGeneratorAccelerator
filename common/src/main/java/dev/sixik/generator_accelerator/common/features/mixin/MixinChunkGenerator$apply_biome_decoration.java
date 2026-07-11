@@ -49,6 +49,7 @@ import org.spongepowered.asm.mixin.*;
 
 import java.util.List;
 import java.util.Set;
+import java.lang.ref.WeakReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -56,8 +57,8 @@ import java.util.function.Supplier;
 public abstract class MixinChunkGenerator$apply_biome_decoration {
 
     @Unique
-    private static final ThreadLocal<@Nullable StructureStepCache> STRUCTURE_CACHE =
-            new ThreadLocal<>();
+    private static final ThreadLocal<WeakReference<StructureStepCache>> STRUCTURE_CACHE =
+            ThreadLocal.withInitial(() -> new WeakReference<>(null));
 
     @Unique
     private static final int GA$DECORATION_STEP_COUNT = GenerationStep.Decoration.values().length;
@@ -128,10 +129,10 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
             Registry<Structure> registry = pLevel.registryAccess().registryOrThrow(Registries.STRUCTURE);
 
 // GENERATOR ACCELERATOR START
-            StructureStepCache structureStepCache = STRUCTURE_CACHE.get();
+            StructureStepCache structureStepCache = STRUCTURE_CACHE.get().get();
             if (structureStepCache == null || structureStepCache.registry() != registry) {
                 structureStepCache = new StructureStepCache(registry, GA$DECORATION_STEP_COUNT);
-                STRUCTURE_CACHE.set(structureStepCache);
+                STRUCTURE_CACHE.set(new WeakReference<>(structureStepCache));
             }
 // GENERATOR ACCELERATOR END
 
@@ -310,6 +311,7 @@ public abstract class MixinChunkGenerator$apply_biome_decoration {
                 throw new ReportedException(crashreport);
             } finally {
                 decorationScratch.clearBiomeFeatureMasks();
+                set.clear();
                 FeatureMemoryDebug.maybeLogDecorationChunk(chunkpos, set.size(), pipelineScratch);
                 pipelineScratch.clear();
                 DecorationPipelineMetrics.addElapsed(DecorationPipelineMetrics.DECORATION_TOTAL_NANOS, decorationStart);

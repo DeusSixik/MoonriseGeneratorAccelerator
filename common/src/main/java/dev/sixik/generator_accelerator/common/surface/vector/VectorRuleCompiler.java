@@ -124,10 +124,8 @@ public class VectorRuleCompiler {
         try {
             Class.forName(classz, false, VectorRuleCompiler.class.getClassLoader());
             return true;
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException | LinkageError e) {
             return false;
-        } catch (LinkageError e) {
-            return true;
         }
     }
 

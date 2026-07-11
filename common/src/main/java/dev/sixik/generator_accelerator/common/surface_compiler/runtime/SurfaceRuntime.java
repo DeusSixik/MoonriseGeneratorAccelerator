@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface_compiler.runtime;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.surface_compiler.SurfaceCompilerCaches;
 import dev.sixik.generator_accelerator.common.surface_compiler.SurfaceCompilerConfig;
 import dev.sixik.generator_accelerator.common.surface_compiler.SurfaceMetrics;
@@ -41,8 +43,6 @@ import net.minecraft.world.level.levelgen.SurfaceRules;
 import net.minecraft.world.level.levelgen.SurfaceSystem;
 import net.minecraft.world.level.levelgen.WorldGenerationContext;
 
-import java.util.IdentityHashMap;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -64,7 +64,10 @@ public final class SurfaceRuntime {
     private static final QuarantineManager QUARANTINE = new QuarantineManager();
     private static final SurfaceTelemetry TELEMETRY = new SurfaceTelemetry();
     private static final ModFallbackReporter FALLBACK_REPORTER = new ModFallbackReporter();
-    private static final Map<SurfaceRules.RuleSource, SurfaceExecutionPlan> IDENTITY_PLAN_CACHE = new IdentityHashMap<>();
+    private static final Cache<SurfaceRules.RuleSource, SurfaceExecutionPlan> IDENTITY_PLAN_CACHE = Caffeine.newBuilder()
+            .weakKeys()
+            .maximumSize(Math.max(16L, SurfaceCompilerConfig.CACHE_MAX_SIZE * 2L))
+            .build();
     private static final ConcurrentMap<String, FallbackReason> CLASS_CIRCUIT_BREAKERS = new ConcurrentHashMap<>();
 
     private SurfaceRuntime() {
@@ -133,17 +136,14 @@ public final class SurfaceRuntime {
     public static void clearCaches() {
         SurfaceCompilerCaches.clear();
         CLASS_CIRCUIT_BREAKERS.clear();
-        synchronized (IDENTITY_PLAN_CACHE) {
-            IDENTITY_PLAN_CACHE.clear();
-        }
+        IDENTITY_PLAN_CACHE.invalidateAll();
         TELEMETRY.reset();
         FALLBACK_REPORTER.clear();
     }
 
     public static int identityCacheSize() {
-        synchronized (IDENTITY_PLAN_CACHE) {
-            return IDENTITY_PLAN_CACHE.size();
-        }
+        IDENTITY_PLAN_CACHE.cleanUp();
+        return Math.toIntExact(Math.min(Integer.MAX_VALUE, IDENTITY_PLAN_CACHE.estimatedSize()));
     }
 
     public static AdapterRegistry adapters() {
@@ -224,7 +224,7 @@ public final class SurfaceRuntime {
             recordExecution(plan, true);
             SurfaceMetrics.optimizedExecution(start);
             return true;
-        } catch (RuntimeException | Error throwable) {
+        } catch (RuntimeException throwable) {
             cowManager.discard();
             QUARANTINE.quarantine(plan.key(), FallbackReason.EXECUTION_FAILURE);
             identityRemove(ruleSource);
@@ -378,23 +378,18 @@ public final class SurfaceRuntime {
     }
 
     private static SurfaceExecutionPlan identityGet(SurfaceRules.RuleSource ruleSource) {
-        synchronized (IDENTITY_PLAN_CACHE) {
-            return IDENTITY_PLAN_CACHE.get(ruleSource);
-        }
+        return ruleSource == null ? null : IDENTITY_PLAN_CACHE.getIfPresent(ruleSource);
     }
 
     private static void identityPut(SurfaceRules.RuleSource ruleSource, SurfaceExecutionPlan plan) {
-        synchronized (IDENTITY_PLAN_CACHE) {
-            if (IDENTITY_PLAN_CACHE.size() >= SurfaceCompilerConfig.CACHE_MAX_SIZE * 2) {
-                IDENTITY_PLAN_CACHE.clear();
-            }
+        if (ruleSource != null && plan != null) {
             IDENTITY_PLAN_CACHE.put(ruleSource, plan);
         }
     }
 
     private static void identityRemove(SurfaceRules.RuleSource ruleSource) {
-        synchronized (IDENTITY_PLAN_CACHE) {
-            IDENTITY_PLAN_CACHE.remove(ruleSource);
+        if (ruleSource != null) {
+            IDENTITY_PLAN_CACHE.invalidate(ruleSource);
         }
     }
 

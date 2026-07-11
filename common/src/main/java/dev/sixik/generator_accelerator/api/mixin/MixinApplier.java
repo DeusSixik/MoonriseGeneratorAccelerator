@@ -5,13 +5,18 @@ public record MixinApplier(String modClassPath, Param[] mixins) {
     public boolean hasDisableMixin(String mixin) {
         for(Param param : this.mixins) {
             for(String s : param.mixinDisable) {
-                if (s.equals(mixin)) {
+                if (s.equals(mixin) || matchesPackagePrefix(s, mixin)) {
                     return true;
                 }
             }
         }
 
         return false;
+    }
+
+    private static boolean matchesPackagePrefix(String pattern, String mixin) {
+        return pattern.endsWith(".*")
+                && mixin.startsWith(pattern.substring(0, pattern.length() - 1));
     }
 
     public boolean hasMixin(String mixin) {
@@ -39,15 +44,17 @@ public record MixinApplier(String modClassPath, Param[] mixins) {
     }
 
     private static boolean isClassLoaded(String modClassPath) {
+        return isClassLoaded(modClassPath, MixinApplier.class.getClassLoader());
+    }
+
+    static boolean isClassLoaded(String modClassPath, ClassLoader classLoader) {
         if (modClassPath.isEmpty()) return true;
 
         try {
-            Class.forName(modClassPath, false, MixinApplier.class.getClassLoader());
+            Class.forName(modClassPath, false, classLoader);
             return true;
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException | LinkageError e) {
             return false;
-        } catch (LinkageError e) {
-            return true;
         }
     }
 

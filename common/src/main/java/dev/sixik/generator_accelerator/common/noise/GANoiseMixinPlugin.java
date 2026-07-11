@@ -18,14 +18,8 @@ public class GANoiseMixinPlugin extends GAMixinPlugin {
                 "com.ishland.c2me.opts.math.mixin.MixinChunkNoiseSampler",
                 "com.ishland.c2me.opts.math.mixin.MixinOctavePerlinNoiseSampler",
                 "com.ishland.c2me.opts.math.mixin.MixinPerlinNoiseSampler",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDFTNoise",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDFTShift",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDFTShiftA",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDFTShiftB",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinBiomeAccess",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDFTypesEndIslands",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinDoublePerlinNoiseSampler",
-                "com.ishland.c2me.opts.natives_math.mixin.df.MixinInterpolatedNoiseSampler"
+                "com.ishland.c2me.opts.natives_math.mixin.MixinDoublePerlinNoiseSampler",
+                "com.ishland.c2me.opts.natives_math.mixin.MixinInterpolatedNoiseSampler"
         ));
     }
 }

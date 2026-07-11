@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.flat_block_structure.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.flat_block_structure.FlatBlockArrayPoolSizing;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -49,16 +50,25 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private static final int bts$RAW_BLOCK_DATA_LENGTH = 4096;
     @Unique
-    private static final int bts$AIR_STATE_ID = Block.getId(Blocks.AIR.defaultBlockState());
+    private static final BlockState bts$DEFAULT_AIR_STATE = Blocks.AIR.defaultBlockState();
+    @Unique
+    private static final int bts$AIR_STATE_ID = Block.getId(bts$DEFAULT_AIR_STATE);
+    @Unique
+    private static final int bts$RAW_DIRTY_INDEX_LENGTH = Math.max(32, Math.min(
+            bts$RAW_BLOCK_DATA_LENGTH,
+            Integer.getInteger("ga.flatBlockArray.rawDirtyIndexCapacity",
+                    FlatBlockArrayPoolSizing.defaultDirtyIndexCapacity())
+    ));
     @Unique
     private static final int bts$RAW_BLOCK_DATA_POOL_DEFAULT_MAX =
-            Math.max(8192, Runtime.getRuntime().availableProcessors() * 256);
+            FlatBlockArrayPoolSizing.defaultRawPoolMax();
     @Unique
     private static final int bts$RAW_BLOCK_DATA_POOL_MAX = Math.max(32,
             Integer.getInteger("ga.flatBlockArray.rawPoolMax", bts$RAW_BLOCK_DATA_POOL_DEFAULT_MAX));
     @Unique
     private static final int bts$RAW_DIRTY_INDEX_POOL_MAX = Math.max(32,
-            Integer.getInteger("ga.flatBlockArray.rawDirtyPoolMax", Math.min(1024, bts$RAW_BLOCK_DATA_POOL_MAX)));
+            Integer.getInteger("ga.flatBlockArray.rawDirtyPoolMax",
+                    FlatBlockArrayPoolSizing.defaultDirtyPoolMax(bts$RAW_BLOCK_DATA_POOL_MAX)));
     @Unique
     private static final MpmcArrayQueue<int[]> bts$RAW_BLOCK_DATA_POOL =
             new MpmcArrayQueue<>(bts$RAW_BLOCK_DATA_POOL_MAX);
@@ -68,9 +78,12 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private static final Predicate<BlockState> bts$HAS_LIGHT_EMISSION = state -> state.getLightEmission() != 0;
     @Unique
+    private static final Predicate<BlockState> bts$IS_NOT_DEFAULT_AIR = state -> state != bts$DEFAULT_AIR_STATE;
+    @Unique
     private static final int bts$RAW_BLOCK_DATA_PREALLOC = Math.max(0, Math.min(
             bts$RAW_BLOCK_DATA_POOL_MAX,
-            Integer.getInteger("ga.flatBlockArray.rawPoolPrealloc", bts$RAW_BLOCK_DATA_POOL_MAX)
+            Integer.getInteger("ga.flatBlockArray.rawPoolPrealloc",
+                    FlatBlockArrayPoolSizing.defaultPrealloc(bts$RAW_BLOCK_DATA_POOL_MAX))
     ));
     @Unique
     private static final int bts$PACK_STARTED_ONLY_AIR_BITS = Math.max(4, Math.min(8,
@@ -78,7 +91,8 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private static final int bts$RAW_DIRTY_INDEX_PREALLOC = Math.max(0, Math.min(
             bts$RAW_DIRTY_INDEX_POOL_MAX,
-            Integer.getInteger("ga.flatBlockArray.rawDirtyPoolPrealloc", bts$RAW_DIRTY_INDEX_POOL_MAX)
+            Integer.getInteger("ga.flatBlockArray.rawDirtyPoolPrealloc",
+                    FlatBlockArrayPoolSizing.defaultPrealloc(bts$RAW_DIRTY_INDEX_POOL_MAX))
     ));
 
     static {
@@ -86,7 +100,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             bts$RAW_BLOCK_DATA_POOL.offer(new int[bts$RAW_BLOCK_DATA_LENGTH]);
         }
         for (int i = 0; i < bts$RAW_DIRTY_INDEX_PREALLOC; i++) {
-            bts$RAW_DIRTY_INDEX_POOL.offer(new short[bts$RAW_BLOCK_DATA_LENGTH]);
+            bts$RAW_DIRTY_INDEX_POOL.offer(new short[bts$RAW_DIRTY_INDEX_LENGTH]);
         }
     }
 
@@ -116,9 +130,7 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         raw[index] = stateId;
         this.bts$updateRawLightEmissionCount(oldId, stateId);
         if (this.bts$rawStartedOnlyAir) {
-            if (!this.bts$rawDirtyOverflow) {
-                this.bts$rawDirtyOverflow = true;
-            }
+            this.bts$recordRawDirtyIndex(index, oldId, stateId);
             if (oldId == bts$AIR_STATE_ID && stateId != bts$AIR_STATE_ID) {
                 this.bts$incrementCountsById(stateId);
             } else {
@@ -199,8 +211,9 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
         this.bts$rawLightEmissionCount = 0;
         this.bts$rawDirtyOverflow = false;
 
-        this.bts$rawStartedOnlyAir = this.nonEmptyBlockCount == 0;
-        if (this.nonEmptyBlockCount == 0) {
+        this.bts$rawStartedOnlyAir = this.nonEmptyBlockCount == 0
+                && !this.states.maybeHas(bts$IS_NOT_DEFAULT_AIR);
+        if (this.bts$rawStartedOnlyAir) {
             return;
         }
 
@@ -209,14 +222,11 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++) {
                     BlockState state = this.states.get(x, y, z);
-
-                    if (!state.isAir()) {
-                        int index = (y << 8) | (z << 4) | x;
-                        int stateId = GA$BlockStateExtension.get(state).bts$getFastId();
-                        raw[index] = stateId;
-                        if (FastBlockStateCache.hasLightEmission(stateId)) {
-                            this.bts$rawLightEmissionCount++;
-                        }
+                    int index = (y << 8) | (z << 4) | x;
+                    int stateId = GA$BlockStateExtension.get(state).bts$getFastId();
+                    raw[index] = stateId;
+                    if (FastBlockStateCache.hasLightEmission(stateId)) {
+                        this.bts$rawLightEmissionCount++;
                     }
                 }
             }
@@ -425,12 +435,12 @@ public abstract class MixinLevelChunkSection$flat_block_array implements LevelCh
     @Unique
     private static short[] bts$acquireRawDirtyIndices() {
         short[] indices = bts$RAW_DIRTY_INDEX_POOL.poll();
-        return indices == null ? new short[bts$RAW_BLOCK_DATA_LENGTH] : indices;
+        return indices == null ? new short[bts$RAW_DIRTY_INDEX_LENGTH] : indices;
     }
 
     @Unique
     private static void bts$releaseRawDirtyIndices(short[] indices) {
-        if (indices.length == bts$RAW_BLOCK_DATA_LENGTH) {
+        if (indices.length == bts$RAW_DIRTY_INDEX_LENGTH) {
             bts$RAW_DIRTY_INDEX_POOL.offer(indices);
         }
     }

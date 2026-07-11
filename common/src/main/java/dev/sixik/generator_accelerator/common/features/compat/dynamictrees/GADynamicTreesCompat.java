@@ -13,6 +13,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.Locale;
 import java.util.List;
+import java.lang.ref.WeakReference;
 
 public final class GADynamicTreesCompat {
     private static final ThreadLocal<LevelContextCache> LEVEL_CONTEXT =
@@ -29,8 +30,8 @@ public final class GADynamicTreesCompat {
 
     public static LevelContext levelContext(LevelAccessor level) {
         LevelContextCache cache = LEVEL_CONTEXT.get();
-        if (cache.level != level) {
-            cache.level = level;
+        if (cache.level() != level) {
+            cache.level = new WeakReference<>(level);
             cache.context = LevelContext.create(level);
             cache.groundFinder = null;
         }
@@ -82,24 +83,24 @@ public final class GADynamicTreesCompat {
 
     public static Heightmap.Types heightmapType(BiomeDatabase biomeDatabase, Holder<Biome> biome) {
         HeightmapCache cache = HEIGHTMAP_CACHE.get();
-        if (cache.biomeDatabase == biomeDatabase && cache.biome == biome && cache.type != null) {
+        if (cache.biomeDatabase() == biomeDatabase && cache.biome() == biome && cache.type != null) {
             return cache.type;
         }
         Heightmap.Types type = heightmapTypeByName(biomeEntry(biomeDatabase, biome).getHeightmap());
-        cache.biomeDatabase = biomeDatabase;
-        cache.biome = biome;
+        cache.biomeDatabase = new WeakReference<>(biomeDatabase);
+        cache.biome = new WeakReference<>(biome);
         cache.type = type;
         return type;
     }
 
     public static BiomeDatabase.Entry biomeEntry(BiomeDatabase biomeDatabase, Holder<Biome> biome) {
         EntryCache cache = ENTRY_CACHE.get();
-        if (cache.biomeDatabase == biomeDatabase && cache.biome == biome && cache.entry != null) {
+        if (cache.biomeDatabase() == biomeDatabase && cache.biome() == biome && cache.entry != null) {
             return cache.entry;
         }
         BiomeDatabase.Entry entry = biomeDatabase.getEntry(biome);
-        cache.biomeDatabase = biomeDatabase;
-        cache.biome = biome;
+        cache.biomeDatabase = new WeakReference<>(biomeDatabase);
+        cache.biome = new WeakReference<>(biome);
         cache.entry = entry;
         return entry;
     }
@@ -117,9 +118,13 @@ public final class GADynamicTreesCompat {
     }
 
     private static final class LevelContextCache {
-        LevelAccessor level;
+        WeakReference<LevelAccessor> level;
         LevelContext context;
         GroundFinder groundFinder;
+
+        LevelAccessor level() {
+            return level == null ? null : level.get();
+        }
     }
 
     private static final class DiscCache {
@@ -130,14 +135,30 @@ public final class GADynamicTreesCompat {
     }
 
     private static final class HeightmapCache {
-        BiomeDatabase biomeDatabase;
-        Holder<Biome> biome;
+        WeakReference<BiomeDatabase> biomeDatabase;
+        WeakReference<Holder<Biome>> biome;
         Heightmap.Types type;
+
+        BiomeDatabase biomeDatabase() {
+            return biomeDatabase == null ? null : biomeDatabase.get();
+        }
+
+        Holder<Biome> biome() {
+            return biome == null ? null : biome.get();
+        }
     }
 
     private static final class EntryCache {
-        BiomeDatabase biomeDatabase;
-        Holder<Biome> biome;
+        WeakReference<BiomeDatabase> biomeDatabase;
+        WeakReference<Holder<Biome>> biome;
         BiomeDatabase.Entry entry;
+
+        BiomeDatabase biomeDatabase() {
+            return biomeDatabase == null ? null : biomeDatabase.get();
+        }
+
+        Holder<Biome> biome() {
+            return biome == null ? null : biome.get();
+        }
     }
 }

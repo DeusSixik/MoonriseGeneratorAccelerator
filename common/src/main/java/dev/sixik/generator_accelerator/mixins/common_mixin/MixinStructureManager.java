@@ -77,10 +77,11 @@ public abstract class MixinStructureManager implements GA$StructureManagerExtens
     @Override
     @Nullable
     public ObjectArrayList<StructureStart> ga$startsForStructureFast(SectionPos sectionPos, Structure structure) {
-        LongSet references = this.level
+        Map<Structure, LongSet> referencesByStructure = this.level
                 .getChunk(sectionPos.x(), sectionPos.z(), ChunkStatus.STRUCTURE_REFERENCES)
-                .getReferencesForStructure(structure);
-        if (references.isEmpty()) {
+                .getAllReferences();
+        LongSet references = referencesByStructure.get(structure);
+        if (references == null || references.isEmpty()) {
             return null;
         }
 

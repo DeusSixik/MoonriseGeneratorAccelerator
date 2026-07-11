@@ -2,7 +2,9 @@ package dev.sixik.generator_accelerator.common.structures.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.biome.BiomeManager;
@@ -147,7 +149,12 @@ public abstract class MixinChunkAccess$SynchronizeStructureData implements Block
         try {
             snapshot = bts$structureReferencesSnapshot;
             if (snapshot == null) {
-                snapshot = Collections.unmodifiableMap(new Reference2ObjectOpenHashMap<>(structuresRefences));
+                Reference2ObjectOpenHashMap<Structure, LongSet> copy =
+                        new Reference2ObjectOpenHashMap<>(structuresRefences.size());
+                for (Map.Entry<Structure, LongSet> entry : structuresRefences.entrySet()) {
+                    copy.put(entry.getKey(), LongSets.unmodifiable(new LongOpenHashSet(entry.getValue())));
+                }
+                snapshot = Collections.unmodifiableMap(copy);
                 bts$structureReferencesSnapshot = snapshot;
             }
             return snapshot;

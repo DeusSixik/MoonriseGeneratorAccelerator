@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.biome;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.mixin.GAMixinPlugin;
 import dev.sixik.generator_accelerator.api.mixin.MixinApplier;
 import dev.sixik.generator_accelerator.config.GAConfig;
@@ -44,10 +45,6 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
                         ""
                 ),
                 new MixinApplier.Param(
-                        "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestAccessor",
-                        ""
-                ),
-                new MixinApplier.Param(
                         "dev.sixik.generator_accelerator.common.biome.mixin.compat.biolith.Biolith$SubBiomeRequestSet$fast_iter",
                         ""
                 ),
@@ -60,6 +57,10 @@ public class GABiomeMixinPlugin extends GAMixinPlugin {
                         ""
                 )
         );
+        create(GeneratorAccelerator.C2ME_MOD, new MixinApplier.Param(
+                "",
+                "com.ishland.c2me.opts.natives_math.mixin.MixinBiomeAccess"
+        ));
     }
 
     @Override

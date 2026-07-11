@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -33,5 +34,6 @@ public class MixinMinecraftServer {
     @Inject(method = "stopServer", at = @At("HEAD"))
     public void ga$beginCustomGraphShutdown(CallbackInfo ci) {
         GACustomChunkGraphScheduler.beginShutdown();
+        GAScheduler.shutdown();
     }
 }

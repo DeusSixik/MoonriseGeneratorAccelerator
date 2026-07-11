@@ -55,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -654,6 +655,27 @@ class SurfaceCompilerParityTest {
         SurfaceRuntime.clearCaches();
 
         assertEquals(0, EpochClassLoader.liveLoaderCount());
+    }
+
+    @Test
+    void generatedKernelsShareOneLoaderPerEpochAndRotateAfterRetireAll() {
+        SurfaceRuntime.prepare(SurfaceRules.state(Blocks.DIRT.defaultBlockState()));
+        EpochClassLoader firstLoader = EpochClassLoader.create(SurfaceCompilerParityTest.class.getClassLoader());
+        long firstEpoch = firstLoader.epoch();
+
+        SurfaceRuntime.prepare(SurfaceRules.state(Blocks.STONE.defaultBlockState()));
+        EpochClassLoader sameEpochLoader = EpochClassLoader.create(SurfaceCompilerParityTest.class.getClassLoader());
+
+        assertSame(firstLoader, sameEpochLoader);
+        assertEquals(1, EpochClassLoader.liveLoaderCount());
+        assertEquals(firstEpoch, sameEpochLoader.epoch());
+
+        EpochClassLoader.retireAll();
+        EpochClassLoader secondLoader = EpochClassLoader.create(SurfaceCompilerParityTest.class.getClassLoader());
+
+        assertNotSame(firstLoader, secondLoader);
+        assertNotEquals(firstEpoch, secondLoader.epoch());
+        assertEquals(1, EpochClassLoader.liveLoaderCount());
     }
 
     @Test

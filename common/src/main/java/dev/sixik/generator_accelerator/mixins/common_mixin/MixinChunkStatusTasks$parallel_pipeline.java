@@ -50,10 +50,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                 GAScheduler.Lane.WORKSPACE,
                 step,
                 chunk,
-                () -> GAChunkWorkspaceRuntime.withImportedWorkspaceFuture(
-                        chunk,
-                        () -> original.call(context, step, cache, chunk)
-                )
+                () -> original.call(context, step, cache, chunk)
         ));
     }
 
@@ -70,10 +67,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                 GAScheduler.Lane.WORKSPACE,
                 step,
                 chunk,
-                () -> GAChunkWorkspaceRuntime.withImportedWorkspaceFuture(
-                        chunk,
-                        () -> original.call(context, step, cache, chunk)
-                )
+                () -> original.call(context, step, cache, chunk)
         ));
     }
 
@@ -130,10 +124,7 @@ public abstract class MixinChunkStatusTasks$parallel_pipeline {
                 GAScheduler.Lane.TRANSACTIONAL,
                 step,
                 chunk,
-                () -> GAChunkWorkspaceRuntime.withImportedWorkspaceFuture(
-                        chunk,
-                        () -> original.call(context, step, cache, chunk)
-                )
+                () -> original.call(context, step, cache, chunk)
         ));
     }
 

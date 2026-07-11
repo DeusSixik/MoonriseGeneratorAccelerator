@@ -54,6 +54,10 @@ public final class GAChunkStatusPipeline {
             "ga.chunkPipeline.guardMaxParkNanos",
             CONFIG.chunkPipelineGuardMaxParkNanos
     ));
+    private static final int MAX_GUARD_RETRIES = Math.max(1, intProperty(
+            "ga.chunkPipeline.guardMaxRetries",
+            4096
+    ));
     private static final boolean[] STAGE_ENABLED = new boolean[]{
             booleanProperty("ga.chunkPipeline.noise.enabled", CONFIG.chunkPipelineNoise),
             booleanProperty("ga.chunkPipeline.structure_starts.enabled", CONFIG.chunkPipelineStructureStarts),
@@ -238,14 +242,14 @@ public final class GAChunkStatusPipeline {
                 waitStart = System.nanoTime();
             }
             retries++;
+            if (retries >= MAX_GUARD_RETRIES || Thread.currentThread().isInterrupted()) {
+                recordGuardWait(stage, retries, waitStart);
+                return task.get();
+            }
             backoff(retries);
         }
 
-        if (retries > 0) {
-            int index = stage.ordinal();
-            GUARD_RETRIES.addAndGet(index, retries);
-            GUARD_WAIT_NANOS.addAndGet(index, System.nanoTime() - waitStart);
-        }
+        recordGuardWait(stage, retries, waitStart);
 
         try {
             return task.get();
@@ -306,16 +310,25 @@ public final class GAChunkStatusPipeline {
                 waitStart = System.nanoTime();
             }
             retries++;
+            if (retries >= MAX_GUARD_RETRIES || Thread.currentThread().isInterrupted()) {
+                recordGuardWait(stage, retries, waitStart);
+                return GuardLease.NOOP;
+            }
             backoff(retries);
         }
 
-        if (retries > 0) {
-            int index = stage.ordinal();
-            GUARD_RETRIES.addAndGet(index, retries);
-            GUARD_WAIT_NANOS.addAndGet(index, System.nanoTime() - waitStart);
-        }
+        recordGuardWait(stage, retries, waitStart);
 
         return GuardLease.copy(token, scratch);
+    }
+
+    private static void recordGuardWait(Stage stage, int retries, long waitStart) {
+        if (retries <= 0) {
+            return;
+        }
+        int index = stage.ordinal();
+        GUARD_RETRIES.addAndGet(index, retries);
+        GUARD_WAIT_NANOS.addAndGet(index, System.nanoTime() - waitStart);
     }
 
     private static boolean stageEnabled(Stage stage) {

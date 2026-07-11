@@ -16,7 +16,8 @@ import java.util.List;
 public abstract class MixinChunkMap$custom_graph_scheduler {
     @Inject(method = "runGenerationTasks", at = @At("HEAD"), cancellable = true)
     private void ga$runGenerationTasksWithCustomGraph(CallbackInfo ci) {
-        if (!GACustomChunkGraphScheduler.canInterceptGenerationTasks()) {
+        ChunkMap chunkMap = (ChunkMap) (Object) this;
+        if (!GACustomChunkGraphScheduler.canInterceptGenerationTasks(chunkMap)) {
             return;
         }
 
@@ -29,7 +30,6 @@ public abstract class MixinChunkMap$custom_graph_scheduler {
 
         ArrayList<ChunkGenerationTask> tasks = new ArrayList<>(pending);
         pending.clear();
-        ChunkMap chunkMap = (ChunkMap) (Object) this;
         for (ChunkGenerationTask task : tasks) {
             if (!GACustomChunkGraphScheduler.schedule(chunkMap, task)) {
                 pending.add(task);

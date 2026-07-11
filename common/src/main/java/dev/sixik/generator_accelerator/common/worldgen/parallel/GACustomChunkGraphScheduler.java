@@ -6,6 +6,7 @@ import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkGenerationTaskAccessor;
+import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkMapAccessor;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinGenerationChunkHolderAccessor;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.server.level.ChunkGenerationTask;
@@ -37,6 +38,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * with per-node dependency dispatch over GA-owned lanes.
  */
 public final class GACustomChunkGraphScheduler {
+    private static final Class<?> C2ME_CHUNK_SYSTEM_ACCESS = optionalClass(
+            "com.ishland.c2me.rewrites.chunksystem.common.ducks.IChunkSystemAccess"
+    );
+    private static final Class<?> MOONRISE_CHUNK_SYSTEM_CHUNK_MAP = optionalClass(
+            "ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemChunkMap"
+    );
     private static final GAConfig CONFIG = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
     private static final boolean ENABLED = booleanProperty(
             "ga.chunkGraph.enabled",
@@ -70,6 +77,7 @@ public final class GACustomChunkGraphScheduler {
     private static final AtomicLong TASKS_SUBMITTED = new AtomicLong();
     private static final AtomicLong TASKS_COMPLETED = new AtomicLong();
     private static final AtomicLong TASKS_FAILED = new AtomicLong();
+    private static final AtomicLong TASKS_FALLBACK_TO_VANILLA = new AtomicLong();
     private static final AtomicLong TASKS_CANCELLED = new AtomicLong();
     private static final AtomicLong EMPTY_NODES_SUBMITTED = new AtomicLong();
     private static final AtomicLong GRAPH_NODES_SUBMITTED = new AtomicLong();
@@ -103,8 +111,13 @@ public final class GACustomChunkGraphScheduler {
         return ENABLED && !shutdownRequested && (ALLOW_STARTUP_INTERCEPT || !startupPhase);
     }
 
+    public static boolean canInterceptGenerationTasks(ChunkMap chunkMap) {
+        return canInterceptGenerationTasks()
+                && !usesMoonriseChunkSystem(chunkMap);
+    }
+
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
-        if (!canInterceptGenerationTasks()) {
+        if (!canInterceptGenerationTasks(chunkMap)) {
             return false;
         }
         TASKS_SUBMITTED.incrementAndGet();
@@ -144,6 +157,8 @@ public final class GACustomChunkGraphScheduler {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("enabled", ENABLED);
         out.put("canInterceptGenerationTasks", canInterceptGenerationTasks());
+        out.put("c2meChunkSystemClassPresent", C2ME_CHUNK_SYSTEM_ACCESS != null);
+        out.put("moonriseChunkSystemClassPresent", MOONRISE_CHUNK_SYSTEM_CHUNK_MAP != null);
         out.put("allowStartupIntercept", ALLOW_STARTUP_INTERCEPT);
         out.put("startupPhase", startupPhase);
         out.put("eagerEmptyRadius", EAGER_EMPTY_RADIUS);
@@ -153,6 +168,7 @@ public final class GACustomChunkGraphScheduler {
         out.put("tasksSubmitted", TASKS_SUBMITTED.get());
         out.put("tasksCompleted", TASKS_COMPLETED.get());
         out.put("tasksFailed", TASKS_FAILED.get());
+        out.put("tasksFallbackToVanilla", TASKS_FALLBACK_TO_VANILLA.get());
         out.put("tasksCancelled", TASKS_CANCELLED.get());
         out.put("emptyNodesSubmitted", EMPTY_NODES_SUBMITTED.get());
         out.put("graphNodesSubmitted", GRAPH_NODES_SUBMITTED.get());
@@ -180,6 +196,7 @@ public final class GACustomChunkGraphScheduler {
         TASKS_SUBMITTED.set(0L);
         TASKS_COMPLETED.set(0L);
         TASKS_FAILED.set(0L);
+        TASKS_FALLBACK_TO_VANILLA.set(0L);
         TASKS_CANCELLED.set(0L);
         EMPTY_NODES_SUBMITTED.set(0L);
         GRAPH_NODES_SUBMITTED.set(0L);
@@ -195,8 +212,6 @@ public final class GACustomChunkGraphScheduler {
         IN_FLIGHT_COLLISIONS.set(0L);
         GENERATION_GRAPHS.set(0L);
         LOADING_GRAPHS.set(0L);
-        ACTIVE_TASKS.set(0L);
-        ACTIVE_NODES.set(0L);
         STALLED_PHASES.set(0L);
     }
 
@@ -267,6 +282,8 @@ public final class GACustomChunkGraphScheduler {
         private final AtomicBoolean terminal = new AtomicBoolean();
         private final AtomicBoolean registered = new AtomicBoolean();
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
+        private final AtomicBoolean fallbackRequested = new AtomicBoolean();
+        private final AtomicBoolean fallbackQueued = new AtomicBoolean();
 
         private volatile int nextPhaseId = PHASE_NONE;
         private int storedGenerationEmptyRadius;
@@ -798,12 +815,40 @@ public final class GACustomChunkGraphScheduler {
                         this.targetStatus,
                         throwable
                 );
-                this.task.markForCancellation();
-                try {
-                    this.taskAccess.ga$releaseClaim();
-                } finally {
-                    this.unregisterActiveRun();
+                this.fallbackRequested.set(true);
+                if (this.activeNodes.get() == 0) {
+                    this.fallbackToVanilla();
                 }
+            }
+        }
+
+        private void fallbackToVanilla() {
+            if (!this.fallbackQueued.compareAndSet(false, true)) {
+                return;
+            }
+            TASKS_FALLBACK_TO_VANILLA.incrementAndGet();
+            this.taskAccess.ga$setMarkedForCancellation(false);
+            this.ready.clear();
+            MixinChunkMapAccessor chunkMapAccess = (MixinChunkMapAccessor) (Object) this.chunkMap;
+            Runnable resume = () -> chunkMapAccess.ga$runGenerationTask(this.task);
+            try {
+                chunkMapAccess.ga$getMainThreadExecutor().tell(resume);
+            } catch (Throwable throwable) {
+                try {
+                    resume.run();
+                } catch (Throwable resumeFailure) {
+                    resumeFailure.addSuppressed(throwable);
+                    this.task.markForCancellation();
+                    this.taskAccess.ga$releaseClaim();
+                    GeneratorAccelerator.LOGGER.warn(
+                            "GA custom chunk graph failed to return {} -> {} to vanilla",
+                            this.center,
+                            this.targetStatus,
+                            resumeFailure
+                    );
+                }
+            } finally {
+                this.unregisterActiveRun();
             }
         }
 
@@ -832,6 +877,10 @@ public final class GACustomChunkGraphScheduler {
             ACTIVE_NODES.decrementAndGet();
             int active = this.activeNodes.decrementAndGet();
             if (active == 0) {
+                if (this.fallbackRequested.get()) {
+                    this.fallbackToVanilla();
+                    return;
+                }
                 if (this.shouldCancel()) {
                     this.finishCancelled();
                     return;
@@ -946,6 +995,19 @@ public final class GACustomChunkGraphScheduler {
             callback.accept(result, throwable);
         } catch (Throwable callbackFailure) {
             GeneratorAccelerator.LOGGER.warn("GA custom chunk graph step callback failed", callbackFailure);
+        }
+    }
+
+    private static boolean usesMoonriseChunkSystem(Object chunkMap) {
+        return MOONRISE_CHUNK_SYSTEM_CHUNK_MAP != null
+                && MOONRISE_CHUNK_SYSTEM_CHUNK_MAP.isInstance(chunkMap);
+    }
+
+    private static Class<?> optionalClass(String className) {
+        try {
+            return Class.forName(className, false, GACustomChunkGraphScheduler.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            return null;
         }
     }
 

@@ -67,6 +67,7 @@ public class GAConfigManager {
             config.enableFeaturesPatch = true;
         }
 
+        config.enableCorePatch = boolOverride("ga.config.enableCorePatch", config.enableCorePatch);
         config.enableAquiferPatch = boolOverride("ga.config.enableAquiferPatch", config.enableAquiferPatch);
         config.enableBeardifierPatch = boolOverride("ga.config.enableBeardifierPatch", config.enableBeardifierPatch);
         config.enableBiomePatch = boolOverride("ga.config.enableBiomePatch", config.enableBiomePatch);
@@ -177,6 +178,7 @@ public class GAConfigManager {
     }
 
     private static void setAllPatches(GAConfig config, boolean enabled) {
+        config.enableCorePatch = enabled;
         config.enableAquiferPatch = enabled;
         config.enableBeardifierPatch = enabled;
         config.enableBiomePatch = enabled;

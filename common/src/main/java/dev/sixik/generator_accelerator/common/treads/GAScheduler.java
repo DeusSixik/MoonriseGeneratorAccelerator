@@ -46,6 +46,7 @@ public final class GAScheduler {
     private static final AtomicInteger[] ACTIVE = new AtomicInteger[Lane.values().length];
     private static final AtomicInteger[] ADMITTED_QUEUED = new AtomicInteger[Lane.values().length];
     private static final AtomicInteger COMPILE_GOVERNOR_RUNNING = new AtomicInteger();
+    private static final AtomicInteger WORLDGEN_GOVERNOR_RUNNING = new AtomicInteger();
     private static final AtomicLong MAX_WORLDGEN_PRESSURE = new AtomicLong();
     private static final AtomicLong MAX_COMMIT_BACKLOG = new AtomicLong();
     private static final AtomicLong MAX_MAILBOX_BACKLOG = new AtomicLong();
@@ -59,6 +60,7 @@ public final class GAScheduler {
     private static volatile ForkJoinPool serialPool;
     private static volatile ForkJoinPool commitPool;
     private static volatile ConfigSnapshot configSnapshot = ConfigSnapshot.defaults();
+    private static volatile boolean shutdownRequested;
 
     static {
         for (int i = 0; i < ACTIVE.length; i++) {
@@ -81,6 +83,7 @@ public final class GAScheduler {
             ConfigSnapshot snapshot = ConfigSnapshot.from(config, processors, isDev);
 
             configSnapshot = snapshot;
+            shutdownRequested = false;
             initialized = true;
         }
     }
@@ -127,6 +130,9 @@ public final class GAScheduler {
 
     public static <T> CompletableFuture<T> supplyAsync(Lane lane, Supplier<T> supplier) {
         ensureInitialized();
+        if (shutdownRequested) {
+            return failedFuture(new RejectedExecutionException("GA scheduler is shutting down"));
+        }
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
@@ -205,6 +211,9 @@ public final class GAScheduler {
      */
     public static <T> CompletableFuture<T> supplyNestedAsync(Lane lane, Supplier<T> supplier) {
         ensureInitialized();
+        if (shutdownRequested) {
+            return failedFuture(new RejectedExecutionException("GA scheduler is shutting down"));
+        }
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
@@ -246,6 +255,10 @@ public final class GAScheduler {
 
     public static void executeAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
         ensureInitialized();
+        if (shutdownRequested) {
+            notifyFailure(failureHandler, new RejectedExecutionException("GA scheduler is shutting down"));
+            return;
+        }
         Supplier<Void> task = wrapWorkspaceContext(() -> {
             runnable.run();
             return null;
@@ -324,6 +337,10 @@ public final class GAScheduler {
      */
     public static void executeNestedAsync(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler) {
         ensureInitialized();
+        if (shutdownRequested) {
+            notifyFailure(failureHandler, new RejectedExecutionException("GA scheduler is shutting down"));
+            return;
+        }
         Supplier<Void> task = wrapWorkspaceContext(() -> {
             runnable.run();
             return null;
@@ -370,6 +387,9 @@ public final class GAScheduler {
 
     public static void invokeBlocking(Lane lane, Runnable runnable) throws InterruptedException, ExecutionException {
         ensureInitialized();
+        if (shutdownRequested) {
+            throw new ExecutionException(new RejectedExecutionException("GA scheduler is shutting down"));
+        }
         if (isCurrentLaneWorker(lane)) {
             int index = lane.ordinal();
             SUBMITTED.incrementAndGet(index);
@@ -460,10 +480,17 @@ public final class GAScheduler {
         MAX_COMMIT_BACKLOG.set(0L);
         MAX_MAILBOX_BACKLOG.set(0L);
         BOTTLENECK_THROTTLES.set(0L);
-        COMPILE_GOVERNOR_RUNNING.set(0);
+    }
+
+    public static void shutdown() {
+        shutdownPools(false);
     }
 
     public static void shutdownForTests() {
+        shutdownPools(true);
+    }
+
+    private static void shutdownPools(boolean resetLiveCounters) {
         ForkJoinPool oldNoisePool;
         ForkJoinPool oldCompilePool;
         ForkJoinPool oldWorkspacePool;
@@ -472,6 +499,7 @@ public final class GAScheduler {
         ForkJoinPool oldCommitPool;
 
         synchronized (INIT_LOCK) {
+            shutdownRequested = true;
             oldNoisePool = noisePool;
             oldCompilePool = compilePool;
             oldWorkspacePool = workspacePool;
@@ -487,6 +515,9 @@ public final class GAScheduler {
             commitPool = null;
             configSnapshot = ConfigSnapshot.defaults();
             resetMetrics();
+            if (resetLiveCounters) {
+                resetLiveStateForTests();
+            }
             resetAdmissionForTests();
             initialized = false;
         }
@@ -497,6 +528,14 @@ public final class GAScheduler {
         shutdownPool(oldTransactionalPool);
         shutdownPool(oldSerialPool);
         shutdownPool(oldCommitPool);
+    }
+
+    private static void resetLiveStateForTests() {
+        for (AtomicInteger active : ACTIVE) {
+            active.set(0);
+        }
+        COMPILE_GOVERNOR_RUNNING.set(0);
+        WORLDGEN_GOVERNOR_RUNNING.set(0);
     }
 
     private static Map<String, Object> laneSnapshot(Lane lane) {
@@ -544,6 +583,7 @@ public final class GAScheduler {
         out.put("worldgenActiveLimit", worldgenActiveLimit(config));
         out.put("compileActiveLimit", compileActiveLimit(config, worldgenPressure));
         out.put("compileGovernorRunning", COMPILE_GOVERNOR_RUNNING.get());
+        out.put("worldgenGovernorRunning", WORLDGEN_GOVERNOR_RUNNING.get());
         out.put("compileThrottleEnabled", config.compileWorkers() > 1);
         out.put("commitBacklog", commitBacklog);
         out.put("maxCommitBacklog", MAX_COMMIT_BACKLOG.get());
@@ -626,8 +666,8 @@ public final class GAScheduler {
             updateMax(MAX_MAILBOX_BACKLOG, mailboxBacklog);
             boolean bottleneckActive = bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio);
             int limit = worldgenActiveLimit(config, bottleneckActive);
-            long active = activeWorldgenWorkers();
-            if (active < limit) {
+            int current = WORLDGEN_GOVERNOR_RUNNING.get();
+            if (current < limit && WORLDGEN_GOVERNOR_RUNNING.compareAndSet(current, current + 1)) {
                 break;
             }
             if (!throttled) {
@@ -645,10 +685,14 @@ public final class GAScheduler {
                         + " lane interrupted while throttled by worldgen governor");
             }
         }
-        if (throttled) {
-            GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), System.nanoTime() - waitStart);
+        try {
+            if (throttled) {
+                GOVERNOR_WAIT_NANOS.addAndGet(lane.ordinal(), System.nanoTime() - waitStart);
+            }
+            return runMeasured(lane, supplier);
+        } finally {
+            WORLDGEN_GOVERNOR_RUNNING.decrementAndGet();
         }
-        return runMeasured(lane, supplier);
     }
 
     private static long activeWorldgenWorkers() {
