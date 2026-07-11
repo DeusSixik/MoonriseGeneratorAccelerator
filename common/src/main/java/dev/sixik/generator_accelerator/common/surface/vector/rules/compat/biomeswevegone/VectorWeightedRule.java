@@ -9,7 +9,7 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraft.world.level.levelgen.SurfaceRules;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.WeightedRuleSource;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorWeightedRule implements VectorRule {
 
@@ -33,7 +33,7 @@ public class VectorWeightedRule implements VectorRule {
     }
 
     @Override
-    public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
+    public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx) {
         PositionalRandomFactory randomFactory = ctx.surfaceSystem.noiseRandom;
         int[] ruleByColumn = ctx.weightedRuleByColumn;
 
@@ -57,17 +57,23 @@ public class VectorWeightedRule implements VectorRule {
 
         for (int ruleIndex = 0; ruleIndex < this.compiledRules.length; ruleIndex++) {
             VectorRule rule = this.compiledRules[ruleIndex];
-            BitSet ruleMask = ctx.acquireBitSet4096();
+            Mask4096 ruleMask = ctx.acquireMask4096();
             try {
                 ruleMask.or(activeMask);
-                for (int i = ruleMask.nextSetBit(0); i >= 0; i = ruleMask.nextSetBit(i + 1)) {
-                    if (ruleByColumn[i & 255] != ruleIndex) {
-                        ruleMask.clear(i);
+                long[] words = ruleMask.words();
+                for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+                    long word = words[wordIndex];
+                    while (word != 0L) {
+                        int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                        if (ruleByColumn[i & 255] != ruleIndex) {
+                            ruleMask.clear(i);
+                        }
+                        word &= word - 1L;
                     }
                 }
 
                 if (!ruleMask.isEmpty()) {
-                    BitSet originalRuleMask = ctx.acquireBitSet4096();
+                    Mask4096 originalRuleMask = ctx.acquireMask4096();
                     try {
                         originalRuleMask.or(ruleMask);
 
@@ -77,12 +83,21 @@ public class VectorWeightedRule implements VectorRule {
 
                         activeMask.andNot(originalRuleMask);
                     } finally {
-                        ctx.releaseBitSet4096(originalRuleMask);
+                        ctx.releaseMask4096(originalRuleMask);
                     }
                 }
             } finally {
-                ctx.releaseBitSet4096(ruleMask);
+                ctx.releaseMask4096(ruleMask);
             }
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        int requirements = 0;
+        for (VectorRule rule : this.compiledRules) {
+            requirements |= rule.requiredContext();
+        }
+        return requirements;
     }
 }

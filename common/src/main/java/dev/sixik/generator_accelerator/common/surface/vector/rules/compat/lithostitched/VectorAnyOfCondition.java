@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.litho
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorAnyOfCondition implements VectorCondition {
     private final VectorCondition[] conditions;
@@ -13,14 +13,14 @@ public class VectorAnyOfCondition implements VectorCondition {
     }
 
     @Override
-    public void filter(BitSet activeMask, VectorChunkContext ctx) {
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx) {
         if (activeMask.isEmpty() || conditions.length == 0) {
             activeMask.clear();
             return;
         }
 
-        BitSet finalPassedMask = ctx.acquireBitSet4096();
-        BitSet testMask = ctx.acquireBitSet4096();
+        Mask4096 finalPassedMask = ctx.acquireMask4096();
+        Mask4096 testMask = ctx.acquireMask4096();
         try {
             for (int i = 0; i < conditions.length; i++) {
                 testMask.clear();
@@ -36,8 +36,17 @@ public class VectorAnyOfCondition implements VectorCondition {
 
             activeMask.and(finalPassedMask);
         } finally {
-            ctx.releaseBitSet4096(testMask);
-            ctx.releaseBitSet4096(finalPassedMask);
+            ctx.releaseMask4096(testMask);
+            ctx.releaseMask4096(finalPassedMask);
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        int requirements = 0;
+        for (VectorCondition condition : this.conditions) {
+            requirements |= condition.requiredContext();
+        }
+        return requirements;
     }
 }

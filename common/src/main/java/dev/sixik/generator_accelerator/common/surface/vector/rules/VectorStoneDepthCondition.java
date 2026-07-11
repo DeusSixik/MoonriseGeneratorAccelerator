@@ -2,10 +2,11 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules;
 
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
+import dev.sixik.generator_accelerator.common.surface.vector.VectorContextRequirements;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.placement.CaveSurface;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorStoneDepthCondition implements VectorCondition {
     private final int offset;
@@ -21,37 +22,47 @@ public class VectorStoneDepthCondition implements VectorCondition {
     }
 
     @Override
-    public void filter(BitSet activeMask, VectorChunkContext ctx) {
-        // We only run through the active blocks in the mask
-        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
-            int localX = i & 15;
-            int localZ = (i >> 4) & 15;
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx) {
+        long[] words = activeMask.words();
+        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+            long word = words[wordIndex];
+            while (word != 0L) {
+                int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                int localX = i & 15;
+                int localZ = (i >> 4) & 15;
 
-            // index for 2D array (X and Z)
-            int xzIdx = localX | (localZ << 4);
+                int xzIdx = localX | (localZ << 4);
 
-            // maximum permitted depth
-            int allowedDepth = 1 + this.offset;
+                int allowedDepth = 1 + this.offset;
 
-            if (this.addSurfaceDepth) {
-                allowedDepth += ctx.surfaceDepths[xzIdx];
-            }
+                if (this.addSurfaceDepth) {
+                    allowedDepth += ctx.surfaceDepths[xzIdx];
+                }
 
-            if (this.secondaryDepthRange != 0) {
-                double secondaryNoise = ctx.secondarySurfaceNoises[xzIdx];
-                allowedDepth += (int) Mth.map(secondaryNoise, -1.0, 1.0, 0.0, this.secondaryDepthRange);
-            }
+                if (this.secondaryDepthRange != 0) {
+                    double secondaryNoise = ctx.secondarySurfaceNoises[xzIdx];
+                    allowedDepth += (int) Mth.map(secondaryNoise, -1.0, 1.0, 0.0, this.secondaryDepthRange);
+                }
 
-            // current depth of the block in the rock
-            int currentDepth = this.isCeiling ? ctx.stoneDepthBelow[i] : ctx.stoneDepthAbove[i];
+                int currentDepth = this.isCeiling ? ctx.stoneDepthBelow[i] : ctx.stoneDepthAbove[i];
 
-            /*
-                If we're deeper than allowed (or even in midair, where depth = 0),
-                then this block has failed the test. We remove the bit.
-             */
-            if (currentDepth == 0 || currentDepth > allowedDepth) {
-                activeMask.clear(i);
+                if (currentDepth == 0 || currentDepth > allowedDepth) {
+                    activeMask.clear(i);
+                }
+                word &= word - 1L;
             }
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        int requirements = 0;
+        if (this.addSurfaceDepth) {
+            requirements |= VectorContextRequirements.SURFACE_DEPTHS;
+        }
+        if (this.secondaryDepthRange != 0) {
+            requirements |= VectorContextRequirements.SECONDARY_SURFACE_NOISE;
+        }
+        return requirements;
     }
 }

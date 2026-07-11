@@ -4,7 +4,7 @@ import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorTestRule implements VectorRule {
     private final VectorCondition condition;
@@ -16,8 +16,8 @@ public class VectorTestRule implements VectorRule {
     }
 
     @Override
-    public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
-        BitSet matchingMask = ctx.acquireBitSet4096();
+    public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx) {
+        Mask4096 matchingMask = ctx.acquireMask4096();
         try {
             matchingMask.or(activeMask);
             this.condition.filter(matchingMask, ctx);
@@ -26,17 +26,22 @@ public class VectorTestRule implements VectorRule {
                 return;
             }
 
-            BitSet processedBlocks = ctx.acquireBitSet4096();
+            Mask4096 processedBlocks = ctx.acquireMask4096();
             try {
                 processedBlocks.or(matchingMask);
                 this.thenRun.apply(rawBlockData, matchingMask, ctx);
                 processedBlocks.xor(matchingMask);
                 activeMask.andNot(processedBlocks);
             } finally {
-                ctx.releaseBitSet4096(processedBlocks);
+                ctx.releaseMask4096(processedBlocks);
             }
         } finally {
-            ctx.releaseBitSet4096(matchingMask);
+            ctx.releaseMask4096(matchingMask);
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        return this.condition.requiredContext() | this.thenRun.requiredContext();
     }
 }

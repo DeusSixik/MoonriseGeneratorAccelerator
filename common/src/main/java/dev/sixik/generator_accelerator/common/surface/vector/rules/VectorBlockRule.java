@@ -7,7 +7,7 @@ import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorBlockRule implements VectorRule {
     private final int blockId;
@@ -17,9 +17,15 @@ public class VectorBlockRule implements VectorRule {
     }
 
     @Override
-    public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
-        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
-            rawBlockData[i] = this.blockId;
+    public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx) {
+        long[] words = activeMask.words();
+        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+            long word = words[wordIndex];
+            while (word != 0L) {
+                int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                rawBlockData[i] = this.blockId;
+                word &= word - 1L;
+            }
         }
 
         activeMask.clear();

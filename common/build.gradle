@@ -22,6 +22,12 @@ def surfaceApplyBenchmarkArgs = [
         "--iterations=${findProperty('surfaceApplyIterations') ?: '12000'}",
         "--samples=${findProperty('surfaceApplySamples') ?: '5'}"
 ]
+def surfaceExecuteBenchmarkMain = "dev.sixik.generator_accelerator.common.surface.benchmark.SurfaceRuntimeExecuteQuickBenchmark"
+def surfaceExecuteBenchmarkArgs = [
+        "--warmup=${findProperty('surfaceExecuteWarmup') ?: '250'}",
+        "--iterations=${findProperty('surfaceExecuteIterations') ?: '1000'}",
+        "--samples=${findProperty('surfaceExecuteSamples') ?: '5'}"
+]
 
 tasks.register("surfaceQuickBenchmarkRuntime", JavaExec) {
     group = "benchmark"
@@ -81,6 +87,36 @@ tasks.register("surfaceApplyQuickBenchmark") {
     group = "benchmark"
     description = "Runs very quick Surface Compiler 2.0 dispatch benchmarks."
     dependsOn "surfaceApplyQuickBenchmarkRuntime", "surfaceApplyQuickBenchmarkSafe"
+}
+
+tasks.register("surfaceExecuteQuickBenchmarkRuntime", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Compiler 2.0 runtime execution benchmark."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceExecuteBenchmarkMain
+    jvmArgs "-Dga.surface.metrics=false"
+    args surfaceExecuteBenchmarkArgs
+}
+
+tasks.register("surfaceExecuteQuickBenchmarkSafe", JavaExec) {
+    group = "benchmark"
+    description = "Runs a very quick Surface Compiler 2.0 safe-mode runtime execution benchmark."
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = surfaceExecuteBenchmarkMain
+    jvmArgs "-Dga.surface.metrics=false", "-Dga.surface.compiler.paranoid=true"
+    args surfaceExecuteBenchmarkArgs
+}
+
+tasks.named("surfaceExecuteQuickBenchmarkSafe") {
+    mustRunAfter tasks.named("surfaceExecuteQuickBenchmarkRuntime")
+}
+
+tasks.register("surfaceExecuteQuickBenchmark") {
+    group = "benchmark"
+    description = "Runs very quick Surface Compiler 2.0 runtime execution benchmarks."
+    dependsOn "surfaceExecuteQuickBenchmarkRuntime", "surfaceExecuteQuickBenchmarkSafe"
 }
 
 dependencies {

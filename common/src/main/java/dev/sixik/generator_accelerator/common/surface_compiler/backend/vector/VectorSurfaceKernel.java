@@ -1,11 +1,14 @@
 package dev.sixik.generator_accelerator.common.surface_compiler.backend.vector;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
 import dev.sixik.generator_accelerator.common.surface.GASurfaceChunkBiomeLookup;
 import dev.sixik.generator_accelerator.common.surface.mixin.GABiomeManagerAccess;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
+import dev.sixik.generator_accelerator.common.surface.vector.VectorContextRequirements;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRuleCompiler;
 import dev.sixik.generator_accelerator.common.surface_compiler.backend.bytecode.GeneratedKernel;
@@ -14,6 +17,7 @@ import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceEx
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
@@ -23,9 +27,9 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.SurfaceSystem;
 
-import java.util.Arrays;
-import java.util.BitSet;
 import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Fast section-oriented kernel for vanilla-compatible surface trees.
@@ -39,11 +43,16 @@ import java.lang.reflect.Field;
 public final class VectorSurfaceKernel implements GeneratedKernel {
     private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
     private static final Field DEFAULT_BLOCK = defaultBlockField();
+    private static final Cache<SpecialBiomeGuardKey, Boolean> SPECIAL_BIOME_GUARD_CACHE = Caffeine.newBuilder()
+            .maximumSize(16_384L)
+            .build();
 
     private final VectorRule rootRule;
+    private final int requiredContext;
 
     public VectorSurfaceKernel(VectorRule rootRule) {
         this.rootRule = rootRule;
+        this.requiredContext = rootRule.requiredContext();
     }
 
     public static VectorSurfaceKernel compile(net.minecraft.world.level.levelgen.SurfaceRules.RuleSource ruleSource) {
@@ -104,44 +113,59 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
         GASurfaceChunkBiomeLookup biomeLookup = scratch.biomeLookup;
         try {
             scratch.pendingCount = 0;
-            vectorContext.buildDepthMap(chunk);
+            int requiredContext = this.requiredContext;
+            boolean needsSurfaceHeights = (requiredContext & (VectorContextRequirements.SURFACE_HEIGHTS
+                    | VectorContextRequirements.SURFACE_BIOMES
+                    | VectorContextRequirements.PRELIMINARY_SURFACE)) != 0;
+            vectorContext.prepareColumnState(chunk, needsSurfaceHeights);
             short[] surfaceHeights = vectorContext.surfaceHeights;
-            int minQueryY = Integer.MAX_VALUE;
-            int maxQueryY = Integer.MIN_VALUE;
-            for (int idx = 0; idx < 256; idx++) {
-                int surfaceY = surfaceHeights[idx];
-                int queryY = execution.useLegacyRandomSource() ? 0 : surfaceY;
-                minQueryY = Math.min(minQueryY, queryY);
-                maxQueryY = Math.max(maxQueryY, queryY);
-            }
 
-            GABiomeManagerAccess biomeAccess = (GABiomeManagerAccess) (Object) execution.biomeManager();
-            biomeLookup.prepare(
-                    biomeAccess.bts$getNoiseBiomeSource(),
-                    biomeAccess.bts$getBiomeZoomSeed(),
-                    chunk,
-                    execution.biomeManager(),
-                    minQueryY,
-                    maxQueryY
-            );
-
-            for (int idx = 0; idx < 256; idx++) {
-                int localX = idx & 15;
-                int localZ = idx >> 4;
-                int globalX = minBlockX + localX;
-                int globalZ = minBlockZ + localZ;
-                int surfaceY = surfaceHeights[idx];
-                Holder<Biome> biome = biomeLookup.getBiomeAt(scratch.biomePos.set(globalX, execution.useLegacyRandomSource() ? 0 : surfaceY, globalZ));
-                surfaceBiomes[idx] = biome;
-
-                if (biome.is(Biomes.ERODED_BADLANDS) || biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
-                    return false;
+            if ((requiredContext & VectorContextRequirements.SURFACE_BIOMES) != 0) {
+                int minQueryY = Integer.MAX_VALUE;
+                int maxQueryY = Integer.MIN_VALUE;
+                for (int idx = 0; idx < 256; idx++) {
+                    int surfaceY = surfaceHeights[idx];
+                    int queryY = execution.useLegacyRandomSource() ? 0 : surfaceY;
+                    minQueryY = Math.min(minQueryY, queryY);
+                    maxQueryY = Math.max(maxQueryY, queryY);
                 }
+
+                GABiomeManagerAccess biomeAccess = (GABiomeManagerAccess) (Object) execution.biomeManager();
+                biomeLookup.prepare(
+                        biomeAccess.bts$getNoiseBiomeSource(),
+                        biomeAccess.bts$getBiomeZoomSeed(),
+                        chunk,
+                        execution.biomeManager(),
+                        minQueryY,
+                        maxQueryY
+                );
+
+                for (int idx = 0; idx < 256; idx++) {
+                    int localX = idx & 15;
+                    int localZ = idx >> 4;
+                    int globalX = minBlockX + localX;
+                    int globalZ = minBlockZ + localZ;
+                    int surfaceY = surfaceHeights[idx];
+                    Holder<Biome> biome = biomeLookup.getBiomeAt(scratch.biomePos.set(globalX, execution.useLegacyRandomSource() ? 0 : surfaceY, globalZ));
+                    surfaceBiomes[idx] = biome;
+
+                    if (biome.is(Biomes.ERODED_BADLANDS) || biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                        return false;
+                    }
+                }
+            } else if (hasPotentialVanillaSpecialBiome(execution, chunk, surfaceHeights, needsSurfaceHeights)) {
+                return false;
             }
 
-            vectorContext.prepareSurfaceDepthCache(surfaceSystem, minBlockX, minBlockZ);
-            vectorContext.prepareSecondarySurfaceNoiseCache(surfaceSystem, minBlockX, minBlockZ);
-            vectorContext.preparePreliminarySurface(execution.noiseChunk(), minBlockX, minBlockZ);
+            if ((requiredContext & VectorContextRequirements.SURFACE_DEPTHS) != 0) {
+                vectorContext.prepareSurfaceDepthCache(surfaceSystem, minBlockX, minBlockZ);
+            }
+            if ((requiredContext & VectorContextRequirements.SECONDARY_SURFACE_NOISE) != 0) {
+                vectorContext.prepareSecondarySurfaceNoiseCache(surfaceSystem, minBlockX, minBlockZ);
+            }
+            if ((requiredContext & VectorContextRequirements.PRELIMINARY_SURFACE) != 0) {
+                vectorContext.preparePreliminarySurface(execution.noiseChunk(), minBlockX, minBlockZ);
+            }
 
             Arrays.fill(scratch.previousSectionBottomDepths, 0);
             for (int sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
@@ -162,17 +186,8 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
                     continue;
                 }
 
-                BitSet activeMask = scratch.activeMask;
-                activeMask.clear();
-                long[] words = scratch.stoneMask.words();
-                for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
-                    long word = words[wordIndex];
-                    while (word != 0L) {
-                        int bit = Long.numberOfTrailingZeros(word);
-                        activeMask.set((wordIndex << 6) + bit);
-                        word &= word - 1L;
-                    }
-                }
+                Mask4096 activeMask = scratch.activeMask;
+                activeMask.copyFrom(scratch.stoneMask);
 
                 this.rootRule.apply(working, activeMask, vectorContext);
                 if (!Arrays.equals(source, working)) {
@@ -211,6 +226,113 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
             chunk.markPosForPostprocessing(pos);
         }
         GAWorkspaceWriteBridge.mirrorCurrent(chunk, pos, state);
+    }
+
+    private static boolean hasPotentialVanillaSpecialBiome(
+            SurfaceExecutionContext execution,
+            ChunkAccess chunk,
+            short[] surfaceHeights,
+            boolean surfaceHeightsLoaded
+    ) {
+        int minQueryY = 0;
+        int maxQueryY = 0;
+        if (!execution.useLegacyRandomSource()) {
+            minQueryY = Integer.MAX_VALUE;
+            maxQueryY = Integer.MIN_VALUE;
+            for (int localZ = 0; localZ < 16; localZ++) {
+                for (int localX = 0; localX < 16; localX++) {
+                    int xz = localX | (localZ << 4);
+                    int surfaceY = surfaceHeightsLoaded
+                            ? surfaceHeights[xz]
+                            : chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) + 1;
+                    minQueryY = Math.min(minQueryY, surfaceY);
+                    maxQueryY = Math.max(maxQueryY, surfaceY);
+                }
+            }
+        }
+
+        GABiomeManagerAccess biomeAccess = (GABiomeManagerAccess) (Object) execution.biomeManager();
+        var source = biomeAccess.bts$getNoiseBiomeSource();
+        if (source == null) {
+            return true;
+        }
+
+        ChunkPos chunkPos = chunk.getPos();
+        int biomeOffset = 2;
+        int qMinX = QuartPos.fromBlock(chunkPos.getMinBlockX() - biomeOffset);
+        int qMaxX = QuartPos.fromBlock(chunkPos.getMinBlockX() + 15 - biomeOffset) + 1;
+        int qMinZ = QuartPos.fromBlock(chunkPos.getMinBlockZ() - biomeOffset);
+        int qMaxZ = QuartPos.fromBlock(chunkPos.getMinBlockZ() + 15 - biomeOffset) + 1;
+        int qMinY = QuartPos.fromBlock(minQueryY - biomeOffset);
+        int qMaxY = QuartPos.fromBlock(maxQueryY - biomeOffset) + 1;
+
+        SpecialBiomeGuardKey key = new SpecialBiomeGuardKey(
+                source,
+                biomeAccess.bts$getBiomeZoomSeed(),
+                chunkPos.x,
+                chunkPos.z,
+                qMinY,
+                qMaxY
+        );
+        Boolean cached = SPECIAL_BIOME_GUARD_CACHE.getIfPresent(key);
+        if (cached != null) {
+            return cached;
+        }
+
+        boolean hasSpecialBiome = false;
+        for (int qx = qMinX; qx <= qMaxX; qx++) {
+            for (int qz = qMinZ; qz <= qMaxZ; qz++) {
+                for (int qy = qMinY; qy <= qMaxY; qy++) {
+                    if (isVanillaSpecialBiome(source.getNoiseBiome(qx, qy, qz))) {
+                        hasSpecialBiome = true;
+                        break;
+                    }
+                }
+                if (hasSpecialBiome) {
+                    break;
+                }
+            }
+            if (hasSpecialBiome) {
+                break;
+            }
+        }
+        SPECIAL_BIOME_GUARD_CACHE.put(key, hasSpecialBiome);
+        return hasSpecialBiome;
+    }
+
+    private static boolean isVanillaSpecialBiome(Holder<Biome> biome) {
+        return biome != null
+                && (biome.is(Biomes.ERODED_BADLANDS)
+                || biome.is(Biomes.FROZEN_OCEAN)
+                || biome.is(Biomes.DEEP_FROZEN_OCEAN));
+    }
+
+    private record SpecialBiomeGuardKey(
+            Object source,
+            long seed,
+            int chunkX,
+            int chunkZ,
+            int qMinY,
+            int qMaxY
+    ) {
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            return other instanceof SpecialBiomeGuardKey key
+                    && this.source == key.source
+                    && this.seed == key.seed
+                    && this.chunkX == key.chunkX
+                    && this.chunkZ == key.chunkZ
+                    && this.qMinY == key.qMinY
+                    && this.qMaxY == key.qMaxY;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(System.identityHashCode(this.source), this.seed, this.chunkX, this.chunkZ, this.qMinY, this.qMaxY);
+        }
     }
 
     private static BlockState defaultBlock(SurfaceSystem surfaceSystem) {
@@ -309,7 +431,7 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
         private final BlockPos.MutableBlockPos biomePos = new BlockPos.MutableBlockPos();
         private final int[] previousSectionBottomDepths = new int[256];
         private final Mask4096 stoneMask = new Mask4096();
-        private final BitSet activeMask = new BitSet(4096);
+        private final Mask4096 activeMask = new Mask4096();
         private PendingSection[] pendingSections = new PendingSection[16];
         private int pendingCount;
         private VectorChunkContext vectorContext;

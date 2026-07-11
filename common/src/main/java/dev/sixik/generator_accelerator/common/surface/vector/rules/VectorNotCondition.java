@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorNotCondition implements VectorCondition {
     private final VectorCondition target;
@@ -13,16 +13,21 @@ public class VectorNotCondition implements VectorCondition {
     }
 
     @Override
-    public void filter(BitSet activeMask, VectorChunkContext ctx) {
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx) {
         if (activeMask.isEmpty()) return;
 
-        BitSet passedMask = ctx.acquireBitSet4096();
+        Mask4096 passedMask = ctx.acquireMask4096();
         try {
             passedMask.or(activeMask);
             this.target.filter(passedMask, ctx);
             activeMask.xor(passedMask);
         } finally {
-            ctx.releaseBitSet4096(passedMask);
+            ctx.releaseMask4096(passedMask);
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        return this.target.requiredContext();
     }
 }
