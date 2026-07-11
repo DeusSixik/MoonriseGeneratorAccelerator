@@ -8,7 +8,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraft.world.level.levelgen.VerticalAnchor;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorVerticalGradientCondition implements VectorCondition {
     private final VerticalAnchor trueAtAndBelowY;
@@ -23,29 +23,37 @@ public class VectorVerticalGradientCondition implements VectorCondition {
     }
 
     @Override
-    public void filter(BitSet activeMask, VectorChunkContext ctx) {
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx) {
         final int db0 = this.trueAtAndBelowY.resolveY(ctx.worldContext);
         final int db1 = this.falseAtAndAboveY.resolveY(ctx.worldContext);
         final PositionalRandomFactory randomFactory = ctx.randomState.getOrCreateRandomFactory(randomFactoryName);
 
-        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
-            int localY = (i >> 8) & 15;
-            int globalY = ctx.sectionStartY + localY;
+        long[] words = activeMask.words();
+        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+            long word = words[wordIndex];
+            while (word != 0L) {
+                int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                int localY = (i >> 8) & 15;
+                int globalY = ctx.sectionStartY + localY;
 
-            if (globalY <= db0) {
-                continue;
-            }
-            if (globalY >= db1) {
-                activeMask.clear(i);
-                continue;
-            }
+                if (globalY <= db0) {
+                    word &= word - 1L;
+                    continue;
+                }
+                if (globalY >= db1) {
+                    activeMask.clear(i);
+                    word &= word - 1L;
+                    continue;
+                }
 
-            double chance = Mth.map(globalY, db0, db1, 1.0, 0.0);
+                double chance = Mth.map(globalY, db0, db1, 1.0, 0.0);
 
-            int localX = i & 15;
-            int localZ = (i >> 4) & 15;
-            if (FastPositionalRandom.nextFloatAt(randomFactory, ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ) >= chance) {
-                activeMask.clear(i); // Не повезло в рандоме
+                int localX = i & 15;
+                int localZ = (i >> 4) & 15;
+                if (FastPositionalRandom.nextFloatAt(randomFactory, ctx.sectionStartX + localX, globalY, ctx.sectionStartZ + localZ) >= chance) {
+                    activeMask.clear(i); // Не повезло в рандоме
+                }
+                word &= word - 1L;
             }
         }
     }

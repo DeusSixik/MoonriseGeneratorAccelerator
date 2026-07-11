@@ -11,7 +11,6 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.*;
 
 import java.util.Arrays;
-import java.util.BitSet;
 
 public class VectorChunkContext {
 
@@ -24,8 +23,8 @@ public class VectorChunkContext {
     public final int[] columnScratchMarks = new int[256];
     public final int[] weightedRuleByColumn = new int[256];
     public final BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-    private BitSet[] bitSetScratch = new BitSet[8];
-    private int bitSetScratchDepth;
+    private Mask4096[] maskScratch = new Mask4096[8];
+    private int maskScratchDepth;
     private int columnScratchStamp;
 
     public int STONE_ID;
@@ -63,7 +62,7 @@ public class VectorChunkContext {
         this.worldContext = null;
         this.randomState = null;
         this.surfaceSystem = null;
-        this.bitSetScratchDepth = 0;
+        this.maskScratchDepth = 0;
     }
 
     public void updateForSection(int startX, int startY, int startZ) {
@@ -76,29 +75,29 @@ public class VectorChunkContext {
         return this.surfaceBiomes[xzIdx & 255];
     }
 
-    public BitSet acquireBitSet4096() {
-        int index = this.bitSetScratchDepth;
-        if (index >= this.bitSetScratch.length) {
-            this.bitSetScratch = Arrays.copyOf(this.bitSetScratch, this.bitSetScratch.length << 1);
+    public Mask4096 acquireMask4096() {
+        int index = this.maskScratchDepth;
+        if (index >= this.maskScratch.length) {
+            this.maskScratch = Arrays.copyOf(this.maskScratch, this.maskScratch.length << 1);
         }
-        BitSet mask = this.bitSetScratch[index];
+        Mask4096 mask = this.maskScratch[index];
         if (mask == null) {
-            mask = new BitSet(4096);
-            this.bitSetScratch[index] = mask;
+            mask = new Mask4096();
+            this.maskScratch[index] = mask;
         } else {
             mask.clear();
         }
-        this.bitSetScratchDepth = index + 1;
+        this.maskScratchDepth = index + 1;
         return mask;
     }
 
-    public void releaseBitSet4096(BitSet mask) {
-        if (this.bitSetScratchDepth <= 0) {
+    public void releaseMask4096(Mask4096 mask) {
+        if (this.maskScratchDepth <= 0) {
             mask.clear();
             return;
         }
         mask.clear();
-        this.bitSetScratchDepth--;
+        this.maskScratchDepth--;
     }
 
     public int nextColumnScratchStamp() {
@@ -112,10 +111,16 @@ public class VectorChunkContext {
     }
 
     public void buildDepthMap(ChunkAccess chunk) {
+        prepareColumnState(chunk, true);
+    }
+
+    public void prepareColumnState(ChunkAccess chunk, boolean loadSurfaceHeights) {
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 int idx = x | (z << 4);
-                this.surfaceHeights[idx] = (short) (chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1);
+                if (loadSurfaceHeights) {
+                    this.surfaceHeights[idx] = (short) (chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, x, z) + 1);
+                }
                 this.waterHeights[idx] = Integer.MIN_VALUE;
             }
         }

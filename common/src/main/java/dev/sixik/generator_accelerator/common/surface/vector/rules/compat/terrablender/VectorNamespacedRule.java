@@ -1,11 +1,12 @@
 package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.terrablender;
 
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
+import dev.sixik.generator_accelerator.common.surface.vector.VectorContextRequirements;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorRule;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 import java.util.Map;
 
 public class VectorNamespacedRule implements VectorRule {
@@ -18,9 +19,9 @@ public class VectorNamespacedRule implements VectorRule {
     }
 
     @Override
-    public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
-        BitSet remainingMask = ctx.acquireBitSet4096();
-        BitSet namespaceMask = ctx.acquireBitSet4096();
+    public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx) {
+        Mask4096 remainingMask = ctx.acquireMask4096();
+        Mask4096 namespaceMask = ctx.acquireMask4096();
         try {
             remainingMask.or(activeMask);
 
@@ -51,14 +52,20 @@ public class VectorNamespacedRule implements VectorRule {
                 if (!hasAnyMatch) continue;
 
                 namespaceMask.clear();
-                for (int i = remainingMask.nextSetBit(0); i >= 0; i = remainingMask.nextSetBit(i + 1)) {
-                    if (xzMatches[i & 255] == stamp) {
-                        namespaceMask.set(i);
+                long[] words = remainingMask.words();
+                for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+                    long word = words[wordIndex];
+                    while (word != 0L) {
+                        int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                        if (xzMatches[i & 255] == stamp) {
+                            namespaceMask.set(i);
+                        }
+                        word &= word - 1L;
                     }
                 }
 
                 if (!namespaceMask.isEmpty()) {
-                    BitSet beforeApply = ctx.acquireBitSet4096();
+                    Mask4096 beforeApply = ctx.acquireMask4096();
                     try {
                         beforeApply.or(namespaceMask);
 
@@ -66,7 +73,7 @@ public class VectorNamespacedRule implements VectorRule {
                         beforeApply.xor(namespaceMask);
                         remainingMask.andNot(beforeApply);
                     } finally {
-                        ctx.releaseBitSet4096(beforeApply);
+                        ctx.releaseMask4096(beforeApply);
                     }
                 }
             }
@@ -77,8 +84,19 @@ public class VectorNamespacedRule implements VectorRule {
 
             activeMask.and(remainingMask);
         } finally {
-            ctx.releaseBitSet4096(namespaceMask);
-            ctx.releaseBitSet4096(remainingMask);
+            ctx.releaseMask4096(namespaceMask);
+            ctx.releaseMask4096(remainingMask);
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        int requirements = VectorContextRequirements.SURFACE_BIOMES | this.baseRule.requiredContext();
+        for (VectorRule rule : this.namespaceRules.values()) {
+            if (rule != null) {
+                requirements |= rule.requiredContext();
+            }
+        }
+        return requirements;
     }
 }

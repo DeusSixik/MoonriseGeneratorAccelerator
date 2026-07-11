@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface_compiler;
 
+import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.surface.mixin.GABiomeManagerAccess;
 import dev.sixik.generator_accelerator.common.surface_compiler.cache.BoundedProgramStore;
 import dev.sixik.generator_accelerator.common.surface_compiler.cache.EpochClassLoader;
 import dev.sixik.generator_accelerator.common.surface_compiler.cache.FingerprintCacheKey;
@@ -40,15 +42,31 @@ import dev.sixik.generator_accelerator.common.surface_compiler.validate.Syntheti
 import dev.sixik.generator_accelerator.common.surface_compiler.validate.TranslationValidator;
 import dev.sixik.generator_accelerator.common.surface_compiler.validate.VanillaParityComparator;
 import net.minecraft.SharedConstants;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.util.KeyDispatchDataCodec;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.SurfaceRules;
+import net.minecraft.world.level.levelgen.SurfaceSystem;
 import net.minecraft.world.level.levelgen.TestVanillaLikeSequenceRuleSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,6 +76,12 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class SurfaceCompilerParityTest {
     @BeforeAll
@@ -140,6 +164,31 @@ class SurfaceCompilerParityTest {
         java.util.Map<String, Object> tier0Backend = (java.util.Map<String, Object>) SurfaceMetrics.snapshot().get("tier0Backend");
         assertEquals(1L, tier0Backend.get("directTemplatePlans"));
         assertEquals(0L, tier0Backend.get("vectorTemplatePlans"));
+    }
+
+    @Test
+    void directTemplateRejectsVanillaSpecialBiomesEvenWithoutBiomeRule() throws Exception {
+        SurfaceRules.RuleSource rule = SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.not(SurfaceRules.waterBlockCheck(-1, 0)), SurfaceRules.state(Blocks.GRASS_BLOCK.defaultBlockState())),
+                SurfaceRules.state(Blocks.STONE.defaultBlockState()));
+        SurfaceExecutionPlan plan = SurfaceRuntime.prepare(rule);
+        RuntimeFixture fixture = RuntimeFixture.create(true);
+
+        boolean executed = SurfaceRuntime.execute(
+                plan,
+                fixture.surfaceSystem,
+                null,
+                fixture.biomeManager,
+                null,
+                false,
+                null,
+                fixture.chunk,
+                fixture.noiseChunk,
+                rule
+        );
+
+        assertFalse(executed);
+        assertEquals(fixture.stoneId, fixture.raw[0]);
     }
 
     @Test
@@ -715,6 +764,74 @@ class SurfaceCompilerParityTest {
         @Override
         public AdapterDescriptor descriptor() {
             return new AdapterDescriptor(this.ownerClass, this.ownerClass, this.safetyClass, "test", this.primitiveAbi);
+        }
+    }
+
+    private static final class RuntimeFixture {
+        private final int[] raw;
+        private final ChunkAccess chunk;
+        private final SurfaceSystem surfaceSystem;
+        private final BiomeManager biomeManager;
+        private final NoiseChunk noiseChunk;
+        private final int stoneId;
+
+        private RuntimeFixture(int[] raw, ChunkAccess chunk, SurfaceSystem surfaceSystem, BiomeManager biomeManager, NoiseChunk noiseChunk, int stoneId) {
+            this.raw = raw;
+            this.chunk = chunk;
+            this.surfaceSystem = surfaceSystem;
+            this.biomeManager = biomeManager;
+            this.noiseChunk = noiseChunk;
+            this.stoneId = stoneId;
+        }
+
+        private static RuntimeFixture create(boolean specialBiome) throws Exception {
+            int stoneId = Block.getId(Blocks.STONE.defaultBlockState());
+            int[] raw = new int[4096];
+            Arrays.fill(raw, stoneId);
+
+            LevelChunkSection section = mock(LevelChunkSection.class,
+                    withSettings().extraInterfaces(LevelChunkSection$FlatBlockArray.class));
+            when(section.hasOnlyAir()).thenReturn(false);
+            when(((LevelChunkSection$FlatBlockArray) section).bts$getRawBlockData()).thenReturn(raw);
+
+            ChunkAccess chunk = mock(ChunkAccess.class);
+            when(chunk.getPos()).thenReturn(new ChunkPos(0, 0));
+            when(chunk.getMinBuildHeight()).thenReturn(0);
+            when(chunk.getSections()).thenReturn(new LevelChunkSection[]{section});
+            when(chunk.getSectionYFromSectionIndex(0)).thenReturn(0);
+            when(chunk.getHeight(eq(Heightmap.Types.WORLD_SURFACE_WG), anyInt(), anyInt())).thenReturn(15);
+
+            SurfaceSystem surfaceSystem = surfaceSystemWithDefaultBlock(Blocks.STONE.defaultBlockState());
+            NoiseChunk noiseChunk = mock(NoiseChunk.class);
+            when(noiseChunk.preliminarySurfaceLevel(anyInt(), anyInt())).thenReturn(15);
+
+            return new RuntimeFixture(raw, chunk, surfaceSystem, biomeManager(specialBiome), noiseChunk, stoneId);
+        }
+
+        private static SurfaceSystem surfaceSystemWithDefaultBlock(BlockState defaultBlock) throws Exception {
+            SurfaceSystem surfaceSystem = mock(SurfaceSystem.class);
+            Field field = SurfaceSystem.class.getDeclaredField("defaultBlock");
+            field.setAccessible(true);
+            field.set(surfaceSystem, defaultBlock);
+            when(surfaceSystem.getSurfaceDepth(anyInt(), anyInt())).thenReturn(0);
+            when(surfaceSystem.getSurfaceSecondary(anyInt(), anyInt())).thenReturn(0.0);
+            return surfaceSystem;
+        }
+
+        @SuppressWarnings("unchecked")
+        private static BiomeManager biomeManager(boolean specialBiome) {
+            Holder<Biome> biome = mock(Holder.class);
+            when(biome.is(any(ResourceKey.class))).thenReturn(false);
+            if (specialBiome) {
+                when(biome.is(eq(Biomes.ERODED_BADLANDS))).thenReturn(true);
+            }
+
+            BiomeManager biomeManager = mock(BiomeManager.class,
+                    withSettings().extraInterfaces(GABiomeManagerAccess.class));
+            when(((GABiomeManagerAccess) (Object) biomeManager).bts$getBiomeZoomSeed()).thenReturn(0L);
+            when(((GABiomeManagerAccess) (Object) biomeManager).bts$getNoiseBiomeSource()).thenReturn((x, y, z) -> biome);
+            when(biomeManager.getBiome(any(BlockPos.class))).thenReturn(biome);
+            return biomeManager;
         }
     }
 

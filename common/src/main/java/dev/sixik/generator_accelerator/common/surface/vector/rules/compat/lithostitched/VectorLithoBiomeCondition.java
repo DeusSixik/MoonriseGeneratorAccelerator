@@ -2,10 +2,11 @@ package dev.sixik.generator_accelerator.common.surface.vector.rules.compat.litho
 
 import dev.sixik.generator_accelerator.common.surface.vector.VectorChunkContext;
 import dev.sixik.generator_accelerator.common.surface.vector.VectorCondition;
+import dev.sixik.generator_accelerator.common.surface.vector.VectorContextRequirements;
 import net.minecraft.core.HolderSet;
 import net.minecraft.world.level.biome.Biome;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorLithoBiomeCondition implements VectorCondition {
     private final HolderSet<Biome> allowedBiomes;
@@ -15,11 +16,22 @@ public class VectorLithoBiomeCondition implements VectorCondition {
     }
 
     @Override
-    public void filter(BitSet activeMask, VectorChunkContext ctx) {
-        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
-            if (!this.allowedBiomes.contains(ctx.getBiome(i))) {
-                activeMask.clear(i);
+    public void filter(Mask4096 activeMask, VectorChunkContext ctx) {
+        long[] words = activeMask.words();
+        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+            long word = words[wordIndex];
+            while (word != 0L) {
+                int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                if (!this.allowedBiomes.contains(ctx.getBiome(i))) {
+                    activeMask.clear(i);
+                }
+                word &= word - 1L;
             }
         }
+    }
+
+    @Override
+    public int requiredContext() {
+        return VectorContextRequirements.SURFACE_BIOMES;
     }
 }

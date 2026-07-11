@@ -86,6 +86,9 @@ public final class GACustomChunkGraphScheduler {
     private static final AtomicLong CACHE_MISSES = new AtomicLong();
     private static final AtomicLong NODES_ALREADY_COMPLETE = new AtomicLong();
     private static final AtomicLong NODES_JOINED_IN_FLIGHT = new AtomicLong();
+    private static final AtomicLong LOCAL_PARENT_DEPENDENCIES = new AtomicLong();
+    private static final AtomicLong EXTERNAL_PARENT_WAITS = new AtomicLong();
+    private static final AtomicLong PARENT_ORDER_FALLBACKS = new AtomicLong();
     private static final AtomicLong STEP_EXECUTIONS_SUBMITTED = new AtomicLong();
     private static final AtomicLong STEP_EXECUTIONS_COMPLETED = new AtomicLong();
     private static final AtomicLong STEP_EXECUTIONS_FAILED = new AtomicLong();
@@ -177,6 +180,9 @@ public final class GACustomChunkGraphScheduler {
         out.put("cacheMisses", CACHE_MISSES.get());
         out.put("nodesAlreadyComplete", NODES_ALREADY_COMPLETE.get());
         out.put("nodesJoinedInFlight", NODES_JOINED_IN_FLIGHT.get());
+        out.put("localParentDependencies", LOCAL_PARENT_DEPENDENCIES.get());
+        out.put("externalParentWaits", EXTERNAL_PARENT_WAITS.get());
+        out.put("parentOrderFallbacks", PARENT_ORDER_FALLBACKS.get());
         out.put("stepExecutionsSubmitted", STEP_EXECUTIONS_SUBMITTED.get());
         out.put("stepExecutionsCompleted", STEP_EXECUTIONS_COMPLETED.get());
         out.put("stepExecutionsFailed", STEP_EXECUTIONS_FAILED.get());
@@ -205,6 +211,9 @@ public final class GACustomChunkGraphScheduler {
         CACHE_MISSES.set(0L);
         NODES_ALREADY_COMPLETE.set(0L);
         NODES_JOINED_IN_FLIGHT.set(0L);
+        LOCAL_PARENT_DEPENDENCIES.set(0L);
+        EXTERNAL_PARENT_WAITS.set(0L);
+        PARENT_ORDER_FALLBACKS.set(0L);
         STEP_EXECUTIONS_SUBMITTED.set(0L);
         STEP_EXECUTIONS_COMPLETED.set(0L);
         STEP_EXECUTIONS_FAILED.set(0L);
@@ -499,6 +508,11 @@ public final class GACustomChunkGraphScheduler {
         }
 
         private void linkDependencies(Node node, NodeIndex index) {
+            this.linkLocalParentDependency(node, index);
+            if (this.isTerminal()) {
+                return;
+            }
+
             ChunkDependencies dependencies = node.step.directDependencies();
             int radius = dependencies.getRadius();
             ChunkPos pos = node.holder.getPos();
@@ -595,6 +609,9 @@ public final class GACustomChunkGraphScheduler {
                 this.completeNode(node);
                 return;
             }
+            if (this.deferUntilParentComplete(node)) {
+                return;
+            }
 
             if (node.emptyLoad) {
                 EMPTY_NODES_SUBMITTED.incrementAndGet();
@@ -636,6 +653,75 @@ public final class GACustomChunkGraphScheduler {
             }
         }
 
+        private boolean deferUntilParentComplete(Node node) {
+            ChunkStatus parent = parentStatus(node.status);
+            if (parent == null || node.holder.getChunkIfPresentUnchecked(parent) != null) {
+                return false;
+            }
+
+            this.nodeStarted();
+            boolean joined = this.joinInFlightStep(
+                    node.holder,
+                    parent,
+                    (result, throwable) -> this.completeParentWait(node, parent, result, throwable)
+            );
+            if (joined) {
+                EXTERNAL_PARENT_WAITS.incrementAndGet();
+                return true;
+            }
+
+            CompletableFuture<ChunkResult<ChunkAccess>> parentFuture = ((MixinGenerationChunkHolderAccessor) node.holder)
+                    .ga$getFutures()
+                    .get(parent.getIndex());
+            if (parentFuture != null) {
+                EXTERNAL_PARENT_WAITS.incrementAndGet();
+                parentFuture.whenComplete((result, throwable) -> this.completeParentWait(node, parent, result, throwable));
+                return true;
+            }
+            this.undoNodeStarted();
+
+            if (node.holder.getChunkIfPresentUnchecked(parent) != null) {
+                return false;
+            }
+
+            ChunkStatus startedWork = ((MixinGenerationChunkHolderAccessor) node.holder).ga$getStartedWork().get();
+            if (startedWork != null && !node.status.isAfter(startedWork)) {
+                return false;
+            }
+
+            PARENT_ORDER_FALLBACKS.incrementAndGet();
+            this.fail(new IllegalStateException(
+                    "Parent status " + parent + " is not complete before " + node.status
+                            + " at " + node.holder.getPos()
+                            + ", startedWork=" + startedWork
+            ));
+            return true;
+        }
+
+        private void completeParentWait(Node node, ChunkStatus parent, ChunkResult<ChunkAccess> result, Throwable throwable) {
+            try {
+                if (throwable != null) {
+                    this.fail(throwable);
+                    return;
+                }
+                if (result == null || !result.isSuccess() || node.holder.getChunkIfPresentUnchecked(parent) == null) {
+                    this.fail(new IllegalStateException(
+                            "Parent status " + parent + " did not complete before " + node.status
+                                    + " at " + node.holder.getPos()
+                    ));
+                    return;
+                }
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
+                    return;
+                }
+                this.ready.add(node);
+                this.drainReady();
+            } finally {
+                this.nodeFinished();
+            }
+        }
+
         private void scheduleOrJoinStep(Node node, StepCompletionCallback callback) {
             if (!COALESCE_IN_FLIGHT) {
                 this.scheduleStep(node, callback);
@@ -643,6 +729,29 @@ public final class GACustomChunkGraphScheduler {
             }
 
             int statusIndex = node.status.getIndex();
+            if (this.joinInFlightStep(node.holder, node.status, callback)) {
+                return;
+            }
+            this.installInFlightOrSchedule(node, callback, statusIndex);
+        }
+
+        private boolean joinInFlightStep(GenerationChunkHolder holder, ChunkStatus status, StepCompletionCallback callback) {
+            int statusIndex = status.getIndex();
+            int hash = stepHash(holder, statusIndex);
+            int baseIndex = (hash & IN_FLIGHT_BUCKET_MASK) * IN_FLIGHT_WAYS;
+            for (int way = 0; way < IN_FLIGHT_WAYS; way++) {
+                int index = baseIndex + way;
+                InFlightStep current = IN_FLIGHT_STEPS.get(index);
+                if (current != null && current.matches(holder, statusIndex)) {
+                    NODES_JOINED_IN_FLIGHT.incrementAndGet();
+                    current.addListener(callback);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void installInFlightOrSchedule(Node node, StepCompletionCallback callback, int statusIndex) {
             int hash = stepHash(node.holder, statusIndex);
             int baseIndex = (hash & IN_FLIGHT_BUCKET_MASK) * IN_FLIGHT_WAYS;
             for (;;) {
@@ -822,6 +931,23 @@ public final class GACustomChunkGraphScheduler {
             }
         }
 
+        private void linkLocalParentDependency(Node node, NodeIndex index) {
+            ChunkStatus parent = parentStatus(node.status);
+            if (parent == null) {
+                return;
+            }
+
+            ChunkPos pos = node.holder.getPos();
+            Node dependency = index.get(pos.x, pos.z, parent);
+            if (dependency == null) {
+                return;
+            }
+
+            dependency.addDependent(node);
+            node.incrementPendingDependencies();
+            LOCAL_PARENT_DEPENDENCIES.incrementAndGet();
+        }
+
         private void fallbackToVanilla() {
             if (!this.fallbackQueued.compareAndSet(false, true)) {
                 return;
@@ -871,6 +997,11 @@ public final class GACustomChunkGraphScheduler {
         private void nodeStarted() {
             this.activeNodes.incrementAndGet();
             ACTIVE_NODES.incrementAndGet();
+        }
+
+        private void undoNodeStarted() {
+            ACTIVE_NODES.decrementAndGet();
+            this.activeNodes.decrementAndGet();
         }
 
         private void nodeFinished() {
@@ -938,6 +1069,10 @@ public final class GACustomChunkGraphScheduler {
             hash *= 0x7feb352d;
             hash ^= hash >>> 15;
             return hash;
+        }
+
+        private static ChunkStatus parentStatus(ChunkStatus status) {
+            return status == ChunkStatus.EMPTY ? null : status.getParent();
         }
     }
 

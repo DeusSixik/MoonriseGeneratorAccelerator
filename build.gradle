@@ -4,14 +4,13 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
 
-def configureBenchmarkServerProperties = { String seedValue ->
+def configureBenchmarkServerPropertiesIn = { File runDir, String seedValue ->
     if (seedValue == null || seedValue.isBlank()) {
         return
     }
 
-    def runDir = file("neoforge/run")
     runDir.mkdirs()
-    def propsFile = file("neoforge/run/server.properties")
+    def propsFile = new File(runDir, "server.properties")
     def lines = propsFile.exists() ? propsFile.readLines("ISO-8859-1") : []
     def updated = false
 
@@ -28,6 +27,10 @@ def configureBenchmarkServerProperties = { String seedValue ->
     }
 
     propsFile.setText(lines.join(System.lineSeparator()) + System.lineSeparator(), "ISO-8859-1")
+}
+
+def configureBenchmarkServerProperties = { String seedValue ->
+    configureBenchmarkServerPropertiesIn(file("neoforge/run"), seedValue)
 }
 
 architectury {
@@ -358,5 +361,62 @@ tasks.register("runDecorationPipelineQuickBenchmarks") {
         }
 
         println "\nQuick decoration pipeline benchmarks end!"
+    }
+}
+
+tasks.register("runGAChunkgenBenchmark") {
+    group = "benchmark"
+    description = "Runs a short GA-only real in-game chunk generation benchmark without Mockito."
+
+    doLast {
+        def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def currentJavaHome = System.getProperty("java.home")
+        def runs = (findProperty("benchRuns") ?: "1") as int
+        def benchStartTick = findProperty("chunkgenStartTick") ?: "20"
+        def benchStopTick = findProperty("chunkgenStopTick") ?: "260"
+        def benchHaltTick = findProperty("chunkgenHaltTick") ?: "320"
+        def benchTicksBetweenBatches = findProperty("chunkgenTicksBetweenBatches") ?: "10"
+        def benchRenderDistance = findProperty("chunkgenRenderDistance") ?: "8"
+        def benchMaxBatches = findProperty("chunkgenMaxBatches")
+        def benchResetWorld = findProperty("chunkgenResetWorld") ?: "true"
+        def benchWorldSeed = (findProperty("chunkgenWorldSeed") ?: "918273645546372819").toString()
+        def benchRunDirPath = findProperty("chunkgenRunDir") ?: "run-ga-chunkgen"
+        def benchRunDir = file("neoforge/${benchRunDirPath}")
+        def startupWatchdogSeconds = findProperty("chunkgenStartupWatchdogSeconds") ?: "120"
+        def tickWatchdogSeconds = findProperty("chunkgenTickWatchdogSeconds") ?: "45"
+        def chunkgenArgs = "-Dga.benchmark.useSpark=false " +
+                "-Dga.benchmark.directChunkLoad=true " +
+                "-Dga.benchmark.startTick=$benchStartTick " +
+                "-Dga.benchmark.stopTick=$benchStopTick " +
+                "-Dga.benchmark.haltTick=$benchHaltTick " +
+                "-Dga.benchmark.ticksBetweenBatches=$benchTicksBetweenBatches " +
+                "-Dga.benchmark.renderDistance=$benchRenderDistance " +
+                "-Dga.benchmark.resetWorld=$benchResetWorld " +
+                "-Dga.benchmark.startupWatchdogSeconds=$startupWatchdogSeconds " +
+                "-Dga.benchmark.tickWatchdogSeconds=$tickWatchdogSeconds"
+        if (benchMaxBatches != null) {
+            chunkgenArgs += " -Dga.benchmark.maxBatches=$benchMaxBatches"
+        }
+
+        for (int i = 1; i <= runs; i++) {
+            println "======================================="
+            println "  START GA CHUNKGEN BENCHMARK: run $i of $runs"
+            println "  JVM ARGS: $chunkgenArgs"
+            println "  WORLD SEED: $benchWorldSeed"
+            println "  RUN DIR: $benchRunDir"
+            println "======================================="
+            def sparkConfigDir = new File(benchRunDir, "config/spark")
+            sparkConfigDir.mkdirs()
+            new File(sparkConfigDir, "config.json").text = '{"backgroundProfiler":false}\n'
+            configureBenchmarkServerPropertiesIn(benchRunDir, benchWorldSeed)
+            exec {
+                environment "JAVA_HOME", currentJavaHome
+                commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$chunkgenArgs", "-PgaRunDir=${benchRunDirPath}", "-PwithoutSpark", "--no-daemon"
+            }
+            sleep(1000)
+        }
+
+        println "\nGA chunkgen benchmark end!"
     }
 }

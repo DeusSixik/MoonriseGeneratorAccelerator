@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
 import dev.sixik.generator_accelerator_benchmark.MGABenchmarkPlugin;
 import dev.sixik.generator_accelerator_benchmark.MainBenchmark;
 import io.netty.channel.embedded.EmbeddedChannel;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.network.Connection;
@@ -65,7 +66,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
     @Unique private int ga$nextBatchCenterChunkX = 0;
     @Unique private int ga$nextBatchCenterChunkZ = 0;
     @Unique private int ga$directChunkTicketRadius = 0;
+    @Unique private long ga$chunkRequests = 0L;
     @Unique private final ObjectArrayList<ChunkPos> ga$activeChunkTickets = new ObjectArrayList<>();
+    @Unique private final LongOpenHashSet ga$uniqueChunkRequests = new LongOpenHashSet();
     @Unique private volatile boolean watchdogStarted = false;
     @Unique private volatile boolean serverTickSeen = false;
     @Unique private volatile long lastTickNanos = System.nanoTime();
@@ -104,7 +107,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             this.ga$nextBatchCenterChunkX = 0;
             this.ga$nextBatchCenterChunkZ = 0;
             this.ga$directChunkTicketRadius = 0;
+            this.ga$chunkRequests = 0L;
             this.ga$activeChunkTickets.clear();
+            this.ga$uniqueChunkRequests.clear();
             this.fakePlayer = null;
             if (!this.ga$directChunkDriver) {
                 this.fakePlayer = this.sdm$makePlayer();
@@ -176,6 +181,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             long elapsedMs = (System.nanoTime() - this.benchmarkStartNanos) / 1_000_000L;
             MainBenchmark.log("Benchmark wall time ms: " + elapsedMs);
             MainBenchmark.log("Benchmark generated batches: " + this.generatedBatches);
+            if (this.ga$directChunkDriver) {
+                this.sdm$logChunkgenThroughput(elapsedMs);
+            }
             if (FeatureVmMetrics.ENABLED) {
                 MainBenchmark.log(FeatureVmMetrics.summary());
             }
@@ -244,12 +252,33 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         this.ga$activeChunkTickets.add(center);
         for (int chunkZ = centerChunkZ - radius; chunkZ <= centerChunkZ + radius; chunkZ++) {
             for (int chunkX = centerChunkX - radius; chunkX <= centerChunkX + radius; chunkX++) {
+                this.ga$chunkRequests++;
+                this.ga$uniqueChunkRequests.add(ChunkPos.asLong(chunkX, chunkZ));
                 level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, true);
             }
         }
 
         int strideChunks = Math.max(1, renderDistance * 2);
         this.ga$nextBatchCenterChunkX += strideChunks;
+    }
+
+    @Unique
+    private void sdm$logChunkgenThroughput(long elapsedMs) {
+        long uniqueChunks = this.ga$uniqueChunkRequests.size();
+        double elapsedSeconds = Math.max(elapsedMs, 1L) / 1000.0D;
+        double requestedChunksPerSecond = this.ga$chunkRequests / elapsedSeconds;
+        double uniqueChunksPerSecond = uniqueChunks / elapsedSeconds;
+        double requestedMsPerChunk = elapsedMs / (double) Math.max(this.ga$chunkRequests, 1L);
+        double uniqueMsPerChunk = elapsedMs / (double) Math.max(uniqueChunks, 1L);
+
+        MainBenchmark.log("Benchmark chunk requests: " + this.ga$chunkRequests);
+        MainBenchmark.log("Benchmark unique chunks: " + uniqueChunks);
+        MainBenchmark.log(String.format(java.util.Locale.ROOT,
+                "Benchmark throughput: requested=%.2f chunks/sec, unique=%.2f chunks/sec, requested=%.3f ms/chunk, unique=%.3f ms/chunk",
+                requestedChunksPerSecond,
+                uniqueChunksPerSecond,
+                requestedMsPerChunk,
+                uniqueMsPerChunk));
     }
 
     @Unique
@@ -360,6 +389,10 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         benchmark.put("driver", this.ga$directChunkDriver ? "direct_chunk" : "fake_player");
         benchmark.put("elapsedMs", elapsedMs);
         benchmark.put("generatedBatches", this.generatedBatches);
+        benchmark.put("chunkRequests", this.ga$chunkRequests);
+        benchmark.put("uniqueChunks", this.ga$uniqueChunkRequests.size());
+        benchmark.put("requestedChunksPerSecond", this.ga$chunkRequests / (Math.max(elapsedMs, 1L) / 1000.0D));
+        benchmark.put("uniqueChunksPerSecond", this.ga$uniqueChunkRequests.size() / (Math.max(elapsedMs, 1L) / 1000.0D));
         benchmark.put("tickCounter", this.tickCounter);
         return benchmark;
     }

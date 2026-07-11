@@ -13,6 +13,11 @@ loom {
             vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
                     "-Ddfc.codegen.splineSegmentLut=true"
         }
+        server {
+            if (rootProject.hasProperty("gaRunDir")) {
+                runDir = rootProject.property("gaRunDir").toString()
+            }
+        }
     }
 }
 
@@ -58,7 +63,9 @@ dependencies {
     compileOnlyApi "curse.maven:confluence-1209464:7677430"
 
     modRuntimeOnly "curse.maven:shadow-config-1421861:8010596"
-    modRuntimeOnly "curse.maven:spark-361579:6225208"
+    if (!rootProject.hasProperty('withoutSpark') && !project.hasProperty('withoutSpark')) {
+        modRuntimeOnly "curse.maven:spark-361579:6225208"
+    }
 
     if (project.hasProperty('withMoonrise')) {
         modRuntimeOnly "curse.maven:moonrise-1096335:7089177"

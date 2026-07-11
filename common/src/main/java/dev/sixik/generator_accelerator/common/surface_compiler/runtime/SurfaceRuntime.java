@@ -189,7 +189,8 @@ public final class SurfaceRuntime {
             return false;
         }
 
-        SectionCowManager cowManager = new SectionCowManager(chunk);
+        boolean usesCow = plan.commitMode() == SurfaceCommitMode.COW_SHADOW || plan.commitMode() == SurfaceCommitMode.COW_VERIFY;
+        SectionCowManager cowManager = usesCow ? new SectionCowManager(chunk) : null;
         SurfaceExecutionContext context = new SurfaceExecutionContext(
                 surfaceSystem,
                 randomState,
@@ -213,19 +214,25 @@ public final class SurfaceRuntime {
                 case VANILLA_CLEAN_PATH, QUARANTINED -> false;
             };
             if (!executed) {
-                cowManager.discard();
+                if (cowManager != null) {
+                    cowManager.discard();
+                }
                 QUARANTINE.quarantine(plan.key(), FallbackReason.EXECUTION_FAILURE);
                 identityRemove(ruleSource);
                 SurfaceMetrics.tierExecutionFailure();
                 recordExecution(plan, false);
                 return false;
             }
-            cowManager.commit();
+            if (cowManager != null) {
+                cowManager.commit();
+            }
             recordExecution(plan, true);
             SurfaceMetrics.optimizedExecution(start);
             return true;
         } catch (RuntimeException throwable) {
-            cowManager.discard();
+            if (cowManager != null) {
+                cowManager.discard();
+            }
             QUARANTINE.quarantine(plan.key(), FallbackReason.EXECUTION_FAILURE);
             identityRemove(ruleSource);
             SurfaceMetrics.tierExecutionFailure();

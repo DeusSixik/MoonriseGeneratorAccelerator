@@ -8,7 +8,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BandsContext;
 import net.potionstudios.biomeswevegone.world.level.levelgen.surfacerules.BandsRuleSource;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorBandsRule implements VectorRule {
     private final BandsRuleSource source;
@@ -18,33 +18,39 @@ public class VectorBandsRule implements VectorRule {
     }
 
     @Override
-    public void apply(int[] rawBlockData, BitSet activeMask, VectorChunkContext ctx) {
+    public void apply(int[] rawBlockData, Mask4096 activeMask, VectorChunkContext ctx) {
         if (!(ctx.surfaceSystem instanceof BandsContext bandsContext)) {
             return;
         }
 
-        for (int i = activeMask.nextSetBit(0); i >= 0; i = activeMask.nextSetBit(i + 1)) {
-            int localX = i & 15;
-            int localZ = (i >> 4) & 15;
-            int localY = i >> 8;
+        long[] words = activeMask.words();
+        for (int wordIndex = 0; wordIndex < Mask4096.WORD_COUNT; wordIndex++) {
+            long word = words[wordIndex];
+            while (word != 0L) {
+                int i = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
+                int localX = i & 15;
+                int localZ = (i >> 4) & 15;
+                int localY = i >> 8;
 
-            int globalX = ctx.sectionStartX + localX;
-            int globalY = ctx.sectionStartY + localY;
-            int globalZ = ctx.sectionStartZ + localZ;
+                int globalX = ctx.sectionStartX + localX;
+                int globalY = ctx.sectionStartY + localY;
+                int globalZ = ctx.sectionStartZ + localZ;
 
-            BlockState state = bandsContext.getBandsState(
-                    this.source,
-                    this.source.bandStates(),
-                    this.source.bandSizeProvider(),
-                    this.source.bandsCountProvider(),
-                    globalX, globalY, globalZ,
-                    this.source.frequency(),
-                    this.source.noiseScale()
-            );
+                BlockState state = bandsContext.getBandsState(
+                        this.source,
+                        this.source.bandStates(),
+                        this.source.bandSizeProvider(),
+                        this.source.bandsCountProvider(),
+                        globalX, globalY, globalZ,
+                        this.source.frequency(),
+                        this.source.noiseScale()
+                );
 
-            if (state != null) {
-                rawBlockData[i] = GA$BlockStateExtension.get(state).bts$getFastId();
-                activeMask.clear(i);
+                if (state != null) {
+                    rawBlockData[i] = GA$BlockStateExtension.get(state).bts$getFastId();
+                    activeMask.clear(i);
+                }
+                word &= word - 1L;
             }
         }
     }

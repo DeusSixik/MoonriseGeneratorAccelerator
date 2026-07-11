@@ -10,6 +10,7 @@
 /neoforge/.gradle/
 /neoforge/build/
 /neoforge/run/
+/neoforge/run-ga-chunkgen/
 /fabric/run/
 /.idea/
 /.architectury-transformer

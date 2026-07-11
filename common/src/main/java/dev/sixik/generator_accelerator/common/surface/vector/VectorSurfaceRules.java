@@ -1,6 +1,6 @@
 package dev.sixik.generator_accelerator.common.surface.vector;
 
-import java.util.BitSet;
+import dev.sixik.generator_accelerator.common.surface_compiler.mask.Mask4096;
 
 public class VectorSurfaceRules {
 
@@ -10,13 +10,13 @@ public class VectorSurfaceRules {
         this.rootRule = rootRule;
     }
 
-    public void applyToSection(int[] rawBlockData, BitSet stoneMask, VectorChunkContext ctx) {
-        BitSet processingMask = ctx.acquireBitSet4096();
+    public void applyToSection(int[] rawBlockData, Mask4096 stoneMask, VectorChunkContext ctx) {
+        Mask4096 processingMask = ctx.acquireMask4096();
         try {
-            processingMask.or(stoneMask);
+            processingMask.copyFrom(stoneMask);
             this.rootRule.apply(rawBlockData, processingMask, ctx);
         } finally {
-            ctx.releaseBitSet4096(processingMask);
+            ctx.releaseMask4096(processingMask);
         }
     }
 }
