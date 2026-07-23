@@ -7,7 +7,6 @@ import dev.sixik.generator_accelerator.common.biome.climate.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
@@ -210,20 +209,18 @@ public final class GADebugOverlay {
 
         DfcCellFillStats.Stats cellFillStats = DfcCellFillStats.snapshot();
         DfcCellFillParity.Stats parityStats = DfcCellFillParity.snapshotStats();
-        DfcNativePlanningStats.Stats nativePlanningStats = DfcNativePlanningStats.snapshot();
 
         ImGui.text("Cell fill stats enabled: " + cellFillStats.enabled());
         ImGui.text("Compiled/scalar/unknown: " + cellFillStats.cellCompiled() + "/"
                 + cellFillStats.cellScalar() + "/" + cellFillStats.cellUnknown());
-        ImGui.text("Native slab inner: " + cellFillStats.cellNativeSlabInner());
         ImGui.text("XZ slab columns: " + cellFillStats.cellXzSlab());
-        ImGui.text("Columns scalar/java/native: " + cellFillStats.columnsScalar() + "/"
-                + cellFillStats.columnsJavaBatched() + "/" + cellFillStats.columnsNativeInner());
+        ImGui.text("Columns scalar/java: " + cellFillStats.columnsScalar() + "/"
+                + cellFillStats.columnsJavaBatched());
         ImGui.text("Extern accumulate/scalar residual: " + cellFillStats.cellExternAccumulate()
                 + "/" + cellFillStats.cellExternScalarResidual());
 
         drawStringList("Fast filler classes", cellFillStats.fastFillerClasses().stream()
-                .map(stat -> stat.className() + " = " + stat.calls() + " / native=" + stat.nativeSlabInnerCalls())
+                .map(stat -> stat.className() + " = " + stat.calls())
                 .toList());
         drawStringList("Source filler classes", cellFillStats.sourceFillerClasses());
         drawStringList("Residual extern fallback classes", cellFillStats.residualExternFallbackClasses());
@@ -237,23 +234,6 @@ public final class GADebugOverlay {
         ImGui.text("Parity remaining: " + parityStats.remaining() + " / " + parityStats.maxChecks());
         ImGui.text("Parity epsilon: " + parityStats.epsilon());
         drawStringList("Parity fallback classes", parityStats.fallbackClasses());
-
-        ImGui.separator();
-        ImGui.text("Native planning lattice roots: " + nativePlanningStats.latticeRoots());
-        ImGui.text("Native ops disabled: " + nativePlanningStats.nativeOpsDisabled());
-        ImGui.text("Slab plan present/missing: " + nativePlanningStats.slabPlanPresent() + "/"
-                + nativePlanningStats.slabPlanMissing());
-        ImGui.text("Slab missing no-slots/unsafe/bad-handle: " + nativePlanningStats.slabPlanMissingNoSlots() + "/"
-                + nativePlanningStats.slabPlanMissingUnsafeCoords() + "/" + nativePlanningStats.slabPlanMissingBadHandleIndex());
-        ImGui.text("Slab inner vm present/missing: " + nativePlanningStats.slabInnerVmPresent() + "/"
-                + nativePlanningStats.slabInnerVmMissing());
-        ImGui.text("Slab inner missing extracted/unsupported/invalid/io: "
-                + nativePlanningStats.slabInnerVmMissingExtracted() + "/"
-                + nativePlanningStats.slabInnerVmMissingUnsupportedNode() + "/"
-                + nativePlanningStats.slabInnerVmMissingInvalidProgram() + "/"
-                + nativePlanningStats.slabInnerVmMissingIo());
-        ImGui.text("Axis Y/XZ: " + nativePlanningStats.axisYOnly() + "/" + nativePlanningStats.axisXzOnly());
-        drawStringList("Unsupported slab-inner classes", nativePlanningStats.slabInnerUnsupportedClasses());
     }
 
     private static void drawSplineStats() {
@@ -459,7 +439,6 @@ public final class GADebugOverlay {
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
         DfcCellFillStats.Stats cellFillStats = DfcCellFillStats.snapshot();
         DfcCellFillParity.Stats parityStats = DfcCellFillParity.snapshotStats();
-        DfcNativePlanningStats.Stats nativePlanningStats = DfcNativePlanningStats.snapshot();
         DfcSplineStats.Stats splineStats = DfcSplineStats.snapshot();
         AquiferStats.Stats aquiferStats = AquiferStats.snapshotStats();
         BeardifierStats.Stats beardifierStats = BeardifierStats.snapshotStats();
@@ -517,16 +496,14 @@ public final class GADebugOverlay {
         appendLine(dump, "enabled", cellFillStats.enabled());
         appendLine(dump, "cellScalar", cellFillStats.cellScalar());
         appendLine(dump, "cellCompiled", cellFillStats.cellCompiled());
-        appendLine(dump, "cellNativeSlabInner", cellFillStats.cellNativeSlabInner());
         appendLine(dump, "cellUnknown", cellFillStats.cellUnknown());
         appendLine(dump, "cellXzSlab", cellFillStats.cellXzSlab());
         appendLine(dump, "cellExternAccumulate", cellFillStats.cellExternAccumulate());
         appendLine(dump, "cellExternScalarResidual", cellFillStats.cellExternScalarResidual());
         appendLine(dump, "columnsScalar", cellFillStats.columnsScalar());
         appendLine(dump, "columnsJavaBatched", cellFillStats.columnsJavaBatched());
-        appendLine(dump, "columnsNativeInner", cellFillStats.columnsNativeInner());
         appendList(dump, "fastFillerClasses", cellFillStats.fastFillerClasses().stream()
-                .map(stat -> stat.className() + "=" + stat.calls() + "/native=" + stat.nativeSlabInnerCalls())
+                .map(stat -> stat.className() + "=" + stat.calls())
                 .toList());
         appendList(dump, "sourceFillerClasses", cellFillStats.sourceFillerClasses());
         appendList(dump, "residualExternFallbackClasses", cellFillStats.residualExternFallbackClasses());
@@ -545,24 +522,6 @@ public final class GADebugOverlay {
         appendLine(dump, "maxChecks", parityStats.maxChecks());
         appendLine(dump, "epsilon", parityStats.epsilon());
         appendList(dump, "fallbackClasses", parityStats.fallbackClasses());
-
-        appendSection(dump, "Native Planning");
-        appendLine(dump, "latticeRoots", nativePlanningStats.latticeRoots());
-        appendLine(dump, "nativeOpsDisabled", nativePlanningStats.nativeOpsDisabled());
-        appendLine(dump, "slabPlanPresent", nativePlanningStats.slabPlanPresent());
-        appendLine(dump, "slabPlanMissing", nativePlanningStats.slabPlanMissing());
-        appendLine(dump, "slabPlanMissingNoSlots", nativePlanningStats.slabPlanMissingNoSlots());
-        appendLine(dump, "slabPlanMissingUnsafeCoords", nativePlanningStats.slabPlanMissingUnsafeCoords());
-        appendLine(dump, "slabPlanMissingBadHandleIndex", nativePlanningStats.slabPlanMissingBadHandleIndex());
-        appendLine(dump, "slabInnerVmPresent", nativePlanningStats.slabInnerVmPresent());
-        appendLine(dump, "slabInnerVmMissing", nativePlanningStats.slabInnerVmMissing());
-        appendLine(dump, "slabInnerVmMissingExtracted", nativePlanningStats.slabInnerVmMissingExtracted());
-        appendLine(dump, "slabInnerVmMissingUnsupportedNode", nativePlanningStats.slabInnerVmMissingUnsupportedNode());
-        appendLine(dump, "slabInnerVmMissingInvalidProgram", nativePlanningStats.slabInnerVmMissingInvalidProgram());
-        appendLine(dump, "slabInnerVmMissingIo", nativePlanningStats.slabInnerVmMissingIo());
-        appendLine(dump, "axisYOnly", nativePlanningStats.axisYOnly());
-        appendLine(dump, "axisXzOnly", nativePlanningStats.axisXzOnly());
-        appendList(dump, "slabInnerUnsupportedClasses", nativePlanningStats.slabInnerUnsupportedClasses());
 
         appendSection(dump, "Spline Runtime");
         appendLine(dump, "enabled", splineStats.enabled());

@@ -69,10 +69,8 @@ public final class GlobalCompileCache {
         private final boolean latticeEmitted;
         private final boolean cellAddLatticeSpecialized;
         private final boolean cellAddExternSpecialized;
-        private final byte[] slabNativeProgram;
-        private final double[] slabNativeConstants;
 
-            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized, byte[] slabNativeProgram, double[] slabNativeConstants) {
+            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized) {
                 exactSha256 = exactSha256 == null ? null : exactSha256.clone();
                 this.classInternalName = classInternalName;
                 this.sourceRootClass = sourceRootClass;
@@ -87,8 +85,6 @@ public final class GlobalCompileCache {
                 this.latticeEmitted = latticeEmitted;
                 this.cellAddLatticeSpecialized = cellAddLatticeSpecialized;
                 this.cellAddExternSpecialized = cellAddExternSpecialized;
-                this.slabNativeProgram = slabNativeProgram;
-                this.slabNativeConstants = slabNativeConstants;
             }
 
         public String classInternalName() {
@@ -143,14 +139,6 @@ public final class GlobalCompileCache {
             return cellAddExternSpecialized;
         }
 
-        public byte[] slabNativeProgram() {
-            return slabNativeProgram;
-        }
-
-        public double[] slabNativeConstants() {
-            return slabNativeConstants;
-        }
-
         @Override
         public boolean equals(Object obj) {
             if (obj == this) return true;
@@ -168,14 +156,12 @@ public final class GlobalCompileCache {
                     this.helpersEmitted == that.helpersEmitted &&
                     this.latticeEmitted == that.latticeEmitted &&
                     this.cellAddLatticeSpecialized == that.cellAddLatticeSpecialized &&
-                    this.cellAddExternSpecialized == that.cellAddExternSpecialized &&
-                    Objects.equals(this.slabNativeProgram, that.slabNativeProgram) &&
-                    Objects.equals(this.slabNativeConstants, that.slabNativeConstants);
+                    this.cellAddExternSpecialized == that.cellAddExternSpecialized;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddExternSpecialized, slabNativeProgram, slabNativeConstants);
+            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddExternSpecialized);
         }
 
         @Override
@@ -193,9 +179,7 @@ public final class GlobalCompileCache {
                     "helpersEmitted=" + helpersEmitted + ", " +
                     "latticeEmitted=" + latticeEmitted + ", " +
                     "cellAddLatticeSpecialized=" + cellAddLatticeSpecialized + ", " +
-                    "cellAddExternSpecialized=" + cellAddExternSpecialized + ", " +
-                    "slabNativeProgram=" + slabNativeProgram + ", " +
-                    "slabNativeConstants=" + slabNativeConstants + ']';
+                    "cellAddExternSpecialized=" + cellAddExternSpecialized + ']';
         }
 
         }

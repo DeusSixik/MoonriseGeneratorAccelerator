@@ -4,12 +4,10 @@ import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -34,17 +32,6 @@ public final class DensityFunctionCompiler {
         initialized = true;
         LOGGER.info("DensityFunctionCompiler initialising - runtime DF JIT pipeline enabling.");
         DfcVectorSupport.logStatusOnce();
-        LOGGER.info("DFC native noise: libraryLoaded={}, avx2={}",
-                DfcNativeBridge.isAvailable(), DfcNativeBridge.hasAvx2());
-        if (!DfcNativeBridge.isAvailable()) {
-            Throwable err = DfcNativeBridge.nativeLoadError();
-            if (err != null) {
-                LOGGER.warn("DFC native noise: not loaded ({})", err.getMessage());
-            } else {
-                LOGGER.warn("DFC native noise: not loaded (unknown reason). Put natives/dfc/prebuilts/<platform>/... "
-                        + "or set env DFC_NATIVE_LIBRARY to the absolute path of dfc_native.dll / .so / .dylib.");
-            }
-        }
     }
 
     public static void onServerStarting(MinecraftServer server) {
@@ -159,20 +146,17 @@ public final class DensityFunctionCompiler {
                                     "DFC cell-fill stats: enabled=" + stats.enabled()
                                             + ", cellScalar=" + stats.cellScalar()
                                             + ", cellCompiled=" + stats.cellCompiled()
-                                            + ", cellNativeSlabInner=" + stats.cellNativeSlabInner()
                                             + ", cellUnknown=" + stats.cellUnknown()
                                             + ", cellXzSlab=" + stats.cellXzSlab()
                                             + ", columnsScalar=" + stats.columnsScalar()
                                             + ", cellExternAccumulate=" + stats.cellExternAccumulate()
                                             + ", cellExternScalarResidual=" + stats.cellExternScalarResidual()
-                                            + ", columnsJavaBatched=" + stats.columnsJavaBatched()
-                                            + ", columnsNativeInner=" + stats.columnsNativeInner()),
+                                            + ", columnsJavaBatched=" + stats.columnsJavaBatched()),
                                     false);
                             if (!stats.fastFillerClasses().isEmpty()) {
                                 context.getSource().sendSuccess(() -> Component.literal(
                                         "DFC cell-fill fast classes: " + stats.fastFillerClasses().stream()
-                                                .map(s -> s.className() + "=" + s.calls()
-                                                        + "/" + s.nativeSlabInnerCalls())
+                                                .map(s -> s.className() + "=" + s.calls())
                                                 .reduce((a, b) -> a + ", " + b)
                                                 .orElse("")),
                                         false);
@@ -183,7 +167,6 @@ public final class DensityFunctionCompiler {
                                                 .map(s -> s.className()
                                                         + "{src=" + s.sourceRootClass()
                                                         + ", lattice=" + s.latticeEmitted()
-                                                        + ", slabProgram=" + s.slabInnerProgramPresent()
                                                         + ", cellAddLattice=" + s.cellAddLatticeSpecialized()
                                                         + ", cellAddExtern=" + s.cellAddExternSpecialized()
                                                         + ", root=" + s.rootDebug()
@@ -202,30 +185,6 @@ public final class DensityFunctionCompiler {
                                 context.getSource().sendSuccess(() -> Component.literal(
                                         "DFC cell-fill residual extern fallback classes: "
                                                 + String.join(", ", stats.residualExternFallbackClasses())),
-                                        false);
-                            }
-                            DfcNativePlanningStats.Stats nativeStats = DfcNativePlanningStats.snapshot();
-                            context.getSource().sendSuccess(() -> Component.literal(
-                                    "DFC native planning stats: latticeRoots=" + nativeStats.latticeRoots()
-                                            + ", nativeOpsDisabled=" + nativeStats.nativeOpsDisabled()
-                                            + ", slabPlanPresent=" + nativeStats.slabPlanPresent()
-                                            + ", slabPlanMissing=" + nativeStats.slabPlanMissing()
-                                            + ", slabPlanMissingNoSlots=" + nativeStats.slabPlanMissingNoSlots()
-                                            + ", slabPlanMissingUnsafeCoords=" + nativeStats.slabPlanMissingUnsafeCoords()
-                                            + ", slabPlanMissingBadHandleIndex=" + nativeStats.slabPlanMissingBadHandleIndex()
-                                            + ", slabInnerVmPresent=" + nativeStats.slabInnerVmPresent()
-                                            + ", slabInnerVmMissing=" + nativeStats.slabInnerVmMissing()
-                                            + ", slabInnerMissingExtracted=" + nativeStats.slabInnerVmMissingExtracted()
-                                            + ", slabInnerMissingUnsupportedNode=" + nativeStats.slabInnerVmMissingUnsupportedNode()
-                                            + ", slabInnerMissingInvalidProgram=" + nativeStats.slabInnerVmMissingInvalidProgram()
-                                            + ", slabInnerMissingIo=" + nativeStats.slabInnerVmMissingIo()
-                                            + ", axisYOnly=" + nativeStats.axisYOnly()
-                                            + ", axisXzOnly=" + nativeStats.axisXzOnly()),
-                                    false);
-                            if (!nativeStats.slabInnerUnsupportedClasses().isEmpty()) {
-                                context.getSource().sendSuccess(() -> Component.literal(
-                                        "DFC slab-inner unsupported classes: "
-                                                + String.join(", ", nativeStats.slabInnerUnsupportedClasses())),
                                         false);
                             }
                             return 1;

@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.beardifier.BeardifierStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
@@ -20,7 +19,6 @@ public final class GARuntimeCaches {
         CompilingVisitor.global().clear();
         DfcCompiledClassRegistry.clear();
         DfcCellFillStats.reset();
-        DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         BeardifierStats.reset();
         RegistryWarmer.clear();

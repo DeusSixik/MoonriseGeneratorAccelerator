@@ -163,7 +163,7 @@ public final class ConstantPool {
     public BlendedNoiseSpec blendedNoiseSpec(int idx) { return blendedNoiseSpecs.get(idx); }
     public int blendedNoiseSpecCount() { return blendedNoiseSpecs.size(); }
 
-    /** Snapshot for native handle layout (indices follow {@link #noiseSpecs()}). */
+    /** Snapshot of blended-noise specs in constant-pool order. */
     public List<BlendedNoiseSpec> blendedNoiseSpecsList() {
         return List.copyOf(blendedNoiseSpecs);
     }

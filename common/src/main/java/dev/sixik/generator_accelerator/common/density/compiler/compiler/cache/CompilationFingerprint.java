@@ -7,7 +7,6 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCo
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.CodegenNativeNoise;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
@@ -90,12 +89,10 @@ public final class CompilationFingerprint {
      */
     private static void hashCodegenCapabilities(MessageDigest d) {
         d.update((byte) 0xC0);
-        d.update((byte) 3);
+        d.update((byte) 4);
         d.update((byte) (DfcVectorSupport.AVAILABLE ? 1 : 0));
         putU32(d, DfcVectorSupport.AVAILABLE ? DfcVectorSupport.PREFERRED_LANES : 0);
         d.update((byte) (Codegen.CELL_LATTICE_ENABLED ? 1 : 0));
-        d.update((byte) (CodegenNativeNoise.enabled() ? 1 : 0));
-        d.update((byte) (CodegenNativeNoise.emitNativeOps() ? 1 : 0));
     }
 
     public static String stableClassSuffix(byte[] sha256) {

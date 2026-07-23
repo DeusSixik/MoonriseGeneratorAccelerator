@@ -3,7 +3,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -36,7 +35,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
-    private static final double[] EMPTY_DOUBLES = new double[0];
 
     public record MapAllStats(long identityNoOps, long rebinds) {}
 
@@ -94,21 +92,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
     protected final MethodHandle[] helperHandles;
 
     /**
-     * Opaque JNI pointers ({@code dfc-natives}): indices {@code 0 .. noiseSpecCount-1} are
-     * NormalNoise stacks; following entries are blended specs. Zero means use the Java octave path.
-     */
-    protected final NativeNoiseRegistry.HandleSet nativeNoiseHandles;
-
-    /**
-     * Optional lattice-inner postfix program for native slab evaluation ({@code dfc-natives} VM);
-     * {@code null} when the subgraph is unsupported or slab batching is inactive.
-     */
-    protected final byte[] slabInnerProgram;
-
-    /** Constant pool for {@link #slabInnerProgram}; empty array when the program is {@code null}. */
-    protected final double[] slabInnerConsts;
-
-    /**
      * MethodHandle bound to the generated subclass's constructor, used by
      * {@link #rebind(NormalNoise[], DensityFunction[])} to allocate fresh
      * instances when {@link #mapAll(Visitor)} produces remapped
@@ -117,8 +100,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *
      * <p>Has the post-{@code asType} signature
      * {@code (double[], NormalNoise[], Object[], Object[], DensityFunction[],
-     * double, double, MethodHandle[], NativeNoiseRegistry.HandleSet, byte[], double[],
-     * MethodHandle)
+     * double, double, MethodHandle[], MethodHandle)
      * -> CompiledDensityFunction},
      * so {@code invokeExact} just works without further boxing or casting. The
      * trailing {@code MethodHandle} arg is the constructor MH itself, threaded
@@ -159,9 +141,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             double minValue,
             double maxValue,
             MethodHandle[] helperHandles,
-            NativeNoiseRegistry.HandleSet nativeNoiseHandles,
-            byte[] slabInnerProgram,
-            double[] slabInnerConsts,
             MethodHandle constructorMH) {
         this.constants = constants;
         this.noises = noises;
@@ -171,9 +150,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         this.minValue = minValue;
         this.maxValue = maxValue;
         this.helperHandles = helperHandles;
-        this.nativeNoiseHandles = nativeNoiseHandles;
-        this.slabInnerProgram = slabInnerProgram;
-        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : EMPTY_DOUBLES;
         this.constructorMH = constructorMH;
     }
 
@@ -230,10 +206,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         chunk.arrayIndex = idx;
     }
 
-    public final boolean dfc$hasNativeSlabInnerProgram() {
-        return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
-    }
-
     public final String dfc$debugState() {
         DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(this.getClass().getName());
         return "compiledClass=" + this.getClass().getName()
@@ -243,13 +215,10 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
                 + ", noiseOctaves=" + length(this.noiseOctaves)
                 + ", externs=" + length(this.externs)
                 + ", helperHandles=" + length(this.helperHandles)
-                + ", slabInnerProgram=" + length(this.slabInnerProgram)
-                + ", slabInnerConsts=" + length(this.slabInnerConsts)
                 + "}"
                 + (entry != null
                 ? ", registry={source=" + entry.sourceRootClass()
                 + ", lattice=" + entry.latticeEmitted()
-                + ", slab=" + entry.slabInnerProgramPresent()
                 + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
                 + ", cellAddExtern=" + entry.cellAddExternSpecialized()
                 + ", root=" + entry.rootDebug()
@@ -338,8 +307,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         try {
             return (CompiledDensityFunction) constructorMH.invokeExact(
                     constants, visitedNoises, splines, noiseOctaves, visitedExterns,
-                    minValue, maxValue, helperHandles, nativeNoiseHandles,
-                    slabInnerProgram, slabInnerConsts, constructorMH);
+                    minValue, maxValue, helperHandles, constructorMH);
         } catch (Throwable t) {
             throw new RuntimeException(
                     "CompiledDensityFunction.rebind failed for "
@@ -511,10 +479,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *   <li>{@link Codegen} for the {@code helper_<idx>} dispatch sites, with
      *       {@code invokedName = "helper_5"} etc. and
      *       {@code invokedType = (LCompiledDensityFunction;LFunctionContext;)D}.</li>
-     *   <li>The cell-lattice {@code lattice_y} / {@code lattice_inner} /
-     *       {@code lattice_inner_batched} helpers from the {@code fillArray} override.
-     *       {@code lattice_inner} adds a {@code double} Y-slab argument;
-     *       {@code lattice_inner_batched} adds {@code double[][]} native slab outputs.</li>
+     *   <li>The cell-lattice {@code lattice_y} / {@code lattice_inner} helpers
+     *       from the {@code fillArray} override. {@code lattice_inner} adds a
+     *       {@code double} Y-slab argument.</li>
      * </ul>
      *
      * <h2>Fallback path</h2>

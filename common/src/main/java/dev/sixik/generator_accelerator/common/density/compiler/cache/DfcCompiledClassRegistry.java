@@ -18,7 +18,7 @@ public final class DfcCompiledClassRegistry {
     }
 
     public record Entry(String classBaseName, String sourceRootClass,
-                        boolean latticeEmitted, boolean slabInnerProgramPresent,
+                        boolean latticeEmitted,
                         boolean cellAddLatticeSpecialized,
                         boolean cellAddExternSpecialized,
                         String rootDebug,
@@ -26,12 +26,12 @@ public final class DfcCompiledClassRegistry {
     }
 
     public static void record(String classInternalName, String sourceRootClass,
-                              boolean latticeEmitted, boolean slabInnerProgramPresent,
+                              boolean latticeEmitted,
                               boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized,
                               String rootDebug, String splineDebug) {
         String normalized = normalize(classInternalName);
         Entry newEntry = new Entry(
-                normalized, sourceRootClass, latticeEmitted, slabInnerProgramPresent,
+                normalized, sourceRootClass, latticeEmitted,
                 cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug, splineDebug);
         Entry previous = ENTRIES.putIfAbsent(normalized, newEntry);
         if (previous == null) {
