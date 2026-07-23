@@ -5,8 +5,11 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 
 import java.lang.invoke.MethodHandle;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -22,62 +25,180 @@ import java.util.function.Supplier;
 public final class GlobalCompileCache {
     public static final GlobalCompileCache INSTANCE = new GlobalCompileCache();
 
-    public record FingerprintKey(byte[] sha256) {
-        public FingerprintKey {
-            sha256 = sha256 == null ? null : sha256.clone();
-        }
+    public static final class FingerprintKey {
+        private final byte[] sha256;
+
+            public FingerprintKey(byte[] sha256) {
+                sha256 = sha256 == null ? null : sha256.clone();
+                this.sha256 = sha256;
+            }
+
         @Override
-        public boolean equals(Object o) {
-            return o instanceof FingerprintKey f && java.security.MessageDigest.isEqual(sha256, f.sha256);
+            public boolean equals(Object o) {
+                return o instanceof FingerprintKey f && MessageDigest.isEqual(sha256, f.sha256);
+            }
+
+        @Override
+            public int hashCode() {
+                return Arrays.hashCode(sha256);
+            }
+
+        public byte[] sha256() {
+            return sha256;
         }
+
+        @Override
+        public String toString() {
+            return "FingerprintKey[" +
+                    "sha256=" + sha256 + ']';
+        }
+
+        }
+
+    public static final class CopiedClassBundle {
+        private final String classInternalName;
+        private final String sourceRootClass;
+        private final String rootDebug;
+        private final String splineDebug;
+        private final byte[] exactSha256;
+        private final Class<? extends CompiledDensityFunction> cls;
+        private final byte[] bytecode;
+        private final MethodHandle constructorHandle;
+        private final MethodHandle[] helperHandles;
+        private final int helpersEmitted;
+        private final boolean latticeEmitted;
+        private final boolean cellAddLatticeSpecialized;
+        private final boolean cellAddExternSpecialized;
+        private final byte[] slabNativeProgram;
+        private final double[] slabNativeConstants;
+
+            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized, byte[] slabNativeProgram, double[] slabNativeConstants) {
+                exactSha256 = exactSha256 == null ? null : exactSha256.clone();
+                this.classInternalName = classInternalName;
+                this.sourceRootClass = sourceRootClass;
+                this.rootDebug = rootDebug;
+                this.splineDebug = splineDebug;
+                this.exactSha256 = exactSha256;
+                this.cls = cls;
+                this.bytecode = bytecode;
+                this.constructorHandle = constructorHandle;
+                this.helperHandles = helperHandles;
+                this.helpersEmitted = helpersEmitted;
+                this.latticeEmitted = latticeEmitted;
+                this.cellAddLatticeSpecialized = cellAddLatticeSpecialized;
+                this.cellAddExternSpecialized = cellAddExternSpecialized;
+                this.slabNativeProgram = slabNativeProgram;
+                this.slabNativeConstants = slabNativeConstants;
+            }
+
+        public String classInternalName() {
+            return classInternalName;
+        }
+
+        public String sourceRootClass() {
+            return sourceRootClass;
+        }
+
+        public String rootDebug() {
+            return rootDebug;
+        }
+
+        public String splineDebug() {
+            return splineDebug;
+        }
+
+        public byte[] exactSha256() {
+            return exactSha256;
+        }
+
+        public Class<? extends CompiledDensityFunction> cls() {
+            return cls;
+        }
+
+        public byte[] bytecode() {
+            return bytecode;
+        }
+
+        public MethodHandle constructorHandle() {
+            return constructorHandle;
+        }
+
+        public MethodHandle[] helperHandles() {
+            return helperHandles;
+        }
+
+        public int helpersEmitted() {
+            return helpersEmitted;
+        }
+
+        public boolean latticeEmitted() {
+            return latticeEmitted;
+        }
+
+        public boolean cellAddLatticeSpecialized() {
+            return cellAddLatticeSpecialized;
+        }
+
+        public boolean cellAddExternSpecialized() {
+            return cellAddExternSpecialized;
+        }
+
+        public byte[] slabNativeProgram() {
+            return slabNativeProgram;
+        }
+
+        public double[] slabNativeConstants() {
+            return slabNativeConstants;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == this) return true;
+            if (obj == null || obj.getClass() != this.getClass()) return false;
+            var that = (CopiedClassBundle) obj;
+            return Objects.equals(this.classInternalName, that.classInternalName) &&
+                    Objects.equals(this.sourceRootClass, that.sourceRootClass) &&
+                    Objects.equals(this.rootDebug, that.rootDebug) &&
+                    Objects.equals(this.splineDebug, that.splineDebug) &&
+                    Objects.equals(this.exactSha256, that.exactSha256) &&
+                    Objects.equals(this.cls, that.cls) &&
+                    Objects.equals(this.bytecode, that.bytecode) &&
+                    Objects.equals(this.constructorHandle, that.constructorHandle) &&
+                    Objects.equals(this.helperHandles, that.helperHandles) &&
+                    this.helpersEmitted == that.helpersEmitted &&
+                    this.latticeEmitted == that.latticeEmitted &&
+                    this.cellAddLatticeSpecialized == that.cellAddLatticeSpecialized &&
+                    this.cellAddExternSpecialized == that.cellAddExternSpecialized &&
+                    Objects.equals(this.slabNativeProgram, that.slabNativeProgram) &&
+                    Objects.equals(this.slabNativeConstants, that.slabNativeConstants);
+        }
+
         @Override
         public int hashCode() {
-            return java.util.Arrays.hashCode(sha256);
+            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddExternSpecialized, slabNativeProgram, slabNativeConstants);
         }
-    }
 
-    public record CopiedClassBundle(
-            String classInternalName,
-            String sourceRootClass,
-            String rootDebug,
-            String splineDebug,
-            byte[] exactSha256,
-            Class<? extends CompiledDensityFunction> cls,
-            byte[] bytecode,
-            MethodHandle constructorHandle,
-            MethodHandle[] helperHandles,
-            int helpersEmitted,
-            /**
-             * {@code true} when the codegen emitted a {@code lattice_y} +
-             * {@code lattice_inner} pair and a {@code fillArray} override driven by
-             * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.CellLatticeOption}.
-             * Recorded here (rather than re-derived) so {@code /dfc stats} can report
-             * the lattice rate even on global-cache hits — those don't re-run the
-             * codegen so we'd otherwise undercount.
-             */
-            boolean latticeEmitted,
-            boolean cellAddLatticeSpecialized,
-            boolean cellAddExternSpecialized,
-            /**
-             * Native {@code SlabInnerNativeProgram} buffer machine code from
-             * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen#emit}
-             * when a slab batch was compiled; may be null when lattice is scalar-only or
-             * native program compilation failed. Stored on the bundle so
-             * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler#compileWithDetail}
-             * does not re-run the lattice → slab plan → tryCompile path on every
-             * link (and on global-cache hits the constructor still receives the same
-             * slab program as the defining compile).
-             */
-            byte[] slabNativeProgram,
-            /**
-             * Constant table companion for {@link #slabNativeProgram}, or null
-             * when the program is null/empty.
-             */
-            double[] slabNativeConstants) {
-        public CopiedClassBundle {
-            exactSha256 = exactSha256 == null ? null : exactSha256.clone();
+        @Override
+        public String toString() {
+            return "CopiedClassBundle[" +
+                    "classInternalName=" + classInternalName + ", " +
+                    "sourceRootClass=" + sourceRootClass + ", " +
+                    "rootDebug=" + rootDebug + ", " +
+                    "splineDebug=" + splineDebug + ", " +
+                    "exactSha256=" + exactSha256 + ", " +
+                    "cls=" + cls + ", " +
+                    "bytecode=" + bytecode + ", " +
+                    "constructorHandle=" + constructorHandle + ", " +
+                    "helperHandles=" + helperHandles + ", " +
+                    "helpersEmitted=" + helpersEmitted + ", " +
+                    "latticeEmitted=" + latticeEmitted + ", " +
+                    "cellAddLatticeSpecialized=" + cellAddLatticeSpecialized + ", " +
+                    "cellAddExternSpecialized=" + cellAddExternSpecialized + ", " +
+                    "slabNativeProgram=" + slabNativeProgram + ", " +
+                    "slabNativeConstants=" + slabNativeConstants + ']';
         }
-    }
+
+        }
 
     /**
      * @param reused false only when this thread ran {@code onMiss} (first

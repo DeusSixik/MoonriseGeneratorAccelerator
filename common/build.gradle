@@ -141,6 +141,23 @@ dependencies {
     compileOnly("ca.spottedleaf:yamlconfig:1.0.2")
 
     compileOnly "foundry.imguimc:imguimc-common-${minecraft_version}:$imguimc_version"
+
+    compileOnly "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
+    compileOnly "io.github.deussixik:javatogpu-ir-optimizer:${rootProject.java_to_gpu_version}"
+    annotationProcessor "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
+    annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
+}
+
+tasks.register('rewriteGpuMethods', JavaExec) {
+    dependsOn tasks.named('compileJava')
+    dependsOn tasks.named('processResources')
+    classpath = files(layout.buildDirectory.dir('classes/java/main')) + configurations.annotationProcessor + configurations.compileClasspath
+    mainClass = 'net.sixik.ga_utils.javatogpu.runtime.GpuMethodBodyRewriter'
+    args layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+}
+
+tasks.named('classes') {
+    dependsOn tasks.named('rewriteGpuMethods')
 }
 
 def dfcNativeRootDir = file("natives")
@@ -595,6 +612,10 @@ tasks.named("compileJava") {
     dependsOn "extractC2meJars"
 }
 
+/*tasks.named('classes') {
+    dependsOn tasks.named('rewriteGpuMethods')
+}*/
+
 // Магия для среды разработки: заставляем её распаковывать файлы
 // во время настройки и синхронизации проекта (Reload Gradle)
 tasks.matching { it.name in ["prepareWorkspace", "genSources", "idea", "eclipse"] }.configureEach {
@@ -604,3 +625,13 @@ tasks.matching { it.name in ["prepareWorkspace", "genSources", "idea", "eclipse"
 tasks.matching { it.name in ["remapSourcesJar", "sourcesJar", "remapJar"] }.configureEach {
     dependsOn "extractC2meJars"
 }
+
+/*
+tasks.register('rewriteGpuMethods', JavaExec) {
+    dependsOn project(':processor').tasks.named('classes')
+    dependsOn tasks.named('compileJava')
+    dependsOn tasks.named('processResources')
+    classpath = project(':processor').sourceSets.main.runtimeClasspath + configurations.runtimeClasspath
+    mainClass = 'net.sixik.ga_utils.javatogpu.runtime.GpuMethodBodyRewriter'
+    args layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+}*/

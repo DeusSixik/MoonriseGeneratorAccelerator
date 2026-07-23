@@ -40,6 +40,19 @@ repositories {
     }
 }
 
+def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+def lwjglNatives = osName.contains('win')
+        ? 'natives-windows'
+        : (osName.contains('mac') ? 'natives-macos' : 'natives-linux')
+def javaToGpuRuntimeLibraries = [
+        "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}",
+        "io.github.deussixik:javatogpu-ir-optimizer:${rootProject.java_to_gpu_version}",
+        "io.github.deussixik:packager:1.0.0-alpha.1",
+        "com.github.javaparser:javaparser-core:3.28.1",
+        "org.lwjgl:lwjgl-opencl:3.3.3",
+        "org.lwjgl:lwjgl:3.3.3:${lwjglNatives}"
+]
+
 dependencies {
     neoForge "net.neoforged:neoforge:$rootProject.neoforge_version"
 
@@ -53,6 +66,12 @@ dependencies {
     include(minecraftRuntimeLibraries("com.github.DeusSixik:JavaNativeCollections:$rootProject.java_native_collections_version"))
     include(minecraftRuntimeLibraries("org.yaml:snakeyaml:2.2"))
     include(minecraftRuntimeLibraries("ca.spottedleaf:yamlconfig:1.0.2"))
+
+    javaToGpuRuntimeLibraries.each { coordinate ->
+        include(minecraftRuntimeLibraries(coordinate))
+    }
+    annotationProcessor "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
+    annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
