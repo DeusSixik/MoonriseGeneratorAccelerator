@@ -423,7 +423,23 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
-        fillArray(out, chunk);
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    out[idx] = this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
     }
 
     @Override
@@ -432,12 +448,12 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         int cellH = chunk.cellHeight;
         int idx = 0;
         chunk.arrayIndex = 0;
-        for (int inCellX = 0; inCellX < cellW; inCellX++) {
-            chunk.inCellX = inCellX;
-            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
-                chunk.inCellZ = inCellZ;
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
-                    chunk.inCellY = inCellY;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
                     chunk.arrayIndex = idx;
                     out[idx] += this.compute(chunk);
                     idx++;
@@ -461,6 +477,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
                 ? ", registry={source=" + entry.sourceRootClass()
                 + ", lattice=" + entry.latticeEmitted()
                 + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
+                + ", cellAddBeardifier=" + entry.cellAddBeardifierSpecialized()
                 + ", cellAddExtern=" + entry.cellAddExternSpecialized()
                 + ", root=" + entry.rootDebug()
                 + "}"

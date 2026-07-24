@@ -29,9 +29,17 @@ biome-climate:
 # These values are applied to the old DFC system properties on startup,
 # so you no longer need to manage DFC VM args manually.
 dfc:
+  # Enables Beardifier runtime statistics collection.
+  # Keep false for normal world loading; this is diagnostic-only.
+  # Mirrors old VM arg: -Dga.beardifier.stats=true
+  beardifier-stats: false
   # Enables direct-read cache fast-path statistics.
   # Mirrors old VM arg: -Dga.dfc.cacheFastPath.stats=true
   cache-fast-path-stats: false
+  # Enables the narrow ADD(Beardifier, residual) cell-fill override experiment.
+  # Unlike cellFillAddExternOverride, this does not specialize generic ADD(extern, residual) roots.
+  # Mirrors old VM arg: -Ddfc.codegen.cellFillAddBeardifierOverride=true
+  cell-fill-add-beardifier-override: false
   # Enables add-extern cell-fill override experiments.
   # Mirrors old VM arg: -Ddfc.codegen.cellFillAddExternOverride=true
   cell-fill-add-extern-override: false
@@ -121,6 +129,10 @@ dfc:
   # Logs additional spline-search debug information.
   # Mirrors old VM arg: -Ddfc.codegen.logSplineSearch=true
   log-spline-search: false
+  # Enables NoiseChunk fillSlice/selectCellYZ timing statistics.
+  # Keep false for normal world loading; this is diagnostic-only.
+  # Mirrors old VM arg: -Dga.noiseChunk.timingStats=true
+  noise-chunk-timing-stats: false
   # Maximum RandomState instances that may eagerly compile their NoiseRouter per server lifecycle.
   # Use 0 to disable eager DFC router compilation, or -1 to restore the old unlimited behaviour.
   # This prevents world-load stalls when a modpack constructs many RandomState instances.

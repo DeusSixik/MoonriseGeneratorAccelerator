@@ -72,12 +72,12 @@ public final class DfcCellFillParity {
         }
     }
 
-    public static void check(DensityFunction filler, double[] fastValues, NoiseChunk chunk) {
+    public static boolean check(DensityFunction filler, double[] fastValues, NoiseChunk chunk) {
         if (!ACTIVE) {
-            return;
+            return true;
         }
         if (!claimCheck()) {
-            return;
+            return true;
         }
 
         CHECKS.increment();
@@ -88,7 +88,7 @@ public final class DfcCellFillParity {
             FAILURES.increment();
             warnOnce("DFC cell-fill parity check failed while running fallback fillArray for "
                     + filler.getClass().getName(), t);
-            return;
+            return false;
         }
 
         int badIndex = -1;
@@ -118,8 +118,10 @@ public final class DfcCellFillParity {
             final double diff = maxDiff;
             warnOnce("DFC cell-fill parity mismatch in " + filler.getClass().getName()
                     + " at index " + idx + ": fast=" + fast + ", fillArray=" + slow + ", diff=" + diff, null);
+            return false;
         } else {
             PASSES.increment();
+            return true;
         }
     }
 

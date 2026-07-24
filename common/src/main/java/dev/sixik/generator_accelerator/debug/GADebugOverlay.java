@@ -7,6 +7,7 @@ import dev.sixik.generator_accelerator.common.biome.climate.FlatClimateIndex;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
@@ -18,6 +19,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.Densi
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 import imgui.ImGui;
 import imgui.type.ImBoolean;
 import imgui.flag.ImGuiCond;
@@ -276,6 +278,8 @@ public final class GADebugOverlay {
         ImGui.separator();
         drawCellFill();
         ImGui.separator();
+        drawNoiseChunkTimingStats();
+        ImGui.separator();
         drawAquiferStats();
         ImGui.separator();
         drawBeardifierStats();
@@ -358,6 +362,10 @@ public final class GADebugOverlay {
         ImGui.text("Shape hits across exact misses: " + stats.globalClassCacheShapeHitsAcrossExactMisses());
         ImGui.text("Lattice plans emitted: " + stats.latticePlansEmitted());
         ImGui.text("Lattice fallbacks: " + stats.latticeFallbacks());
+        ImGui.text("Cell ADD lattice/beardifier/extern specializations: "
+                + stats.cellAddLatticeSpecializedRoots() + "/"
+                + stats.cellAddBeardifierSpecializedRoots() + "/"
+                + stats.cellAddExternSpecializedRoots());
         ImGui.text("GPU eligible / blocked roots: " + stats.gpuEligibleRoots() + "/" + stats.gpuBlockedRoots());
         ImGui.text("GPU blockers total: " + stats.gpuBlockersTotal());
         drawStringList("GPU blocker counts", stats.gpuBlockerCounts());
@@ -504,6 +512,47 @@ public final class GADebugOverlay {
         drawStringList("Parity fallback classes", parityStats.fallbackClasses());
     }
 
+    private static void drawNoiseChunkTimingStats() {
+        if (!ImGui.collapsingHeader("NoiseChunk Timing", ImGuiTreeNodeFlags.DefaultOpen)) {
+            return;
+        }
+
+        NoiseChunkTimingStats.Stats stats = NoiseChunkTimingStats.snapshotStats();
+        ImGui.text("Enabled: " + stats.enabled());
+        ImGui.text("FillSlice calls/ms/avg ns: " + stats.fillSliceCalls()
+                + "/" + formatMillis(stats.fillSliceTotalNanos())
+                + "/" + formatAverageNanos(stats.fillSliceTotalNanos(), stats.fillSliceCalls()));
+        ImGui.text("SelectCellYZ calls/ms/avg ns: " + stats.selectCellYzCalls()
+                + "/" + formatMillis(stats.selectCellYzTotalNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzTotalNanos(), stats.selectCellYzCalls()));
+        ImGui.text("SelectCellYZ setup/cache ms: "
+                + formatMillis(stats.selectCellYzSetupNanos())
+                + "/" + formatMillis(stats.selectCellYzCacheFillNanos()));
+        ImGui.text("SelectCellYZ setup/cache avg ns: "
+                + formatAverageNanos(stats.selectCellYzSetupNanos(), stats.selectCellYzCalls())
+                + "/" + formatAverageNanos(stats.selectCellYzCacheFillNanos(), stats.selectCellYzCalls()));
+        ImGui.text("SelectCellYZ fast fill calls/ms/avg ns: " + stats.selectCellYzFastFillCalls()
+                + "/" + formatMillis(stats.selectCellYzFastFillNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzFastFillNanos(), stats.selectCellYzFastFillCalls()));
+        ImGui.text("SelectCellYZ fallback fill calls/ms/avg ns: " + stats.selectCellYzFallbackFillCalls()
+                + "/" + formatMillis(stats.selectCellYzFallbackFillNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzFallbackFillNanos(), stats.selectCellYzFallbackFillCalls()));
+        ImGui.text("SelectCellYZ lazy resolve calls/ms/avg ns: " + stats.selectCellYzLazyResolveCalls()
+                + "/" + formatMillis(stats.selectCellYzLazyResolveNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzLazyResolveNanos(), stats.selectCellYzLazyResolveCalls()));
+        ImGui.text("SelectCellYZ Ap2 primary calls/ms/avg ns: " + stats.selectCellYzAp2PrimaryCalls()
+                + "/" + formatMillis(stats.selectCellYzAp2PrimaryNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzAp2PrimaryNanos(), stats.selectCellYzAp2PrimaryCalls()));
+        ImGui.text("SelectCellYZ Ap2 secondary calls/ms/avg ns: " + stats.selectCellYzAp2SecondaryCalls()
+                + "/" + formatMillis(stats.selectCellYzAp2SecondaryNanos())
+                + "/" + formatAverageNanos(stats.selectCellYzAp2SecondaryNanos(), stats.selectCellYzAp2SecondaryCalls()));
+        ImGui.text("SelectCellYZ Ap2 zero secondary skips: " + stats.selectCellYzAp2ZeroSecondarySkips());
+        drawStringList("SelectCellYZ fast filler classes", stats.selectCellYzFastFillerClasses());
+        drawStringList("SelectCellYZ fast filler details", stats.selectCellYzFastFillerDetails());
+        drawStringList("SelectCellYZ fallback filler classes", stats.selectCellYzFallbackFillerClasses());
+        drawStringList("SelectCellYZ fallback filler details", stats.selectCellYzFallbackFillerDetails());
+    }
+
     private static void drawSplineStats() {
         if (!ImGui.collapsingHeader("Spline Runtime", ImGuiTreeNodeFlags.DefaultOpen)) {
             return;
@@ -587,11 +636,14 @@ public final class GADebugOverlay {
         }
 
         BeardifierStats.Stats stats = BeardifierStats.snapshotStats();
+        ImGui.text("Enabled: " + stats.enabled());
         ImGui.text("Compute/fill/accumulate cells: " + stats.computeCellCalls() + "/"
                 + stats.fillCellCalls() + "/" + stats.accumulateCellCalls());
+        ImGui.text("Compute single/bulk-logical cells: " + stats.computeCellSingleCalls() + "/"
+                + stats.computeCellBulkLogicalCalls());
         ImGui.text("Cell active pieces/junctions: " + stats.cellActivePieces() + "/" + stats.cellActiveJunctions());
-        ImGui.text("Outside influence / empty active: " + stats.outsideInfluenceReturns() + "/"
-                + stats.emptyActiveReturns());
+        ImGui.text("Outside influence/cache hits/empty active: " + stats.outsideInfluenceReturns() + "/"
+                + stats.outsideCellCacheHits() + "/" + stats.emptyActiveReturns());
         ImGui.text("Columns processed: " + stats.columnsProcessed());
         ImGui.text("Column cache hits: " + stats.columnCacheHits());
         ImGui.text("Direct compute fallbacks: " + stats.directComputeFallbacks());
@@ -605,6 +657,10 @@ public final class GADebugOverlay {
                 + stats.filteredEncapsulatePieces());
         ImGui.text("Compute cell timed calls/ns: " + stats.computeCellTimedCalls() + "/"
                 + stats.computeCellTotalNanos());
+        ImGui.text("Fill cell timed calls/ns: " + stats.fillCellTimedCalls() + "/"
+                + stats.fillCellTotalNanos());
+        ImGui.text("Accumulate cell timed calls/ns: " + stats.accumulateCellTimedCalls() + "/"
+                + stats.accumulateCellTotalNanos());
         ImGui.text("Rebuild column timed calls/ns: " + stats.rebuildColumnTimedCalls() + "/"
                 + stats.rebuildColumnTotalNanos());
         ImGui.text("Direct compute timed calls/ns: " + stats.directComputeTimedCalls() + "/"
@@ -713,6 +769,7 @@ public final class GADebugOverlay {
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
         DfcCellFillStats.Stats cellFillStats = DfcCellFillStats.snapshot();
         DfcCellFillParity.Stats parityStats = DfcCellFillParity.snapshotStats();
+        NoiseChunkTimingStats.Stats noiseChunkTimingStats = NoiseChunkTimingStats.snapshotStats();
         DfcSplineStats.Stats splineStats = DfcSplineStats.snapshot();
         AquiferStats.Stats aquiferStats = AquiferStats.snapshotStats();
         BeardifierStats.Stats beardifierStats = BeardifierStats.snapshotStats();
@@ -769,6 +826,19 @@ public final class GADebugOverlay {
         appendLine(dump, "globalClassCacheShapeHitsAcrossExactMisses", routerStats.globalClassCacheShapeHitsAcrossExactMisses());
         appendLine(dump, "latticePlansEmitted", routerStats.latticePlansEmitted());
         appendLine(dump, "latticeFallbacks", routerStats.latticeFallbacks());
+        appendLine(dump, "cellAddLatticeSpecializedRoots", routerStats.cellAddLatticeSpecializedRoots());
+        appendLine(dump, "cellAddBeardifierSpecializedRoots", routerStats.cellAddBeardifierSpecializedRoots());
+        appendLine(dump, "cellAddExternSpecializedRoots", routerStats.cellAddExternSpecializedRoots());
+        appendList(dump, "compiledClasses", DfcCompiledClassRegistry.snapshotRecent().stream()
+                .map(entry -> entry.classBaseName()
+                        + "{source=" + entry.sourceRootClass()
+                        + ", lattice=" + entry.latticeEmitted()
+                        + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
+                        + ", cellAddBeardifier=" + entry.cellAddBeardifierSpecialized()
+                        + ", cellAddExtern=" + entry.cellAddExternSpecialized()
+                        + ", root=" + entry.rootDebug()
+                        + "}")
+                .toList());
         appendLine(dump, "gpuEligibleRoots", routerStats.gpuEligibleRoots());
         appendLine(dump, "gpuBlockedRoots", routerStats.gpuBlockedRoots());
         appendLine(dump, "gpuBlockersTotal", routerStats.gpuBlockersTotal());
@@ -876,7 +946,7 @@ public final class GADebugOverlay {
         appendLine(dump, "cacheFastPathNonAccessFallbacks", cacheFastPathStats.nonAccessFallbacks());
 
         appendSection(dump, "Cell Fill");
-        appendLine(dump, "enabled", cellFillStats.enabled());
+        appendLine(dump, "statsEnabled", cellFillStats.enabled());
         appendLine(dump, "cellScalar", cellFillStats.cellScalar());
         appendLine(dump, "cellCompiled", cellFillStats.cellCompiled());
         appendLine(dump, "cellUnknown", cellFillStats.cellUnknown());
@@ -909,6 +979,52 @@ public final class GADebugOverlay {
         appendLine(dump, "maxChecks", parityStats.maxChecks());
         appendLine(dump, "epsilon", parityStats.epsilon());
         appendList(dump, "fallbackClasses", parityStats.fallbackClasses());
+
+        appendSection(dump, "NoiseChunk Timing");
+        appendLine(dump, "enabled", noiseChunkTimingStats.enabled());
+        appendLine(dump, "fillSliceCalls", noiseChunkTimingStats.fillSliceCalls());
+        appendLine(dump, "fillSliceTotalNanos", noiseChunkTimingStats.fillSliceTotalNanos());
+        appendLine(dump, "fillSliceAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.fillSliceTotalNanos(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "selectCellYzCalls", noiseChunkTimingStats.selectCellYzCalls());
+        appendLine(dump, "selectCellYzTotalNanos", noiseChunkTimingStats.selectCellYzTotalNanos());
+        appendLine(dump, "selectCellYzAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzTotalNanos(), noiseChunkTimingStats.selectCellYzCalls()));
+        appendLine(dump, "selectCellYzSetupNanos", noiseChunkTimingStats.selectCellYzSetupNanos());
+        appendLine(dump, "selectCellYzSetupAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzSetupNanos(), noiseChunkTimingStats.selectCellYzCalls()));
+        appendLine(dump, "selectCellYzCacheFillNanos", noiseChunkTimingStats.selectCellYzCacheFillNanos());
+        appendLine(dump, "selectCellYzCacheFillAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzCacheFillNanos(), noiseChunkTimingStats.selectCellYzCalls()));
+        appendLine(dump, "selectCellYzFastFillCalls", noiseChunkTimingStats.selectCellYzFastFillCalls());
+        appendLine(dump, "selectCellYzFastFillNanos", noiseChunkTimingStats.selectCellYzFastFillNanos());
+        appendLine(dump, "selectCellYzFastFillAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzFastFillNanos(), noiseChunkTimingStats.selectCellYzFastFillCalls()));
+        appendLine(dump, "selectCellYzFallbackFillCalls", noiseChunkTimingStats.selectCellYzFallbackFillCalls());
+        appendLine(dump, "selectCellYzFallbackFillNanos", noiseChunkTimingStats.selectCellYzFallbackFillNanos());
+        appendLine(dump, "selectCellYzFallbackFillAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzFallbackFillNanos(), noiseChunkTimingStats.selectCellYzFallbackFillCalls()));
+        appendLine(dump, "selectCellYzLazyResolveCalls", noiseChunkTimingStats.selectCellYzLazyResolveCalls());
+        appendLine(dump, "selectCellYzLazyResolveNanos", noiseChunkTimingStats.selectCellYzLazyResolveNanos());
+        appendLine(dump, "selectCellYzLazyResolveAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzLazyResolveNanos(), noiseChunkTimingStats.selectCellYzLazyResolveCalls()));
+        appendLine(dump, "selectCellYzAp2PrimaryCalls", noiseChunkTimingStats.selectCellYzAp2PrimaryCalls());
+        appendLine(dump, "selectCellYzAp2PrimaryNanos", noiseChunkTimingStats.selectCellYzAp2PrimaryNanos());
+        appendLine(dump, "selectCellYzAp2PrimaryAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzAp2PrimaryNanos(), noiseChunkTimingStats.selectCellYzAp2PrimaryCalls()));
+        appendLine(dump, "selectCellYzAp2SecondaryCalls", noiseChunkTimingStats.selectCellYzAp2SecondaryCalls());
+        appendLine(dump, "selectCellYzAp2SecondaryNanos", noiseChunkTimingStats.selectCellYzAp2SecondaryNanos());
+        appendLine(dump, "selectCellYzAp2SecondaryAvgNanos", formatAverageNanos(
+                noiseChunkTimingStats.selectCellYzAp2SecondaryNanos(), noiseChunkTimingStats.selectCellYzAp2SecondaryCalls()));
+        appendLine(dump, "selectCellYzAp2ZeroSecondarySkips", noiseChunkTimingStats.selectCellYzAp2ZeroSecondarySkips());
+        appendList(dump, "selectCellYzFastFillerClasses",
+                noiseChunkTimingStats.selectCellYzFastFillerClasses());
+        appendList(dump, "selectCellYzFastFillerDetails",
+                noiseChunkTimingStats.selectCellYzFastFillerDetails());
+        appendList(dump, "selectCellYzFallbackFillerClasses",
+                noiseChunkTimingStats.selectCellYzFallbackFillerClasses());
+        appendList(dump, "selectCellYzFallbackFillerDetails",
+                noiseChunkTimingStats.selectCellYzFallbackFillerDetails());
 
         appendSection(dump, "Spline Runtime");
         appendLine(dump, "enabled", splineStats.enabled());
@@ -973,12 +1089,16 @@ public final class GADebugOverlay {
         appendLine(dump, "aquiferStatusTotalNanos", aquiferStats.aquiferStatusTotalNanos());
 
         appendSection(dump, "Beardifier");
+        appendLine(dump, "enabled", beardifierStats.enabled());
         appendLine(dump, "computeCellCalls", beardifierStats.computeCellCalls());
+        appendLine(dump, "computeCellSingleCalls", beardifierStats.computeCellSingleCalls());
+        appendLine(dump, "computeCellBulkLogicalCalls", beardifierStats.computeCellBulkLogicalCalls());
         appendLine(dump, "fillCellCalls", beardifierStats.fillCellCalls());
         appendLine(dump, "accumulateCellCalls", beardifierStats.accumulateCellCalls());
         appendLine(dump, "cellActivePieces", beardifierStats.cellActivePieces());
         appendLine(dump, "cellActiveJunctions", beardifierStats.cellActiveJunctions());
         appendLine(dump, "outsideInfluenceReturns", beardifierStats.outsideInfluenceReturns());
+        appendLine(dump, "outsideCellCacheHits", beardifierStats.outsideCellCacheHits());
         appendLine(dump, "emptyActiveReturns", beardifierStats.emptyActiveReturns());
         appendLine(dump, "columnsProcessed", beardifierStats.columnsProcessed());
         appendLine(dump, "columnCacheHits", beardifierStats.columnCacheHits());
@@ -994,6 +1114,10 @@ public final class GADebugOverlay {
         appendLine(dump, "filteredEncapsulatePieces", beardifierStats.filteredEncapsulatePieces());
         appendLine(dump, "computeCellTimedCalls", beardifierStats.computeCellTimedCalls());
         appendLine(dump, "computeCellTotalNanos", beardifierStats.computeCellTotalNanos());
+        appendLine(dump, "fillCellTimedCalls", beardifierStats.fillCellTimedCalls());
+        appendLine(dump, "fillCellTotalNanos", beardifierStats.fillCellTotalNanos());
+        appendLine(dump, "accumulateCellTimedCalls", beardifierStats.accumulateCellTimedCalls());
+        appendLine(dump, "accumulateCellTotalNanos", beardifierStats.accumulateCellTotalNanos());
         appendLine(dump, "rebuildColumnTimedCalls", beardifierStats.rebuildColumnTimedCalls());
         appendLine(dump, "rebuildColumnTotalNanos", beardifierStats.rebuildColumnTotalNanos());
         appendLine(dump, "directComputeTimedCalls", beardifierStats.directComputeTimedCalls());

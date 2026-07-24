@@ -15,6 +15,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 
 public final class GARuntimeCaches {
     private GARuntimeCaches() {
@@ -33,6 +34,7 @@ public final class GARuntimeCaches {
         DfcCellFillStats.reset();
         DfcSplineStats.reset();
         BeardifierStats.reset();
+        NoiseChunkTimingStats.reset();
         RouterPipeline.resetStats();
         RandomStateCompileBudget.reset();
         RegistryWarmer.clear();

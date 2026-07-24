@@ -147,6 +147,24 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Enables Beardifier runtime statistics collection.
+                        Keep false for normal world loading; this is diagnostic-only.
+                        Mirrors old VM arg: -Dga.beardifier.stats=true
+                        """
+        )
+        public boolean beardifierStats = false;
+
+        @Serializable(
+                comment = """
+                        Enables NoiseChunk fillSlice/selectCellYZ timing statistics.
+                        Keep false for normal world loading; this is diagnostic-only.
+                        Mirrors old VM arg: -Dga.noiseChunk.timingStats=true
+                        """
+        )
+        public boolean noiseChunkTimingStats = false;
+
+        @Serializable(
+                comment = """
                         Enables extra residual class debug for cell-fill stats.
                         Mirrors old VM arg: -Ddfc.cellfill.stats.residualClassDebug=true
                         """
@@ -402,6 +420,15 @@ public final class GAConfig {
                         """
         )
         public boolean cellFillAddExternOverride = false;
+
+        @Serializable(
+                comment = """
+                        Enables the narrow ADD(Beardifier, residual) cell-fill override experiment.
+                        Unlike cellFillAddExternOverride, this does not specialize generic ADD(extern, residual) roots.
+                        Mirrors old VM arg: -Ddfc.codegen.cellFillAddBeardifierOverride=true
+                        """
+        )
+        public boolean cellFillAddBeardifierOverride = false;
 
         @Serializable(
                 comment = """

@@ -73,9 +73,10 @@ public final class GlobalCompileCache {
         private final int helpersEmitted;
         private final boolean latticeEmitted;
         private final boolean cellAddLatticeSpecialized;
+        private final boolean cellAddBeardifierSpecialized;
         private final boolean cellAddExternSpecialized;
 
-            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized) {
+            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddBeardifierSpecialized, boolean cellAddExternSpecialized) {
                 exactSha256 = exactSha256 == null ? null : exactSha256.clone();
                 this.classInternalName = classInternalName;
                 this.sourceRootClass = sourceRootClass;
@@ -89,6 +90,7 @@ public final class GlobalCompileCache {
                 this.helpersEmitted = helpersEmitted;
                 this.latticeEmitted = latticeEmitted;
                 this.cellAddLatticeSpecialized = cellAddLatticeSpecialized;
+                this.cellAddBeardifierSpecialized = cellAddBeardifierSpecialized;
                 this.cellAddExternSpecialized = cellAddExternSpecialized;
             }
 
@@ -140,6 +142,10 @@ public final class GlobalCompileCache {
             return cellAddLatticeSpecialized;
         }
 
+        public boolean cellAddBeardifierSpecialized() {
+            return cellAddBeardifierSpecialized;
+        }
+
         public boolean cellAddExternSpecialized() {
             return cellAddExternSpecialized;
         }
@@ -161,12 +167,13 @@ public final class GlobalCompileCache {
                     this.helpersEmitted == that.helpersEmitted &&
                     this.latticeEmitted == that.latticeEmitted &&
                     this.cellAddLatticeSpecialized == that.cellAddLatticeSpecialized &&
+                    this.cellAddBeardifierSpecialized == that.cellAddBeardifierSpecialized &&
                     this.cellAddExternSpecialized == that.cellAddExternSpecialized;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddExternSpecialized);
+            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddBeardifierSpecialized, cellAddExternSpecialized);
         }
 
         @Override
@@ -184,6 +191,7 @@ public final class GlobalCompileCache {
                     "helpersEmitted=" + helpersEmitted + ", " +
                     "latticeEmitted=" + latticeEmitted + ", " +
                     "cellAddLatticeSpecialized=" + cellAddLatticeSpecialized + ", " +
+                    "cellAddBeardifierSpecialized=" + cellAddBeardifierSpecialized + ", " +
                     "cellAddExternSpecialized=" + cellAddExternSpecialized + ']';
         }
 

@@ -255,6 +255,7 @@ public final class Compiler {
                 bundle.sourceRootClass(),
                 bundle.latticeEmitted(),
                 bundle.cellAddLatticeSpecialized(),
+                bundle.cellAddBeardifierSpecialized(),
                 bundle.cellAddExternSpecialized(),
                 bundle.rootDebug(),
                 bundle.splineDebug());
@@ -266,6 +267,10 @@ public final class Compiler {
             RouterPipeline.recordGlobalCacheCodegenMiss();
         }
         RouterPipeline.recordLatticePlan(bundle.latticeEmitted());
+        RouterPipeline.recordCellFillSpecializations(
+                bundle.cellAddLatticeSpecialized(),
+                bundle.cellAddBeardifierSpecialized(),
+                bundle.cellAddExternSpecialized());
         RouterPipeline.recordOptimizerRewrites(optimizerRewrites);
         RouterPipeline.recordNoiseInline(noisesSpecialized, octavesUnrolled);
         RouterPipeline.recordBlendedInline(pool.blendedNoiseSpecCount(), countBlendedNonNullOctaves(pool));
@@ -394,6 +399,11 @@ public final class Compiler {
     }
 
     private static String describeRootForCellFillDebug(IRNode root) {
+        String tree = describeIrTree(root, 4);
+        String beardifierPath = findFirstPath(root, "root", node -> node instanceof IRNode.Beardifier)
+                .orElse("none");
+        String beardifierAddPath = findFirstPath(root, "root", Compiler::isImmediateBeardifierAdd)
+                .orElse("none");
         if (root instanceof IRNode.Bin bin) {
             String leftType = bin.left().getClass().getSimpleName();
             String rightType = bin.right().getClass().getSimpleName();
@@ -403,9 +413,110 @@ public final class Compiler {
                     + ",left=" + leftType
                     + ",right=" + rightType
                     + ",leftPlan=" + (leftPlan != null ? leftPlan.hoistAxis() + ":" + leftPlan.hoistedNodeCount() : "none")
-                    + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none");
+                    + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none")
+                    + ",beardifierPath=" + beardifierPath
+                    + ",beardifierAddPath=" + beardifierAddPath
+                    + ",tree=" + tree;
         }
-        return root.getClass().getSimpleName();
+        return root.getClass().getSimpleName()
+                + ",beardifierPath=" + beardifierPath
+                + ",beardifierAddPath=" + beardifierAddPath
+                + ",tree=" + tree;
+    }
+
+    private static boolean isImmediateBeardifierAdd(IRNode node) {
+        if (!(node instanceof IRNode.Bin bin) || bin.op() != IRNode.BinOp.ADD) {
+            return false;
+        }
+        return bin.left() instanceof IRNode.Beardifier || bin.right() instanceof IRNode.Beardifier;
+    }
+
+    private static Optional<String> findFirstPath(IRNode node, String path, java.util.function.Predicate<IRNode> predicate) {
+        if (predicate.test(node)) {
+            return Optional.of(path);
+        }
+        for (ChildRef child : debugChildren(node)) {
+            Optional<String> found = findFirstPath(child.node(), path + "." + child.name(), predicate);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String describeIrTree(IRNode node, int depth) {
+        if (depth <= 0) {
+            return debugNodeName(node);
+        }
+        List<ChildRef> children = debugChildren(node);
+        if (children.isEmpty()) {
+            return debugNodeName(node);
+        }
+        StringBuilder out = new StringBuilder(debugNodeName(node)).append('(');
+        for (int i = 0; i < children.size(); i++) {
+            if (i > 0) {
+                out.append(',');
+            }
+            ChildRef child = children.get(i);
+            out.append(child.name()).append('=').append(describeIrTree(child.node(), depth - 1));
+        }
+        return out.append(')').toString();
+    }
+
+    private static String debugNodeName(IRNode node) {
+        return switch (node) {
+            case IRNode.Bin bin -> bin.op().name();
+            case IRNode.Unary unary -> unary.op().name();
+            case IRNode.Clamp clamp -> "Clamp[" + clamp.min() + "," + clamp.max() + "]";
+            case IRNode.RangeChoice rc -> "RangeChoice[" + rc.min() + "," + rc.max() + ")";
+            case IRNode.Const c -> "Const(" + c.value() + ")";
+            case IRNode.Noise noise -> "Noise#" + noise.noiseIndex();
+            case IRNode.ShiftedNoise noise -> "ShiftedNoise#" + noise.noiseIndex();
+            case IRNode.InlinedNoise noise -> "InlinedNoise#" + noise.specPoolIndex();
+            case IRNode.InlinedBlendedNoise noise -> "InlinedBlendedNoise#" + noise.blendedSpecIndex();
+            case IRNode.Spline.Multipoint spline -> "Spline[" + spline.locations().length + "]";
+            case IRNode.Spline.Constant c -> "SplineConst(" + c.value() + ")";
+            case IRNode.Beardifier b -> "Beardifier#" + b.externIndex();
+            case IRNode.Invoke invoke -> "Invoke#" + invoke.externIndex();
+            case IRNode.Marker marker -> "Marker#" + marker.externIndex();
+            case IRNode.EndIslands end -> "EndIslands#" + end.externIndex();
+            default -> node.getClass().getSimpleName();
+        };
+    }
+
+    private static List<ChildRef> debugChildren(IRNode node) {
+        return switch (node) {
+            case IRNode.Bin bin -> List.of(new ChildRef("left", bin.left()), new ChildRef("right", bin.right()));
+            case IRNode.Unary unary -> List.of(new ChildRef("input", unary.input()));
+            case IRNode.Clamp clamp -> List.of(new ChildRef("input", clamp.input()));
+            case IRNode.RangeChoice rc -> List.of(
+                    new ChildRef("input", rc.input()),
+                    new ChildRef("in", rc.whenInRange()),
+                    new ChildRef("out", rc.whenOutOfRange()));
+            case IRNode.ShiftedNoise noise -> List.of(
+                    new ChildRef("shiftX", noise.shiftX()),
+                    new ChildRef("shiftY", noise.shiftY()),
+                    new ChildRef("shiftZ", noise.shiftZ()));
+            case IRNode.WeirdScaled weird -> List.of(new ChildRef("input", weird.input()));
+            case IRNode.InlinedNoise noise -> List.of(
+                    new ChildRef("x", noise.coordX()),
+                    new ChildRef("y", noise.coordY()),
+                    new ChildRef("z", noise.coordZ()));
+            case IRNode.WeirdRarity rarity -> List.of(new ChildRef("input", rarity.input()));
+            case IRNode.Spline.Multipoint spline -> {
+                ArrayList<ChildRef> out = new ArrayList<>(spline.values().size() + 1);
+                out.add(new ChildRef("coord", spline.coordinate()));
+                for (int i = 0; i < spline.values().size(); i++) {
+                    out.add(new ChildRef("v" + i, spline.values().get(i)));
+                }
+                yield out;
+            }
+            case IRNode.BlendDensity blend -> List.of(new ChildRef("input", blend.input()));
+            default -> List.of();
+        };
+    }
+
+    private record ChildRef(String name, IRNode node) {
     }
 
     private static String describeDominantSpline(IRNode root, ConstantPool pool) {

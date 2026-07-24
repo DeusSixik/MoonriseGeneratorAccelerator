@@ -168,6 +168,7 @@ public final class DensityFunctionCompiler {
                                                         + "{src=" + s.sourceRootClass()
                                                         + ", lattice=" + s.latticeEmitted()
                                                         + ", cellAddLattice=" + s.cellAddLatticeSpecialized()
+                                                        + ", cellAddBeardifier=" + s.cellAddBeardifierSpecialized()
                                                         + ", cellAddExtern=" + s.cellAddExternSpecialized()
                                                         + ", root=" + s.rootDebug()
                                                         + "}")

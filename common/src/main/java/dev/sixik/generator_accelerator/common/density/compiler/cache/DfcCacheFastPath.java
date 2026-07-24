@@ -22,6 +22,8 @@ public final class DfcCacheFastPath {
     private static final LongAdder MISSES = new LongAdder();
     private static final LongAdder DISABLED_FALLBACKS = new LongAdder();
     private static final LongAdder NON_ACCESS_FALLBACKS = new LongAdder();
+    private static final boolean STATS_ENABLED = Boolean.getBoolean("ga.dfc.cacheFastPath.stats")
+            || GAConfigHolder.getConfig().dfc.cacheFastPathStats;
 
     private DfcCacheFastPath() {}
 
@@ -79,6 +81,24 @@ public final class DfcCacheFastPath {
     }
 
     /**
+     * Typed path for cell caches whose buffer layout is keyed by NoiseChunk.arrayIndex.
+     */
+    public static double computeKnownArrayIndexAccess(
+            DensityFunction extern, DfcCellCacheArrayIndexAccess access, DensityFunction.FunctionContext context) {
+        double v = access.dfc$tryDirectReadByArrayIndex(context);
+        if (Double.doubleToRawLongBits(v) != MISS_BITS) {
+            if (statsEnabled()) {
+                HITS.increment();
+            }
+            return v;
+        }
+        if (statsEnabled()) {
+            MISSES.increment();
+        }
+        return extern.compute(context);
+    }
+
+    /**
      * Slow path for marker sites that were flagged optimistically but don't expose direct-read access.
      */
     public static double computeKnownNonAccess(
@@ -115,6 +135,6 @@ public final class DfcCacheFastPath {
     }
 
     private static boolean statsEnabled() {
-        return GAConfigHolder.getConfig().dfc.cacheFastPathStats;
+        return STATS_ENABLED;
     }
 }

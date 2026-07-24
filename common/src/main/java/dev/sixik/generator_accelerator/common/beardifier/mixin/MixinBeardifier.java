@@ -73,6 +73,14 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private int ga$influenceMinZ;
     private int ga$influenceMaxZ;
     private boolean ga$hasInfluence;
+    private NoiseChunk ga$cachedOutsideCellChunk;
+    private int ga$cachedOutsideCellStartX;
+    private int ga$cachedOutsideCellStartY;
+    private int ga$cachedOutsideCellStartZ;
+    private int ga$cachedOutsideCellW;
+    private int ga$cachedOutsideCellH;
+    private boolean ga$cachedOutsideCellResult;
+    private boolean ga$cachedOutsideCellBulkStats;
     private NoiseChunk ga$cachedCellChunk;
     private int ga$cachedCellStartX;
     private int ga$cachedCellStartY;
@@ -87,20 +95,10 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     private int ga$cachedActiveThinCount;
     private int ga$cachedActiveBoxCount;
     private int ga$cachedActiveEncapsulateCount;
-    private int ga$cachedColumnX = Integer.MIN_VALUE;
-    private int ga$cachedColumnZ = Integer.MIN_VALUE;
-    private int[] ga$cachedColumnPieces;
-    private int[] ga$cachedColumnPieceDx;
-    private int[] ga$cachedColumnPieceDz;
-    private int[] ga$cachedColumnJunctions;
-    private int[] ga$cachedColumnJunctionDx;
-    private int[] ga$cachedColumnJunctionDz;
-    private int ga$cachedColumnPieceCount;
-    private int ga$cachedColumnJunctionCount;
-    private int ga$cachedColumnBuryCount;
-    private int ga$cachedColumnThinCount;
-    private int ga$cachedColumnBoxCount;
-    private int ga$cachedColumnEncapsulateCount;
+    private boolean ga$cachedActiveCellBulkStats;
+    private boolean[] ga$cachedColumnSlotsReady;
+    private int ga$cachedColumnSlotValueStride;
+    private double[] ga$cachedColumnSlotValues;
 
     @Unique
     private void c2me$initArrays() {
@@ -532,13 +530,194 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Unique
     private boolean ga$cellOutsideInfluence(NoiseChunk chunk, int cellW, int cellH) {
-        return !this.ga$hasInfluence
+        if (this.ga$isCachedOutsideCell(chunk, cellW, cellH)) {
+            return this.ga$cachedOutsideCellResult;
+        }
+        boolean result = !this.ga$hasInfluence
                 || chunk.cellStartBlockX > this.ga$influenceMaxX
                 || chunk.cellStartBlockX + cellW - 1 < this.ga$influenceMinX
                 || chunk.cellStartBlockY > this.ga$influenceMaxY
                 || chunk.cellStartBlockY + cellH - 1 < this.ga$influenceMinY
                 || chunk.cellStartBlockZ > this.ga$influenceMaxZ
                 || chunk.cellStartBlockZ + cellW - 1 < this.ga$influenceMinZ;
+        this.ga$cachedOutsideCellChunk = chunk;
+        this.ga$cachedOutsideCellStartX = chunk.cellStartBlockX;
+        this.ga$cachedOutsideCellStartY = chunk.cellStartBlockY;
+        this.ga$cachedOutsideCellStartZ = chunk.cellStartBlockZ;
+        this.ga$cachedOutsideCellW = cellW;
+        this.ga$cachedOutsideCellH = cellH;
+        this.ga$cachedOutsideCellResult = result;
+        this.ga$cachedOutsideCellBulkStats = false;
+        return result;
+    }
+
+    @Unique
+    private boolean ga$isCachedOutsideCell(NoiseChunk chunk, int cellW, int cellH) {
+        return this.ga$cachedOutsideCellChunk == chunk
+                && this.ga$cachedOutsideCellStartX == chunk.cellStartBlockX
+                && this.ga$cachedOutsideCellStartY == chunk.cellStartBlockY
+                && this.ga$cachedOutsideCellStartZ == chunk.cellStartBlockZ
+                && this.ga$cachedOutsideCellW == cellW
+                && this.ga$cachedOutsideCellH == cellH;
+    }
+
+    @Unique
+    private static int ga$cellValueCount(int cellW, int cellH) {
+        return cellW * cellW * cellH;
+    }
+
+    @Unique
+    private static void ga$finishCellState(NoiseChunk chunk, int cellW, int cellValues) {
+        chunk.inCellX = cellW - 1;
+        chunk.inCellY = 0;
+        chunk.inCellZ = cellW - 1;
+        chunk.arrayIndex = cellValues;
+    }
+
+    @Unique
+    private void ga$recordOutsideCellReturn(NoiseChunk chunk, int cellValues) {
+        if (chunk.interpolating) {
+            this.ga$cachedOutsideCellBulkStats = true;
+            BeardifierStats.recordOutsideInfluenceReturns(cellValues);
+            BeardifierStats.recordOutsideCellCacheHits(cellValues - 1L);
+        } else {
+            BeardifierStats.recordOutsideInfluenceReturn();
+        }
+    }
+
+    @Unique
+    private boolean ga$tryCachedOutsideCellZero(NoiseChunk chunk, int cellW, int cellH) {
+        if (!this.ga$isCachedOutsideCell(chunk, cellW, cellH) || !this.ga$cachedOutsideCellResult) {
+            return false;
+        }
+        if (!this.ga$cachedOutsideCellBulkStats) {
+            BeardifierStats.recordOutsideInfluenceReturn();
+            BeardifierStats.recordOutsideCellCacheHit();
+        }
+        return true;
+    }
+
+    @Unique
+    private void ga$prepareColumnSlotCache(int cellW, int cellH) {
+        int slotCount = cellW * cellW;
+        if (this.ga$cachedColumnSlotsReady == null || this.ga$cachedColumnSlotsReady.length < slotCount) {
+            this.ga$cachedColumnSlotsReady = new boolean[slotCount];
+        } else {
+            Arrays.fill(this.ga$cachedColumnSlotsReady, 0, slotCount, false);
+        }
+
+        this.ga$cachedColumnSlotValueStride = cellH;
+        int valueCapacity = slotCount * cellH;
+        if (this.ga$cachedColumnSlotValues == null || this.ga$cachedColumnSlotValues.length < valueCapacity) {
+            this.ga$cachedColumnSlotValues = new double[valueCapacity];
+        }
+    }
+
+    @Unique
+    private void ga$rebuildCachedColumnSlot(int slot, int blockX, int blockZ, int startY, int cellH) {
+        long sampledStart = BeardifierStats.sampleRebuildColumnStart();
+        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
+        int activePieceCount = this.ga$cachedActivePieceCount;
+        int activeJunctionCount = this.ga$cachedActiveJunctionCount;
+        int[] pieceDx = scratch.pieceDx(activePieceCount);
+        int[] pieceDz = scratch.pieceDz(activePieceCount);
+        int[] junctionDx = scratch.junctionDx(activeJunctionCount);
+        int[] junctionDz = scratch.junctionDz(activeJunctionCount);
+        int[] columnPieces = scratch.columnPieces(activePieceCount);
+        int[] columnJunctions = scratch.columnJunctions(activeJunctionCount);
+        int[] columnTerrainCounts = scratch.columnTerrainCounts();
+        int[] columnPieceDx = scratch.columnPieceDx(activePieceCount);
+        int[] columnPieceDz = scratch.columnPieceDz(activePieceCount);
+        int[] columnJunctionDx = scratch.columnJunctionDx(activeJunctionCount);
+        int[] columnJunctionDz = scratch.columnJunctionDz(activeJunctionCount);
+
+        GABeardifierColumnMath.fillPieceDistances(
+                blockX,
+                blockZ,
+                this.ga$cachedActivePieces,
+                activePieceCount,
+                this.c2me$pieceMinX,
+                this.c2me$pieceMaxX,
+                this.c2me$pieceMinZ,
+                this.c2me$pieceMaxZ,
+                pieceDx,
+                pieceDz
+        );
+        GABeardifierColumnMath.fillJunctionOffsets(
+                blockX,
+                blockZ,
+                this.ga$cachedActiveJunctions,
+                activeJunctionCount,
+                this.c2me$junctionX,
+                this.c2me$junctionZ,
+                junctionDx,
+                junctionDz
+        );
+        int columnPieceCount = GABeardifierColumnFilter.filterPiecesByColumn(
+                this.ga$cachedActivePieces,
+                activePieceCount,
+                pieceDx,
+                pieceDz,
+                this.c2me$pieceInfluenceMinY,
+                this.c2me$pieceInfluenceMaxY,
+                startY,
+                startY + cellH - 1,
+                this.ga$cachedActiveBuryCount,
+                this.ga$cachedActiveBuryCount + this.ga$cachedActiveThinCount,
+                this.ga$cachedActiveBuryCount + this.ga$cachedActiveThinCount + this.ga$cachedActiveBoxCount,
+                columnPieces,
+                columnPieceDx,
+                columnPieceDz,
+                columnTerrainCounts
+        );
+        int columnJunctionCount = GABeardifierColumnFilter.filterJunctionsByColumn(
+                this.ga$cachedActiveJunctions,
+                activeJunctionCount,
+                junctionDx,
+                junctionDz,
+                this.c2me$junctionY,
+                startY,
+                startY + cellH - 1,
+                columnJunctions,
+                columnJunctionDx,
+                columnJunctionDz
+        );
+        BeardifierStats.recordColumnFilter(
+                activePieceCount,
+                columnPieceCount,
+                activeJunctionCount,
+                columnJunctionCount,
+                columnTerrainCounts[0],
+                columnTerrainCounts[1],
+                columnTerrainCounts[2],
+                columnTerrainCounts[3]
+        );
+
+        int valueBase = slot * this.ga$cachedColumnSlotValueStride;
+        if (columnPieceCount == 0 && columnJunctionCount == 0) {
+            Arrays.fill(this.ga$cachedColumnSlotValues, valueBase, valueBase + cellH, 0.0D);
+        } else {
+            for (int inCellY = 0; inCellY < cellH; inCellY++) {
+                this.ga$cachedColumnSlotValues[valueBase + inCellY] = this.ga$computeColumnAtFiltered(
+                        startY + inCellY,
+                        columnPieces,
+                        columnTerrainCounts[0],
+                        columnTerrainCounts[1],
+                        columnTerrainCounts[2],
+                        columnTerrainCounts[3],
+                        columnPieceDx,
+                        columnPieceDz,
+                        columnJunctions,
+                        columnJunctionCount,
+                        columnJunctionDx,
+                        columnJunctionDz
+                );
+            }
+        }
+        this.ga$cachedColumnSlotsReady[slot] = true;
+        if (sampledStart != 0L) {
+            BeardifierStats.recordRebuildColumnTimed(System.nanoTime() - sampledStart);
+        }
     }
 
     @Unique
@@ -712,12 +891,15 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
 
     @Unique
     private double ga$computeAtNoiseChunkCell(NoiseChunk chunk) {
-        long sampledStart = BeardifierStats.sampleComputeCellStart();
-        this.ga$ensureArraysReady();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
+        if (this.ga$tryCachedOutsideCellZero(chunk, cellW, cellH)) {
+            return 0.0D;
+        }
+        long sampledStart = BeardifierStats.sampleComputeCellStart();
+        this.ga$ensureArraysReady();
         if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
-            BeardifierStats.recordOutsideInfluenceReturn();
+            this.ga$recordOutsideCellReturn(chunk, ga$cellValueCount(cellW, cellH));
             return ga$finishSampledCompute(0.0D, sampledStart);
         }
         if (this.ga$cachedCellChunk != chunk
@@ -758,54 +940,39 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
             this.ga$cachedActiveThinCount = terrainCounts[1];
             this.ga$cachedActiveBoxCount = terrainCounts[2];
             this.ga$cachedActiveEncapsulateCount = terrainCounts[3];
-            this.ga$cachedColumnX = Integer.MIN_VALUE;
-            this.ga$cachedColumnZ = Integer.MIN_VALUE;
-            this.ga$cachedColumnPieceCount = 0;
-            this.ga$cachedColumnJunctionCount = 0;
+            this.ga$cachedActiveCellBulkStats = false;
+            this.ga$prepareColumnSlotCache(cellW, cellH);
         }
         if (this.ga$cachedActivePieceCount == 0 && this.ga$cachedActiveJunctionCount == 0) {
             BeardifierStats.recordEmptyActiveReturn();
             return ga$finishSampledCompute(0.0D, sampledStart);
         }
-        BeardifierStats.recordComputeCell(this.ga$cachedActivePieceCount, this.ga$cachedActiveJunctionCount);
+        if (chunk.interpolating) {
+            if (!this.ga$cachedActiveCellBulkStats) {
+                this.ga$cachedActiveCellBulkStats = true;
+                BeardifierStats.recordComputeCells(
+                        ga$cellValueCount(cellW, cellH),
+                        this.ga$cachedActivePieceCount,
+                        this.ga$cachedActiveJunctionCount
+                );
+                BeardifierStats.recordColumnCacheHits((long) (cellH - 1) * cellW * cellW);
+            }
+        } else {
+            BeardifierStats.recordComputeCell(this.ga$cachedActivePieceCount, this.ga$cachedActiveJunctionCount);
+        }
         int blockX = chunk.cellStartBlockX + chunk.inCellX;
-        int blockY = chunk.cellStartBlockY + chunk.inCellY;
         int blockZ = chunk.cellStartBlockZ + chunk.inCellZ;
-        if (this.ga$cachedColumnX == blockX && this.ga$cachedColumnZ == blockZ) {
-            BeardifierStats.recordColumnCacheHit();
-            return ga$finishSampledCompute(this.ga$computeColumnAtFiltered(
-                    blockY,
-                    this.ga$cachedColumnPieces,
-                    this.ga$cachedColumnBuryCount,
-                    this.ga$cachedColumnThinCount,
-                    this.ga$cachedColumnBoxCount,
-                    this.ga$cachedColumnEncapsulateCount,
-                    this.ga$cachedColumnPieceDx,
-                    this.ga$cachedColumnPieceDz,
-                    this.ga$cachedColumnJunctions,
-                    this.ga$cachedColumnJunctionCount,
-                    this.ga$cachedColumnJunctionDx,
-                    this.ga$cachedColumnJunctionDz
-            ), sampledStart);
+        int columnSlot = chunk.inCellX * cellW + chunk.inCellZ;
+        if (this.ga$cachedColumnSlotsReady[columnSlot]) {
+            if (!chunk.interpolating || !this.ga$cachedActiveCellBulkStats) {
+                BeardifierStats.recordColumnCacheHit();
+            }
+        } else {
+            this.ga$rebuildCachedColumnSlot(columnSlot, blockX, blockZ, chunk.cellStartBlockY, cellH);
         }
-        BeardifierStats.recordDirectComputeFallback();
-        long directSampledStart = BeardifierStats.sampleDirectComputeStart();
-        double result = this.ga$computeAtActive(
-                blockX,
-                blockY,
-                blockZ,
-                this.ga$cachedActivePieces,
-                this.ga$cachedActiveBuryCount,
-                this.ga$cachedActiveThinCount,
-                this.ga$cachedActiveBoxCount,
-                this.ga$cachedActiveEncapsulateCount,
-                this.ga$cachedActiveJunctions,
-                this.ga$cachedActiveJunctionCount
-        );
-        if (directSampledStart != 0L) {
-            BeardifierStats.recordDirectComputeTimed(System.nanoTime() - directSampledStart);
-        }
-        return ga$finishSampledCompute(result, sampledStart);
+        return ga$finishSampledCompute(
+                this.ga$cachedColumnSlotValues[columnSlot * this.ga$cachedColumnSlotValueStride + chunk.inCellY],
+                sampledStart);
     }
 
     @Unique
@@ -817,113 +984,37 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     }
 
     @Unique
-    private void ga$rebuildCachedColumn(int blockX, int blockZ, int startY, int cellH) {
-        long sampledStart = BeardifierStats.sampleRebuildColumnStart();
-        GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
-        int activePieceCount = this.ga$cachedActivePieceCount;
-        int activeJunctionCount = this.ga$cachedActiveJunctionCount;
-        int[] pieceDx = scratch.pieceDx(activePieceCount);
-        int[] pieceDz = scratch.pieceDz(activePieceCount);
-        int[] junctionDx = scratch.junctionDx(activeJunctionCount);
-        int[] junctionDz = scratch.junctionDz(activeJunctionCount);
-        int[] columnPieces = scratch.columnPieces(activePieceCount);
-        int[] columnJunctions = scratch.columnJunctions(activeJunctionCount);
-        int[] columnTerrainCounts = scratch.columnTerrainCounts();
-        int[] columnPieceDx = scratch.columnPieceDx(activePieceCount);
-        int[] columnPieceDz = scratch.columnPieceDz(activePieceCount);
-        int[] columnJunctionDx = scratch.columnJunctionDx(activeJunctionCount);
-        int[] columnJunctionDz = scratch.columnJunctionDz(activeJunctionCount);
-
-        GABeardifierColumnMath.fillPieceDistances(
-                blockX,
-                blockZ,
-                this.ga$cachedActivePieces,
-                activePieceCount,
-                this.c2me$pieceMinX,
-                this.c2me$pieceMaxX,
-                this.c2me$pieceMinZ,
-                this.c2me$pieceMaxZ,
-                pieceDx,
-                pieceDz
-        );
-        GABeardifierColumnMath.fillJunctionOffsets(
-                blockX,
-                blockZ,
-                this.ga$cachedActiveJunctions,
-                activeJunctionCount,
-                this.c2me$junctionX,
-                this.c2me$junctionZ,
-                junctionDx,
-                junctionDz
-        );
-        int columnPieceCount = GABeardifierColumnFilter.filterPiecesByColumn(
-                this.ga$cachedActivePieces,
-                activePieceCount,
-                pieceDx,
-                pieceDz,
-                this.c2me$pieceInfluenceMinY,
-                this.c2me$pieceInfluenceMaxY,
-                startY,
-                startY + cellH - 1,
-                this.ga$cachedActiveBuryCount,
-                this.ga$cachedActiveBuryCount + this.ga$cachedActiveThinCount,
-                this.ga$cachedActiveBuryCount + this.ga$cachedActiveThinCount + this.ga$cachedActiveBoxCount,
-                columnPieces,
-                columnPieceDx,
-                columnPieceDz,
-                columnTerrainCounts
-        );
-        int columnJunctionCount = GABeardifierColumnFilter.filterJunctionsByColumn(
-                this.ga$cachedActiveJunctions,
-                activeJunctionCount,
-                junctionDx,
-                junctionDz,
-                this.c2me$junctionY,
-                startY,
-                startY + cellH - 1,
-                columnJunctions,
-                columnJunctionDx,
-                columnJunctionDz
-        );
-        BeardifierStats.recordColumnFilter(
-                activePieceCount,
-                columnPieceCount,
-                activeJunctionCount,
-                columnJunctionCount,
-                columnTerrainCounts[0],
-                columnTerrainCounts[1],
-                columnTerrainCounts[2],
-                columnTerrainCounts[3]
-        );
-
-        this.ga$cachedColumnX = blockX;
-        this.ga$cachedColumnZ = blockZ;
-        this.ga$cachedColumnPieces = columnPieces;
-        this.ga$cachedColumnPieceDx = columnPieceDx;
-        this.ga$cachedColumnPieceDz = columnPieceDz;
-        this.ga$cachedColumnJunctions = columnJunctions;
-        this.ga$cachedColumnJunctionDx = columnJunctionDx;
-        this.ga$cachedColumnJunctionDz = columnJunctionDz;
-        this.ga$cachedColumnPieceCount = columnPieceCount;
-        this.ga$cachedColumnJunctionCount = columnJunctionCount;
-        this.ga$cachedColumnBuryCount = columnTerrainCounts[0];
-        this.ga$cachedColumnThinCount = columnTerrainCounts[1];
-        this.ga$cachedColumnBoxCount = columnTerrainCounts[2];
-        this.ga$cachedColumnEncapsulateCount = columnTerrainCounts[3];
+    private static void ga$finishSampledFillCell(long sampledStart) {
         if (sampledStart != 0L) {
-            BeardifierStats.recordRebuildColumnTimed(System.nanoTime() - sampledStart);
+            BeardifierStats.recordFillCellTimed(System.nanoTime() - sampledStart);
+        }
+    }
+
+    @Unique
+    private static void ga$finishSampledAccumulateCell(long sampledStart) {
+        if (sampledStart != 0L) {
+            BeardifierStats.recordAccumulateCellTimed(System.nanoTime() - sampledStart);
         }
     }
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        boolean statsEnabled = BeardifierStats.ENABLED;
+        if (statsEnabled) {
+            BeardifierStats.recordFillCellCall();
+        }
+        long sampledStart = statsEnabled ? BeardifierStats.sampleFillCellStart() : 0L;
         this.ga$ensureArraysReady();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
-        int cellValues = cellW * cellW * cellH;
+        int cellValues = ga$cellValueCount(cellW, cellH);
         if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+            if (statsEnabled) {
+                this.ga$recordOutsideCellReturn(chunk, cellValues);
+            }
             Arrays.fill(out, 0, cellValues, 0.0D);
-            chunk.arrayIndex = cellValues;
+            ga$finishCellState(chunk, cellW, cellValues);
+            ga$finishSampledFillCell(sampledStart);
             return;
         }
         GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
@@ -946,15 +1037,18 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int activeJunctionCount = this.ga$collectActiveJunctions(chunk, cellW, cellH, activeJunctions);
         if (activePieceCount == 0 && activeJunctionCount == 0) {
             Arrays.fill(out, 0, cellValues, 0.0D);
-            chunk.arrayIndex = cellValues;
+            ga$finishCellState(chunk, cellW, cellValues);
+            ga$finishSampledFillCell(sampledStart);
             return;
         }
-        BeardifierStats.recordFillCell(activePieceCount, activeJunctionCount);
+        if (statsEnabled) {
+            BeardifierStats.recordFillCellActive(activePieceCount, activeJunctionCount);
+        }
 
-        int idx = 0;
         int startX = chunk.cellStartBlockX;
         int startY = chunk.cellStartBlockY;
         int startZ = chunk.cellStartBlockZ;
+        int planeSize = cellW * cellW;
         int[] pieceDx = scratch.pieceDx(activePieceCount);
         int[] pieceDz = scratch.pieceDz(activePieceCount);
         int[] junctionDx = scratch.junctionDx(activeJunctionCount);
@@ -1024,21 +1118,26 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                         columnJunctionDx,
                         columnJunctionDz
                 );
-                BeardifierStats.recordColumnFilter(
-                        activePieceCount,
-                        columnPieceCount,
-                        activeJunctionCount,
-                        columnJunctionCount,
-                        columnTerrainCounts[0],
-                        columnTerrainCounts[1],
-                        columnTerrainCounts[2],
-                        columnTerrainCounts[3]
-                );
+                if (statsEnabled) {
+                    BeardifierStats.recordColumnFilter(
+                            activePieceCount,
+                            columnPieceCount,
+                            activeJunctionCount,
+                            columnJunctionCount,
+                            columnTerrainCounts[0],
+                            columnTerrainCounts[1],
+                            columnTerrainCounts[2],
+                            columnTerrainCounts[3]
+                    );
+                }
+                int columnIndex = inCellX * cellW + inCellZ;
                 if (columnPieceCount == 0 && columnJunctionCount == 0) {
-                    idx += cellH;
+                    for (int yPlane = 0; yPlane < cellH; yPlane++) {
+                        out[yPlane * planeSize + columnIndex] = 0.0D;
+                    }
                     continue;
                 }
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                for (int inCellY = cellH - 1, idx = columnIndex; inCellY >= 0; inCellY--, idx += planeSize) {
                     chunk.inCellY = inCellY;
                     chunk.arrayIndex = idx;
                     out[idx] = this.ga$computeColumnAtFiltered(
@@ -1055,21 +1154,30 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                             columnJunctionDx,
                             columnJunctionDz
                     );
-                    idx++;
                 }
             }
         }
-        chunk.arrayIndex = idx;
+        ga$finishCellState(chunk, cellW, cellValues);
+        ga$finishSampledFillCell(sampledStart);
     }
 
     @Override
     public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        boolean statsEnabled = BeardifierStats.ENABLED;
+        if (statsEnabled) {
+            BeardifierStats.recordAccumulateCellCall();
+        }
+        long sampledStart = statsEnabled ? BeardifierStats.sampleAccumulateCellStart() : 0L;
         this.ga$ensureArraysReady();
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
-        int cellValues = cellW * cellW * cellH;
+        int cellValues = ga$cellValueCount(cellW, cellH);
         if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
-            chunk.arrayIndex = cellValues;
+            if (statsEnabled) {
+                this.ga$recordOutsideCellReturn(chunk, cellValues);
+            }
+            ga$finishCellState(chunk, cellW, cellValues);
+            ga$finishSampledAccumulateCell(sampledStart);
             return;
         }
         GABeardifierCellScratch scratch = GA$CELL_SCRATCH.get();
@@ -1091,15 +1199,18 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int[] activeJunctions = scratch.junctions(this.c2me$junctionX.length);
         int activeJunctionCount = this.ga$collectActiveJunctions(chunk, cellW, cellH, activeJunctions);
         if (activePieceCount == 0 && activeJunctionCount == 0) {
-            chunk.arrayIndex = cellValues;
+            ga$finishCellState(chunk, cellW, cellValues);
+            ga$finishSampledAccumulateCell(sampledStart);
             return;
         }
-        BeardifierStats.recordAccumulateCell(activePieceCount, activeJunctionCount);
+        if (statsEnabled) {
+            BeardifierStats.recordAccumulateCellActive(activePieceCount, activeJunctionCount);
+        }
 
-        int idx = 0;
         int startX = chunk.cellStartBlockX;
         int startY = chunk.cellStartBlockY;
         int startZ = chunk.cellStartBlockZ;
+        int planeSize = cellW * cellW;
         int[] pieceDx = scratch.pieceDx(activePieceCount);
         int[] pieceDz = scratch.pieceDz(activePieceCount);
         int[] junctionDx = scratch.junctionDx(activeJunctionCount);
@@ -1169,21 +1280,23 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                         columnJunctionDx,
                         columnJunctionDz
                 );
-                BeardifierStats.recordColumnFilter(
-                        activePieceCount,
-                        columnPieceCount,
-                        activeJunctionCount,
-                        columnJunctionCount,
-                        columnTerrainCounts[0],
-                        columnTerrainCounts[1],
-                        columnTerrainCounts[2],
-                        columnTerrainCounts[3]
-                );
+                if (statsEnabled) {
+                    BeardifierStats.recordColumnFilter(
+                            activePieceCount,
+                            columnPieceCount,
+                            activeJunctionCount,
+                            columnJunctionCount,
+                            columnTerrainCounts[0],
+                            columnTerrainCounts[1],
+                            columnTerrainCounts[2],
+                            columnTerrainCounts[3]
+                    );
+                }
+                int columnIndex = inCellX * cellW + inCellZ;
                 if (columnPieceCount == 0 && columnJunctionCount == 0) {
-                    idx += cellH;
                     continue;
                 }
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+                for (int inCellY = cellH - 1, idx = columnIndex; inCellY >= 0; inCellY--, idx += planeSize) {
                     chunk.inCellY = inCellY;
                     chunk.arrayIndex = idx;
                     out[idx] += this.ga$computeColumnAtFiltered(
@@ -1200,11 +1313,11 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
                             columnJunctionDx,
                             columnJunctionDz
                     );
-                    idx++;
                 }
             }
         }
-        chunk.arrayIndex = idx;
+        ga$finishCellState(chunk, cellW, cellValues);
+        ga$finishSampledAccumulateCell(sampledStart);
     }
 
     /**

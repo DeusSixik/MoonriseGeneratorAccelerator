@@ -3,7 +3,9 @@ package dev.sixik.generator_accelerator.common.density.compiler.cache;
 import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -20,6 +22,7 @@ public final class DfcCompiledClassRegistry {
     public record Entry(String classBaseName, String sourceRootClass,
                         boolean latticeEmitted,
                         boolean cellAddLatticeSpecialized,
+                        boolean cellAddBeardifierSpecialized,
                         boolean cellAddExternSpecialized,
                         String rootDebug,
                         String splineDebug) {
@@ -27,12 +30,14 @@ public final class DfcCompiledClassRegistry {
 
     public static void record(String classInternalName, String sourceRootClass,
                               boolean latticeEmitted,
-                              boolean cellAddLatticeSpecialized, boolean cellAddExternSpecialized,
+                              boolean cellAddLatticeSpecialized, boolean cellAddBeardifierSpecialized,
+                              boolean cellAddExternSpecialized,
                               String rootDebug, String splineDebug) {
         String normalized = normalize(classInternalName);
         Entry newEntry = new Entry(
                 normalized, sourceRootClass, latticeEmitted,
-                cellAddLatticeSpecialized, cellAddExternSpecialized, rootDebug, splineDebug);
+                cellAddLatticeSpecialized, cellAddBeardifierSpecialized,
+                cellAddExternSpecialized, rootDebug, splineDebug);
         Entry previous = ENTRIES.putIfAbsent(normalized, newEntry);
         if (previous == null) {
             synchronized (INSERTION_ORDER) {
@@ -44,6 +49,19 @@ public final class DfcCompiledClassRegistry {
 
     public static Entry lookup(String runtimeClassName) {
         return ENTRIES.get(normalize(runtimeClassName));
+    }
+
+    public static List<Entry> snapshotRecent() {
+        synchronized (INSERTION_ORDER) {
+            ArrayList<Entry> out = new ArrayList<>(INSERTION_ORDER.size());
+            for (String classBaseName : INSERTION_ORDER) {
+                Entry entry = ENTRIES.get(classBaseName);
+                if (entry != null) {
+                    out.add(entry);
+                }
+            }
+            return out;
+        }
     }
 
     public static void clear() {

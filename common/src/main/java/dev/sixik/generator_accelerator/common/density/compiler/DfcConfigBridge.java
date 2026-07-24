@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import dev.sixik.generator_accelerator.api.config.GAConfig;
 import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+import dev.sixik.generator_accelerator.common.beardifier.BeardifierStats;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 
 public final class DfcConfigBridge {
 
@@ -32,6 +34,10 @@ public final class DfcConfigBridge {
             setString("dfc.codegen.splineSearchMode", dfc.splineSearchMode);
             setInt("dfc.codegen.splineLinearSearchMaxPoints", dfc.splineLinearSearchMaxPoints);
             setBoolean("dfc.cellfill.stats", dfc.cellFillStats);
+            setBoolean("ga.beardifier.stats", dfc.beardifierStats);
+            BeardifierStats.setEnabled(dfc.beardifierStats);
+            setBoolean("ga.noiseChunk.timingStats", dfc.noiseChunkTimingStats);
+            NoiseChunkTimingStats.setEnabled(dfc.noiseChunkTimingStats);
             setBoolean("dfc.cellfill.stats.residualClassDebug", dfc.cellFillResidualClassDebug);
             setBoolean("dfc.cellfill.parity", dfc.cellFillParity);
             setInt("dfc.cellfill.parity.maxChecks", dfc.cellFillParityMaxChecks);
@@ -62,6 +68,7 @@ public final class DfcConfigBridge {
             setBoolean("ga.dfc.gpu.directGeneratedLauncher", dfc.gpuDirectGeneratedLauncher);
             setBoolean("dfc.codegen.cellFillDirectExternResidual", dfc.cellFillDirectExternResidual);
             setBoolean("dfc.codegen.cellFillAddExternOverride", dfc.cellFillAddExternOverride);
+            setBoolean("dfc.codegen.cellFillAddBeardifierOverride", dfc.cellFillAddBeardifierOverride);
             setBoolean("dfc.warmer.noiseSettings", dfc.warmerNoiseSettings);
             setBoolean("dfc.warmer.rawDensityFunctions", dfc.warmerRawDensityFunctions);
             setBudget("dfc.warmer.maxSettings", dfc.warmerMaxSettings);

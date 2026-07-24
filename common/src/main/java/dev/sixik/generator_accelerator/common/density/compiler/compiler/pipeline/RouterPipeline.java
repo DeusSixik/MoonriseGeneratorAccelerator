@@ -174,6 +174,9 @@ public final class RouterPipeline {
      * never hits this counter).
      */
     private static final AtomicLong LATTICE_FALLBACKS = new AtomicLong();
+    private static final AtomicLong CELL_ADD_LATTICE_SPECIALIZED_ROOTS = new AtomicLong();
+    private static final AtomicLong CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS = new AtomicLong();
+    private static final AtomicLong CELL_ADD_EXTERN_SPECIALIZED_ROOTS = new AtomicLong();
 
     /**
      * Compiles each router / sampler top-level field in the GA compile lane. Running
@@ -502,6 +505,13 @@ public final class RouterPipeline {
         else LATTICE_FALLBACKS.incrementAndGet();
     }
 
+    public static void recordCellFillSpecializations(boolean addLatticeSpecialized,
+            boolean addBeardifierSpecialized, boolean addExternSpecialized) {
+        if (addLatticeSpecialized) CELL_ADD_LATTICE_SPECIALIZED_ROOTS.incrementAndGet();
+        if (addBeardifierSpecialized) CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.incrementAndGet();
+        if (addExternSpecialized) CELL_ADD_EXTERN_SPECIALIZED_ROOTS.incrementAndGet();
+    }
+
     public static void recordGpuEligibility(boolean eligible, int blockerCount) {
         if (eligible) {
             GPU_ELIGIBLE_ROOTS.incrementAndGet();
@@ -828,9 +838,15 @@ public final class RouterPipeline {
                          /** Compiled roots that fell back to the scalar fillArray
                           * path because the planner found no axis-only hoist worth
                           * promoting (or {@code -Ddfc.cell_lattice=false}). */
-                          long latticeFallbacks,
-                          /** Roots whose current IR has no JavaToGpu-readiness blockers. */
-                          long gpuEligibleRoots,
+                         long latticeFallbacks,
+                          /** Compiled roots whose cell filler specialized ADD(scalar residual, lattice). */
+                          long cellAddLatticeSpecializedRoots,
+                          /** Compiled roots whose cell filler specialized ADD(residual, Beardifier). */
+                          long cellAddBeardifierSpecializedRoots,
+                          /** Compiled roots whose cell filler specialized ADD(extern cell-fill, residual). */
+                          long cellAddExternSpecializedRoots,
+                         /** Roots whose current IR has no JavaToGpu-readiness blockers. */
+                         long gpuEligibleRoots,
                           /** Roots currently blocked from a JavaToGpu-style kernel. */
                           long gpuBlockedRoots,
                           /** Total conservative GPU blockers observed across blocked roots. */
@@ -1055,6 +1071,9 @@ public final class RouterPipeline {
                 GlobalCompileCache.INSTANCE.shapeHitsAcrossExactMisses(),
                 LATTICE_PLANS_EMITTED.get(),
                 LATTICE_FALLBACKS.get(),
+                CELL_ADD_LATTICE_SPECIALIZED_ROOTS.get(),
+                CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.get(),
+                CELL_ADD_EXTERN_SPECIALIZED_ROOTS.get(),
                 GPU_ELIGIBLE_ROOTS.get(),
                 GPU_BLOCKED_ROOTS.get(),
                 GPU_BLOCKERS_TOTAL.get(),
@@ -1150,6 +1169,9 @@ public final class RouterPipeline {
         GLOBAL_CODEGEN_MISSES.set(0L);
         LATTICE_PLANS_EMITTED.set(0L);
         LATTICE_FALLBACKS.set(0L);
+        CELL_ADD_LATTICE_SPECIALIZED_ROOTS.set(0L);
+        CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.set(0L);
+        CELL_ADD_EXTERN_SPECIALIZED_ROOTS.set(0L);
         GPU_ELIGIBLE_ROOTS.set(0L);
         GPU_BLOCKED_ROOTS.set(0L);
         GPU_BLOCKERS_TOTAL.set(0L);

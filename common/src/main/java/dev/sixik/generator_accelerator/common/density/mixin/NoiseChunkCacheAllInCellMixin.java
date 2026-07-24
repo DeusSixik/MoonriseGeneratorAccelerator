@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheArrayIndexAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code context ==} the owning {@link NoiseChunk} and interpolation is active.
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$CacheAllInCell")
-public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCellCacheCompiledFillerAccess {
+public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheArrayIndexAccess, DfcCellCacheCompiledFillerAccess {
 
     @Unique
     private static final String DFC_LAZY_CELL_CACHE_COMPILE_PROPERTY = "ga.dfc.lazyCellCacheCompile";
@@ -70,6 +71,21 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
             return DfcCacheFastPath.CACHE_MISS;
         }
         int index = (cellH - 1 - inY) * cellW * cellW + inX * cellW + inZ;
+        if (index < 0 || index >= this.values.length) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        return this.values[index];
+    }
+
+    @Override
+    public double dfc$tryDirectReadByArrayIndex(DensityFunction.FunctionContext context) {
+        if (context != this.field_36602) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        if (!this.field_36602.interpolating) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        int index = this.field_36602.arrayIndex;
         if (index < 0 || index >= this.values.length) {
             return DfcCacheFastPath.CACHE_MISS;
         }

@@ -4,14 +4,17 @@ import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$InterpolatorSoA
 import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.path.NoiseChunk$FlatCache$FlatArray;
+import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 import dev.sixik.generator_accelerator.common.noise.utils.CachedPointContext;
 import dev.sixik.generator_accelerator.common.noise.utils.NoiseChunkSliceProvider;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.NoiseSettings;
 import net.minecraft.world.level.levelgen.blending.Blender;
@@ -125,6 +128,12 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     private DfcCellFillAccess[] bts$cellCacheFastFillers;
     @Unique
     private boolean[] bts$cellCacheLazyFastFillers;
+    @Unique
+    private boolean[] bts$cellCacheRejectedFastFillers;
+    @Unique
+    private boolean[] bts$cellCacheFallbackClassReported;
+    @Unique
+    private boolean[] bts$cellCacheFastClassReported;
     @Unique
     private double[][] bts$cellCacheValues;
 
@@ -244,6 +253,9 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         this.bts$cellCacheFillers = new DensityFunction[length];
         this.bts$cellCacheFastFillers = new DfcCellFillAccess[length];
         this.bts$cellCacheLazyFastFillers = new boolean[length];
+        this.bts$cellCacheRejectedFastFillers = new boolean[length];
+        this.bts$cellCacheFallbackClassReported = new boolean[length];
+        this.bts$cellCacheFastClassReported = new boolean[length];
         this.bts$cellCacheValues = new double[length][];
 
         for (int i = 0; i < length; i++) {
@@ -251,7 +263,8 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             final DensityFunction filler = cache.noiseFiller;
             this.bts$cellCacheFillers[i] = filler;
             this.bts$cellCacheValues[i] = cache.values;
-            if (filler instanceof DfcCellFillAccess access) {
+            DfcCellFillAccess access = DfcCellFillFastPath.asFastPath(filler);
+            if (access != null) {
                 this.bts$cellCacheFastFillers[i] = access;
             }
         }
@@ -295,6 +308,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
      */
     @Overwrite
     public void selectCellYZ(int yIndex, int zIndex) {
+        long timingStart = NoiseChunkTimingStats.startSelectCellYz();
         final int base0 = zIndex * this.bts$interpolatorSizeY + yIndex;
         final int base1 = base0 + this.bts$interpolatorSizeY;
         final int planeSize = this.bts$interpolatorPlaneSize;
@@ -326,38 +340,99 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         final DfcCellFillAccess[] fastFillers = this.bts$cellCacheFastFillers;
         final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
         final double[][] valuesArray = this.bts$cellCacheValues;
+        long cacheFillTimingStart = NoiseChunkTimingStats.startSelectCellYzCacheFill(timingStart);
+        final boolean timingStages = cacheFillTimingStart != 0L;
         for (int i = 0; i < fillers.length; i++) {
             final DensityFunction filler = fillers[i];
             DfcCellFillAccess fast = fastFillers[i];
 
-            if (fast == null && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
+            if (fast == null
+                    && !this.bts$cellCacheRejectedFastFillers[i]
+                    && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
+                long lazyResolveTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                 fast = access.dfc$getOrCompileCellFiller();
+                NoiseChunkTimingStats.recordLazyResolve(lazyResolveTimingStart);
                 if (fast != null) {
                     fastFillers[i] = fast;
                     lazyFastFillers[i] = true;
+                } else {
+                    this.bts$cellCacheRejectedFastFillers[i] = true;
                 }
             }
 
             final double[] values = valuesArray[i];
             if (fast != null) {
+                this.bts$recordFastFillerClass(i, filler);
                 if (DfcCellFillStats.ENABLED) {
                     DfcCellFillStats.recordCellFill(fast, filler);
                 }
+                long fastFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                 fast.dfc$fillCell(values, self);
+                NoiseChunkTimingStats.recordFastFill(fastFillTimingStart);
                 if (DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
-                    DfcCellFillParity.check(filler, values, self);
+                    if (!DfcCellFillParity.check(filler, values, self)) {
+                        fastFillers[i] = null;
+                        lazyFastFillers[i] = false;
+                        this.bts$cellCacheRejectedFastFillers[i] = true;
+                        this.bts$recordFallbackFillerClass(i, filler);
+                        long fallbackFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
+                        filler.fillArray(values, self);
+                        NoiseChunkTimingStats.recordFallbackFill(fallbackFillTimingStart);
+                    }
                 }
             } else {
                 if (DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, false, false);
                 }
+                this.bts$recordFallbackFillerClass(i, filler);
+                long fallbackFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                 filler.fillArray(values, self);
+                NoiseChunkTimingStats.recordFallbackFill(fallbackFillTimingStart);
             }
         }
 
         ++this.arrayInterpolationCounter;
         this.fillingCell = false;
+        NoiseChunkTimingStats.finishSelectCellYz(timingStart, cacheFillTimingStart);
+    }
+
+    @Unique
+    private void bts$recordFastFillerClass(int index, DensityFunction filler) {
+        if (this.bts$cellCacheFastClassReported[index]) {
+            return;
+        }
+        this.bts$cellCacheFastClassReported[index] = true;
+        NoiseChunkTimingStats.recordFastFillerClass(filler);
+        if (filler instanceof DensityFunctions.TwoArgumentSimpleFunction tas) {
+            NoiseChunkTimingStats.recordFastFillerDetail(
+                    "TwoArg." + tas.type()
+                            + "(left=" + bts$fastPathDebug(tas.argument1())
+                            + ",right=" + bts$fastPathDebug(tas.argument2())
+                            + ")");
+        }
+    }
+
+    @Unique
+    private void bts$recordFallbackFillerClass(int index, DensityFunction filler) {
+        if (this.bts$cellCacheFallbackClassReported[index]) {
+            return;
+        }
+        this.bts$cellCacheFallbackClassReported[index] = true;
+        NoiseChunkTimingStats.recordFallbackFillerClass(filler);
+        if (filler instanceof DensityFunctions.TwoArgumentSimpleFunction tas) {
+            NoiseChunkTimingStats.recordFallbackFillerDetail(
+                    "TwoArg." + tas.type()
+                            + "(left=" + bts$fastPathDebug(tas.argument1())
+                            + ",right=" + bts$fastPathDebug(tas.argument2())
+                            + ")");
+        }
+    }
+
+    @Unique
+    private static String bts$fastPathDebug(DensityFunction function) {
+        boolean fast = DfcCellFillFastPath.asFastPath(function) != null;
+        return (fast ? "fast:" : "slow:") + function.getClass().getName();
     }
 
     /**
@@ -609,6 +684,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
      */
     @Overwrite
     private void fillSlice(boolean pIsSlice0, int pStart) {
+        long timingStart = NoiseChunkTimingStats.startFillSlice();
         this.cellStartBlockX = pStart * this.cellWidth;
         this.inCellX = 0;
 
@@ -640,6 +716,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
 
         this.arrayInterpolationCounter++;
+        NoiseChunkTimingStats.finishFillSlice(timingStart);
     }
 
     @Unique

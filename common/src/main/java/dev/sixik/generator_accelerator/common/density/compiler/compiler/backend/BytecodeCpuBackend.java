@@ -69,6 +69,7 @@ public final class BytecodeCpuBackend implements DfcBackend {
                 helpersEmitted,
                 latticeEmitted,
                 emitResult.cellAddLatticeSpecialized(),
+                emitResult.cellAddBeardifierSpecialized(),
                 emitResult.cellAddExternSpecialized());
     }
 

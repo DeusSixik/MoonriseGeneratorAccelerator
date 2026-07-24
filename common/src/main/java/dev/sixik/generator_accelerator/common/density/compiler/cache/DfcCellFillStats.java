@@ -49,6 +49,7 @@ public final class DfcCellFillStats {
     public record ClassDebugStats(String className, long calls,
                                   String sourceRootClass, boolean latticeEmitted,
                                   boolean cellAddLatticeSpecialized,
+                                  boolean cellAddBeardifierSpecialized,
                                   boolean cellAddExternSpecialized,
                                   String rootDebug) {
     }
@@ -139,6 +140,7 @@ public final class DfcCellFillStats {
                     entry != null ? entry.sourceRootClass() : "unknown",
                     entry != null && entry.latticeEmitted(),
                     entry != null && entry.cellAddLatticeSpecialized(),
+                    entry != null && entry.cellAddBeardifierSpecialized(),
                     entry != null && entry.cellAddExternSpecialized(),
                     entry != null ? entry.rootDebug() : "unknown"
             ));
