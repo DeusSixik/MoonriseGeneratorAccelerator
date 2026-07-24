@@ -131,6 +131,18 @@ public final class OnDemandCompilingDensityFunction implements DensityFunction {
                 COMPILE_FALLBACKS.sum());
     }
 
+    public static void resetLazyStats() {
+        WRAPPERS_CREATED.reset();
+        COMPUTE_RESOLVE_ATTEMPTS.reset();
+        FILL_ARRAY_RESOLVE_ATTEMPTS.reset();
+        MAP_ALL_RESOLVE_ATTEMPTS.reset();
+        MIN_VALUE_RESOLVE_ATTEMPTS.reset();
+        MAX_VALUE_RESOLVE_ATTEMPTS.reset();
+        SUCCESSFUL_COMPILES.reset();
+        COMPILE_FAILURES.reset();
+        COMPILE_FALLBACKS.reset();
+    }
+
     private enum ResolveTrigger {
         COMPUTE,
         FILL_ARRAY,

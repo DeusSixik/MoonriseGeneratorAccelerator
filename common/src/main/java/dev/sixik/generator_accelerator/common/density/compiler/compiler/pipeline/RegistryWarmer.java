@@ -88,7 +88,12 @@ public final class RegistryWarmer {
         }
 
         // Trigger the same RandomState + wired router compile as production (mixin@RETURN).
-        boolean noiseOk = warmNoiseSettings(server);
+        // Keep this opt-in: large modpacks can register many noise_settings presets, and
+        // warming all of them can stall world load before the first chunk is usable.
+        boolean noiseOk = true;
+        if (GAConfigHolder.getConfig().dfc.warmerNoiseSettings) {
+            noiseOk = warmNoiseSettings(server);
+        }
         boolean densityOk = true;
         if (GAConfigHolder.getConfig().dfc.warmerRawDensityFunctions) {
             // Raw registry DensityFunctions may still contain unbound NoiseHolders; keep this opt-in.

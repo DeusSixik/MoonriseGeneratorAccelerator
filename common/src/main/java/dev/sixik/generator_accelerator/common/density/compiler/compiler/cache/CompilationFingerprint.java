@@ -22,9 +22,10 @@ import java.util.List;
 
 /**
  * SHA-256 digests of the post-optimisation IR and constant-pool layout.
- * <p>Two compiles with identical digests are safe to share the same hidden
- * class + MethodHandle bundle, instantiating a fresh instance with
- * {@link ConstantPool#finishConstants()}-style snapshots from the new pool.
+ * <p>The exact digest is the safe hidden-class cache key: it includes runtime
+ * binding identities in addition to emitted bytecode structure. The broader shape
+ * digest is diagnostic/planning material until every constructor payload layout is
+ * proven compatible across worlds and datapack reloads.
  */
 public final class CompilationFingerprint {
 
@@ -48,12 +49,14 @@ public final class CompilationFingerprint {
     }
 
     /**
-     * 32-byte SHA-256 digest of the generated class shape. This key intentionally
+     * 32-byte SHA-256 digest of the generated class shape. This digest intentionally
      * excludes object identities that are supplied through constructor arrays
      * ({@code noises}, {@code externs}, spline blobs, per-octave samplers), but keeps
      * every value that can alter emitted bytecode: IR topology, op tags, literal raw
      * bits, constant-pool slot counts, marker direct-read flags, inlined-noise numeric
      * layouts, blended-noise numeric layouts, and JVM/codegen feature flags.
+     * <p>Do not use this as the global hidden-class cache key without an exact-fingerprint
+     * guard; a shape hit with incompatible constructor payloads can crash generated code.
      */
     public static byte[] shapeSha256(
             IRNode root,

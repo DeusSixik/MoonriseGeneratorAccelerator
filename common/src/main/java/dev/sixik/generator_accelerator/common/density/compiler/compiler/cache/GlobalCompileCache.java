@@ -15,11 +15,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
- * Reuses a hidden class + pre-resolved {@link MethodHandle}s when
- * {@link CompilationFingerprint#shapeSha256} matches. Values are weak references so
- * hidden classes can be reclaimed after reloads when nothing still uses them.
- * <p>Compilation uses {@link ConcurrentHashMap#computeIfAbsent} on the shape fingerprint
- * <strong>only</strong> — never a global lock — so different router fields compile
+ * Reuses a hidden class + pre-resolved {@link MethodHandle}s when the exact
+ * {@link CompilationFingerprint#sha256} cache key matches. Bundles are held strongly
+ * for the current server lifecycle and dropped explicitly on lifecycle reset.
+ * Keeping the bundle itself strong is important: compiled instances hold the
+ * bundle's {@link MethodHandle}s, not the bundle wrapper. With weak values the
+ * wrapper could be collected while the hidden class was still alive through an
+ * existing compiled router, causing a later same-shape compile to define a
+ * duplicate hidden class instead of reusing the existing one.
+ * <p>Compilation uses Caffeine's atomic per-key load on the cache fingerprint
+ * <strong>only</strong> - never a global lock - so different router fields compile
  * in parallel, while the same graph only defines one hidden class.
  */
 public final class GlobalCompileCache {
@@ -193,7 +198,6 @@ public final class GlobalCompileCache {
 
     private final Cache<FingerprintKey, CopiedClassBundle> bundles = Caffeine.newBuilder()
             .initialCapacity(64)
-            .weakValues()
             .build();
 
     /**
@@ -212,21 +216,25 @@ public final class GlobalCompileCache {
      */
     private final AtomicLong instancesShared = new AtomicLong();
     /**
-     * Count of shape-cache hits where the exact, identity-bearing fingerprint did
-     * not match the bundle's defining compile. This is the useful Phase-3 signal:
-     * the hidden class shape was reused across distinct constructor-supplied
-     * runtime bindings.
+     * Count of legacy shape-cache hits where the exact, identity-bearing fingerprint
+     * did not match the bundle's defining compile. With exact-keyed reuse this stays
+     * at zero; keep it for diagnostics if shape reuse is reintroduced later.
      */
     private final AtomicLong shapeHitsAcrossExactMisses = new AtomicLong();
 
     private GlobalCompileCache() {}
 
-    public LookupResult getOrCompile(byte[] shapeSha256, byte[] exactSha256, Supplier<CopiedClassBundle> onMiss) {
-        FingerprintKey key = new FingerprintKey(shapeSha256);
+    public LookupResult getOrCompile(byte[] cacheSha256, byte[] exactSha256, Supplier<CopiedClassBundle> onMiss) {
+        FingerprintKey key = new FingerprintKey(cacheSha256);
         CopiedClassBundle fast = bundles.getIfPresent(key);
         if (fast != null) {
-            recordHit(fast, exactSha256);
-            return new LookupResult(true, fast);
+            if (!matchesExact(fast, exactSha256)) {
+                shapeHitsAcrossExactMisses.incrementAndGet();
+                bundles.invalidate(key);
+            } else {
+                recordHit(fast, exactSha256);
+                return new LookupResult(true, fast);
+            }
         }
         var ran = new AtomicBoolean(false);
         CopiedClassBundle b = bundles.get(key, k -> {
@@ -235,9 +243,23 @@ public final class GlobalCompileCache {
         });
         boolean reused = !ran.get();
         if (reused) {
-            recordHit(b, exactSha256);
+            if (!matchesExact(b, exactSha256)) {
+                shapeHitsAcrossExactMisses.incrementAndGet();
+                bundles.asMap().remove(key, b);
+                b = onMiss.get();
+                bundles.asMap().put(key, b);
+                reused = false;
+            } else {
+                recordHit(b, exactSha256);
+            }
         }
         return new LookupResult(reused, b);
+    }
+
+    private static boolean matchesExact(CopiedClassBundle bundle, byte[] exactSha256) {
+        return bundle.exactSha256 != null
+                && exactSha256 != null
+                && java.security.MessageDigest.isEqual(bundle.exactSha256, exactSha256);
     }
 
     private void recordHit(CopiedClassBundle bundle, byte[] exactSha256) {

@@ -3,6 +3,10 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuIrPayload;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadBatchExecutor;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -107,9 +111,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      * through so the new instance can rebind again later.
      *
      * <p>Storing the MH on the instance (rather than a static field on the
-     * generated class) preserves hidden-class GC: when no compiled instance
-     * survives, both the MH and the generated class become reclaimable, which
-     * is what we want across {@code /reload}.
+     * generated class) avoids self-pinning through generated static state. The
+     * class is reclaimable after no compiled instance and no lifecycle cache
+     * bundle still references its handles.
      */
     protected final MethodHandle constructorMH;
 
@@ -177,7 +181,244 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      */
     @Override
     public void fillArray(double[] out, ContextProvider provider) {
+        if (tryFillArrayWithGpuPayload(out, provider)) {
+            return;
+        }
         provider.fillAllDirectly(out, this);
+    }
+
+    private boolean tryFillArrayWithGpuPayload(double[] out, ContextProvider provider) {
+        if (!(provider instanceof NoiseChunk chunk)) {
+            return false;
+        }
+        GpuIrPayload payload = GpuPayloadRuntimeRegistry.lookup(this);
+        if (payload == null) {
+            return false;
+        }
+
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        if (cellW <= 0 || cellH <= 0) {
+            return false;
+        }
+
+        int pointCount;
+        try {
+            pointCount = Math.multiplyExact(Math.multiplyExact(cellW, cellW), cellH);
+        } catch (ArithmeticException ignored) {
+            return false;
+        }
+        if (out.length != pointCount) {
+            return false;
+        }
+        if (!GpuPayloadBatchExecutor.shouldAttemptRuntimeBatch(pointCount)) {
+            return false;
+        }
+
+        long totalStart = System.nanoTime();
+        long externNanos = 0L;
+        long invokeNanos = 0L;
+        long parityNanos = 0L;
+        try {
+            GpuPayloadBatchExecutor.BatchBuffers buffers = GpuPayloadBatchExecutor.localBuffers(
+                    pointCount, payload.nodeCount(), payload.externInputCount());
+            int[] blockX = buffers.blockX();
+            int[] blockY = buffers.blockY();
+            int[] blockZ = buffers.blockZ();
+            fillCellCoordinates(chunk, cellW, cellH, blockX, blockY, blockZ);
+            double[] externValues = buffers.externValues();
+            long externStart = System.nanoTime();
+            if (!fillExternInputValues(payload, this, chunk, cellW, cellH, externValues)) {
+                return false;
+            }
+            externNanos = System.nanoTime() - externStart;
+
+            RouterPipeline.recordGpuPayloadBatchAttempt(pointCount);
+            long invokeStart = System.nanoTime();
+            GpuPayloadBatchExecutor.GpuAttempt attempt = GpuPayloadBatchExecutor.tryComputeGpuRuntimeBatch(
+                    payload, blockX, blockY, blockZ, externValues, out, buffers.scratch());
+            invokeNanos = System.nanoTime() - invokeStart;
+            RouterPipeline.recordGpuPayloadBatchArgumentLayout(
+                    GpuPayloadBatchExecutor.preparedLauncherStaticArguments(),
+                    GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+            if (attempt.success()) {
+                long parityStart = System.nanoTime();
+                GpuPayloadBatchExecutor.RuntimeParityReport parity = runtimeParity(
+                        payload, chunk, cellW, cellH, blockX, blockY, blockZ, externValues, out, buffers.parityExpected());
+                parityNanos = System.nanoTime() - parityStart;
+                RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                        parity.checked(), parity.passed(), parity.pointsChecked(),
+                        parity.maxAbsError(), parity.failureReason());
+                if (parity.checked() && !parity.passed()) {
+                    RouterPipeline.recordGpuPayloadBatchTimings(
+                            externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                            attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                    RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+                    RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, parity.failureReason());
+                    return false;
+                }
+                chunk.inCellY = 0;
+                chunk.inCellX = cellW - 1;
+                chunk.inCellZ = cellW - 1;
+                chunk.arrayIndex = pointCount;
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                RouterPipeline.recordGpuPayloadBatchGpuSuccess(pointCount);
+                return true;
+            }
+
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                    attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+            RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+            if (attempt.disablesGpu()) {
+                GpuPayloadBatchExecutor.disableGpuForLifecycle(attempt.failureReason());
+            }
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, attempt.failureReason());
+            return false;
+        } catch (RuntimeException | LinkageError exception) {
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart);
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(exception.toString());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, exception.toString());
+            return false;
+        }
+    }
+
+    private GpuPayloadBatchExecutor.RuntimeParityReport runtimeParity(
+            GpuIrPayload payload,
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] gpuOutput,
+            double[] expected) {
+        if (payload.hasExternInputs() && GpuPayloadBatchExecutor.runtimeParityRemaining() > 0) {
+            fillDirectCpuExpected(chunk, cellW, cellH, expected);
+            return GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(gpuOutput, expected);
+        }
+        return GpuPayloadBatchExecutor.checkRuntimeParity(
+                payload, blockX, blockY, blockZ, externValues, gpuOutput, expected);
+    }
+
+    public final DensityFunction dfc$extern(int index) {
+        if (index < 0 || index >= this.externs.length) {
+            return null;
+        }
+        return this.externs[index];
+    }
+
+    private static boolean fillExternInputValues(
+            GpuIrPayload payload,
+            CompiledDensityFunction owner,
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            double[] externValues) {
+        int externInputCount = payload.externInputCount();
+        if (externInputCount == 0) {
+            return true;
+        }
+        DensityFunction[] inputFunctions = resolveExternInputFunctions(payload, owner);
+        if (inputFunctions == null) {
+            return false;
+        }
+
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    int base = idx * externInputCount;
+                    for (int slot = 0; slot < externInputCount; slot++) {
+                        externValues[base + slot] = inputFunctions[slot].compute(chunk);
+                    }
+                    idx++;
+                }
+            }
+        }
+        return true;
+    }
+
+    private void fillDirectCpuExpected(
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            double[] expected) {
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    expected[idx] = this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+    }
+
+    private static DensityFunction[] resolveExternInputFunctions(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner) {
+        int count = payload.externInputCount();
+        DensityFunction[] inputFunctions = new DensityFunction[count];
+        for (int slot = 0; slot < count; slot++) {
+            CompiledDensityFunction owner = rootOwner;
+            int pathOffset = payload.externInputPathOffsets()[slot];
+            int pathLength = payload.externInputPathLengths()[slot];
+            for (int i = 0; i < pathLength; i++) {
+                DensityFunction next = owner.dfc$extern(payload.externInputOwnerPath()[pathOffset + i]);
+                if (!(next instanceof CompiledDensityFunction compiled)) {
+                    return null;
+                }
+                owner = compiled;
+            }
+            DensityFunction input = owner.dfc$extern(payload.externInputLeafExternIndices()[slot]);
+            if (input == null) {
+                return null;
+            }
+            inputFunctions[slot] = input;
+        }
+        return inputFunctions;
+    }
+
+    private static void fillCellCoordinates(
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ) {
+        int idx = 0;
+        int startX = chunk.cellStartBlockX;
+        int startY = chunk.cellStartBlockY;
+        int startZ = chunk.cellStartBlockZ;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            int y = startY + inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                int x = startX + inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    blockY[idx] = y;
+                    blockX[idx] = x;
+                    blockZ[idx] = startZ + inCellZ;
+                    idx++;
+                }
+            }
+        }
     }
 
     @Override
@@ -305,9 +546,11 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             return this;
         }
         try {
-            return (CompiledDensityFunction) constructorMH.invokeExact(
+            CompiledDensityFunction rebound = (CompiledDensityFunction) constructorMH.invokeExact(
                     constants, visitedNoises, splines, noiseOctaves, visitedExterns,
                     minValue, maxValue, helperHandles, constructorMH);
+            GpuPayloadRuntimeRegistry.inherit(this, rebound);
+            return rebound;
         } catch (Throwable t) {
             throw new RuntimeException(
                     "CompiledDensityFunction.rebind failed for "

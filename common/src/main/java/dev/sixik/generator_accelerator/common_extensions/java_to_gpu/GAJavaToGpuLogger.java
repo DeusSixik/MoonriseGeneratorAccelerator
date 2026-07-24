@@ -6,6 +6,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public final class GAJavaToGpuLogger implements GpuRuntimeLogService {
+    public static final String INFO_LOG_PROPERTY = "ga.dfc.gpu.runtimeInfoLog";
     private static final Logger LOGGER = LogManager.getLogger("GA-JavaToGpu");
 
     @Override
@@ -17,7 +18,13 @@ public final class GAJavaToGpuLogger implements GpuRuntimeLogService {
         switch (record.level()) {
             case TRACE -> LOGGER.trace(message, record.throwable());
             case DEBUG -> LOGGER.debug(message, record.throwable());
-            case INFO -> LOGGER.info(message, record.throwable());
+            case INFO -> {
+                if (Boolean.getBoolean(INFO_LOG_PROPERTY)) {
+                    LOGGER.info(message, record.throwable());
+                } else {
+                    LOGGER.debug(message, record.throwable());
+                }
+            }
             case WARN -> LOGGER.warn(message, record.throwable());
             case ERROR -> LOGGER.error(message, record.throwable());
         }

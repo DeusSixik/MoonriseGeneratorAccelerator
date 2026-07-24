@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compat.FabricBiomeApiClimateRebind;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.world.level.biome.Climate;
@@ -37,6 +38,10 @@ public abstract class RandomStateMixin {
         NoiseRouter wiredRouter = this.router;
         Climate.Sampler wiredSampler = this.sampler;
 
+        if (!RandomStateCompileBudget.tryAcquire(settings, levelSeed)) {
+            return;
+        }
+
         NoiseRouter compiledRouter;
         try {
             compiledRouter = RouterPipeline.compile(wiredRouter);
@@ -47,14 +52,16 @@ public abstract class RandomStateMixin {
             compiledRouter = wiredRouter;
         }
 
-        Climate.Sampler compiledSampler;
-        try {
-            compiledSampler = RouterPipeline.compileSampler(wiredSampler);
-        } catch (Throwable t) {
-            DensityFunctionCompiler.LOGGER.warn(
-                    "RouterPipeline.compileSampler threw for wired sampler (settings={}); leaving vanilla sampler in place",
-                    settings, t);
-            compiledSampler = wiredSampler;
+        Climate.Sampler compiledSampler = wiredSampler;
+        if (RandomStateCompileBudget.shouldCompileSampler()) {
+            try {
+                compiledSampler = RouterPipeline.compileSampler(wiredSampler);
+            } catch (Throwable t) {
+                DensityFunctionCompiler.LOGGER.warn(
+                        "RouterPipeline.compileSampler threw for wired sampler (settings={}); leaving vanilla sampler in place",
+                        settings, t);
+                compiledSampler = wiredSampler;
+            }
         }
 
         this.router = compiledRouter;

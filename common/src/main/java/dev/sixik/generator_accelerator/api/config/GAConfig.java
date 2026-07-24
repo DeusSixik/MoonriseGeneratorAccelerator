@@ -235,6 +235,160 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Allows per-NoiseChunk CacheAllInCell filler lazy compilation.
+                        This is experimental and can create many chunk-specific compiled classes.
+                        Keep false for normal world loading.
+                        Mirrors old VM arg: -Dga.dfc.lazyCellCacheCompile=true
+                        """
+        )
+        public boolean lazyCellCacheCompile = false;
+
+        @Serializable(
+                comment = """
+                        Maximum per-lifecycle lazy CacheAllInCell filler compiles when lazyCellCacheCompile is enabled.
+                        Mirrors old VM arg: -Dga.dfc.lazyCellCacheCompile.max=128
+                        """
+        )
+        public int lazyCellCacheCompileMax = 128;
+
+        @Serializable(
+                comment = """
+                        Maximum RandomState instances that may eagerly compile their NoiseRouter per server lifecycle.
+                        Use 0 to disable eager DFC router compilation, or -1 to restore the old unlimited behaviour.
+                        This prevents world-load stalls when a modpack constructs many RandomState instances.
+                        Mirrors old VM arg: -Dga.dfc.randomStateCompile.max=0
+                        """
+        )
+        public int randomStateCompileMax = 0;
+
+        @Serializable(
+                comment = """
+                        Comma-separated NoiseRouter root names compiled for admitted RandomStates.
+                        Use all for the old full-router behavior, or e.g. finalDensity for a narrow GPU/runtime probe.
+                        Mirrors old VM arg: -Dga.dfc.randomStateCompile.routerRoots=all
+                        """
+        )
+        public String randomStateCompileRouterRoots = "all";
+
+        @Serializable(
+                comment = """
+                        Allows eager Climate.Sampler compilation for RandomStates admitted by randomStateCompileMax.
+                        Disabling this keeps biome sampling vanilla while preserving router compilation.
+                        Mirrors old VM arg: -Dga.dfc.randomStateCompile.sampler=true
+                        """
+        )
+        public boolean randomStateCompileSampler = true;
+
+        @Serializable(
+                comment = """
+                        Maximum real worldgen GPU payload batches per lifecycle.
+                        Use 0 to keep runtime GPU batches disabled while allowing GPU Probe diagnostics; -1 means unlimited.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeBatchMax=0
+                        """
+        )
+        public int gpuRuntimeBatchMax = 0;
+
+        @Serializable(
+                comment = """
+                        Minimum point count for real worldgen GPU runtime batches.
+                        Current 128-point NoiseChunk cell batches are too small; keep 1024 until larger batch aggregation exists.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMinPoints=1024
+                        """
+        )
+        public int gpuRuntimeMinPoints = 1024;
+
+        @Serializable(
+                comment = """
+                        Maximum same-shape DFC cell requests packed into one prepared JavaToGpu runtime launch.
+                        Use 1 to disable runtime microbatch packing while keeping opportunistic lock behavior.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchMax=8
+                        """
+        )
+        public int gpuRuntimeMicroBatchMax = 8;
+
+        @Serializable(
+                comment = """
+                        Minimum collected runtime microbatch size required before launching GPU.
+                        Smaller groups fall back to CPU to avoid expensive 128-point single GPU launches.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchMin=2
+                        """
+        )
+        public int gpuRuntimeMicroBatchMin = 2;
+
+        @Serializable(
+                comment = """
+                        Maximum nanoseconds the GPU lock owner spins to collect compatible runtime microbatch requests.
+                        Keep this small; 100000ns is 0.1ms.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchCollectNanos=100000
+                        """
+        )
+        public long gpuRuntimeMicroBatchCollectNanos = 100_000L;
+
+        @Serializable(
+                comment = """
+                        Maximum nanoseconds a busy caller waits for a microbatch leader to accept it before CPU fallback.
+                        Default 0 keeps busy callers purely opportunistic; accepted callers still wait for GPU completion.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchWaitNanos=0
+                        """
+        )
+        public long gpuRuntimeMicroBatchWaitNanos = 0L;
+
+        @Serializable(
+                comment = """
+                        Consecutive single-request microbatch candidates before runtime GPU enters temporary backoff.
+                        This avoids repeatedly taking the runtime lock when the current workload is not batching.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak=32
+                        """
+        )
+        public int gpuRuntimeMicroBatchBackoffSingleStreak = 32;
+
+        @Serializable(
+                comment = """
+                        Consecutive busy GPU runtime attempts before runtime GPU enters temporary backoff.
+                        This avoids paying repeated queue/lock overhead when another worker owns the serialized runtime.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBusyStreak=32
+                        """
+        )
+        public int gpuRuntimeMicroBatchBackoffBusyStreak = 32;
+
+        @Serializable(
+                comment = """
+                        Runtime batch checks skipped after microbatch backoff triggers.
+                        After this window, GPU is sampled again to detect if batching became useful.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBatches=256
+                        """
+        )
+        public int gpuRuntimeMicroBatchBackoffBatches = 256;
+
+        @Serializable(
+                comment = """
+                        Maximum runtime GPU payload batches checked against CPU during real worldgen.
+                        Use 0 to disable runtime GPU parity after preflight; this should stay small for performance runs.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeParityBatches=8
+                        """
+        )
+        public int gpuRuntimeParityBatches = 8;
+
+        @Serializable(
+                comment = """
+                        Makes real worldgen GPU batches opportunistic: if another chunk worker is using the GPU runtime,
+                        the caller falls back to CPU instead of waiting on the serialized runtime lock.
+                        Mirrors old VM arg: -Dga.dfc.gpu.opportunisticRuntimeLock=true
+                        """
+        )
+        public boolean gpuRuntimeOpportunisticLock = true;
+
+        @Serializable(
+                comment = """
+                        Calls the generated JavaToGpu launcher directly instead of the generic launcher invoker.
+                        This is a runtime-overhead experiment; disable if direct generated launcher lookup fails.
+                        Mirrors old VM arg: -Dga.dfc.gpu.directGeneratedLauncher=true
+                        """
+        )
+        public boolean gpuDirectGeneratedLauncher = true;
+
+        @Serializable(
+                comment = """
                         Enables direct residual extern cell-fill specialization.
                         Mirrors old VM arg: -Ddfc.codegen.cellFillDirectExternResidual=true
                         """
@@ -251,6 +405,15 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Enables warming of wired noise_settings RandomStates during server start.
+                        This can be expensive in large modpacks, so it is opt-in only.
+                        Mirrors old VM arg: -Ddfc.warmer.noiseSettings=true
+                        """
+        )
+        public boolean warmerNoiseSettings = false;
+
+        @Serializable(
+                comment = """
                         Enables warming of raw density_function registry entries.
                         Mirrors old VM arg: -Ddfc.warmer.rawDensityFunctions=true
                         """
@@ -260,10 +423,11 @@ public final class GAConfig {
         @Serializable(
                 comment = """
                         Maximum warmed noise settings count. Use -1 for unlimited.
+                        Default 0 avoids compiling every registered noise_settings entry during server start.
                         Mirrors old VM arg: -Ddfc.warmer.maxSettings=...
                         """
         )
-        public int warmerMaxSettings = -1;
+        public int warmerMaxSettings = 0;
 
         @Serializable(
                 comment = """
@@ -279,7 +443,7 @@ public final class GAConfig {
                     Do not change, used internally.
                     """
     )
-    public int version = 3;
+    public int version = 12;
 
     @Serializable(
             comment = """

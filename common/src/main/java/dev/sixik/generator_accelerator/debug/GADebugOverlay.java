@@ -11,6 +11,11 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineSt
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.MapAllSession;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.DensityFunctionGpuKernelOpRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.DensityFunctionGpuPayloadBuilderRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadBatchExecutor;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.DensityFunctionIrBuilderRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import imgui.ImGui;
@@ -19,6 +24,8 @@ import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiTreeNodeFlags;
 import imgui.flag.ImGuiTabBarFlags;
 import net.minecraft.client.Minecraft;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +51,9 @@ public final class GADebugOverlay {
     private static final DateTimeFormatter DUMP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.ROOT);
     private static boolean visible;
     private static String actionStatus = "";
+    private static String lastGpuProbeStatus = "not_run";
+    private static String lastGpuLargeBatchProbeStatus = "not_run";
+    private static String lastDfcCompileProbeStatus = "not_run";
     private static DebugTab activeTab = DebugTab.DFC;
 
     private GADebugOverlay() {
@@ -117,9 +127,146 @@ public final class GADebugOverlay {
             }
         }
 
+        if (activeTab == DebugTab.DFC) {
+            ImGui.sameLine();
+            if (ImGui.button("GPU Probe")) {
+                GpuPayloadBatchExecutor.DebugProbeResult result = GpuPayloadBatchExecutor.runDebugProbe();
+                lastGpuProbeStatus = formatGpuProbeResult(result);
+                actionStatus = "GPU probe: " + lastGpuProbeStatus;
+            }
+            ImGui.sameLine();
+            if (ImGui.button("Large GPU Probe")) {
+                GpuPayloadBatchExecutor.LargeBatchProbeResult result = GpuPayloadBatchExecutor.runLargeBatchProbe();
+                lastGpuLargeBatchProbeStatus = formatGpuLargeBatchProbeResult(result);
+                actionStatus = "Large GPU probe: " + lastGpuLargeBatchProbeStatus;
+            }
+            ImGui.sameLine();
+            if (ImGui.button("Compile FinalDensity Probe")) {
+                lastDfcCompileProbeStatus = runFinalDensityCompileProbe(Minecraft.getInstance());
+                actionStatus = "DFC compile probe: " + lastDfcCompileProbeStatus;
+            }
+        }
+
         if (!actionStatus.isBlank()) {
             ImGui.textWrapped(actionStatus);
         }
+    }
+
+    private static String formatGpuProbeResult(GpuPayloadBatchExecutor.DebugProbeResult result) {
+        return String.format(Locale.ROOT,
+                "success=%s, reason=%s, enabled=%s, preflight=%s/%s, persistentScope=%s/%s, disabled=%s, "
+                        + "points=%d, maxAbsError=%.3g, firstGpu=%.17g, firstCpu=%.17g",
+                result.success(),
+                result.reason(),
+                result.gpuEnabled(),
+                result.preflightState(),
+                result.preflightReason(),
+                result.persistentScopeEnabled(),
+                result.persistentScopeActive(),
+                result.disabledReason(),
+                result.points(),
+                result.maxAbsError(),
+                result.firstGpuValue(),
+                result.firstCpuValue());
+    }
+
+    private static String formatGpuLargeBatchProbeResult(GpuPayloadBatchExecutor.LargeBatchProbeResult result) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(String.format(Locale.ROOT,
+                "success=%s, reason=%s, enabled=%s, preparedLauncher=%s, directLauncher=%s, preflight=%s/%s, persistentScope=%s/%s, disabled=%s",
+                result.success(),
+                result.reason(),
+                result.gpuEnabled(),
+                result.preparedLauncherEnabled(),
+                result.directGeneratedLauncherEnabled(),
+                result.preflightState(),
+                result.preflightReason(),
+                result.persistentScopeEnabled(),
+                result.persistentScopeActive(),
+                result.disabledReason()));
+        for (GpuPayloadBatchExecutor.LargeBatchProbeSample sample : result.samples()) {
+            builder.append(String.format(Locale.ROOT,
+                    "; %dpts success=%s gpu=%.3fms warm=%s/%.3fms warmErr=%.3g warmFirst=%.17g warmReason=%s"
+                            + " cpu=%.3fms err=%.3g first=%.17g/%.17g reason=%s"
+                            + " direct=%s/%.3fms directErr=%.3g directFirst=%.17g directReason=%s",
+                    sample.points(),
+                    sample.success(),
+                    sample.gpuNanos() / 1_000_000.0D,
+                    sample.warmSuccess(),
+                    sample.warmGpuNanos() / 1_000_000.0D,
+                    sample.warmMaxAbsError(),
+                    sample.warmFirstGpuValue(),
+                    sample.warmReason(),
+                    sample.cpuNanos() / 1_000_000.0D,
+                    sample.maxAbsError(),
+                    sample.firstGpuValue(),
+                    sample.firstCpuValue(),
+                    sample.reason(),
+                    sample.directSuccess(),
+                    sample.directGpuNanos() / 1_000_000.0D,
+                    sample.directMaxAbsError(),
+                    sample.directFirstGpuValue(),
+                    sample.directReason()));
+        }
+        return builder.toString();
+    }
+
+    private static String runFinalDensityCompileProbe(Minecraft minecraft) {
+        if (minecraft.level == null) {
+            return "success=false, reason=no client level";
+        }
+        MinecraftServer server = minecraft.getSingleplayerServer();
+        if (server == null) {
+            return "success=false, reason=no integrated server";
+        }
+        ServerLevel serverLevel = server.getLevel(minecraft.level.dimension());
+        if (serverLevel == null) {
+            serverLevel = server.overworld();
+        }
+        if (serverLevel == null) {
+            return "success=false, reason=no server level";
+        }
+        try {
+            RouterPipeline.DebugCompileProbeResult result = RouterPipeline.compileDebugRoot(
+                    serverLevel.getChunkSource().randomState().router(),
+                    "finalDensity");
+            return formatDfcCompileProbeResult(serverLevel, result);
+        } catch (Throwable throwable) {
+            return "success=false, reason=" + throwable;
+        }
+    }
+
+    private static String formatDfcCompileProbeResult(
+            ServerLevel level,
+            RouterPipeline.DebugCompileProbeResult result) {
+        return String.format(Locale.ROOT,
+                "dimension=%s, root=%s, success=%s, reason=%s, elapsedMs=%d, uniqueNodes=%d, helpers=%d, "
+                        + "noiseInline=%d/%d, gpuEligible=%s(blockers=%d, first=%s), "
+                        + "gpuPayload=%s(nodes=%d, externInputs=%d, firstUnsupported=%s:%s), "
+                        + "parity=%s(points=%d, maxAbsError=%.3g), "
+                        + "source=%s, compiled=%s",
+                level.dimension().location(),
+                result.rootName(),
+                result.success(),
+                result.reason(),
+                result.elapsedMs(),
+                result.uniqueNodes(),
+                result.helpersEmitted(),
+                result.noisesSpecialized(),
+                result.octavesUnrolled(),
+                result.gpuEligible(),
+                result.gpuBlockerCount(),
+                result.firstGpuBlocker(),
+                result.gpuPayloadSupported(),
+                result.gpuPayloadNodes(),
+                result.gpuPayloadExternInputs(),
+                result.firstUnsupportedNode(),
+                result.firstUnsupportedDetail(),
+                result.parityChecked() ? (result.parityPassed() ? "passed" : "failed") : "skipped",
+                result.parityPoints(),
+                result.parityMaxAbsError(),
+                result.sourceClass(),
+                result.compiledClass());
     }
 
     private static void drawDfcTab(Minecraft minecraft) {
@@ -164,12 +311,37 @@ public final class GADebugOverlay {
         }
 
         RouterPipeline.Stats stats = RouterPipeline.snapshotStats();
+        DensityFunctionIrBuilderRegistry.Stats irBuilderStats = DensityFunctionIrBuilderRegistry.snapshotStats();
+        DensityFunctionGpuPayloadBuilderRegistry.Stats payloadBuilderStats =
+                DensityFunctionGpuPayloadBuilderRegistry.snapshotStats();
+        DensityFunctionGpuKernelOpRegistry.Stats kernelOpStats =
+                DensityFunctionGpuKernelOpRegistry.snapshotStats();
+        RandomStateCompileBudget.Stats randomStateBudgetStats = RandomStateCompileBudget.snapshotStats();
         CompiledDensityFunction.MapAllStats mapAllStats = CompiledDensityFunction.snapshotMapAllStats();
         MapAllSession.Stats sessionStats = MapAllSession.snapshotStats();
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
 
+        ImGui.text("RandomState compile acquired/skipped/max: " + randomStateBudgetStats.acquired()
+                + "/" + randomStateBudgetStats.skipped() + "/" + randomStateBudgetStats.max());
+        ImGui.text("RandomState sampler compile: " + randomStateBudgetStats.compileSampler());
+        ImGui.text("RandomState router roots: " + randomStateBudgetStats.routerRoots());
+        ImGui.text("IR builders registered/matches/lowered/failures: " + irBuilderStats.registeredBuilders()
+                + "/" + irBuilderStats.matches() + "/" + irBuilderStats.lowered() + "/" + irBuilderStats.failures());
+        drawStringList("IR builder ids", irBuilderStats.builderIds());
+        ImGui.text("GPU payload builders registered/matches/encoded/failures: "
+                + payloadBuilderStats.registeredBuilders()
+                + "/" + payloadBuilderStats.matches()
+                + "/" + payloadBuilderStats.encoded()
+                + "/" + payloadBuilderStats.failures());
+        drawStringList("GPU payload builder ids", payloadBuilderStats.builderIds());
+        ImGui.text("GPU kernel ops registered/lookups/misses/source fragments: "
+                + kernelOpStats.registeredOps()
+                + "/" + kernelOpStats.lookups()
+                + "/" + kernelOpStats.misses()
+                + "/" + kernelOpStats.sourceFragments());
+        drawStringList("GPU kernel op ids", kernelOpStats.opIds());
         ImGui.text("Roots compiled: " + stats.rootsCompiled());
-        ImGui.text("Classes alive: " + stats.classesAlive());
+        ImGui.text("Global class cache size: " + stats.globalClassCacheSize());
         ImGui.text("Unique nodes: " + stats.uniqueNodes());
         ImGui.text("Saved by CSE: " + stats.savedByCse());
         ImGui.text("Helpers emitted: " + stats.helpersEmitted());
@@ -186,6 +358,98 @@ public final class GADebugOverlay {
         ImGui.text("Shape hits across exact misses: " + stats.globalClassCacheShapeHitsAcrossExactMisses());
         ImGui.text("Lattice plans emitted: " + stats.latticePlansEmitted());
         ImGui.text("Lattice fallbacks: " + stats.latticeFallbacks());
+        ImGui.text("GPU eligible / blocked roots: " + stats.gpuEligibleRoots() + "/" + stats.gpuBlockedRoots());
+        ImGui.text("GPU blockers total: " + stats.gpuBlockersTotal());
+        drawStringList("GPU blocker counts", stats.gpuBlockerCounts());
+        ImGui.text("GPU payload ready / blocked roots: " + stats.gpuPayloadReadyRoots()
+                + "/" + stats.gpuPayloadBlockedRoots());
+        ImGui.text("GPU payload nodes total: " + stats.gpuPayloadNodesTotal());
+        drawStringList("GPU payload unsupported", stats.gpuPayloadUnsupportedCounts());
+        ImGui.text("GPU payload parity checks/pass/fail: " + stats.gpuPayloadParityChecks()
+                + "/" + stats.gpuPayloadParityPasses() + "/" + stats.gpuPayloadParityFailures());
+        ImGui.text("GPU payload parity points/max error: " + stats.gpuPayloadParityPoints()
+                + "/" + stats.gpuPayloadParityMaxAbsError());
+        if (!"none".equals(stats.gpuPayloadParityFirstFailure())) {
+            ImGui.textWrapped("GPU payload first mismatch: " + stats.gpuPayloadParityFirstFailure());
+        }
+        ImGui.text("GPU runtime enabled/preflight: "
+                + Boolean.getBoolean(GpuPayloadBatchExecutor.GPU_ENABLED_PROPERTY)
+                + "/" + GpuPayloadBatchExecutor.preflightStateName());
+        ImGui.text("GPU runtime persistent scope enabled/active: "
+                + GpuPayloadBatchExecutor.persistentRuntimeScopeEnabled()
+                + "/" + GpuPayloadBatchExecutor.persistentRuntimeScopeActive());
+        ImGui.textWrapped("GPU runtime reason: " + GpuPayloadBatchExecutor.disabledReason()
+                + " / preflight=" + GpuPayloadBatchExecutor.preflightReason());
+        ImGui.text("GPU runtime parity remaining/epsilon: "
+                + GpuPayloadBatchExecutor.runtimeParityRemaining()
+                + "/" + GpuPayloadBatchExecutor.runtimeParityEpsilon());
+        ImGui.text("GPU runtime batch remaining/max: "
+                + GpuPayloadBatchExecutor.runtimeBatchRemaining()
+                + "/" + GpuPayloadBatchExecutor.runtimeBatchBudgetMax());
+        ImGui.text("GPU runtime min points: " + GpuPayloadBatchExecutor.runtimeMinPoints());
+        ImGui.text("GPU batch attempts/gpu/fallback: " + stats.gpuPayloadBatchAttempts()
+                + "/" + stats.gpuPayloadBatchGpuSuccesses() + "/" + stats.gpuPayloadBatchCpuFallbacks());
+        ImGui.text("GPU batch points: " + stats.gpuPayloadBatchPoints());
+        ImGui.text("GPU batch points gpu/fallback: " + stats.gpuPayloadBatchGpuSuccessPoints()
+                + "/" + stats.gpuPayloadBatchCpuFallbackPoints());
+        ImGui.text("GPU batch nanos extern/invoke/parity/total: "
+                + stats.gpuPayloadBatchExternNanos()
+                + "/" + stats.gpuPayloadBatchInvokeNanos()
+                + "/" + stats.gpuPayloadBatchParityNanos()
+                + "/" + stats.gpuPayloadBatchTotalNanos());
+        ImGui.text("GPU batch cold invokes/nanos: " + stats.gpuPayloadBatchColdInvokes()
+                + "/" + stats.gpuPayloadBatchColdInvokeNanos());
+        ImGui.text("GPU batch warm invokes/nanos: " + stats.gpuPayloadBatchWarmInvokes()
+                + "/" + stats.gpuPayloadBatchWarmInvokeNanos());
+        ImGui.text("GPU runtime lock wait/held/entries/busy: "
+                + stats.gpuPayloadBatchRuntimeLockWaitNanos()
+                + "/" + stats.gpuPayloadBatchRuntimeLockHeldNanos()
+                + "/" + stats.gpuPayloadBatchRuntimeLockEntries()
+                + "/" + stats.gpuPayloadBatchRuntimeLockBusySkips());
+        ImGui.text("GPU microbatch launches/requests/slots/singles: "
+                + stats.gpuPayloadBatchMicroLaunches()
+                + "/" + stats.gpuPayloadBatchMicroRequests()
+                + "/" + stats.gpuPayloadBatchMicroSlots()
+                + "/" + stats.gpuPayloadBatchMicroSingles());
+        ImGui.text("GPU microbatch skipped launches/requests: "
+                + stats.gpuPayloadBatchMicroSkippedLaunches()
+                + "/" + stats.gpuPayloadBatchMicroSkippedRequests());
+        ImGui.text("GPU runtime backoff triggers/skips/windows: "
+                + stats.gpuPayloadBatchRuntimeBackoffTriggers()
+                + "/" + stats.gpuPayloadBatchRuntimeBackoffSkips()
+                + "/" + stats.gpuPayloadBatchRuntimeBackoffBatches());
+        ImGui.text("GPU prepared launcher cache hits/misses: "
+                + stats.gpuPayloadBatchPreparedCacheHits()
+                + "/" + stats.gpuPayloadBatchPreparedCacheMisses());
+        ImGui.textWrapped("GPU batch static args: " + stats.gpuPayloadBatchStaticArgs());
+        ImGui.textWrapped("GPU batch dynamic args: " + stats.gpuPayloadBatchDynamicArgs());
+        ImGui.text("GPU prepared stages upload/bind/submit/wait/finish/readback: "
+                + stats.gpuPayloadBatchPreparedUploadNanos()
+                + "/" + stats.gpuPayloadBatchPreparedBindNanos()
+                + "/" + stats.gpuPayloadBatchPreparedEnqueueSubmitNanos()
+                + "/" + stats.gpuPayloadBatchPreparedEnqueueWaitNanos()
+                + "/" + stats.gpuPayloadBatchPreparedQueueFinishNanos()
+                + "/" + stats.gpuPayloadBatchPreparedReadbackNanos());
+        ImGui.text("GPU prepared counts alloc/reuse/upload/bind/readback: "
+                + stats.gpuPayloadBatchPreparedBufferAllocateCount()
+                + "/" + stats.gpuPayloadBatchPreparedBufferReuseCount()
+                + "/" + stats.gpuPayloadBatchPreparedUploadCount()
+                + "/" + stats.gpuPayloadBatchPreparedBindCount()
+                + "/" + stats.gpuPayloadBatchPreparedReadbackCount());
+        if (!"none".equals(stats.gpuPayloadBatchFirstFallback())) {
+            ImGui.textWrapped("GPU batch first fallback: " + stats.gpuPayloadBatchFirstFallback());
+        }
+        ImGui.text("GPU batch runtime parity checks/pass/fail: "
+                + stats.gpuPayloadBatchRuntimeParityChecks()
+                + "/" + stats.gpuPayloadBatchRuntimeParityPasses()
+                + "/" + stats.gpuPayloadBatchRuntimeParityFailures());
+        ImGui.text("GPU batch runtime parity points/max error: "
+                + stats.gpuPayloadBatchRuntimeParityPoints()
+                + "/" + stats.gpuPayloadBatchRuntimeParityMaxAbsError());
+        if (!"none".equals(stats.gpuPayloadBatchRuntimeParityFirstFailure())) {
+            ImGui.textWrapped("GPU batch runtime parity first mismatch: "
+                    + stats.gpuPayloadBatchRuntimeParityFirstFailure());
+        }
         ImGui.text("Lazy wrappers: " + stats.lazyWrappersCreated());
         ImGui.text("Lazy resolve attempts: " + stats.lazyResolveAttempts());
         ImGui.text("Lazy successful compiles: " + stats.lazySuccessfulCompiles());
@@ -218,12 +482,16 @@ public final class GADebugOverlay {
                 + cellFillStats.columnsJavaBatched());
         ImGui.text("Extern accumulate/scalar residual: " + cellFillStats.cellExternAccumulate()
                 + "/" + cellFillStats.cellExternScalarResidual());
+        ImGui.text("Cell GPU payload ready/blocked: " + cellFillStats.cellGpuPayloadReady()
+                + "/" + cellFillStats.cellGpuPayloadBlocked());
 
         drawStringList("Fast filler classes", cellFillStats.fastFillerClasses().stream()
                 .map(stat -> stat.className() + " = " + stat.calls())
                 .toList());
         drawStringList("Source filler classes", cellFillStats.sourceFillerClasses());
         drawStringList("Residual extern fallback classes", cellFillStats.residualExternFallbackClasses());
+        drawStringList("Cell GPU first blockers", cellFillStats.cellGpuFirstBlockers());
+        drawStringList("Cell GPU unsupported nodes", cellFillStats.cellGpuUnsupportedNodes());
 
         ImGui.separator();
         ImGui.text("Parity enabled: " + parityStats.enabled());
@@ -434,6 +702,12 @@ public final class GADebugOverlay {
         StringBuilder dump = new StringBuilder(4096);
         Minecraft minecraft = Minecraft.getInstance();
         RouterPipeline.Stats routerStats = RouterPipeline.snapshotStats();
+        DensityFunctionIrBuilderRegistry.Stats irBuilderStats = DensityFunctionIrBuilderRegistry.snapshotStats();
+        DensityFunctionGpuPayloadBuilderRegistry.Stats payloadBuilderStats =
+                DensityFunctionGpuPayloadBuilderRegistry.snapshotStats();
+        DensityFunctionGpuKernelOpRegistry.Stats kernelOpStats =
+                DensityFunctionGpuKernelOpRegistry.snapshotStats();
+        RandomStateCompileBudget.Stats randomStateBudgetStats = RandomStateCompileBudget.snapshotStats();
         CompiledDensityFunction.MapAllStats mapAllStats = CompiledDensityFunction.snapshotMapAllStats();
         MapAllSession.Stats sessionStats = MapAllSession.snapshotStats();
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
@@ -455,8 +729,28 @@ public final class GADebugOverlay {
         appendLine(dump, "screen", minecraft.screen == null ? "none" : minecraft.screen.getClass().getName());
 
         appendSection(dump, "Router Pipeline");
+        appendLine(dump, "randomStateCompileAcquired", randomStateBudgetStats.acquired());
+        appendLine(dump, "randomStateCompileSkipped", randomStateBudgetStats.skipped());
+        appendLine(dump, "randomStateCompileMax", randomStateBudgetStats.max());
+        appendLine(dump, "randomStateCompileSampler", randomStateBudgetStats.compileSampler());
+        appendLine(dump, "randomStateCompileRouterRoots", randomStateBudgetStats.routerRoots());
+        appendLine(dump, "irBuildersRegistered", irBuilderStats.registeredBuilders());
+        appendLine(dump, "irBuilderMatches", irBuilderStats.matches());
+        appendLine(dump, "irBuilderLowered", irBuilderStats.lowered());
+        appendLine(dump, "irBuilderFailures", irBuilderStats.failures());
+        appendList(dump, "irBuilderIds", irBuilderStats.builderIds());
+        appendLine(dump, "gpuPayloadBuildersRegistered", payloadBuilderStats.registeredBuilders());
+        appendLine(dump, "gpuPayloadBuilderMatches", payloadBuilderStats.matches());
+        appendLine(dump, "gpuPayloadBuilderEncoded", payloadBuilderStats.encoded());
+        appendLine(dump, "gpuPayloadBuilderFailures", payloadBuilderStats.failures());
+        appendList(dump, "gpuPayloadBuilderIds", payloadBuilderStats.builderIds());
+        appendLine(dump, "gpuKernelOpsRegistered", kernelOpStats.registeredOps());
+        appendLine(dump, "gpuKernelOpLookups", kernelOpStats.lookups());
+        appendLine(dump, "gpuKernelOpMisses", kernelOpStats.misses());
+        appendLine(dump, "gpuKernelOpSourceFragments", kernelOpStats.sourceFragments());
+        appendList(dump, "gpuKernelOpIds", kernelOpStats.opIds());
         appendLine(dump, "rootsCompiled", routerStats.rootsCompiled());
-        appendLine(dump, "classesAlive", routerStats.classesAlive());
+        appendLine(dump, "globalClassCacheSize", routerStats.globalClassCacheSize());
         appendLine(dump, "uniqueNodes", routerStats.uniqueNodes());
         appendLine(dump, "savedByCse", routerStats.savedByCse());
         appendLine(dump, "helpersEmitted", routerStats.helpersEmitted());
@@ -475,6 +769,95 @@ public final class GADebugOverlay {
         appendLine(dump, "globalClassCacheShapeHitsAcrossExactMisses", routerStats.globalClassCacheShapeHitsAcrossExactMisses());
         appendLine(dump, "latticePlansEmitted", routerStats.latticePlansEmitted());
         appendLine(dump, "latticeFallbacks", routerStats.latticeFallbacks());
+        appendLine(dump, "gpuEligibleRoots", routerStats.gpuEligibleRoots());
+        appendLine(dump, "gpuBlockedRoots", routerStats.gpuBlockedRoots());
+        appendLine(dump, "gpuBlockersTotal", routerStats.gpuBlockersTotal());
+        appendLine(dump, "gpuPayloadReadyRoots", routerStats.gpuPayloadReadyRoots());
+        appendLine(dump, "gpuPayloadBlockedRoots", routerStats.gpuPayloadBlockedRoots());
+        appendLine(dump, "gpuPayloadNodesTotal", routerStats.gpuPayloadNodesTotal());
+        appendLine(dump, "gpuPayloadParityChecks", routerStats.gpuPayloadParityChecks());
+        appendLine(dump, "gpuPayloadParityPasses", routerStats.gpuPayloadParityPasses());
+        appendLine(dump, "gpuPayloadParityFailures", routerStats.gpuPayloadParityFailures());
+        appendLine(dump, "gpuPayloadParityPoints", routerStats.gpuPayloadParityPoints());
+        appendLine(dump, "gpuPayloadParityMaxAbsError", routerStats.gpuPayloadParityMaxAbsError());
+        appendLine(dump, "gpuPayloadParityFirstFailure", routerStats.gpuPayloadParityFirstFailure());
+        appendList(dump, "gpuBlockerCounts", routerStats.gpuBlockerCounts());
+        appendList(dump, "gpuPayloadUnsupportedCounts", routerStats.gpuPayloadUnsupportedCounts());
+        appendLine(dump, "gpuRuntimeEnabled", Boolean.getBoolean(GpuPayloadBatchExecutor.GPU_ENABLED_PROPERTY));
+        appendLine(dump, "gpuRuntimePreflightState", GpuPayloadBatchExecutor.preflightStateName());
+        appendLine(dump, "gpuRuntimePersistentScopeEnabled", GpuPayloadBatchExecutor.persistentRuntimeScopeEnabled());
+        appendLine(dump, "gpuRuntimePersistentScopeActive", GpuPayloadBatchExecutor.persistentRuntimeScopeActive());
+        appendLine(dump, "gpuRuntimePreparedLauncher", GpuPayloadBatchExecutor.preparedLauncherEnabled());
+        appendLine(dump, "gpuRuntimeDirectGeneratedLauncher", GpuPayloadBatchExecutor.directGeneratedLauncherEnabled());
+        appendLine(dump, "gpuRuntimeApiLocation", GpuPayloadBatchExecutor.runtimeApiLocation());
+        appendLine(dump, "gpuRuntimeStaticArgs", GpuPayloadBatchExecutor.preparedLauncherStaticArguments());
+        appendLine(dump, "gpuRuntimeDynamicArgs", GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+        appendLine(dump, "gpuRuntimeDisabledReason", GpuPayloadBatchExecutor.disabledReason());
+        appendLine(dump, "gpuRuntimePreflightReason", GpuPayloadBatchExecutor.preflightReason());
+        appendLine(dump, "gpuRuntimeParityRemaining", GpuPayloadBatchExecutor.runtimeParityRemaining());
+        appendLine(dump, "gpuRuntimeParityEpsilon", GpuPayloadBatchExecutor.runtimeParityEpsilon());
+        appendLine(dump, "gpuRuntimeBatchRemaining", GpuPayloadBatchExecutor.runtimeBatchRemaining());
+        appendLine(dump, "gpuRuntimeBatchMax", GpuPayloadBatchExecutor.runtimeBatchBudgetMax());
+        appendLine(dump, "gpuRuntimeMinPoints", GpuPayloadBatchExecutor.runtimeMinPoints());
+        appendLine(dump, "gpuDebugProbeLastStatus", lastGpuProbeStatus);
+        appendLine(dump, "gpuLargeBatchProbeLastStatus", lastGpuLargeBatchProbeStatus);
+        appendLine(dump, "dfcDebugCompileLastStatus", lastDfcCompileProbeStatus);
+        appendLine(dump, "gpuPayloadBatchAttempts", routerStats.gpuPayloadBatchAttempts());
+        appendLine(dump, "gpuPayloadBatchGpuSuccesses", routerStats.gpuPayloadBatchGpuSuccesses());
+        appendLine(dump, "gpuPayloadBatchCpuFallbacks", routerStats.gpuPayloadBatchCpuFallbacks());
+        appendLine(dump, "gpuPayloadBatchPoints", routerStats.gpuPayloadBatchPoints());
+        appendLine(dump, "gpuPayloadBatchGpuSuccessPoints", routerStats.gpuPayloadBatchGpuSuccessPoints());
+        appendLine(dump, "gpuPayloadBatchCpuFallbackPoints", routerStats.gpuPayloadBatchCpuFallbackPoints());
+        appendLine(dump, "gpuPayloadBatchExternNanos", routerStats.gpuPayloadBatchExternNanos());
+        appendLine(dump, "gpuPayloadBatchInvokeNanos", routerStats.gpuPayloadBatchInvokeNanos());
+        appendLine(dump, "gpuPayloadBatchColdInvokes", routerStats.gpuPayloadBatchColdInvokes());
+        appendLine(dump, "gpuPayloadBatchColdInvokeNanos", routerStats.gpuPayloadBatchColdInvokeNanos());
+        appendLine(dump, "gpuPayloadBatchWarmInvokes", routerStats.gpuPayloadBatchWarmInvokes());
+        appendLine(dump, "gpuPayloadBatchWarmInvokeNanos", routerStats.gpuPayloadBatchWarmInvokeNanos());
+        appendLine(dump, "gpuPayloadBatchRuntimeLockWaitNanos", routerStats.gpuPayloadBatchRuntimeLockWaitNanos());
+        appendLine(dump, "gpuPayloadBatchRuntimeLockHeldNanos", routerStats.gpuPayloadBatchRuntimeLockHeldNanos());
+        appendLine(dump, "gpuPayloadBatchRuntimeLockEntries", routerStats.gpuPayloadBatchRuntimeLockEntries());
+        appendLine(dump, "gpuPayloadBatchRuntimeLockBusySkips", routerStats.gpuPayloadBatchRuntimeLockBusySkips());
+        appendLine(dump, "gpuPayloadBatchMicroLaunches", routerStats.gpuPayloadBatchMicroLaunches());
+        appendLine(dump, "gpuPayloadBatchMicroRequests", routerStats.gpuPayloadBatchMicroRequests());
+        appendLine(dump, "gpuPayloadBatchMicroSlots", routerStats.gpuPayloadBatchMicroSlots());
+        appendLine(dump, "gpuPayloadBatchMicroSingles", routerStats.gpuPayloadBatchMicroSingles());
+        appendLine(dump, "gpuPayloadBatchMicroSkippedLaunches", routerStats.gpuPayloadBatchMicroSkippedLaunches());
+        appendLine(dump, "gpuPayloadBatchMicroSkippedRequests", routerStats.gpuPayloadBatchMicroSkippedRequests());
+        appendLine(dump, "gpuPayloadBatchRuntimeBackoffTriggers", routerStats.gpuPayloadBatchRuntimeBackoffTriggers());
+        appendLine(dump, "gpuPayloadBatchRuntimeBackoffSkips", routerStats.gpuPayloadBatchRuntimeBackoffSkips());
+        appendLine(dump, "gpuPayloadBatchRuntimeBackoffBatches", routerStats.gpuPayloadBatchRuntimeBackoffBatches());
+        appendLine(dump, "gpuPayloadBatchPreparedCacheHits", routerStats.gpuPayloadBatchPreparedCacheHits());
+        appendLine(dump, "gpuPayloadBatchPreparedCacheMisses", routerStats.gpuPayloadBatchPreparedCacheMisses());
+        appendLine(dump, "gpuPayloadBatchStaticArgs", routerStats.gpuPayloadBatchStaticArgs());
+        appendLine(dump, "gpuPayloadBatchDynamicArgs", routerStats.gpuPayloadBatchDynamicArgs());
+        appendLine(dump, "gpuPayloadBatchPreparedTimingTotalNanos", routerStats.gpuPayloadBatchPreparedTimingTotalNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedBufferAllocateNanos", routerStats.gpuPayloadBatchPreparedBufferAllocateNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedBufferAllocateCount", routerStats.gpuPayloadBatchPreparedBufferAllocateCount());
+        appendLine(dump, "gpuPayloadBatchPreparedBufferReuseNanos", routerStats.gpuPayloadBatchPreparedBufferReuseNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedBufferReuseCount", routerStats.gpuPayloadBatchPreparedBufferReuseCount());
+        appendLine(dump, "gpuPayloadBatchPreparedUploadNanos", routerStats.gpuPayloadBatchPreparedUploadNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedUploadCount", routerStats.gpuPayloadBatchPreparedUploadCount());
+        appendLine(dump, "gpuPayloadBatchPreparedUploadBytes", routerStats.gpuPayloadBatchPreparedUploadBytes());
+        appendLine(dump, "gpuPayloadBatchPreparedSkippedUploadCount", routerStats.gpuPayloadBatchPreparedSkippedUploadCount());
+        appendLine(dump, "gpuPayloadBatchPreparedSkippedUploadBytes", routerStats.gpuPayloadBatchPreparedSkippedUploadBytes());
+        appendLine(dump, "gpuPayloadBatchPreparedBindNanos", routerStats.gpuPayloadBatchPreparedBindNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedBindCount", routerStats.gpuPayloadBatchPreparedBindCount());
+        appendLine(dump, "gpuPayloadBatchPreparedEnqueueSubmitNanos", routerStats.gpuPayloadBatchPreparedEnqueueSubmitNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedEnqueueWaitNanos", routerStats.gpuPayloadBatchPreparedEnqueueWaitNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedQueueFinishNanos", routerStats.gpuPayloadBatchPreparedQueueFinishNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedReadbackNanos", routerStats.gpuPayloadBatchPreparedReadbackNanos());
+        appendLine(dump, "gpuPayloadBatchPreparedReadbackCount", routerStats.gpuPayloadBatchPreparedReadbackCount());
+        appendLine(dump, "gpuPayloadBatchPreparedReadbackBytes", routerStats.gpuPayloadBatchPreparedReadbackBytes());
+        appendLine(dump, "gpuPayloadBatchParityNanos", routerStats.gpuPayloadBatchParityNanos());
+        appendLine(dump, "gpuPayloadBatchTotalNanos", routerStats.gpuPayloadBatchTotalNanos());
+        appendLine(dump, "gpuPayloadBatchFirstFallback", routerStats.gpuPayloadBatchFirstFallback());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityChecks", routerStats.gpuPayloadBatchRuntimeParityChecks());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityPasses", routerStats.gpuPayloadBatchRuntimeParityPasses());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityFailures", routerStats.gpuPayloadBatchRuntimeParityFailures());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityPoints", routerStats.gpuPayloadBatchRuntimeParityPoints());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityMaxAbsError", routerStats.gpuPayloadBatchRuntimeParityMaxAbsError());
+        appendLine(dump, "gpuPayloadBatchRuntimeParityFirstFailure", routerStats.gpuPayloadBatchRuntimeParityFirstFailure());
         appendLine(dump, "lazyWrappersCreated", routerStats.lazyWrappersCreated());
         appendLine(dump, "lazyResolveAttempts", routerStats.lazyResolveAttempts());
         appendLine(dump, "lazySuccessfulCompiles", routerStats.lazySuccessfulCompiles());
@@ -500,6 +883,8 @@ public final class GADebugOverlay {
         appendLine(dump, "cellXzSlab", cellFillStats.cellXzSlab());
         appendLine(dump, "cellExternAccumulate", cellFillStats.cellExternAccumulate());
         appendLine(dump, "cellExternScalarResidual", cellFillStats.cellExternScalarResidual());
+        appendLine(dump, "cellGpuPayloadReady", cellFillStats.cellGpuPayloadReady());
+        appendLine(dump, "cellGpuPayloadBlocked", cellFillStats.cellGpuPayloadBlocked());
         appendLine(dump, "columnsScalar", cellFillStats.columnsScalar());
         appendLine(dump, "columnsJavaBatched", cellFillStats.columnsJavaBatched());
         appendList(dump, "fastFillerClasses", cellFillStats.fastFillerClasses().stream()
@@ -507,6 +892,8 @@ public final class GADebugOverlay {
                 .toList());
         appendList(dump, "sourceFillerClasses", cellFillStats.sourceFillerClasses());
         appendList(dump, "residualExternFallbackClasses", cellFillStats.residualExternFallbackClasses());
+        appendList(dump, "cellGpuFirstBlockers", cellFillStats.cellGpuFirstBlockers());
+        appendList(dump, "cellGpuUnsupportedNodes", cellFillStats.cellGpuUnsupportedNodes());
 
         appendSection(dump, "Cell Fill Parity");
         appendLine(dump, "enabled", parityStats.enabled());

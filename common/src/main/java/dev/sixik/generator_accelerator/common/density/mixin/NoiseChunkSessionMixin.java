@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.MapAllSession;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -93,6 +94,9 @@ public abstract class NoiseChunkSessionMixin {
                     target = "Lnet/minecraft/world/level/levelgen/DensityFunction;mapAll(Lnet/minecraft/world/level/levelgen/DensityFunction$Visitor;)Lnet/minecraft/world/level/levelgen/DensityFunction;")
     )
     private DensityFunction dfc$ctorMapAll(DensityFunction self, DensityFunction.Visitor visitor) {
+        if (!RandomStateCompileBudget.hasAdmittedCompiles()) {
+            return self.mapAll(visitor);
+        }
         MapAllSession session = this.dfc$ctorSession;
         if (session == null) {
             session = (visitor instanceof MapAllSession existing) ? existing : new MapAllSession(visitor);
@@ -113,6 +117,9 @@ public abstract class NoiseChunkSessionMixin {
                     target = "Lnet/minecraft/world/level/levelgen/DensityFunction;mapAll(Lnet/minecraft/world/level/levelgen/DensityFunction$Visitor;)Lnet/minecraft/world/level/levelgen/DensityFunction;")
     )
     private DensityFunction dfc$samplerMapAll(DensityFunction self, DensityFunction.Visitor visitor) {
+        if (!RandomStateCompileBudget.hasAdmittedCompiles()) {
+            return self.mapAll(visitor);
+        }
         MapAllSession session = this.dfc$samplerSession;
         if (session == null) {
             session = (visitor instanceof MapAllSession existing) ? existing : new MapAllSession(visitor);

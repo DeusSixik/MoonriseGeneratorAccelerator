@@ -942,6 +942,10 @@ tasks.named("processResources") {
     dependsOn "generateGAMixinMetadata"
 }
 
+tasks.matching { it.name in ["sourcesJar", "remapSourcesJar", "remapJar"] }.configureEach {
+    dependsOn "generateGAMixinMetadata"
+}
+
 tasks.matching { it.name in ["prepareWorkspace", "genSources", "idea", "eclipse"] }.configureEach {
     dependsOn "generateGAMixinMetadata"
 }

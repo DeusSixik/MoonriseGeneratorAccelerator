@@ -43,8 +43,26 @@ public final class DfcConfigBridge {
             setBoolean("dfc.codegen.logSplineSearch", dfc.logSplineSearch);
             setInt("dfc.codegen.latticeMinHoistSize", dfc.latticeMinHoistSize);
             setBoolean("dfc.compileMarkerInners", dfc.compileMarkerInners);
+            setBoolean("ga.dfc.lazyCellCacheCompile", dfc.lazyCellCacheCompile);
+            setInt("ga.dfc.lazyCellCacheCompile.max", Math.max(0, dfc.lazyCellCacheCompileMax));
+            setInt("ga.dfc.randomStateCompile.max", dfc.randomStateCompileMax);
+            setString("ga.dfc.randomStateCompile.routerRoots", dfc.randomStateCompileRouterRoots);
+            setBoolean("ga.dfc.randomStateCompile.sampler", dfc.randomStateCompileSampler);
+            setInt("ga.dfc.gpu.runtimeBatchMax", dfc.gpuRuntimeBatchMax);
+            setInt("ga.dfc.gpu.runtimeMinPoints", dfc.gpuRuntimeMinPoints);
+            setInt("ga.dfc.gpu.runtimeMicroBatchMax", dfc.gpuRuntimeMicroBatchMax);
+            setInt("ga.dfc.gpu.runtimeMicroBatchMin", dfc.gpuRuntimeMicroBatchMin);
+            setLong("ga.dfc.gpu.runtimeMicroBatchCollectNanos", dfc.gpuRuntimeMicroBatchCollectNanos);
+            setLong("ga.dfc.gpu.runtimeMicroBatchWaitNanos", dfc.gpuRuntimeMicroBatchWaitNanos);
+            setInt("ga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak", dfc.gpuRuntimeMicroBatchBackoffSingleStreak);
+            setInt("ga.dfc.gpu.runtimeMicroBatchBackoffBusyStreak", dfc.gpuRuntimeMicroBatchBackoffBusyStreak);
+            setInt("ga.dfc.gpu.runtimeMicroBatchBackoffBatches", dfc.gpuRuntimeMicroBatchBackoffBatches);
+            setInt("ga.dfc.gpu.runtimeParityBatches", Math.max(0, dfc.gpuRuntimeParityBatches));
+            setBoolean("ga.dfc.gpu.opportunisticRuntimeLock", dfc.gpuRuntimeOpportunisticLock);
+            setBoolean("ga.dfc.gpu.directGeneratedLauncher", dfc.gpuDirectGeneratedLauncher);
             setBoolean("dfc.codegen.cellFillDirectExternResidual", dfc.cellFillDirectExternResidual);
             setBoolean("dfc.codegen.cellFillAddExternOverride", dfc.cellFillAddExternOverride);
+            setBoolean("dfc.warmer.noiseSettings", dfc.warmerNoiseSettings);
             setBoolean("dfc.warmer.rawDensityFunctions", dfc.warmerRawDensityFunctions);
             setBudget("dfc.warmer.maxSettings", dfc.warmerMaxSettings);
             setBudget("dfc.warmer.maxDensityFunctions", dfc.warmerMaxDensityFunctions);
@@ -67,6 +85,10 @@ public final class DfcConfigBridge {
 
     private static void setInt(String key, int value) {
         System.setProperty(key, Integer.toString(value));
+    }
+
+    private static void setLong(String key, long value) {
+        System.setProperty(key, Long.toString(value));
     }
 
     private static void setDouble(String key, double value) {

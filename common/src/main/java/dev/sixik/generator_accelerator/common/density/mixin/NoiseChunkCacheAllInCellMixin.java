@@ -12,12 +12,23 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  * Per-cell 3D buffer: mirrors {@code NoiseChunk.CacheAllInCell#compute} when
  * {@code context ==} the owning {@link NoiseChunk} and interpolation is active.
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$CacheAllInCell")
 public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCellCacheCompiledFillerAccess {
+
+    @Unique
+    private static final String DFC_LAZY_CELL_CACHE_COMPILE_PROPERTY = "ga.dfc.lazyCellCacheCompile";
+
+    @Unique
+    private static final String DFC_LAZY_CELL_CACHE_COMPILE_MAX_PROPERTY = "ga.dfc.lazyCellCacheCompile.max";
+
+    @Unique
+    private static final AtomicInteger DFC_LAZY_CELL_CACHE_COMPILES = new AtomicInteger();
 
     @Shadow
     @Final
@@ -69,6 +80,9 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
     public DfcCellFillAccess dfc$getOrCompileCellFiller() {
         if (!this.dfc$compileAttempted) {
             this.dfc$compileAttempted = true;
+            if (!dfc$shouldAttemptLazyCellCacheCompile()) {
+                return null;
+            }
             try {
                 DensityFunction compiled = Compiler.compile(this.noiseFiller);
                 if (compiled instanceof DfcCellFillAccess access) {
@@ -80,5 +94,22 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
             }
         }
         return this.dfc$compiledCellFiller;
+    }
+
+    @Unique
+    private static boolean dfc$shouldAttemptLazyCellCacheCompile() {
+        if (!Boolean.getBoolean(DFC_LAZY_CELL_CACHE_COMPILE_PROPERTY)) {
+            return false;
+        }
+        int maxCompiles = Math.max(0, Integer.getInteger(DFC_LAZY_CELL_CACHE_COMPILE_MAX_PROPERTY, 128));
+        while (true) {
+            int current = DFC_LAZY_CELL_CACHE_COMPILES.get();
+            if (current >= maxCompiles) {
+                return false;
+            }
+            if (DFC_LAZY_CELL_CACHE_COMPILES.compareAndSet(current, current + 1)) {
+                return true;
+            }
+        }
     }
 }

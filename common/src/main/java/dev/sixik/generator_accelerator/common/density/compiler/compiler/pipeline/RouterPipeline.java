@@ -1,17 +1,31 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuEligibility;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadParity;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpecCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpecCache;
 import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseRouter;
+import net.sixik.ga_utils.javatogpu.api.observability.GpuPreparedInvocationTimings;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.IntStream;
 
 /**
@@ -42,7 +56,6 @@ import java.util.stream.IntStream;
 public final class RouterPipeline {
 
     private static final AtomicInteger ROOTS_COMPILED = new AtomicInteger();
-    private static final AtomicInteger CLASSES_ALIVE = new AtomicInteger();
     private static final AtomicLong UNIQUE_NODES_TOTAL = new AtomicLong();
     private static final AtomicLong CSE_SAVINGS_TOTAL = new AtomicLong();
     private static final AtomicLong HELPERS_TOTAL = new AtomicLong();
@@ -69,6 +82,79 @@ public final class RouterPipeline {
     private static final AtomicLong OCTAVES_INLINED_TOTAL = new AtomicLong();
     private static final AtomicLong GLOBAL_CLASS_CACHE_HITS = new AtomicLong();
     private static final AtomicLong GLOBAL_CODEGEN_MISSES = new AtomicLong();
+    private static final AtomicLong GPU_ELIGIBLE_ROOTS = new AtomicLong();
+    private static final AtomicLong GPU_BLOCKED_ROOTS = new AtomicLong();
+    private static final AtomicLong GPU_BLOCKERS_TOTAL = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_READY_ROOTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BLOCKED_ROOTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_NODES_TOTAL = new AtomicLong();
+    private static final ConcurrentHashMap<String, LongAdder> GPU_BLOCKER_COUNTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> GPU_PAYLOAD_UNSUPPORTED_COUNTS = new ConcurrentHashMap<>();
+    private static final AtomicLong GPU_PAYLOAD_PARITY_CHECKS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_PARITY_PASSES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_PARITY_FAILURES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_PARITY_POINTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_PARITY_MAX_ABS_ERROR_BITS =
+            new AtomicLong(Double.doubleToRawLongBits(0.0D));
+    private static final AtomicReference<String> GPU_PAYLOAD_PARITY_FIRST_FAILURE = new AtomicReference<>("none");
+    private static final AtomicLong GPU_PAYLOAD_BATCH_ATTEMPTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_GPU_SUCCESSES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_CPU_FALLBACKS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_POINTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_GPU_SUCCESS_POINTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_CPU_FALLBACK_POINTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_EXTERN_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_INVOKE_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_COLD_INVOKES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_COLD_INVOKE_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_WARM_INVOKES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_WARM_INVOKE_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_LOCK_WAIT_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_LOCK_HELD_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_LOCK_ENTRIES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_LOCK_BUSY_SKIPS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_LAUNCHES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_REQUESTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_SLOTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_SINGLES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_SKIPPED_LAUNCHES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_MICRO_SKIPPED_REQUESTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_TRIGGERS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_SKIPS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_BATCHES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_CACHE_HITS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_CACHE_MISSES = new AtomicLong();
+    private static final AtomicReference<String> GPU_PAYLOAD_BATCH_STATIC_ARGS = new AtomicReference<>("none");
+    private static final AtomicReference<String> GPU_PAYLOAD_BATCH_DYNAMIC_ARGS = new AtomicReference<>("none");
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_TIMING_TOTAL_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_BYTES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_BYTES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BIND_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_BIND_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_SUBMIT_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_WAIT_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_QUEUE_FINISH_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_READBACK_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_READBACK_COUNT = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PREPARED_READBACK_BYTES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_PARITY_NANOS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_TOTAL_NANOS = new AtomicLong();
+    private static final AtomicReference<String> GPU_PAYLOAD_BATCH_FIRST_FALLBACK = new AtomicReference<>("none");
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_PARITY_CHECKS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_PARITY_PASSES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FAILURES = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_PARITY_POINTS = new AtomicLong();
+    private static final AtomicLong GPU_PAYLOAD_BATCH_RUNTIME_PARITY_MAX_ABS_ERROR_BITS =
+            new AtomicLong(Double.doubleToRawLongBits(0.0D));
+    private static final AtomicReference<String> GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FIRST_FAILURE =
+            new AtomicReference<>("none");
 
     /**
      * Number of compiled roots (cache miss <em>or</em> cache hit) whose class
@@ -97,9 +183,19 @@ public final class RouterPipeline {
 
     private static void compileFieldsParallel(CompilingVisitor visitor, DensityFunction[] sources,
             DensityFunction[] compiled, int n, String failureKind) {
+        compileFieldsParallel(visitor, null, sources, compiled, n, failureKind);
+    }
+
+    private static void compileFieldsParallel(CompilingVisitor visitor, String[] names, DensityFunction[] sources,
+            DensityFunction[] compiled, int n, String failureKind) {
+        RootSelection selection = names == null ? RootSelection.all() : RootSelection.parse(RandomStateCompileBudget.routerRoots());
         try {
             IntStream.range(0, n).parallel().forEach(i -> {
                 DensityFunction src = sources[i];
+                if (!selection.includes(names, i)) {
+                    compiled[i] = src;
+                    return;
+                }
                 try {
                     compiled[i] = visitor.apply(src);
                 } catch (Throwable t) {
@@ -113,14 +209,23 @@ public final class RouterPipeline {
         } catch (Exception e) {
             DensityFunctionCompiler.LOGGER.debug(
                     "RouterPipeline: parallel " + failureKind + " failed; using sequential", e.getCause());
-            compileFieldsSequential(visitor, sources, compiled, n, failureKind);
+            compileFieldsSequential(visitor, names, sources, compiled, n, failureKind, selection);
         }
     }
 
     private static void compileFieldsSequential(CompilingVisitor visitor, DensityFunction[] sources,
             DensityFunction[] compiled, int n, String failureKind) {
+        compileFieldsSequential(visitor, null, sources, compiled, n, failureKind, RootSelection.all());
+    }
+
+    private static void compileFieldsSequential(CompilingVisitor visitor, String[] names, DensityFunction[] sources,
+            DensityFunction[] compiled, int n, String failureKind, RootSelection selection) {
         for (int i = 0; i < n; i++) {
             DensityFunction src = sources[i];
+            if (!selection.includes(names, i)) {
+                compiled[i] = src;
+                continue;
+            }
             try {
                 compiled[i] = visitor.apply(src);
             } catch (Throwable t) {
@@ -156,6 +261,23 @@ public final class RouterPipeline {
      * trace in the user's console.
      */
     public static NoiseRouter compile(NoiseRouter original) {
+        String[] names = new String[]{
+                "barrierNoise",
+                "fluidLevelFloodednessNoise",
+                "fluidLevelSpreadNoise",
+                "lavaNoise",
+                "temperature",
+                "vegetation",
+                "continents",
+                "erosion",
+                "depth",
+                "ridges",
+                "initialDensityWithoutJaggedness",
+                "finalDensity",
+                "veinToggle",
+                "veinRidged",
+                "veinGap",
+        };
         DensityFunction[] sources = new DensityFunction[]{
                 original.barrierNoise(),
                 original.fluidLevelFloodednessNoise(),
@@ -175,7 +297,7 @@ public final class RouterPipeline {
         };
         CompilingVisitor visitor = CompilingVisitor.global();
         DensityFunction[] compiled = new DensityFunction[15];
-        compileFieldsParallel(visitor, sources, compiled, sources.length, "compile");
+        compileFieldsParallel(visitor, names, sources, compiled, sources.length, "compile");
         boolean anyChanged = false;
         for (int i = 0; i < sources.length; i++) {
             if (compiled[i] != sources[i]) {
@@ -239,9 +361,90 @@ public final class RouterPipeline {
                 original.spawnTarget());
     }
 
+    public static DebugCompileProbeResult compileDebugRoot(NoiseRouter router, String rootName) {
+        if (router == null) {
+            return DebugCompileProbeResult.failed(rootName, "router is null", 0L, "none");
+        }
+        String normalizedRootName = rootName == null || rootName.isBlank() ? "finalDensity" : rootName;
+        DensityFunction source;
+        try {
+            source = debugRoot(router, normalizedRootName);
+        } catch (IllegalArgumentException exception) {
+            return DebugCompileProbeResult.failed(normalizedRootName, exception.getMessage(), 0L, "none");
+        }
+
+        long start = System.nanoTime();
+        try {
+            Compiler.Result result = Compiler.compileWithDetail(source);
+            long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+            if (result == null) {
+                return DebugCompileProbeResult.failed(
+                        normalizedRootName,
+                        "compiler returned null",
+                        elapsedMs,
+                        source.getClass().getName());
+            }
+            GpuPayloadCompiler.Result gpuPayload = result.gpuPayload();
+            GpuEligibility.Report gpuEligibility = result.gpuEligibility();
+            GpuPayloadParity.Report parity = result.gpuPayloadParity();
+            return new DebugCompileProbeResult(
+                    normalizedRootName,
+                    true,
+                    "compiled",
+                    elapsedMs,
+                    source.getClass().getName(),
+                    result.compiled().getClass().getName(),
+                    result.classInternalName(),
+                    result.uniqueNodes(),
+                    result.helpersEmitted(),
+                    result.noisesSpecialized(),
+                    result.octavesUnrolled(),
+                    gpuEligibility != null && gpuEligibility.eligible(),
+                    gpuEligibility == null ? 0 : gpuEligibility.blockerCount(),
+                    gpuEligibility == null ? "none" : gpuEligibility.firstBlocker(),
+                    gpuPayload != null && gpuPayload.supported(),
+                    gpuPayload == null || gpuPayload.payload() == null ? 0 : gpuPayload.payload().nodeCount(),
+                    gpuPayload == null || gpuPayload.payload() == null ? 0 : gpuPayload.payload().externInputCount(),
+                    gpuPayload == null ? "none" : gpuPayload.firstUnsupportedNode(),
+                    gpuPayload == null ? "none" : gpuPayload.firstUnsupportedDetail(),
+                    parity != null && parity.checked(),
+                    parity != null && parity.passed(),
+                    parity == null ? 0 : parity.pointsChecked(),
+                    parity == null ? 0.0D : parity.maxAbsError(),
+                    parity == null ? "none" : parity.firstMismatch());
+        } catch (Throwable throwable) {
+            long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+            return DebugCompileProbeResult.failed(
+                    normalizedRootName,
+                    throwable.toString(),
+                    elapsedMs,
+                    source.getClass().getName());
+        }
+    }
+
+    private static DensityFunction debugRoot(NoiseRouter router, String rootName) {
+        return switch (rootName) {
+            case "barrierNoise" -> router.barrierNoise();
+            case "fluidLevelFloodednessNoise" -> router.fluidLevelFloodednessNoise();
+            case "fluidLevelSpreadNoise" -> router.fluidLevelSpreadNoise();
+            case "lavaNoise" -> router.lavaNoise();
+            case "temperature" -> router.temperature();
+            case "vegetation" -> router.vegetation();
+            case "continents" -> router.continents();
+            case "erosion" -> router.erosion();
+            case "depth" -> router.depth();
+            case "ridges" -> router.ridges();
+            case "initialDensityWithoutJaggedness" -> router.initialDensityWithoutJaggedness();
+            case "finalDensity" -> router.finalDensity();
+            case "veinToggle" -> router.veinToggle();
+            case "veinRidged" -> router.veinRidged();
+            case "veinGap" -> router.veinGap();
+            default -> throw new IllegalArgumentException("unknown router root: " + rootName);
+        };
+    }
+
     public static void recordCompiledRoot(int uniqueNodes, int csePostInternSavings) {
         ROOTS_COMPILED.incrementAndGet();
-        CLASSES_ALIVE.incrementAndGet();
         UNIQUE_NODES_TOTAL.addAndGet(uniqueNodes);
         CSE_SAVINGS_TOTAL.addAndGet(csePostInternSavings);
     }
@@ -299,11 +502,291 @@ public final class RouterPipeline {
         else LATTICE_FALLBACKS.incrementAndGet();
     }
 
-    public static void recordCompiledClassDropped() {
-        CLASSES_ALIVE.decrementAndGet();
+    public static void recordGpuEligibility(boolean eligible, int blockerCount) {
+        if (eligible) {
+            GPU_ELIGIBLE_ROOTS.incrementAndGet();
+        } else {
+            GPU_BLOCKED_ROOTS.incrementAndGet();
+            if (blockerCount > 0) {
+                GPU_BLOCKERS_TOTAL.addAndGet(blockerCount);
+            }
+        }
     }
 
-    public record Stats(int rootsCompiled, int classesAlive, long uniqueNodes,
+    public static void recordGpuEligibility(GpuEligibility.Report report) {
+        if (report == null) {
+            return;
+        }
+        recordGpuEligibility(report.eligible(), report.blockerCount());
+        for (var entry : report.blockers().entrySet()) {
+            int count = entry.getValue();
+            if (count > 0) {
+                addCount(GPU_BLOCKER_COUNTS, entry.getKey().name(), count);
+            }
+        }
+    }
+
+    public static void recordGpuPayload(boolean ready, int nodeCount) {
+        if (ready) {
+            GPU_PAYLOAD_READY_ROOTS.incrementAndGet();
+            if (nodeCount > 0) {
+                GPU_PAYLOAD_NODES_TOTAL.addAndGet(nodeCount);
+            }
+        } else {
+            GPU_PAYLOAD_BLOCKED_ROOTS.incrementAndGet();
+        }
+    }
+
+    public static void recordGpuPayload(GpuPayloadCompiler.Result result) {
+        if (result == null) {
+            recordGpuPayload(false, 0);
+            addCount(GPU_PAYLOAD_UNSUPPORTED_COUNTS, "null-result", 1);
+            return;
+        }
+        recordGpuPayload(result.supported(), result.supported() && result.payload() != null
+                ? result.payload().nodeCount()
+                : 0);
+        if (!result.supported()) {
+            addCount(GPU_PAYLOAD_UNSUPPORTED_COUNTS, result.firstUnsupportedNode(), 1);
+        }
+    }
+
+    private static void addCount(ConcurrentHashMap<String, LongAdder> counts, String key, long amount) {
+        if (key == null || key.isBlank() || amount <= 0L) {
+            return;
+        }
+        LongAdder adder = counts.computeIfAbsent(key, ignored -> new LongAdder());
+        adder.add(amount);
+    }
+
+    private static List<String> topCounts(ConcurrentHashMap<String, LongAdder> counts, int limit) {
+        ArrayList<String> out = new ArrayList<>();
+        counts.entrySet().stream()
+                .map(entry -> new CountEntry(entry.getKey(), entry.getValue().sum()))
+                .filter(entry -> entry.count() > 0L)
+                .sorted(Comparator.comparingLong(CountEntry::count).reversed()
+                        .thenComparing(CountEntry::key))
+                .limit(limit)
+                .forEach(entry -> out.add(entry.key() + "=" + entry.count()));
+        return out;
+    }
+
+    public static void recordGpuPayloadParity(GpuPayloadParity.Report report) {
+        if (report == null || !report.checked()) {
+            return;
+        }
+        GPU_PAYLOAD_PARITY_CHECKS.incrementAndGet();
+        GPU_PAYLOAD_PARITY_POINTS.addAndGet(report.pointsChecked());
+        updateGpuPayloadParityMaxAbsError(report.maxAbsError());
+        if (report.passed()) {
+            GPU_PAYLOAD_PARITY_PASSES.incrementAndGet();
+        } else {
+            GPU_PAYLOAD_PARITY_FAILURES.incrementAndGet();
+            if (report.firstMismatch() != null && !report.firstMismatch().isBlank()) {
+                GPU_PAYLOAD_PARITY_FIRST_FAILURE.compareAndSet("none", report.firstMismatch());
+            }
+        }
+    }
+
+    public static void recordGpuPayloadBatchAttempt(int points) {
+        GPU_PAYLOAD_BATCH_ATTEMPTS.incrementAndGet();
+        if (points > 0) {
+            GPU_PAYLOAD_BATCH_POINTS.addAndGet(points);
+        }
+    }
+
+    public static void recordGpuPayloadBatchTimings(
+            long externNanos,
+            long invokeNanos,
+            long parityNanos,
+            long totalNanos) {
+        recordGpuPayloadBatchTimings(externNanos, invokeNanos, parityNanos, totalNanos, false, false);
+    }
+
+    public static void recordGpuPayloadBatchTimings(
+            long externNanos,
+            long invokeNanos,
+            long parityNanos,
+            long totalNanos,
+            boolean preparedLauncherCacheHit) {
+        recordGpuPayloadBatchTimings(externNanos, invokeNanos, parityNanos, totalNanos, preparedLauncherCacheHit, true);
+    }
+
+    public static void recordGpuPayloadBatchTimings(
+            long externNanos,
+            long invokeNanos,
+            long parityNanos,
+            long totalNanos,
+            boolean preparedLauncherCacheHit,
+            boolean preparedLauncherInvoked) {
+        if (externNanos > 0L) {
+            GPU_PAYLOAD_BATCH_EXTERN_NANOS.addAndGet(externNanos);
+        }
+        if (invokeNanos > 0L) {
+            GPU_PAYLOAD_BATCH_INVOKE_NANOS.addAndGet(invokeNanos);
+            if (!preparedLauncherInvoked) {
+                // Busy opportunistic fallbacks still contribute caller wall time,
+                // but they did not touch the prepared launcher cache.
+            } else if (preparedLauncherCacheHit) {
+                GPU_PAYLOAD_BATCH_WARM_INVOKES.incrementAndGet();
+                GPU_PAYLOAD_BATCH_WARM_INVOKE_NANOS.addAndGet(invokeNanos);
+                GPU_PAYLOAD_BATCH_PREPARED_CACHE_HITS.incrementAndGet();
+            } else {
+                GPU_PAYLOAD_BATCH_COLD_INVOKES.incrementAndGet();
+                GPU_PAYLOAD_BATCH_COLD_INVOKE_NANOS.addAndGet(invokeNanos);
+                GPU_PAYLOAD_BATCH_PREPARED_CACHE_MISSES.incrementAndGet();
+            }
+        }
+        if (parityNanos > 0L) {
+            GPU_PAYLOAD_BATCH_PARITY_NANOS.addAndGet(parityNanos);
+        }
+        if (totalNanos > 0L) {
+            GPU_PAYLOAD_BATCH_TOTAL_NANOS.addAndGet(totalNanos);
+        }
+    }
+
+    public static void recordGpuPayloadBatchPreparedTimings(GpuPreparedInvocationTimings timings) {
+        if (timings == null) {
+            return;
+        }
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_TIMING_TOTAL_NANOS, timings.totalNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_NANOS, timings.bufferAllocateNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_COUNT, timings.bufferAllocateCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_NANOS, timings.bufferReuseNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_COUNT, timings.bufferReuseCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_NANOS, timings.uploadNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_COUNT, timings.uploadCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_BYTES, timings.uploadBytes());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_COUNT, timings.skippedUploadCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_BYTES, timings.skippedUploadBytes());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BIND_NANOS, timings.bindNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_BIND_COUNT, timings.bindCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_SUBMIT_NANOS, timings.enqueueSubmitNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_WAIT_NANOS, timings.enqueueWaitNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_QUEUE_FINISH_NANOS, timings.queueFinishNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_READBACK_NANOS, timings.readbackNanos());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_READBACK_COUNT, timings.readbackCount());
+        addPositive(GPU_PAYLOAD_BATCH_PREPARED_READBACK_BYTES, timings.readbackBytes());
+    }
+
+    public static void recordGpuPayloadBatchRuntimeLock(long waitNanos, long heldNanos) {
+        GPU_PAYLOAD_BATCH_RUNTIME_LOCK_ENTRIES.incrementAndGet();
+        addPositive(GPU_PAYLOAD_BATCH_RUNTIME_LOCK_WAIT_NANOS, waitNanos);
+        addPositive(GPU_PAYLOAD_BATCH_RUNTIME_LOCK_HELD_NANOS, heldNanos);
+        if (heldNanos <= 0L) {
+            GPU_PAYLOAD_BATCH_RUNTIME_LOCK_BUSY_SKIPS.incrementAndGet();
+        }
+    }
+
+    public static void recordGpuPayloadBatchMicroBatch(int requests, int slots) {
+        if (requests <= 0 || slots <= 0) {
+            return;
+        }
+        GPU_PAYLOAD_BATCH_MICRO_LAUNCHES.incrementAndGet();
+        GPU_PAYLOAD_BATCH_MICRO_REQUESTS.addAndGet(requests);
+        GPU_PAYLOAD_BATCH_MICRO_SLOTS.addAndGet(slots);
+        if (requests == 1) {
+            GPU_PAYLOAD_BATCH_MICRO_SINGLES.incrementAndGet();
+        }
+    }
+
+    public static void recordGpuPayloadBatchMicroBatchSkipped(int requests) {
+        if (requests <= 0) {
+            return;
+        }
+        GPU_PAYLOAD_BATCH_MICRO_SKIPPED_LAUNCHES.incrementAndGet();
+        GPU_PAYLOAD_BATCH_MICRO_SKIPPED_REQUESTS.addAndGet(requests);
+    }
+
+    public static void recordGpuPayloadBatchRuntimeBackoffTrigger(int streak, int backoffBatches) {
+        GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_TRIGGERS.incrementAndGet();
+        addPositive(GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_BATCHES, backoffBatches);
+    }
+
+    public static void recordGpuPayloadBatchRuntimeBackoffSkip() {
+        GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_SKIPS.incrementAndGet();
+    }
+
+    private static void addPositive(AtomicLong target, long value) {
+        if (value > 0L) {
+            target.addAndGet(value);
+        }
+    }
+
+    public static void recordGpuPayloadBatchGpuSuccess(int points) {
+        GPU_PAYLOAD_BATCH_GPU_SUCCESSES.incrementAndGet();
+        if (points > 0) {
+            GPU_PAYLOAD_BATCH_GPU_SUCCESS_POINTS.addAndGet(points);
+        }
+    }
+
+    public static void recordGpuPayloadBatchArgumentLayout(String staticArgs, String dynamicArgs) {
+        if (staticArgs != null && !staticArgs.isBlank()) {
+            GPU_PAYLOAD_BATCH_STATIC_ARGS.set(staticArgs);
+        }
+        if (dynamicArgs != null && !dynamicArgs.isBlank()) {
+            GPU_PAYLOAD_BATCH_DYNAMIC_ARGS.set(dynamicArgs);
+        }
+    }
+
+    public static void recordGpuPayloadBatchCpuFallback(int points, String reason) {
+        GPU_PAYLOAD_BATCH_CPU_FALLBACKS.incrementAndGet();
+        if (points > 0) {
+            GPU_PAYLOAD_BATCH_CPU_FALLBACK_POINTS.addAndGet(points);
+        }
+        if (reason != null && !reason.isBlank()) {
+            GPU_PAYLOAD_BATCH_FIRST_FALLBACK.compareAndSet("none", reason);
+        }
+    }
+
+    public static void recordGpuPayloadBatchRuntimeParity(
+            boolean checked,
+            boolean passed,
+            int pointsChecked,
+            double maxAbsError,
+            String failureReason) {
+        if (!checked) {
+            return;
+        }
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_CHECKS.incrementAndGet();
+        if (pointsChecked > 0) {
+            GPU_PAYLOAD_BATCH_RUNTIME_PARITY_POINTS.addAndGet(pointsChecked);
+        }
+        updateMaxAbsError(GPU_PAYLOAD_BATCH_RUNTIME_PARITY_MAX_ABS_ERROR_BITS, maxAbsError);
+        if (passed) {
+            GPU_PAYLOAD_BATCH_RUNTIME_PARITY_PASSES.incrementAndGet();
+        } else {
+            GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FAILURES.incrementAndGet();
+            if (failureReason != null && !failureReason.isBlank()) {
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FIRST_FAILURE.compareAndSet("none", failureReason);
+            }
+        }
+    }
+
+    private static void updateGpuPayloadParityMaxAbsError(double value) {
+        if (value < 0.0D) {
+            return;
+        }
+        updateMaxAbsError(GPU_PAYLOAD_PARITY_MAX_ABS_ERROR_BITS, value);
+    }
+
+    private static void updateMaxAbsError(AtomicLong target, double value) {
+        if (value < 0.0D) {
+            return;
+        }
+        while (true) {
+            long prevBits = target.get();
+            double prev = Double.longBitsToDouble(prevBits);
+            if (value <= prev) {
+                return;
+            }
+            if (target.compareAndSet(prevBits, Double.doubleToRawLongBits(value))) {
+                return;
+            }
+        }
+    }
+
+    public record Stats(int rootsCompiled, int globalClassCacheSize, long uniqueNodes,
                          long savedByCse, long helpersEmitted, long optimizerRewrites,
                          long noisesInlined, long octavesInlined,
                          long blendedInlined, long blendedOctavesEmitted,
@@ -345,9 +828,132 @@ public final class RouterPipeline {
                          /** Compiled roots that fell back to the scalar fillArray
                           * path because the planner found no axis-only hoist worth
                           * promoting (or {@code -Ddfc.cell_lattice=false}). */
-                         long latticeFallbacks,
-                         /** Lazy router wrappers allocated. */
-                         long lazyWrappersCreated,
+                          long latticeFallbacks,
+                          /** Roots whose current IR has no JavaToGpu-readiness blockers. */
+                          long gpuEligibleRoots,
+                          /** Roots currently blocked from a JavaToGpu-style kernel. */
+                          long gpuBlockedRoots,
+                          /** Total conservative GPU blockers observed across blocked roots. */
+                          long gpuBlockersTotal,
+                          /** Roots packed into the primitive GPU payload subset. */
+                          long gpuPayloadReadyRoots,
+                          /** Roots not yet packable into the primitive GPU payload subset. */
+                          long gpuPayloadBlockedRoots,
+                          /** Primitive payload nodes emitted across ready roots. */
+                          long gpuPayloadNodesTotal,
+                          /** Diagnostic CPU-DFC vs GPU-payload mirror checks. */
+                          long gpuPayloadParityChecks,
+                          /** Payload mirror checks that matched CPU DFC. */
+                          long gpuPayloadParityPasses,
+                          /** Payload mirror checks that found a mismatch. */
+                          long gpuPayloadParityFailures,
+                          /** Coordinate points compared by payload parity. */
+                          long gpuPayloadParityPoints,
+                          /** Largest absolute delta observed by payload parity. */
+                          double gpuPayloadParityMaxAbsError,
+                          /** First payload parity mismatch, if any. */
+                          String gpuPayloadParityFirstFailure,
+                          /** Top conservative GPU blocker categories. */
+                          List<String> gpuBlockerCounts,
+                          /** Top first unsupported nodes from primitive payload packing. */
+                          List<String> gpuPayloadUnsupportedCounts,
+                          /** Real DFC cell batches routed into the JavaToGpu payload path. */
+                          long gpuPayloadBatchAttempts,
+                          /** Routed DFC cell batches completed on GPU. */
+                          long gpuPayloadBatchGpuSuccesses,
+                          /** Routed DFC cell batches that fell back to CPU DFC. */
+                          long gpuPayloadBatchCpuFallbacks,
+                          /** Total cell points attempted by the GPU batch path. */
+                          long gpuPayloadBatchPoints,
+                          /** Total cell points actually completed on GPU. */
+                          long gpuPayloadBatchGpuSuccessPoints,
+                          /** Total cell points routed back to CPU from the GPU batch path. */
+                          long gpuPayloadBatchCpuFallbackPoints,
+                          /** Time spent computing extern input values before GPU launch. */
+                          long gpuPayloadBatchExternNanos,
+                          /** Time spent inside JavaToGpu invocation. */
+                          long gpuPayloadBatchInvokeNanos,
+                          /** Real GPU batch invokes that built or rebuilt a prepared launcher. */
+                          long gpuPayloadBatchColdInvokes,
+                          /** Time spent in cold real GPU batch invokes. */
+                          long gpuPayloadBatchColdInvokeNanos,
+                          /** Real GPU batch invokes that reused the prepared launcher. */
+                          long gpuPayloadBatchWarmInvokes,
+                          /** Time spent in warm real GPU batch invokes. */
+                          long gpuPayloadBatchWarmInvokeNanos,
+                          /** Cumulative time waiting for the serialized GPU runtime lock. */
+                          long gpuPayloadBatchRuntimeLockWaitNanos,
+                          /** Cumulative time spent holding the serialized GPU runtime lock. */
+                          long gpuPayloadBatchRuntimeLockHeldNanos,
+                          /** Number of entries into the serialized GPU runtime lock. */
+                          long gpuPayloadBatchRuntimeLockEntries,
+                          /** Batches that skipped GPU because the serialized runtime lock was busy. */
+                          long gpuPayloadBatchRuntimeLockBusySkips,
+                          /** Prepared runtime microbatch launches submitted to JavaToGpu. */
+                          long gpuPayloadBatchMicroLaunches,
+                          /** Original cell requests included in runtime microbatch launches. */
+                          long gpuPayloadBatchMicroRequests,
+                          /** Reserved request slots submitted across runtime microbatch launches. */
+                          long gpuPayloadBatchMicroSlots,
+                          /** Runtime microbatch launches that only carried the leader request. */
+                          long gpuPayloadBatchMicroSingles,
+                          /** Runtime microbatch launch candidates skipped because the collected group was too small. */
+                          long gpuPayloadBatchMicroSkippedLaunches,
+                          /** Original cell requests skipped with too-small runtime microbatch groups. */
+                          long gpuPayloadBatchMicroSkippedRequests,
+                          /** Times runtime GPU backoff was enabled after repeated unprofitable single microbatches. */
+                          long gpuPayloadBatchRuntimeBackoffTriggers,
+                          /** Runtime batch checks skipped by adaptive GPU backoff before touching the runtime lock. */
+                          long gpuPayloadBatchRuntimeBackoffSkips,
+                          /** Total runtime batch checks requested to skip across adaptive GPU backoff windows. */
+                          long gpuPayloadBatchRuntimeBackoffBatches,
+                          /** Prepared launcher cache hits during real GPU batches. */
+                          long gpuPayloadBatchPreparedCacheHits,
+                          /** Prepared launcher cache misses during real GPU batches. */
+                          long gpuPayloadBatchPreparedCacheMisses,
+                          /** Last real GPU batch static argument layout. */
+                          String gpuPayloadBatchStaticArgs,
+                          /** Last real GPU batch dynamic argument layout. */
+                          String gpuPayloadBatchDynamicArgs,
+                          /** Sum of JavaToGpu prepared hot-path stage total timings. */
+                          long gpuPayloadBatchPreparedTimingTotalNanos,
+                          long gpuPayloadBatchPreparedBufferAllocateNanos,
+                          long gpuPayloadBatchPreparedBufferAllocateCount,
+                          long gpuPayloadBatchPreparedBufferReuseNanos,
+                          long gpuPayloadBatchPreparedBufferReuseCount,
+                          long gpuPayloadBatchPreparedUploadNanos,
+                          long gpuPayloadBatchPreparedUploadCount,
+                          long gpuPayloadBatchPreparedUploadBytes,
+                          long gpuPayloadBatchPreparedSkippedUploadCount,
+                          long gpuPayloadBatchPreparedSkippedUploadBytes,
+                          long gpuPayloadBatchPreparedBindNanos,
+                          long gpuPayloadBatchPreparedBindCount,
+                          long gpuPayloadBatchPreparedEnqueueSubmitNanos,
+                          long gpuPayloadBatchPreparedEnqueueWaitNanos,
+                          long gpuPayloadBatchPreparedQueueFinishNanos,
+                          long gpuPayloadBatchPreparedReadbackNanos,
+                          long gpuPayloadBatchPreparedReadbackCount,
+                          long gpuPayloadBatchPreparedReadbackBytes,
+                          /** Time spent checking runtime parity. */
+                          long gpuPayloadBatchParityNanos,
+                          /** Total time spent in the GPU payload fill path. */
+                          long gpuPayloadBatchTotalNanos,
+                          /** First GPU batch fallback reason, if any. */
+                          String gpuPayloadBatchFirstFallback,
+                          /** Runtime GPU-vs-CPU-mirror batch parity checks. */
+                          long gpuPayloadBatchRuntimeParityChecks,
+                          /** Runtime batch parity checks that passed. */
+                          long gpuPayloadBatchRuntimeParityPasses,
+                          /** Runtime batch parity checks that failed. */
+                          long gpuPayloadBatchRuntimeParityFailures,
+                          /** Runtime batch parity points compared. */
+                          long gpuPayloadBatchRuntimeParityPoints,
+                          /** Largest runtime batch parity absolute delta. */
+                          double gpuPayloadBatchRuntimeParityMaxAbsError,
+                          /** First runtime batch parity mismatch, if any. */
+                          String gpuPayloadBatchRuntimeParityFirstFailure,
+                          /** Lazy router wrappers allocated. */
+                          long lazyWrappersCreated,
                          /** Cold lazy resolves triggered from {@code compute}. */
                          long lazyComputeResolveAttempts,
                          /** Cold lazy resolves triggered from {@code fillArray}. */
@@ -371,12 +977,66 @@ public final class RouterPipeline {
         }
     }
 
+    public record DebugCompileProbeResult(
+            String rootName,
+            boolean success,
+            String reason,
+            long elapsedMs,
+            String sourceClass,
+            String compiledClass,
+            String classInternalName,
+            int uniqueNodes,
+            int helpersEmitted,
+            int noisesSpecialized,
+            int octavesUnrolled,
+            boolean gpuEligible,
+            int gpuBlockerCount,
+            String firstGpuBlocker,
+            boolean gpuPayloadSupported,
+            int gpuPayloadNodes,
+            int gpuPayloadExternInputs,
+            String firstUnsupportedNode,
+            String firstUnsupportedDetail,
+            boolean parityChecked,
+            boolean parityPassed,
+            int parityPoints,
+            double parityMaxAbsError,
+            String parityFirstMismatch) {
+        private static DebugCompileProbeResult failed(String rootName, String reason, long elapsedMs, String sourceClass) {
+            return new DebugCompileProbeResult(
+                    rootName,
+                    false,
+                    reason,
+                    elapsedMs,
+                    sourceClass,
+                    "none",
+                    "none",
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    0,
+                    "none",
+                    false,
+                    0,
+                    0,
+                    "none",
+                    "none",
+                    false,
+                    false,
+                    0,
+                    0.0D,
+                    "none");
+        }
+    }
+
     public static Stats snapshotStats() {
         OnDemandCompilingDensityFunction.LazyStats lazy =
                 OnDemandCompilingDensityFunction.snapshotLazyStats();
         return new Stats(
                 ROOTS_COMPILED.get(),
-                CLASSES_ALIVE.get(),
+                GlobalCompileCache.INSTANCE.size(),
                 UNIQUE_NODES_TOTAL.get(),
                 CSE_SAVINGS_TOTAL.get(),
                 HELPERS_TOTAL.get(),
@@ -395,6 +1055,76 @@ public final class RouterPipeline {
                 GlobalCompileCache.INSTANCE.shapeHitsAcrossExactMisses(),
                 LATTICE_PLANS_EMITTED.get(),
                 LATTICE_FALLBACKS.get(),
+                GPU_ELIGIBLE_ROOTS.get(),
+                GPU_BLOCKED_ROOTS.get(),
+                GPU_BLOCKERS_TOTAL.get(),
+                GPU_PAYLOAD_READY_ROOTS.get(),
+                GPU_PAYLOAD_BLOCKED_ROOTS.get(),
+                GPU_PAYLOAD_NODES_TOTAL.get(),
+                GPU_PAYLOAD_PARITY_CHECKS.get(),
+                GPU_PAYLOAD_PARITY_PASSES.get(),
+                GPU_PAYLOAD_PARITY_FAILURES.get(),
+                GPU_PAYLOAD_PARITY_POINTS.get(),
+                Double.longBitsToDouble(GPU_PAYLOAD_PARITY_MAX_ABS_ERROR_BITS.get()),
+                GPU_PAYLOAD_PARITY_FIRST_FAILURE.get(),
+                topCounts(GPU_BLOCKER_COUNTS, 5),
+                topCounts(GPU_PAYLOAD_UNSUPPORTED_COUNTS, 5),
+                GPU_PAYLOAD_BATCH_ATTEMPTS.get(),
+                GPU_PAYLOAD_BATCH_GPU_SUCCESSES.get(),
+                GPU_PAYLOAD_BATCH_CPU_FALLBACKS.get(),
+                GPU_PAYLOAD_BATCH_POINTS.get(),
+                GPU_PAYLOAD_BATCH_GPU_SUCCESS_POINTS.get(),
+                GPU_PAYLOAD_BATCH_CPU_FALLBACK_POINTS.get(),
+                GPU_PAYLOAD_BATCH_EXTERN_NANOS.get(),
+                GPU_PAYLOAD_BATCH_INVOKE_NANOS.get(),
+                GPU_PAYLOAD_BATCH_COLD_INVOKES.get(),
+                GPU_PAYLOAD_BATCH_COLD_INVOKE_NANOS.get(),
+                GPU_PAYLOAD_BATCH_WARM_INVOKES.get(),
+                GPU_PAYLOAD_BATCH_WARM_INVOKE_NANOS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_LOCK_WAIT_NANOS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_LOCK_HELD_NANOS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_LOCK_ENTRIES.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_LOCK_BUSY_SKIPS.get(),
+                GPU_PAYLOAD_BATCH_MICRO_LAUNCHES.get(),
+                GPU_PAYLOAD_BATCH_MICRO_REQUESTS.get(),
+                GPU_PAYLOAD_BATCH_MICRO_SLOTS.get(),
+                GPU_PAYLOAD_BATCH_MICRO_SINGLES.get(),
+                GPU_PAYLOAD_BATCH_MICRO_SKIPPED_LAUNCHES.get(),
+                GPU_PAYLOAD_BATCH_MICRO_SKIPPED_REQUESTS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_TRIGGERS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_SKIPS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_BATCHES.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_CACHE_HITS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_CACHE_MISSES.get(),
+                GPU_PAYLOAD_BATCH_STATIC_ARGS.get(),
+                GPU_PAYLOAD_BATCH_DYNAMIC_ARGS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_TIMING_TOTAL_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_BYTES.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_BYTES.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BIND_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_BIND_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_SUBMIT_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_WAIT_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_QUEUE_FINISH_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_READBACK_NANOS.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_READBACK_COUNT.get(),
+                GPU_PAYLOAD_BATCH_PREPARED_READBACK_BYTES.get(),
+                GPU_PAYLOAD_BATCH_PARITY_NANOS.get(),
+                GPU_PAYLOAD_BATCH_TOTAL_NANOS.get(),
+                GPU_PAYLOAD_BATCH_FIRST_FALLBACK.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_CHECKS.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_PASSES.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FAILURES.get(),
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_POINTS.get(),
+                Double.longBitsToDouble(GPU_PAYLOAD_BATCH_RUNTIME_PARITY_MAX_ABS_ERROR_BITS.get()),
+                GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FIRST_FAILURE.get(),
                 lazy.wrappersCreated(),
                 lazy.computeResolveAttempts(),
                 lazy.fillArrayResolveAttempts(),
@@ -404,6 +1134,132 @@ public final class RouterPipeline {
                 lazy.successfulCompiles(),
                 lazy.compileFailures(),
                 lazy.compileFallbacks());
+    }
+
+    public static void resetStats() {
+        ROOTS_COMPILED.set(0);
+        UNIQUE_NODES_TOTAL.set(0L);
+        CSE_SAVINGS_TOTAL.set(0L);
+        HELPERS_TOTAL.set(0L);
+        OPT_REWRITES_TOTAL.set(0L);
+        NOISES_INLINED_TOTAL.set(0L);
+        BLENDED_NOISES_INLINED_TOTAL.set(0L);
+        BLENDED_OCTAVES_EMITTED_TOTAL.set(0L);
+        OCTAVES_INLINED_TOTAL.set(0L);
+        GLOBAL_CLASS_CACHE_HITS.set(0L);
+        GLOBAL_CODEGEN_MISSES.set(0L);
+        LATTICE_PLANS_EMITTED.set(0L);
+        LATTICE_FALLBACKS.set(0L);
+        GPU_ELIGIBLE_ROOTS.set(0L);
+        GPU_BLOCKED_ROOTS.set(0L);
+        GPU_BLOCKERS_TOTAL.set(0L);
+        GPU_PAYLOAD_READY_ROOTS.set(0L);
+        GPU_PAYLOAD_BLOCKED_ROOTS.set(0L);
+        GPU_PAYLOAD_NODES_TOTAL.set(0L);
+        GPU_PAYLOAD_PARITY_CHECKS.set(0L);
+        GPU_PAYLOAD_PARITY_PASSES.set(0L);
+        GPU_PAYLOAD_PARITY_FAILURES.set(0L);
+        GPU_PAYLOAD_PARITY_POINTS.set(0L);
+        GPU_PAYLOAD_PARITY_MAX_ABS_ERROR_BITS.set(Double.doubleToRawLongBits(0.0D));
+        GPU_PAYLOAD_PARITY_FIRST_FAILURE.set("none");
+        GPU_BLOCKER_COUNTS.clear();
+        GPU_PAYLOAD_UNSUPPORTED_COUNTS.clear();
+        GPU_PAYLOAD_BATCH_ATTEMPTS.set(0L);
+        GPU_PAYLOAD_BATCH_GPU_SUCCESSES.set(0L);
+        GPU_PAYLOAD_BATCH_CPU_FALLBACKS.set(0L);
+        GPU_PAYLOAD_BATCH_POINTS.set(0L);
+        GPU_PAYLOAD_BATCH_GPU_SUCCESS_POINTS.set(0L);
+        GPU_PAYLOAD_BATCH_CPU_FALLBACK_POINTS.set(0L);
+        GPU_PAYLOAD_BATCH_EXTERN_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_INVOKE_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_COLD_INVOKES.set(0L);
+        GPU_PAYLOAD_BATCH_COLD_INVOKE_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_WARM_INVOKES.set(0L);
+        GPU_PAYLOAD_BATCH_WARM_INVOKE_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_LOCK_WAIT_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_LOCK_HELD_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_LOCK_ENTRIES.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_LOCK_BUSY_SKIPS.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_LAUNCHES.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_REQUESTS.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_SLOTS.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_SINGLES.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_SKIPPED_LAUNCHES.set(0L);
+        GPU_PAYLOAD_BATCH_MICRO_SKIPPED_REQUESTS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_TRIGGERS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_SKIPS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_BACKOFF_BATCHES.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_CACHE_HITS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_CACHE_MISSES.set(0L);
+        GPU_PAYLOAD_BATCH_STATIC_ARGS.set("none");
+        GPU_PAYLOAD_BATCH_DYNAMIC_ARGS.set("none");
+        GPU_PAYLOAD_BATCH_PREPARED_TIMING_TOTAL_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BUFFER_ALLOCATE_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BUFFER_REUSE_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_UPLOAD_BYTES.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_SKIPPED_UPLOAD_BYTES.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BIND_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_BIND_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_SUBMIT_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_ENQUEUE_WAIT_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_QUEUE_FINISH_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_READBACK_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_READBACK_COUNT.set(0L);
+        GPU_PAYLOAD_BATCH_PREPARED_READBACK_BYTES.set(0L);
+        GPU_PAYLOAD_BATCH_PARITY_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_TOTAL_NANOS.set(0L);
+        GPU_PAYLOAD_BATCH_FIRST_FALLBACK.set("none");
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_CHECKS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_PASSES.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FAILURES.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_POINTS.set(0L);
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_MAX_ABS_ERROR_BITS.set(Double.doubleToRawLongBits(0.0D));
+        GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FIRST_FAILURE.set("none");
+        OnDemandCompilingDensityFunction.resetLazyStats();
+    }
+
+    private record CountEntry(String key, long count) {}
+
+    private record RootSelection(boolean includeAll, Set<String> names) {
+        static RootSelection all() {
+            return new RootSelection(true, Set.of());
+        }
+
+        static RootSelection parse(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return all();
+            }
+            String trimmed = raw.trim();
+            if ("all".equalsIgnoreCase(trimmed) || "*".equals(trimmed)) {
+                return all();
+            }
+            if ("none".equalsIgnoreCase(trimmed)) {
+                return new RootSelection(false, Set.of());
+            }
+            HashSet<String> selected = new HashSet<>();
+            for (String part : trimmed.split(",")) {
+                String name = part.trim();
+                if (!name.isEmpty()) {
+                    selected.add(name.toLowerCase(Locale.ROOT));
+                }
+            }
+            return selected.isEmpty() ? all() : new RootSelection(false, Set.copyOf(selected));
+        }
+
+        boolean includes(String[] rootNames, int index) {
+            if (includeAll || rootNames == null) {
+                return true;
+            }
+            if (index < 0 || index >= rootNames.length) {
+                return false;
+            }
+            return names.contains(rootNames[index].toLowerCase(Locale.ROOT));
+        }
     }
 
     /**

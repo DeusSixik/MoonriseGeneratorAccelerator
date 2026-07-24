@@ -10,8 +10,9 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs  "-Ddfc.codegen.splineRuntimeStats=true",
-                    "-Ddfc.codegen.splineSegmentLut=true"
+            vmArgs  "-Dga.dfc.gpu=true",
+                    "-Dga.dfc.lazyCellCacheCompile=false",
+                    "-Dga.dfc.gpu.runtimeInfoLog=true"
         }
     }
 }
@@ -44,9 +45,9 @@ def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
 def lwjglNatives = osName.contains('win')
         ? 'natives-windows'
         : (osName.contains('mac') ? 'natives-macos' : 'natives-linux')
+def javaToGpuLocalCoordinate = "io.github.deussixik:processor:${rootProject.java_to_gpu_version}"
 def javaToGpuRuntimeLibraries = [
-        "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}",
-        "io.github.deussixik:javatogpu-ir-optimizer:${rootProject.java_to_gpu_version}",
+        javaToGpuLocalCoordinate,
         "io.github.deussixik:packager:1.0.0-alpha.1",
         "com.github.javaparser:javaparser-core:3.28.1",
         "org.lwjgl:lwjgl-opencl:3.3.3",
@@ -70,7 +71,7 @@ dependencies {
     javaToGpuRuntimeLibraries.each { coordinate ->
         include(minecraftRuntimeLibraries(coordinate))
     }
-    annotationProcessor "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
+    annotationProcessor javaToGpuLocalCoordinate
     annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))

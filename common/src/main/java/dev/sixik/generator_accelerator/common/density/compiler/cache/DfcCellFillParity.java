@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
 import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 
@@ -49,7 +50,7 @@ public final class DfcCellFillParity {
     }
 
     public static boolean isActive() {
-        return ACTIVE;
+        return ACTIVE && RandomStateCompileBudget.hasAdmittedCompiles();
     }
 
     public static void recordCandidate(DensityFunction filler, boolean fastEligible) {

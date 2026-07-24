@@ -88,6 +88,8 @@ tasks.register("surfaceApplyQuickBenchmark") {
 }
 
 dependencies {
+    def javaToGpuLocalCoordinate = "io.github.deussixik:processor:${rootProject.java_to_gpu_version}"
+
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
@@ -103,6 +105,8 @@ dependencies {
     testImplementation "com.github.ben-manes.caffeine:caffeine:3.1.8"
     testImplementation "com.github.JCTools.JCTools:jctools-core:v4.0.3"
     testRuntimeOnly "com.github.DeusSixik:JavaNativeCollections:$rootProject.java_native_collections_version"
+    testRuntimeOnly("org.yaml:snakeyaml:2.2")
+    testRuntimeOnly("ca.spottedleaf:yamlconfig:1.0.2")
 
     modCompileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.1"))
     modCompileOnly "maven.modrinth:modernfix:$rootProject.modernfix_version"
@@ -142,9 +146,12 @@ dependencies {
 
     compileOnly "foundry.imguimc:imguimc-common-${minecraft_version}:$imguimc_version"
 
-    compileOnly "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
-    compileOnly "io.github.deussixik:javatogpu-ir-optimizer:${rootProject.java_to_gpu_version}"
-    annotationProcessor "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
+    compileOnly javaToGpuLocalCoordinate
+    compileOnly "io.github.deussixik:packager:1.0.0-alpha.1"
+    compileOnly "org.lwjgl:lwjgl:3.3.3"
+    compileOnly "org.lwjgl:lwjgl-opencl:3.3.3"
+    annotationProcessor javaToGpuLocalCoordinate
+    annotationProcessor "com.github.javaparser:javaparser-core:3.28.1"
     annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
 }
 

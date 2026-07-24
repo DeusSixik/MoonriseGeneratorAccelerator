@@ -4,20 +4,26 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.BytecodeCpuBackend;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.DfcBackend;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.DfcBackendResult;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.CompilationFingerprint;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.*;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuEligibility;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadParity;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.plan.CompilationPlan;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.plan.SplineSearchStats;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,6 +54,7 @@ public final class Compiler {
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_3_TO_4 = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_5_TO_8 = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_GE_9 = new AtomicInteger();
+    private static final DfcBackend CPU_BACKEND = BytecodeCpuBackend.INSTANCE;
 
     private Compiler() {}
 
@@ -64,125 +71,14 @@ public final class Compiler {
      */
     public static Result compileWithDetail(DensityFunction df) {
         try {
-            ConstantPool pool = new ConstantPool();
-            IRBuilder builder = new IRBuilder(pool, CompilingVisitor.global());
-            IRNode root = builder.build(df);
-
-            // Peephole pass: constant folding, algebraic identities, RangeChoice
-            // short-circuiting, cost-aware strength reduction. Runs before Bounds /
-            // RefCount / Splitter so downstream stages see the post-rewrite DAG.
-            // Every rewritten node is re-interned through the same IRBuilder, so
-            // hash-consing / CSE stay consistent.
-            IROptimizer.Result optResult = IROptimizer.optimize(root, builder, pool);
-            root = optResult.root();
-            int optimizerRewrites = optResult.rewrites();
-
-            // Tier 3 noise inlining pass. Rewrites every Noise / ShiftedNoise /
-            // ShiftA / ShiftB / Shift / WeirdScaled into InlinedNoise / WeirdRarity
-            // form so the codegen can unroll their per-octave loops with baked-in
-            // amplitudes / input factors (see NoiseExpander javadoc). The expander
-            // exposes coordinate sub-trees as first-class IR, so we re-run the
-            // optimizer to fold the newly visible (x*scale + shift)*INPUT_FACTOR
-            // chains and to CSE shared coordinates.
-            NoiseExpander.Result noiseResult = NoiseExpander.expand(root, builder, pool);
-            root = noiseResult.root();
-            int noisesSpecialized = noiseResult.noisesSpecialized();
-            int octavesUnrolled = noiseResult.octavesUnrolled();
-            if (noisesSpecialized > 0) {
-                IROptimizer.Result postNoise = IROptimizer.optimize(root, builder, pool);
-                root = postNoise.root();
-                optimizerRewrites += postNoise.rewrites();
-            }
-
-            SplineSearchStats splineStats = LOG_SPLINE_SEARCH ? collectSplineSearchStats(root) : null;
-
-            int uniqueNodes = builder.internedCount();
-            int cseSavings = builder.cseSavings();
-            RefCount.Result rc = RefCount.compute(root);
-
-            double minVal;
-            double maxVal;
-            try {
-                // One interval walk: min+max would each call interval() with a fresh memo.
-                double[] iv = Bounds.interval(root, pool);
-                minVal = iv[0];
-                maxVal = iv[1];
-            } catch (RuntimeException bx) {
-                minVal = df.minValue();
-                maxVal = df.maxValue();
-            }
-
-            Set<IRNode> extracted = Splitter.plan(root, rc, pool);
-
-            byte[] exactFp = CompilationFingerprint.sha256(root, pool, minVal, maxVal);
-            byte[] shapeFp = CompilationFingerprint.shapeSha256(root, pool, minVal, maxVal);
-            // Use _ rather than $: hidden class bytecode with `$` in its own name
-            // confuses NeoForge's ModuleClassLoader (see previous comments).
-            String className = "dev/sixik/generator_accelerator/common/density/compiler/compiler/codegen/CompiledDF_"
-                    + CompilationFingerprint.stableClassSuffix(shapeFp);
-
-            // Lambdas can only close over effectively final locals, so IR bounds/root must be
-            // bound after the last reassignment of `root` / min / max.
-            final IRNode irRoot = root;
-            final RefCount.Result fr = rc;
-            final Set<IRNode> fExtracted = extracted;
-            final ConstantPool fPool = pool;
-            final double fMin = minVal;
-            final double fMax = maxVal;
-            final String fClassName = className;
-            final String fRootDebug = describeRootForCellFillDebug(irRoot);
-            final String fSplineDebug = describeDominantSpline(irRoot, fPool);
-
-            GlobalCompileCache g = GlobalCompileCache.INSTANCE;
-            GlobalCompileCache.LookupResult lo = g.getOrCompile(shapeFp, exactFp, () -> {
-                Codegen.Result emitResult = Codegen.emit(fClassName, irRoot, fr, fExtracted, fPool, fMin, fMax);
-                byte[] bytecode = emitResult.bytecode();
-                int helpersEmitted = emitResult.helpersEmitted();
-                boolean latticeEmitted = emitResult.latticeEmitted();
-                HiddenClassLoader.DefineResult dr = HiddenClassLoader.defineWithLookup(bytecode);
-                Class<? extends CompiledDensityFunction> cls = dr.cls();
-                MethodHandles.Lookup lookup = dr.lookup();
-
-                MethodHandle[] helperHandles;
-                try {
-                    helperHandles = new MethodHandle[helpersEmitted];
-                    MethodType helperType = MethodType.methodType(
-                            double.class,
-                            CompiledDensityFunction.class,
-                            DensityFunction.FunctionContext.class);
-                    for (int i = 0; i < helpersEmitted; i++) {
-                        helperHandles[i] = lookup.findStatic(cls, Codegen.helperName(i), helperType);
-                    }
-                } catch (NoSuchMethodException | IllegalAccessException e) {
-                    throw new RuntimeException("Failed to resolve helper MethodHandles for "
-                            + fClassName + " (" + helpersEmitted + " helpers expected)", e);
-                }
-
-                MethodHandle ctorMH;
-                try {
-                    MethodType ctorType = MethodType.methodType(void.class,
-                            double[].class, NormalNoise[].class, Object[].class, Object[].class,
-                            DensityFunction[].class,
-                            double.class, double.class,
-                            MethodHandle[].class, MethodHandle.class);
-                    ctorMH = lookup.findConstructor(cls, ctorType)
-                            .asType(MethodType.methodType(CompiledDensityFunction.class,
-                                    double[].class, NormalNoise[].class, Object[].class, Object[].class,
-                                    DensityFunction[].class,
-                                    double.class, double.class,
-                                    MethodHandle[].class, MethodHandle.class));
-                } catch (NoSuchMethodException | IllegalAccessException e) {
-                    throw new RuntimeException("Failed to resolve constructor MethodHandle for "
-                            + fClassName, e);
-                }
-
-                return new GlobalCompileCache.CopiedClassBundle(
-                        fClassName, df.getClass().getName(), fRootDebug, fSplineDebug, exactFp, cls, bytecode, ctorMH,
-                        helperHandles, helpersEmitted, latticeEmitted,
-                        emitResult.cellAddLatticeSpecialized(), emitResult.cellAddExternSpecialized());
-            });
-            return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
-                    cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats);
+            CompilationPlan plan = prepareCompilationPlan(df);
+            DfcBackendResult backendResult = CPU_BACKEND.compile(plan);
+            return linkAndRecord(
+                    backendResult.bundle(), backendResult.reusedClassFromCache(),
+                    plan.root(), plan.refs(), plan.pool(), plan.extracted(),
+                    plan.minValue(), plan.maxValue(), plan.uniqueNodes(), plan.cseSavings(),
+                    plan.optimizerRewrites(), plan.noisesSpecialized(), plan.octavesUnrolled(),
+                    plan.splineStats(), plan.gpuEligibility(), plan.gpuPayload());
         } catch (Throwable t) {
             DensityFunctionCompiler.LOGGER.warn(
                     "Compilation failed for {} ({}): {} - falling back to vanilla evaluator",
@@ -191,6 +87,76 @@ public final class Compiler {
                     t.toString(), t);
             return null;
         }
+    }
+
+    private static CompilationPlan prepareCompilationPlan(DensityFunction df) {
+        ConstantPool pool = new ConstantPool();
+        IRBuilder builder = new IRBuilder(pool, CompilingVisitor.global());
+        IRNode root = builder.build(df);
+
+        // Peephole pass: constant folding, algebraic identities, RangeChoice
+        // short-circuiting, cost-aware strength reduction. Runs before Bounds /
+        // RefCount / Splitter so downstream stages see the post-rewrite DAG.
+        // Every rewritten node is re-interned through the same IRBuilder, so
+        // hash-consing / CSE stay consistent.
+        IROptimizer.Result optResult = IROptimizer.optimize(root, builder, pool);
+        root = optResult.root();
+        int optimizerRewrites = optResult.rewrites();
+
+        // Tier 3 noise inlining pass. Rewrites every Noise / ShiftedNoise /
+        // ShiftA / ShiftB / Shift / WeirdScaled into InlinedNoise / WeirdRarity
+        // form so the codegen can unroll their per-octave loops with baked-in
+        // amplitudes / input factors (see NoiseExpander javadoc). The expander
+        // exposes coordinate sub-trees as first-class IR, so we re-run the
+        // optimizer to fold the newly visible (x*scale + shift)*INPUT_FACTOR
+        // chains and to CSE shared coordinates.
+        NoiseExpander.Result noiseResult = NoiseExpander.expand(root, builder, pool);
+        root = noiseResult.root();
+        int noisesSpecialized = noiseResult.noisesSpecialized();
+        int octavesUnrolled = noiseResult.octavesUnrolled();
+        if (noisesSpecialized > 0) {
+            IROptimizer.Result postNoise = IROptimizer.optimize(root, builder, pool);
+            root = postNoise.root();
+            optimizerRewrites += postNoise.rewrites();
+        }
+
+        SplineSearchStats splineStats = LOG_SPLINE_SEARCH ? collectSplineSearchStats(root) : null;
+        int uniqueNodes = builder.internedCount();
+        int cseSavings = builder.cseSavings();
+        RefCount.Result rc = RefCount.compute(root);
+
+        double minVal;
+        double maxVal;
+        try {
+            // One interval walk: min+max would each call interval() with a fresh memo.
+            double[] iv = Bounds.interval(root, pool);
+            minVal = iv[0];
+            maxVal = iv[1];
+        } catch (RuntimeException bx) {
+            minVal = df.minValue();
+            maxVal = df.maxValue();
+        }
+
+        Set<IRNode> extracted = Splitter.plan(root, rc, pool);
+        byte[] exactFp = CompilationFingerprint.sha256(root, pool, minVal, maxVal);
+        // Use the exact, identity-bearing fingerprint for hidden-class reuse. The
+        // broader shape fingerprint can share bytecode across worlds, but it is only
+        // safe if every constructor payload slot stays layout-compatible. A mismatch
+        // there presents as generated bytecode reading e.g. constants[0] from a fresh
+        // instance whose payload has constants.length == 0.
+        byte[] cacheFp = exactFp;
+        // Use _ rather than $: hidden class bytecode with `$` in its own name
+        // confuses NeoForge's ModuleClassLoader (see previous comments).
+        String className = "dev/sixik/generator_accelerator/common/density/compiler/compiler/codegen/CompiledDF_"
+                + CompilationFingerprint.stableClassSuffix(cacheFp);
+        GpuEligibility.Report gpuEligibility = GpuEligibility.analyze(root, pool);
+        GpuPayloadCompiler.Result gpuPayload = GpuPayloadCompiler.compile(root, pool);
+
+        return new CompilationPlan(
+                df.getClass().getName(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes, cseSavings,
+                optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats,
+                exactFp, cacheFp, className,
+                describeRootForCellFillDebug(root), describeDominantSpline(root, pool), gpuEligibility, gpuPayload);
     }
 
     public static DumpResult dumpCompiledClasses() {
@@ -266,7 +232,9 @@ public final class Compiler {
             int optimizerRewrites,
             int noisesSpecialized,
             int octavesUnrolled,
-            SplineSearchStats splineStats) {
+            SplineSearchStats splineStats,
+            GpuEligibility.Report gpuEligibility,
+            GpuPayloadCompiler.Result gpuPayload) {
         MethodHandle ctorMH = bundle.constructorHandle();
         MethodHandle[] helperHandles = bundle.helperHandles();
         CompiledDensityFunction compiled;
@@ -301,12 +269,19 @@ public final class Compiler {
         RouterPipeline.recordOptimizerRewrites(optimizerRewrites);
         RouterPipeline.recordNoiseInline(noisesSpecialized, octavesUnrolled);
         RouterPipeline.recordBlendedInline(pool.blendedNoiseSpecCount(), countBlendedNonNullOctaves(pool));
+        RouterPipeline.recordGpuEligibility(gpuEligibility);
+        RouterPipeline.recordGpuPayload(gpuPayload);
+        GpuPayloadParity.Report gpuPayloadParity = GpuPayloadParity.check(compiled, gpuPayload);
+        RouterPipeline.recordGpuPayloadParity(gpuPayloadParity);
+        GpuPayloadRuntimeRegistry.register(
+                compiled, gpuEligibility, gpuPayload,
+                describeFirstGpuPayloadUnsupported(root, pool, gpuPayload));
         logSplineSearchIfInteresting(root, bundle, reusedClassFromCache, splineStats);
 
         return new Result(
                 compiled, root, rc, pool, bundle.bytecode(), bundle.classInternalName(),
                 uniqueNodes, cseSavings, bundle.helpersEmitted(), optimizerRewrites,
-                noisesSpecialized, octavesUnrolled, minVal, maxVal);
+                noisesSpecialized, octavesUnrolled, minVal, maxVal, gpuEligibility, gpuPayload, gpuPayloadParity);
     }
 
     private static long countBlendedNonNullOctaves(ConstantPool pool) {
@@ -533,6 +508,77 @@ public final class Compiler {
         return "Marker(" + type + ")";
     }
 
+    private static String describeFirstGpuPayloadUnsupported(
+            IRNode root,
+            ConstantPool pool,
+            GpuPayloadCompiler.Result gpuPayload) {
+        if (gpuPayload == null || gpuPayload.supported()) {
+            return "none";
+        }
+        String first = gpuPayload.firstUnsupportedNode();
+        String detail = gpuPayload.firstUnsupportedDetail();
+        if (detail != null && !detail.isBlank() && !"none".equals(detail) && !detail.equals(first)) {
+            return detail;
+        }
+        if (first == null || first.isBlank() || root == null) {
+            return first == null || first.isBlank() ? "unknown" : first;
+        }
+        IRNode node = findFirstUnsupportedNode(root, first, new IdentityHashMap<>());
+        if (node == null) {
+            return first;
+        }
+        return switch (node) {
+            case IRNode.Invoke invoke -> "Invoke:" + describeExternClass(pool, invoke.externIndex());
+            case IRNode.Marker marker -> "Marker:" + describeExternClass(pool, marker.externIndex());
+            case IRNode.Beardifier beardifier -> "Beardifier:" + describeExternClass(pool, beardifier.externIndex());
+            case IRNode.EndIslands endIslands -> "EndIslands:" + describeExternClass(pool, endIslands.externIndex());
+            case IRNode.InlinedNoise noise -> "InlinedNoise:spec=" + noise.specPoolIndex();
+            case IRNode.InlinedBlendedNoise noise -> "InlinedBlendedNoise:spec=" + noise.blendedSpecIndex();
+            case IRNode.Spline.Multipoint spline -> "Spline.Multipoint:points=" + spline.locations().length;
+            case IRNode.Noise noise -> "Noise:index=" + noise.noiseIndex();
+            case IRNode.ShiftedNoise noise -> "ShiftedNoise:index=" + noise.noiseIndex();
+            case IRNode.ShiftA noise -> "ShiftA:index=" + noise.noiseIndex();
+            case IRNode.ShiftB noise -> "ShiftB:index=" + noise.noiseIndex();
+            case IRNode.Shift noise -> "Shift:index=" + noise.noiseIndex();
+            case IRNode.WeirdScaled noise -> "WeirdScaled:index=" + noise.noiseIndex();
+            default -> node.getClass().getSimpleName();
+        };
+    }
+
+    private static IRNode findFirstUnsupportedNode(
+            IRNode node,
+            String unsupportedName,
+            IdentityHashMap<IRNode, Boolean> seen) {
+        if (node == null || seen.put(node, Boolean.TRUE) != null) {
+            return null;
+        }
+        if (unsupportedName.equals(node.getClass().getSimpleName())) {
+            return node;
+        }
+        for (IRNode child : RefCount.children(node)) {
+            IRNode found = findFirstUnsupportedNode(child, unsupportedName, seen);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static String describeExternClass(ConstantPool pool, int externIndex) {
+        if (pool == null || externIndex < 0 || externIndex >= pool.externCount()) {
+            return "extern#" + externIndex;
+        }
+        DensityFunction extern = pool.extern(externIndex);
+        if (extern == null) {
+            return "extern#" + externIndex + ":null";
+        }
+        String className = extern.getClass().getName();
+        if (extern instanceof net.minecraft.world.level.levelgen.DensityFunctions.MarkerOrMarked marker) {
+            className += ":" + marker.type();
+        }
+        return className;
+    }
+
     /** Diagnostic snapshot of one compile() call. */
     public record Result(
             CompiledDensityFunction compiled,
@@ -548,17 +594,10 @@ public final class Compiler {
             int noisesSpecialized,
             int octavesUnrolled,
             double minValue,
-            double maxValue) {}
-
-    private record SplineSearchStats(
-            int multipoints,
-            int binaryUsed,
-            int autoEligible,
-            int maxPoints,
-            int bucketLe2,
-            int bucket3To4,
-            int bucket5To8,
-            int bucketGe9) {}
+            double maxValue,
+            GpuEligibility.Report gpuEligibility,
+            GpuPayloadCompiler.Result gpuPayload,
+            GpuPayloadParity.Report gpuPayloadParity) {}
 
     public record DumpResult(Path directory, int classesDumped, int skipped, int failed) {}
 }
