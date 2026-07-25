@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 public final class NoiseChunkTimingStats {
@@ -15,6 +16,31 @@ public final class NoiseChunkTimingStats {
 
     private static final LongAdder FILL_SLICE_CALLS = new LongAdder();
     private static final LongAdder FILL_SLICE_TOTAL_NANOS = new LongAdder();
+    private static final LongAdder FILL_SLICE_BATCH_SURFACE_POINTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_BATCH_SURFACE_COLUMNS = new LongAdder();
+    private static final LongAdder FILL_SLICE_BATCH_SURFACE_Y = new LongAdder();
+    private static final LongAdder FILL_SLICE_BATCH_SURFACE_INTERPOLATORS = new LongAdder();
+    private static final AtomicLong FILL_SLICE_BATCH_SURFACE_MAX_POINTS = new AtomicLong();
+    private static final LongAdder FILL_SLICE_PAYLOAD_ROOTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_PAYLOAD_READY_ROOTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_PAYLOAD_EXTERN_ROOTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_PAYLOAD_POINTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_PAYLOAD_READY_POINTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_PAYLOAD_EXTERN_POINTS = new LongAdder();
+    private static final ConcurrentHashMap<String, LongAdder> FILL_SLICE_PAYLOAD_MISSING_CLASSES =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> FILL_SLICE_PAYLOAD_BLOCKED_REASONS =
+            new ConcurrentHashMap<>();
+    private static final LongAdder FILL_SLICE_LAZY_COMPILE_ATTEMPTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_LAZY_COMPILE_SUCCESSES = new LongAdder();
+    private static final LongAdder FILL_SLICE_LAZY_COMPILE_FAILURES = new LongAdder();
+    private static final LongAdder FILL_SLICE_LAZY_COMPILE_BUDGET_SKIPS = new LongAdder();
+    private static final LongAdder FILL_SLICE_GPU_CANDIDATE_ROOTS = new LongAdder();
+    private static final AtomicLong FILL_SLICE_GPU_BEST_GROUP_MAX_ROOTS = new AtomicLong();
+    private static final AtomicLong FILL_SLICE_GPU_BEST_GROUP_MAX_POINTS = new AtomicLong();
+    private static final LongAdder FILL_SLICE_GPU_GROUPED_LAUNCHES = new LongAdder();
+    private static final LongAdder FILL_SLICE_GPU_GROUPED_ROOTS = new LongAdder();
+    private static final LongAdder FILL_SLICE_GPU_GROUPED_POINTS = new LongAdder();
     private static final LongAdder SELECT_CELL_YZ_CALLS = new LongAdder();
     private static final LongAdder SELECT_CELL_YZ_TOTAL_NANOS = new LongAdder();
     private static final LongAdder SELECT_CELL_YZ_SETUP_NANOS = new LongAdder();
@@ -46,6 +72,29 @@ public final class NoiseChunkTimingStats {
             boolean enabled,
             long fillSliceCalls,
             long fillSliceTotalNanos,
+            long fillSliceBatchSurfacePoints,
+            long fillSliceBatchSurfaceMaxPoints,
+            long fillSliceBatchSurfaceColumns,
+            long fillSliceBatchSurfaceY,
+            long fillSliceBatchSurfaceInterpolators,
+            long fillSlicePayloadRoots,
+            long fillSlicePayloadReadyRoots,
+            long fillSlicePayloadExternRoots,
+            long fillSlicePayloadPoints,
+            long fillSlicePayloadReadyPoints,
+            long fillSlicePayloadExternPoints,
+            List<String> fillSlicePayloadMissingClasses,
+            List<String> fillSlicePayloadBlockedReasons,
+            long fillSliceLazyCompileAttempts,
+            long fillSliceLazyCompileSuccesses,
+            long fillSliceLazyCompileFailures,
+            long fillSliceLazyCompileBudgetSkips,
+            long fillSliceGpuCandidateRoots,
+            long fillSliceGpuBestGroupMaxRoots,
+            long fillSliceGpuBestGroupMaxPoints,
+            long fillSliceGpuGroupedLaunches,
+            long fillSliceGpuGroupedRoots,
+            long fillSliceGpuGroupedPoints,
             long selectCellYzCalls,
             long selectCellYzTotalNanos,
             long selectCellYzSetupNanos,
@@ -73,6 +122,29 @@ public final class NoiseChunkTimingStats {
                 ENABLED,
                 FILL_SLICE_CALLS.sum(),
                 FILL_SLICE_TOTAL_NANOS.sum(),
+                FILL_SLICE_BATCH_SURFACE_POINTS.sum(),
+                FILL_SLICE_BATCH_SURFACE_MAX_POINTS.get(),
+                FILL_SLICE_BATCH_SURFACE_COLUMNS.sum(),
+                FILL_SLICE_BATCH_SURFACE_Y.sum(),
+                FILL_SLICE_BATCH_SURFACE_INTERPOLATORS.sum(),
+                FILL_SLICE_PAYLOAD_ROOTS.sum(),
+                FILL_SLICE_PAYLOAD_READY_ROOTS.sum(),
+                FILL_SLICE_PAYLOAD_EXTERN_ROOTS.sum(),
+                FILL_SLICE_PAYLOAD_POINTS.sum(),
+                FILL_SLICE_PAYLOAD_READY_POINTS.sum(),
+                FILL_SLICE_PAYLOAD_EXTERN_POINTS.sum(),
+                snapshotFillSlicePayloadMissingClasses(),
+                snapshotFillSlicePayloadBlockedReasons(),
+                FILL_SLICE_LAZY_COMPILE_ATTEMPTS.sum(),
+                FILL_SLICE_LAZY_COMPILE_SUCCESSES.sum(),
+                FILL_SLICE_LAZY_COMPILE_FAILURES.sum(),
+                FILL_SLICE_LAZY_COMPILE_BUDGET_SKIPS.sum(),
+                FILL_SLICE_GPU_CANDIDATE_ROOTS.sum(),
+                FILL_SLICE_GPU_BEST_GROUP_MAX_ROOTS.get(),
+                FILL_SLICE_GPU_BEST_GROUP_MAX_POINTS.get(),
+                FILL_SLICE_GPU_GROUPED_LAUNCHES.sum(),
+                FILL_SLICE_GPU_GROUPED_ROOTS.sum(),
+                FILL_SLICE_GPU_GROUPED_POINTS.sum(),
                 SELECT_CELL_YZ_CALLS.sum(),
                 SELECT_CELL_YZ_TOTAL_NANOS.sum(),
                 SELECT_CELL_YZ_SETUP_NANOS.sum(),
@@ -98,6 +170,29 @@ public final class NoiseChunkTimingStats {
     public static void reset() {
         FILL_SLICE_CALLS.reset();
         FILL_SLICE_TOTAL_NANOS.reset();
+        FILL_SLICE_BATCH_SURFACE_POINTS.reset();
+        FILL_SLICE_BATCH_SURFACE_COLUMNS.reset();
+        FILL_SLICE_BATCH_SURFACE_Y.reset();
+        FILL_SLICE_BATCH_SURFACE_INTERPOLATORS.reset();
+        FILL_SLICE_BATCH_SURFACE_MAX_POINTS.set(0L);
+        FILL_SLICE_PAYLOAD_ROOTS.reset();
+        FILL_SLICE_PAYLOAD_READY_ROOTS.reset();
+        FILL_SLICE_PAYLOAD_EXTERN_ROOTS.reset();
+        FILL_SLICE_PAYLOAD_POINTS.reset();
+        FILL_SLICE_PAYLOAD_READY_POINTS.reset();
+        FILL_SLICE_PAYLOAD_EXTERN_POINTS.reset();
+        FILL_SLICE_PAYLOAD_MISSING_CLASSES.clear();
+        FILL_SLICE_PAYLOAD_BLOCKED_REASONS.clear();
+        FILL_SLICE_LAZY_COMPILE_ATTEMPTS.reset();
+        FILL_SLICE_LAZY_COMPILE_SUCCESSES.reset();
+        FILL_SLICE_LAZY_COMPILE_FAILURES.reset();
+        FILL_SLICE_LAZY_COMPILE_BUDGET_SKIPS.reset();
+        FILL_SLICE_GPU_CANDIDATE_ROOTS.reset();
+        FILL_SLICE_GPU_BEST_GROUP_MAX_ROOTS.set(0L);
+        FILL_SLICE_GPU_BEST_GROUP_MAX_POINTS.set(0L);
+        FILL_SLICE_GPU_GROUPED_LAUNCHES.reset();
+        FILL_SLICE_GPU_GROUPED_ROOTS.reset();
+        FILL_SLICE_GPU_GROUPED_POINTS.reset();
         SELECT_CELL_YZ_CALLS.reset();
         SELECT_CELL_YZ_TOTAL_NANOS.reset();
         SELECT_CELL_YZ_SETUP_NANOS.reset();
@@ -133,6 +228,102 @@ public final class NoiseChunkTimingStats {
         }
         FILL_SLICE_CALLS.increment();
         FILL_SLICE_TOTAL_NANOS.add(Math.max(0L, System.nanoTime() - startNanos));
+    }
+
+    public static void recordFillSliceBatchSurface(int columns, int yCount, int interpolators) {
+        if (!ENABLED || columns <= 0 || yCount <= 0 || interpolators <= 0) {
+            return;
+        }
+        long points;
+        try {
+            points = Math.multiplyExact(Math.multiplyExact((long) columns, yCount), interpolators);
+        } catch (ArithmeticException ignored) {
+            points = Long.MAX_VALUE;
+        }
+        FILL_SLICE_BATCH_SURFACE_POINTS.add(points);
+        FILL_SLICE_BATCH_SURFACE_COLUMNS.add(columns);
+        FILL_SLICE_BATCH_SURFACE_Y.add(yCount);
+        FILL_SLICE_BATCH_SURFACE_INTERPOLATORS.add(interpolators);
+        updateMax(FILL_SLICE_BATCH_SURFACE_MAX_POINTS, points);
+    }
+
+    public static void recordFillSlicePayloadRoot(
+            boolean payloadReady,
+            boolean hasExternInputs,
+            long points,
+            Object root,
+            String blockedReason) {
+        if (!ENABLED || points <= 0L) {
+            return;
+        }
+        FILL_SLICE_PAYLOAD_ROOTS.increment();
+        FILL_SLICE_PAYLOAD_POINTS.add(points);
+        if (payloadReady) {
+            FILL_SLICE_PAYLOAD_READY_ROOTS.increment();
+            FILL_SLICE_PAYLOAD_READY_POINTS.add(points);
+            if (hasExternInputs) {
+                FILL_SLICE_PAYLOAD_EXTERN_ROOTS.increment();
+                FILL_SLICE_PAYLOAD_EXTERN_POINTS.add(points);
+            }
+        } else {
+            increment(FILL_SLICE_PAYLOAD_MISSING_CLASSES,
+                    root == null ? "null" : root.getClass().getName());
+            if (blockedReason != null && !blockedReason.isBlank()) {
+                increment(FILL_SLICE_PAYLOAD_BLOCKED_REASONS, blockedReason);
+            }
+        }
+    }
+
+    public static void recordFillSliceLazyCompileAttempt() {
+        if (ENABLED) {
+            FILL_SLICE_LAZY_COMPILE_ATTEMPTS.increment();
+        }
+    }
+
+    public static void recordFillSliceLazyCompileSuccess() {
+        if (ENABLED) {
+            FILL_SLICE_LAZY_COMPILE_SUCCESSES.increment();
+        }
+    }
+
+    public static void recordFillSliceLazyCompileFailure() {
+        if (ENABLED) {
+            FILL_SLICE_LAZY_COMPILE_FAILURES.increment();
+        }
+    }
+
+    public static void recordFillSliceLazyCompileBudgetSkip() {
+        if (ENABLED) {
+            FILL_SLICE_LAZY_COMPILE_BUDGET_SKIPS.increment();
+        }
+    }
+
+    public static void recordFillSliceGpuGroupCandidate(int candidateRoots, int bestGroupRoots, long bestGroupPoints) {
+        if (!ENABLED) {
+            return;
+        }
+        if (candidateRoots > 0) {
+            FILL_SLICE_GPU_CANDIDATE_ROOTS.add(candidateRoots);
+        }
+        if (bestGroupRoots > 0) {
+            updateMax(FILL_SLICE_GPU_BEST_GROUP_MAX_ROOTS, bestGroupRoots);
+        }
+        if (bestGroupPoints > 0L) {
+            updateMax(FILL_SLICE_GPU_BEST_GROUP_MAX_POINTS, bestGroupPoints);
+        }
+    }
+
+    public static void recordFillSliceGpuGroupLaunch(int roots, long points) {
+        if (!ENABLED) {
+            return;
+        }
+        FILL_SLICE_GPU_GROUPED_LAUNCHES.increment();
+        if (roots > 0) {
+            FILL_SLICE_GPU_GROUPED_ROOTS.add(roots);
+        }
+        if (points > 0L) {
+            FILL_SLICE_GPU_GROUPED_POINTS.add(points);
+        }
     }
 
     public static long startSelectCellYz() {
@@ -255,8 +446,26 @@ public final class NoiseChunkTimingStats {
         return snapshotCounts(SELECT_CELL_YZ_FALLBACK_FILLER_DETAILS);
     }
 
+    private static List<String> snapshotFillSlicePayloadMissingClasses() {
+        return snapshotCounts(FILL_SLICE_PAYLOAD_MISSING_CLASSES);
+    }
+
+    private static List<String> snapshotFillSlicePayloadBlockedReasons() {
+        return snapshotCounts(FILL_SLICE_PAYLOAD_BLOCKED_REASONS);
+    }
+
     private static void increment(ConcurrentHashMap<String, LongAdder> counts, String key) {
         counts.computeIfAbsent(key, ignored -> new LongAdder()).increment();
+    }
+
+    private static void updateMax(AtomicLong target, long value) {
+        long current;
+        do {
+            current = target.get();
+            if (value <= current) {
+                return;
+            }
+        } while (!target.compareAndSet(current, value));
     }
 
     private static List<String> snapshotCounts(ConcurrentHashMap<String, LongAdder> counts) {

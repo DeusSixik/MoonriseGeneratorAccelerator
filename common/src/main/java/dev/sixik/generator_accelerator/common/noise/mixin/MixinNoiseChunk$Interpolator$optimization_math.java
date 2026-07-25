@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$InterpolatorSoAPath;
 import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$NoiseInterpolatorPatch;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.spongepowered.asm.mixin.*;
@@ -17,6 +18,10 @@ public abstract class MixinNoiseChunk$Interpolator$optimization_math implements
     @Shadow
     @Final
     NoiseChunk field_34622;
+    @Mutable
+    @Shadow
+    @Final
+    private DensityFunction noiseFiller;
     @Shadow
     double[][] slice0;
     @Shadow
@@ -128,6 +133,16 @@ public abstract class MixinNoiseChunk$Interpolator$optimization_math implements
         final double lerpX1 = lerpY01 + deltaX * (lerpY11 - lerpY01);
 
         return lerpX0 + deltaZ * (lerpX1 - lerpX0);
+    }
+
+    @Override
+    public DensityFunction bts$getNoiseFiller() {
+        return this.noiseFiller;
+    }
+
+    @Override
+    public void bts$setNoiseFiller(DensityFunction densityFunction) {
+        this.noiseFiller = densityFunction;
     }
 
     @Override

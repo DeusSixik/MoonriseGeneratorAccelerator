@@ -22,7 +22,9 @@ public record GpuIrPayload(
         double[] value0,
         double[] value1,
         double[] value2,
-        double[] value3) {
+        double[] value3,
+        int[] noisePermutations,
+        double[] noiseOctaveData) {
 
     public static final int CONST = 1;
     public static final int BLOCK_X = 2;
@@ -45,7 +47,19 @@ public record GpuIrPayload(
     public static final int RANGE_CHOICE = 19;
     public static final int Y_CLAMPED_GRADIENT = 20;
     public static final int EXTERN_INPUT = 21;
+    public static final int INLINED_NOISE = 22;
+    public static final int BLEND_DENSITY = 23;
+    public static final int INLINED_BLENDED_NOISE = 24;
+    public static final int WEIRD_RARITY = 25;
     public static final int CUSTOM_OP = 1000;
+
+    public static final int NOISE_PERMUTATION_SIZE = 256;
+    public static final int NOISE_OCTAVE_DATA_STRIDE = 5;
+    public static final int NOISE_OCTAVE_INPUT_FACTOR = 0;
+    public static final int NOISE_OCTAVE_AMP_VALUE_FACTOR = 1;
+    public static final int NOISE_OCTAVE_XO = 2;
+    public static final int NOISE_OCTAVE_YO = 3;
+    public static final int NOISE_OCTAVE_ZO = 4;
 
     public int nodeCount() {
         return opcodes.length;
@@ -62,5 +76,18 @@ public record GpuIrPayload(
             }
         }
         return false;
+    }
+
+    public boolean requiresRootParity() {
+        for (int opcode : opcodes) {
+            if (opcode == BLEND_DENSITY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public int noiseOctaveCount() {
+        return noiseOctaveData.length / NOISE_OCTAVE_DATA_STRIDE;
     }
 }

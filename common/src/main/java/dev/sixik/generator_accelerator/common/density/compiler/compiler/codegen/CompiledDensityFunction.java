@@ -37,6 +37,9 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public abstract class CompiledDensityFunction implements DensityFunction, DfcCellFillAccess {
 
+    private static final String GPU_CELL_FILL_PROTOTYPE_PROPERTY = "ga.dfc.gpu.cellFillPrototype";
+    private static final boolean GPU_CELL_FILL_PROTOTYPE_ENABLED = Boolean.getBoolean(GPU_CELL_FILL_PROTOTYPE_PROPERTY);
+
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
 
@@ -181,13 +184,16 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      */
     @Override
     public void fillArray(double[] out, ContextProvider provider) {
-        if (tryFillArrayWithGpuPayload(out, provider)) {
+        if (GPU_CELL_FILL_PROTOTYPE_ENABLED && tryFillArrayWithGpuPayload(out, provider)) {
             return;
         }
         provider.fillAllDirectly(out, this);
     }
 
     private boolean tryFillArrayWithGpuPayload(double[] out, ContextProvider provider) {
+        if (!GPU_CELL_FILL_PROTOTYPE_ENABLED) {
+            return false;
+        }
         if (!(provider instanceof NoiseChunk chunk)) {
             return false;
         }
@@ -299,7 +305,8 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             double[] externValues,
             double[] gpuOutput,
             double[] expected) {
-        if (payload.hasExternInputs() && GpuPayloadBatchExecutor.runtimeParityRemaining() > 0) {
+        if ((payload.hasExternInputs() || payload.requiresRootParity())
+                && GpuPayloadBatchExecutor.runtimeParityRemaining() > 0) {
             fillDirectCpuExpected(chunk, cellW, cellH, expected);
             return GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(gpuOutput, expected);
         }
@@ -423,6 +430,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
+        if (GPU_CELL_FILL_PROTOTYPE_ENABLED && tryFillArrayWithGpuPayload(out, chunk)) {
+            return;
+        }
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
         int idx = 0;
@@ -479,6 +489,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
                 + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
                 + ", cellAddBeardifier=" + entry.cellAddBeardifierSpecialized()
                 + ", cellAddExtern=" + entry.cellAddExternSpecialized()
+                + ", cellScalarMarker=" + entry.cellScalarMarkerSpecialized()
                 + ", root=" + entry.rootDebug()
                 + "}"
                 : ", registry=<missing>");

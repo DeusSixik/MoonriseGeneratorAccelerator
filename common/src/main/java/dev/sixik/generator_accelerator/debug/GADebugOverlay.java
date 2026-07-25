@@ -35,10 +35,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public final class GADebugOverlay {
+    private static final int DUMP_LIST_LIMIT = 8;
+    private static final int DUMP_COMPILED_CLASS_LIMIT = 3;
+    private static final int DUMP_VALUE_MAX_CHARS = 160;
+
     private enum DebugTab {
         DFC("DFC"),
         BIOME("Biome");
@@ -366,6 +372,7 @@ public final class GADebugOverlay {
                 + stats.cellAddLatticeSpecializedRoots() + "/"
                 + stats.cellAddBeardifierSpecializedRoots() + "/"
                 + stats.cellAddExternSpecializedRoots());
+        ImGui.text("Cell scalar marker specializations: " + stats.cellScalarMarkerSpecializedRoots());
         ImGui.text("GPU eligible / blocked roots: " + stats.gpuEligibleRoots() + "/" + stats.gpuBlockedRoots());
         ImGui.text("GPU blockers total: " + stats.gpuBlockersTotal());
         drawStringList("GPU blocker counts", stats.gpuBlockerCounts());
@@ -395,6 +402,10 @@ public final class GADebugOverlay {
                 + GpuPayloadBatchExecutor.runtimeBatchRemaining()
                 + "/" + GpuPayloadBatchExecutor.runtimeBatchBudgetMax());
         ImGui.text("GPU runtime min points: " + GpuPayloadBatchExecutor.runtimeMinPoints());
+        ImGui.text("GPU runtime lock wait nanos: " + GpuPayloadBatchExecutor.runtimeLockWaitNanos());
+        if (!stats.gpuPayloadBatchRuntimeGateCounts().isEmpty()) {
+            ImGui.textWrapped("GPU runtime gates: " + stats.gpuPayloadBatchRuntimeGateCounts());
+        }
         ImGui.text("GPU batch attempts/gpu/fallback: " + stats.gpuPayloadBatchAttempts()
                 + "/" + stats.gpuPayloadBatchGpuSuccesses() + "/" + stats.gpuPayloadBatchCpuFallbacks());
         ImGui.text("GPU batch points: " + stats.gpuPayloadBatchPoints());
@@ -522,6 +533,27 @@ public final class GADebugOverlay {
         ImGui.text("FillSlice calls/ms/avg ns: " + stats.fillSliceCalls()
                 + "/" + formatMillis(stats.fillSliceTotalNanos())
                 + "/" + formatAverageNanos(stats.fillSliceTotalNanos(), stats.fillSliceCalls()));
+        ImGui.text("FillSlice batch surface points total/avg/max: "
+                + stats.fillSliceBatchSurfacePoints()
+                + "/" + formatAverage(stats.fillSliceBatchSurfacePoints(), stats.fillSliceCalls())
+                + "/" + stats.fillSliceBatchSurfaceMaxPoints());
+        ImGui.text("FillSlice batch surface avg columns/y/interpolators: "
+                + formatAverage(stats.fillSliceBatchSurfaceColumns(), stats.fillSliceCalls())
+                + "/" + formatAverage(stats.fillSliceBatchSurfaceY(), stats.fillSliceCalls())
+                + "/" + formatAverage(stats.fillSliceBatchSurfaceInterpolators(), stats.fillSliceCalls()));
+        ImGui.text("FillSlice payload roots ready/total/extern: "
+                + stats.fillSlicePayloadReadyRoots()
+                + "/" + stats.fillSlicePayloadRoots()
+                + "/" + stats.fillSlicePayloadExternRoots());
+        ImGui.text("FillSlice payload points ready/total/extern: "
+                + stats.fillSlicePayloadReadyPoints()
+                + "/" + stats.fillSlicePayloadPoints()
+                + "/" + stats.fillSlicePayloadExternPoints());
+        ImGui.text("FillSlice lazy compiles attempt/success/fail/budget: "
+                + stats.fillSliceLazyCompileAttempts()
+                + "/" + stats.fillSliceLazyCompileSuccesses()
+                + "/" + stats.fillSliceLazyCompileFailures()
+                + "/" + stats.fillSliceLazyCompileBudgetSkips());
         ImGui.text("SelectCellYZ calls/ms/avg ns: " + stats.selectCellYzCalls()
                 + "/" + formatMillis(stats.selectCellYzTotalNanos())
                 + "/" + formatAverageNanos(stats.selectCellYzTotalNanos(), stats.selectCellYzCalls()));
@@ -551,6 +583,8 @@ public final class GADebugOverlay {
         drawStringList("SelectCellYZ fast filler details", stats.selectCellYzFastFillerDetails());
         drawStringList("SelectCellYZ fallback filler classes", stats.selectCellYzFallbackFillerClasses());
         drawStringList("SelectCellYZ fallback filler details", stats.selectCellYzFallbackFillerDetails());
+        drawStringList("FillSlice payload missing classes", stats.fillSlicePayloadMissingClasses());
+        drawStringList("FillSlice payload blocked reasons", stats.fillSlicePayloadBlockedReasons());
     }
 
     private static void drawSplineStats() {
@@ -750,6 +784,13 @@ public final class GADebugOverlay {
         return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
     }
 
+    private static String formatAverage(long total, long calls) {
+        if (calls <= 0L) {
+            return "0.0";
+        }
+        return String.format(Locale.ROOT, "%.1f", total / (double) calls);
+    }
+
     private static String buildDump(DebugTab tab) {
         return tab == DebugTab.BIOME ? buildBiomeDump() : buildDfcDump();
     }
@@ -775,6 +816,7 @@ public final class GADebugOverlay {
         BeardifierStats.Stats beardifierStats = BeardifierStats.snapshotStats();
         RegistryWarmer.Stats registryWarmerStats = RegistryWarmer.snapshotStats();
         List<DfcSplineStats.ClassStats> topSplineClasses = DfcSplineStats.snapshotTopClasses(5);
+        List<DfcCompiledClassRegistry.Entry> compiledEntries = DfcCompiledClassRegistry.snapshotRecent();
 
         appendSection(dump, "Environment");
         appendLine(dump, "devMode", GeneratorAccelerator.isDevMode());
@@ -829,16 +871,15 @@ public final class GADebugOverlay {
         appendLine(dump, "cellAddLatticeSpecializedRoots", routerStats.cellAddLatticeSpecializedRoots());
         appendLine(dump, "cellAddBeardifierSpecializedRoots", routerStats.cellAddBeardifierSpecializedRoots());
         appendLine(dump, "cellAddExternSpecializedRoots", routerStats.cellAddExternSpecializedRoots());
-        appendList(dump, "compiledClasses", DfcCompiledClassRegistry.snapshotRecent().stream()
-                .map(entry -> entry.classBaseName()
-                        + "{source=" + entry.sourceRootClass()
-                        + ", lattice=" + entry.latticeEmitted()
-                        + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
-                        + ", cellAddBeardifier=" + entry.cellAddBeardifierSpecialized()
-                        + ", cellAddExtern=" + entry.cellAddExternSpecialized()
-                        + ", root=" + entry.rootDebug()
-                        + "}")
-                .toList());
+        appendLine(dump, "cellScalarMarkerSpecializedRoots", routerStats.cellScalarMarkerSpecializedRoots());
+        appendLine(dump, "compiledClassesTotal", compiledEntries.size());
+        appendList(dump, "compiledClassSourceCounts", compiledClassSourceCounts(compiledEntries));
+        appendLimitedList(dump, "compiledClasses", compiledEntries.stream()
+                .map(GADebugOverlay::formatCompiledClassSummary)
+                .toList(), DUMP_COMPILED_CLASS_LIMIT);
+        appendLimitedRawList(dump, "compiledClassRootDetails", compiledEntries.stream()
+                .map(GADebugOverlay::formatCompiledClassRootDetail)
+                .toList(), DUMP_COMPILED_CLASS_LIMIT);
         appendLine(dump, "gpuEligibleRoots", routerStats.gpuEligibleRoots());
         appendLine(dump, "gpuBlockedRoots", routerStats.gpuBlockedRoots());
         appendLine(dump, "gpuBlockersTotal", routerStats.gpuBlockersTotal());
@@ -869,6 +910,15 @@ public final class GADebugOverlay {
         appendLine(dump, "gpuRuntimeBatchRemaining", GpuPayloadBatchExecutor.runtimeBatchRemaining());
         appendLine(dump, "gpuRuntimeBatchMax", GpuPayloadBatchExecutor.runtimeBatchBudgetMax());
         appendLine(dump, "gpuRuntimeMinPoints", GpuPayloadBatchExecutor.runtimeMinPoints());
+        appendLine(dump, "gpuRuntimeLockWaitNanos", GpuPayloadBatchExecutor.runtimeLockWaitNanos());
+        appendLine(dump, "gpuRuntimeMicroBatchMax", GpuPayloadBatchExecutor.runtimeMicroBatchMax());
+        appendLine(dump, "gpuRuntimeMicroBatchMin", GpuPayloadBatchExecutor.runtimeMicroBatchMin());
+        appendLine(dump, "gpuRuntimeMicroBatchCollectNanos", GpuPayloadBatchExecutor.runtimeMicroBatchCollectNanos());
+        appendLine(dump, "gpuRuntimeMicroBatchWaitNanos", GpuPayloadBatchExecutor.runtimeMicroBatchWaitNanos());
+        appendLine(dump, "gpuRuntimeMicroBatchBackoffSingleStreak", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffSingleStreak());
+        appendLine(dump, "gpuRuntimeMicroBatchBackoffBusyStreak", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffBusyStreak());
+        appendLine(dump, "gpuRuntimeMicroBatchBackoffBatches", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffBatches());
+        appendList(dump, "gpuPayloadBatchRuntimeGateCounts", routerStats.gpuPayloadBatchRuntimeGateCounts());
         appendLine(dump, "gpuDebugProbeLastStatus", lastGpuProbeStatus);
         appendLine(dump, "gpuLargeBatchProbeLastStatus", lastGpuLargeBatchProbeStatus);
         appendLine(dump, "dfcDebugCompileLastStatus", lastDfcCompileProbeStatus);
@@ -945,40 +995,56 @@ public final class GADebugOverlay {
         appendLine(dump, "cacheFastPathDisabledFallbacks", cacheFastPathStats.disabledFallbacks());
         appendLine(dump, "cacheFastPathNonAccessFallbacks", cacheFastPathStats.nonAccessFallbacks());
 
-        appendSection(dump, "Cell Fill");
-        appendLine(dump, "statsEnabled", cellFillStats.enabled());
-        appendLine(dump, "cellScalar", cellFillStats.cellScalar());
-        appendLine(dump, "cellCompiled", cellFillStats.cellCompiled());
-        appendLine(dump, "cellUnknown", cellFillStats.cellUnknown());
-        appendLine(dump, "cellXzSlab", cellFillStats.cellXzSlab());
-        appendLine(dump, "cellExternAccumulate", cellFillStats.cellExternAccumulate());
-        appendLine(dump, "cellExternScalarResidual", cellFillStats.cellExternScalarResidual());
-        appendLine(dump, "cellGpuPayloadReady", cellFillStats.cellGpuPayloadReady());
-        appendLine(dump, "cellGpuPayloadBlocked", cellFillStats.cellGpuPayloadBlocked());
-        appendLine(dump, "columnsScalar", cellFillStats.columnsScalar());
-        appendLine(dump, "columnsJavaBatched", cellFillStats.columnsJavaBatched());
-        appendList(dump, "fastFillerClasses", cellFillStats.fastFillerClasses().stream()
-                .map(stat -> stat.className() + "=" + stat.calls())
-                .toList());
-        appendList(dump, "sourceFillerClasses", cellFillStats.sourceFillerClasses());
-        appendList(dump, "residualExternFallbackClasses", cellFillStats.residualExternFallbackClasses());
-        appendList(dump, "cellGpuFirstBlockers", cellFillStats.cellGpuFirstBlockers());
-        appendList(dump, "cellGpuUnsupportedNodes", cellFillStats.cellGpuUnsupportedNodes());
+        if (shouldDumpCellFill(cellFillStats)) {
+            appendSection(dump, "Cell Fill");
+            appendLine(dump, "statsEnabled", cellFillStats.enabled());
+            appendLine(dump, "cellScalar", cellFillStats.cellScalar());
+            appendLine(dump, "cellCompiled", cellFillStats.cellCompiled());
+            appendLine(dump, "cellUnknown", cellFillStats.cellUnknown());
+            appendLine(dump, "cellXzSlab", cellFillStats.cellXzSlab());
+            appendLine(dump, "cellExternAccumulate", cellFillStats.cellExternAccumulate());
+            appendLine(dump, "cellExternScalarResidual", cellFillStats.cellExternScalarResidual());
+            appendLine(dump, "cellGpuPayloadReady", cellFillStats.cellGpuPayloadReady());
+            appendLine(dump, "cellGpuPayloadBlocked", cellFillStats.cellGpuPayloadBlocked());
+            appendLine(dump, "columnsScalar", cellFillStats.columnsScalar());
+            appendLine(dump, "columnsJavaBatched", cellFillStats.columnsJavaBatched());
+            appendList(dump, "fastFillerClasses", cellFillStats.fastFillerClasses().stream()
+                    .map(stat -> stat.className() + "=" + stat.calls())
+                    .toList());
+            appendList(dump, "fastFillerDebugClasses", cellFillStats.fastFillerDebugClasses().stream()
+                    .map(stat -> stripHiddenClassSuffix(stat.className())
+                            + "=" + stat.calls()
+                            + "{source=" + simpleClassName(stat.sourceRootClass())
+                            + ",lattice=" + stat.latticeEmitted()
+                            + ",cellAddLattice=" + stat.cellAddLatticeSpecialized()
+                            + ",cellAddBeardifier=" + stat.cellAddBeardifierSpecialized()
+                            + ",cellAddExtern=" + stat.cellAddExternSpecialized()
+                            + ",cellScalarMarker=" + stat.cellScalarMarkerSpecialized()
+                            + ",root=" + stat.rootDebug()
+                            + "}")
+                    .toList());
+            appendList(dump, "sourceFillerClasses", cellFillStats.sourceFillerClasses());
+            appendList(dump, "residualExternFallbackClasses", cellFillStats.residualExternFallbackClasses());
+            appendList(dump, "cellGpuFirstBlockers", cellFillStats.cellGpuFirstBlockers());
+            appendList(dump, "cellGpuUnsupportedNodes", cellFillStats.cellGpuUnsupportedNodes());
+        }
 
-        appendSection(dump, "Cell Fill Parity");
-        appendLine(dump, "enabled", parityStats.enabled());
-        appendLine(dump, "checks", parityStats.checks());
-        appendLine(dump, "passes", parityStats.passes());
-        appendLine(dump, "failures", parityStats.failures());
-        appendLine(dump, "skipped", parityStats.skipped());
-        appendLine(dump, "candidates", parityStats.candidates());
-        appendLine(dump, "fastEligible", parityStats.fastEligible());
-        appendLine(dump, "lazyFastEligible", parityStats.lazyFastEligible());
-        appendLine(dump, "fallbacks", parityStats.fallbacks());
-        appendLine(dump, "remaining", parityStats.remaining());
-        appendLine(dump, "maxChecks", parityStats.maxChecks());
-        appendLine(dump, "epsilon", parityStats.epsilon());
-        appendList(dump, "fallbackClasses", parityStats.fallbackClasses());
+        if (shouldDumpCellFillParity(parityStats)) {
+            appendSection(dump, "Cell Fill Parity");
+            appendLine(dump, "enabled", parityStats.enabled());
+            appendLine(dump, "checks", parityStats.checks());
+            appendLine(dump, "passes", parityStats.passes());
+            appendLine(dump, "failures", parityStats.failures());
+            appendLine(dump, "skipped", parityStats.skipped());
+            appendLine(dump, "candidates", parityStats.candidates());
+            appendLine(dump, "fastEligible", parityStats.fastEligible());
+            appendLine(dump, "lazyFastEligible", parityStats.lazyFastEligible());
+            appendLine(dump, "fallbacks", parityStats.fallbacks());
+            appendLine(dump, "remaining", parityStats.remaining());
+            appendLine(dump, "maxChecks", parityStats.maxChecks());
+            appendLine(dump, "epsilon", parityStats.epsilon());
+            appendList(dump, "fallbackClasses", parityStats.fallbackClasses());
+        }
 
         appendSection(dump, "NoiseChunk Timing");
         appendLine(dump, "enabled", noiseChunkTimingStats.enabled());
@@ -986,6 +1052,36 @@ public final class GADebugOverlay {
         appendLine(dump, "fillSliceTotalNanos", noiseChunkTimingStats.fillSliceTotalNanos());
         appendLine(dump, "fillSliceAvgNanos", formatAverageNanos(
                 noiseChunkTimingStats.fillSliceTotalNanos(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "fillSliceBatchSurfacePoints", noiseChunkTimingStats.fillSliceBatchSurfacePoints());
+        appendLine(dump, "fillSliceBatchSurfaceAvgPoints", formatAverage(
+                noiseChunkTimingStats.fillSliceBatchSurfacePoints(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "fillSliceBatchSurfaceMaxPoints", noiseChunkTimingStats.fillSliceBatchSurfaceMaxPoints());
+        appendLine(dump, "fillSliceBatchSurfaceAvgColumns", formatAverage(
+                noiseChunkTimingStats.fillSliceBatchSurfaceColumns(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "fillSliceBatchSurfaceAvgY", formatAverage(
+                noiseChunkTimingStats.fillSliceBatchSurfaceY(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "fillSliceBatchSurfaceAvgInterpolators", formatAverage(
+                noiseChunkTimingStats.fillSliceBatchSurfaceInterpolators(), noiseChunkTimingStats.fillSliceCalls()));
+        appendLine(dump, "fillSlicePayloadRoots", noiseChunkTimingStats.fillSlicePayloadRoots());
+        appendLine(dump, "fillSlicePayloadReadyRoots", noiseChunkTimingStats.fillSlicePayloadReadyRoots());
+        appendLine(dump, "fillSlicePayloadExternRoots", noiseChunkTimingStats.fillSlicePayloadExternRoots());
+        appendLine(dump, "fillSlicePayloadPoints", noiseChunkTimingStats.fillSlicePayloadPoints());
+        appendLine(dump, "fillSlicePayloadReadyPoints", noiseChunkTimingStats.fillSlicePayloadReadyPoints());
+        appendLine(dump, "fillSlicePayloadExternPoints", noiseChunkTimingStats.fillSlicePayloadExternPoints());
+        appendLine(dump, "fillSliceLazyCompileAttempts", noiseChunkTimingStats.fillSliceLazyCompileAttempts());
+        appendLine(dump, "fillSliceLazyCompileSuccesses", noiseChunkTimingStats.fillSliceLazyCompileSuccesses());
+        appendLine(dump, "fillSliceLazyCompileFailures", noiseChunkTimingStats.fillSliceLazyCompileFailures());
+        appendLine(dump, "fillSliceLazyCompileBudgetSkips", noiseChunkTimingStats.fillSliceLazyCompileBudgetSkips());
+        appendLine(dump, "fillSliceGpuCandidateRoots", noiseChunkTimingStats.fillSliceGpuCandidateRoots());
+        appendLine(dump, "fillSliceGpuBestGroupMaxRoots", noiseChunkTimingStats.fillSliceGpuBestGroupMaxRoots());
+        appendLine(dump, "fillSliceGpuBestGroupMaxPoints", noiseChunkTimingStats.fillSliceGpuBestGroupMaxPoints());
+        appendLine(dump, "fillSliceGpuGroupedLaunches", noiseChunkTimingStats.fillSliceGpuGroupedLaunches());
+        appendLine(dump, "fillSliceGpuGroupedRoots", noiseChunkTimingStats.fillSliceGpuGroupedRoots());
+        appendLine(dump, "fillSliceGpuGroupedPoints", noiseChunkTimingStats.fillSliceGpuGroupedPoints());
+        appendList(dump, "fillSlicePayloadMissingClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSlicePayloadMissingClasses()));
+        appendList(dump, "fillSlicePayloadBlockedReasons",
+                noiseChunkTimingStats.fillSlicePayloadBlockedReasons());
         appendLine(dump, "selectCellYzCalls", noiseChunkTimingStats.selectCellYzCalls());
         appendLine(dump, "selectCellYzTotalNanos", noiseChunkTimingStats.selectCellYzTotalNanos());
         appendLine(dump, "selectCellYzAvgNanos", formatAverageNanos(
@@ -1026,111 +1122,119 @@ public final class GADebugOverlay {
         appendList(dump, "selectCellYzFallbackFillerDetails",
                 noiseChunkTimingStats.selectCellYzFallbackFillerDetails());
 
-        appendSection(dump, "Spline Runtime");
-        appendLine(dump, "enabled", splineStats.enabled());
-        appendLine(dump, "searchMode", Codegen.splineSearchModeName());
-        appendLine(dump, "linearMaxPoints", Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS);
-        appendLine(dump, "segmentLutEnabled", Codegen.SPLINE_SEGMENT_LUT_ENABLED);
-        appendLine(dump, "segmentLutMinPoints", Codegen.SPLINE_SEGMENT_LUT_MIN_POINTS);
-        appendLine(dump, "segmentLutBuckets", Codegen.SPLINE_SEGMENT_LUT_BUCKETS);
-        appendLine(dump, "calls", splineStats.calls());
-        appendLine(dump, "linearCalls", splineStats.linearCalls());
-        appendLine(dump, "binaryCalls", splineStats.binaryCalls());
-        appendLine(dump, "lutCalls", splineStats.lutCalls());
-        appendLine(dump, "interiorCalls", splineStats.interiorCalls());
-        appendLine(dump, "leftExtrapolationCalls", splineStats.leftExtrapolationCalls());
-        appendLine(dump, "rightExtrapolationCalls", splineStats.rightExtrapolationCalls());
-        appendLine(dump, "totalNanos", splineStats.totalNanos());
-        appendLine(dump, "linearNanos", splineStats.linearNanos());
-        appendLine(dump, "binaryNanos", splineStats.binaryNanos());
-        appendLine(dump, "lutNanos", splineStats.lutNanos());
-        appendLine(dump, "bucketLe2", formatBucket(splineStats.bucketLe2()));
-        appendLine(dump, "bucket3To4", formatBucket(splineStats.bucket3To4()));
-        appendLine(dump, "bucket5To8", formatBucket(splineStats.bucket5To8()));
-        appendLine(dump, "bucketGe9", formatBucket(splineStats.bucketGe9()));
-        appendList(dump, "topSplineClasses", topSplineClasses.stream()
-                .map(stat -> stat.className()
-                        + "{source=" + stat.sourceRootClass()
-                        + ", root=" + stat.rootDebug()
-                        + ", spline=" + stat.splineDebug()
-                        + ", calls=" + stat.calls()
-                        + ", totalMs=" + formatMillis(stat.totalNanos())
-                        + ", avgNs=" + formatAverageNanos(stat.totalNanos(), stat.calls())
-                        + ", linear=" + stat.linearCalls()
-                        + ", binary=" + stat.binaryCalls()
-                        + ", lut=" + stat.lutCalls()
-                        + ", interior=" + stat.interiorCalls()
-                        + ", left=" + stat.leftExtrapolationCalls()
-                        + ", right=" + stat.rightExtrapolationCalls()
-                        + ", point3=" + formatBucket(stat.point3())
-                        + ", point4=" + formatBucket(stat.point4())
-                        + ", <=2=" + formatBucket(stat.bucketLe2())
-                        + ", 3..4=" + formatBucket(stat.bucket3To4())
-                        + ", 5..8=" + formatBucket(stat.bucket5To8())
-                        + ", >=9=" + formatBucket(stat.bucketGe9())
-                        + "}")
-                .toList());
+        if (shouldDumpSpline(splineStats)) {
+            appendSection(dump, "Spline Runtime");
+            appendLine(dump, "enabled", splineStats.enabled());
+            appendLine(dump, "searchMode", Codegen.splineSearchModeName());
+            appendLine(dump, "linearMaxPoints", Codegen.SPLINE_LINEAR_SEARCH_MAX_POINTS);
+            appendLine(dump, "segmentLutEnabled", Codegen.SPLINE_SEGMENT_LUT_ENABLED);
+            appendLine(dump, "segmentLutMinPoints", Codegen.SPLINE_SEGMENT_LUT_MIN_POINTS);
+            appendLine(dump, "segmentLutBuckets", Codegen.SPLINE_SEGMENT_LUT_BUCKETS);
+            appendLine(dump, "calls", splineStats.calls());
+            appendLine(dump, "linearCalls", splineStats.linearCalls());
+            appendLine(dump, "binaryCalls", splineStats.binaryCalls());
+            appendLine(dump, "lutCalls", splineStats.lutCalls());
+            appendLine(dump, "interiorCalls", splineStats.interiorCalls());
+            appendLine(dump, "leftExtrapolationCalls", splineStats.leftExtrapolationCalls());
+            appendLine(dump, "rightExtrapolationCalls", splineStats.rightExtrapolationCalls());
+            appendLine(dump, "totalNanos", splineStats.totalNanos());
+            appendLine(dump, "linearNanos", splineStats.linearNanos());
+            appendLine(dump, "binaryNanos", splineStats.binaryNanos());
+            appendLine(dump, "lutNanos", splineStats.lutNanos());
+            appendLine(dump, "bucketLe2", formatBucket(splineStats.bucketLe2()));
+            appendLine(dump, "bucket3To4", formatBucket(splineStats.bucket3To4()));
+            appendLine(dump, "bucket5To8", formatBucket(splineStats.bucket5To8()));
+            appendLine(dump, "bucketGe9", formatBucket(splineStats.bucketGe9()));
+            appendList(dump, "topSplineClasses", topSplineClasses.stream()
+                    .map(stat -> stat.className()
+                            + "{source=" + stat.sourceRootClass()
+                            + ", root=" + stat.rootDebug()
+                            + ", spline=" + stat.splineDebug()
+                            + ", calls=" + stat.calls()
+                            + ", totalMs=" + formatMillis(stat.totalNanos())
+                            + ", avgNs=" + formatAverageNanos(stat.totalNanos(), stat.calls())
+                            + ", linear=" + stat.linearCalls()
+                            + ", binary=" + stat.binaryCalls()
+                            + ", lut=" + stat.lutCalls()
+                            + ", interior=" + stat.interiorCalls()
+                            + ", left=" + stat.leftExtrapolationCalls()
+                            + ", right=" + stat.rightExtrapolationCalls()
+                            + ", point3=" + formatBucket(stat.point3())
+                            + ", point4=" + formatBucket(stat.point4())
+                            + ", <=2=" + formatBucket(stat.bucketLe2())
+                            + ", 3..4=" + formatBucket(stat.bucket3To4())
+                            + ", 5..8=" + formatBucket(stat.bucket5To8())
+                            + ", >=9=" + formatBucket(stat.bucketGe9())
+                            + "}")
+                    .toList());
+        }
 
-        appendSection(dump, "Aquifer");
-        appendLine(dump, "computeSubstanceCalls", aquiferStats.computeSubstanceCalls());
-        appendLine(dump, "positiveDensityReturns", aquiferStats.positiveDensityReturns());
-        appendLine(dump, "globalLavaReturns", aquiferStats.globalLavaReturns());
-        appendLine(dump, "refreshDistCalls", aquiferStats.refreshDistCalls());
-        appendLine(dump, "barrierNoiseComputes", aquiferStats.barrierNoiseComputes());
-        appendLine(dump, "waterBelowLavaReturns", aquiferStats.waterBelowLavaReturns());
-        appendLine(dump, "pressureAbortReturns", aquiferStats.pressureAbortReturns());
-        appendLine(dump, "finalSolidReturns", aquiferStats.finalSolidReturns());
-        appendLine(dump, "lazyThirdResolves", aquiferStats.lazyThirdResolves());
-        appendLine(dump, "refreshDistTimedCalls", aquiferStats.refreshDistTimedCalls());
-        appendLine(dump, "refreshDistTotalNanos", aquiferStats.refreshDistTotalNanos());
-        appendLine(dump, "lazyThirdTimedCalls", aquiferStats.lazyThirdTimedCalls());
-        appendLine(dump, "lazyThirdTotalNanos", aquiferStats.lazyThirdTotalNanos());
-        appendLine(dump, "aquiferStatusTimedCalls", aquiferStats.aquiferStatusTimedCalls());
-        appendLine(dump, "aquiferStatusTotalNanos", aquiferStats.aquiferStatusTotalNanos());
+        if (shouldDumpAquifer(aquiferStats)) {
+            appendSection(dump, "Aquifer");
+            appendLine(dump, "computeSubstanceCalls", aquiferStats.computeSubstanceCalls());
+            appendLine(dump, "positiveDensityReturns", aquiferStats.positiveDensityReturns());
+            appendLine(dump, "globalLavaReturns", aquiferStats.globalLavaReturns());
+            appendLine(dump, "refreshDistCalls", aquiferStats.refreshDistCalls());
+            appendLine(dump, "barrierNoiseComputes", aquiferStats.barrierNoiseComputes());
+            appendLine(dump, "waterBelowLavaReturns", aquiferStats.waterBelowLavaReturns());
+            appendLine(dump, "pressureAbortReturns", aquiferStats.pressureAbortReturns());
+            appendLine(dump, "finalSolidReturns", aquiferStats.finalSolidReturns());
+            appendLine(dump, "lazyThirdResolves", aquiferStats.lazyThirdResolves());
+            appendLine(dump, "refreshDistTimedCalls", aquiferStats.refreshDistTimedCalls());
+            appendLine(dump, "refreshDistTotalNanos", aquiferStats.refreshDistTotalNanos());
+            appendLine(dump, "lazyThirdTimedCalls", aquiferStats.lazyThirdTimedCalls());
+            appendLine(dump, "lazyThirdTotalNanos", aquiferStats.lazyThirdTotalNanos());
+            appendLine(dump, "aquiferStatusTimedCalls", aquiferStats.aquiferStatusTimedCalls());
+            appendLine(dump, "aquiferStatusTotalNanos", aquiferStats.aquiferStatusTotalNanos());
+        }
 
-        appendSection(dump, "Beardifier");
-        appendLine(dump, "enabled", beardifierStats.enabled());
-        appendLine(dump, "computeCellCalls", beardifierStats.computeCellCalls());
-        appendLine(dump, "computeCellSingleCalls", beardifierStats.computeCellSingleCalls());
-        appendLine(dump, "computeCellBulkLogicalCalls", beardifierStats.computeCellBulkLogicalCalls());
-        appendLine(dump, "fillCellCalls", beardifierStats.fillCellCalls());
-        appendLine(dump, "accumulateCellCalls", beardifierStats.accumulateCellCalls());
-        appendLine(dump, "cellActivePieces", beardifierStats.cellActivePieces());
-        appendLine(dump, "cellActiveJunctions", beardifierStats.cellActiveJunctions());
-        appendLine(dump, "outsideInfluenceReturns", beardifierStats.outsideInfluenceReturns());
-        appendLine(dump, "outsideCellCacheHits", beardifierStats.outsideCellCacheHits());
-        appendLine(dump, "emptyActiveReturns", beardifierStats.emptyActiveReturns());
-        appendLine(dump, "columnsProcessed", beardifierStats.columnsProcessed());
-        appendLine(dump, "columnCacheHits", beardifierStats.columnCacheHits());
-        appendLine(dump, "directComputeFallbacks", beardifierStats.directComputeFallbacks());
-        appendLine(dump, "emptyColumnsAfterFilter", beardifierStats.emptyColumnsAfterFilter());
-        appendLine(dump, "columnPiecesBeforeFilter", beardifierStats.columnPiecesBeforeFilter());
-        appendLine(dump, "columnPiecesAfterFilter", beardifierStats.columnPiecesAfterFilter());
-        appendLine(dump, "columnJunctionsBeforeFilter", beardifierStats.columnJunctionsBeforeFilter());
-        appendLine(dump, "columnJunctionsAfterFilter", beardifierStats.columnJunctionsAfterFilter());
-        appendLine(dump, "filteredBuryPieces", beardifierStats.filteredBuryPieces());
-        appendLine(dump, "filteredThinPieces", beardifierStats.filteredThinPieces());
-        appendLine(dump, "filteredBoxPieces", beardifierStats.filteredBoxPieces());
-        appendLine(dump, "filteredEncapsulatePieces", beardifierStats.filteredEncapsulatePieces());
-        appendLine(dump, "computeCellTimedCalls", beardifierStats.computeCellTimedCalls());
-        appendLine(dump, "computeCellTotalNanos", beardifierStats.computeCellTotalNanos());
-        appendLine(dump, "fillCellTimedCalls", beardifierStats.fillCellTimedCalls());
-        appendLine(dump, "fillCellTotalNanos", beardifierStats.fillCellTotalNanos());
-        appendLine(dump, "accumulateCellTimedCalls", beardifierStats.accumulateCellTimedCalls());
-        appendLine(dump, "accumulateCellTotalNanos", beardifierStats.accumulateCellTotalNanos());
-        appendLine(dump, "rebuildColumnTimedCalls", beardifierStats.rebuildColumnTimedCalls());
-        appendLine(dump, "rebuildColumnTotalNanos", beardifierStats.rebuildColumnTotalNanos());
-        appendLine(dump, "directComputeTimedCalls", beardifierStats.directComputeTimedCalls());
-        appendLine(dump, "directComputeTotalNanos", beardifierStats.directComputeTotalNanos());
+        if (shouldDumpBeardifier(beardifierStats)) {
+            appendSection(dump, "Beardifier");
+            appendLine(dump, "enabled", beardifierStats.enabled());
+            appendLine(dump, "computeCellCalls", beardifierStats.computeCellCalls());
+            appendLine(dump, "computeCellSingleCalls", beardifierStats.computeCellSingleCalls());
+            appendLine(dump, "computeCellBulkLogicalCalls", beardifierStats.computeCellBulkLogicalCalls());
+            appendLine(dump, "fillCellCalls", beardifierStats.fillCellCalls());
+            appendLine(dump, "accumulateCellCalls", beardifierStats.accumulateCellCalls());
+            appendLine(dump, "cellActivePieces", beardifierStats.cellActivePieces());
+            appendLine(dump, "cellActiveJunctions", beardifierStats.cellActiveJunctions());
+            appendLine(dump, "outsideInfluenceReturns", beardifierStats.outsideInfluenceReturns());
+            appendLine(dump, "outsideCellCacheHits", beardifierStats.outsideCellCacheHits());
+            appendLine(dump, "emptyActiveReturns", beardifierStats.emptyActiveReturns());
+            appendLine(dump, "columnsProcessed", beardifierStats.columnsProcessed());
+            appendLine(dump, "columnCacheHits", beardifierStats.columnCacheHits());
+            appendLine(dump, "directComputeFallbacks", beardifierStats.directComputeFallbacks());
+            appendLine(dump, "emptyColumnsAfterFilter", beardifierStats.emptyColumnsAfterFilter());
+            appendLine(dump, "columnPiecesBeforeFilter", beardifierStats.columnPiecesBeforeFilter());
+            appendLine(dump, "columnPiecesAfterFilter", beardifierStats.columnPiecesAfterFilter());
+            appendLine(dump, "columnJunctionsBeforeFilter", beardifierStats.columnJunctionsBeforeFilter());
+            appendLine(dump, "columnJunctionsAfterFilter", beardifierStats.columnJunctionsAfterFilter());
+            appendLine(dump, "filteredBuryPieces", beardifierStats.filteredBuryPieces());
+            appendLine(dump, "filteredThinPieces", beardifierStats.filteredThinPieces());
+            appendLine(dump, "filteredBoxPieces", beardifierStats.filteredBoxPieces());
+            appendLine(dump, "filteredEncapsulatePieces", beardifierStats.filteredEncapsulatePieces());
+            appendLine(dump, "computeCellTimedCalls", beardifierStats.computeCellTimedCalls());
+            appendLine(dump, "computeCellTotalNanos", beardifierStats.computeCellTotalNanos());
+            appendLine(dump, "fillCellTimedCalls", beardifierStats.fillCellTimedCalls());
+            appendLine(dump, "fillCellTotalNanos", beardifierStats.fillCellTotalNanos());
+            appendLine(dump, "accumulateCellTimedCalls", beardifierStats.accumulateCellTimedCalls());
+            appendLine(dump, "accumulateCellTotalNanos", beardifierStats.accumulateCellTotalNanos());
+            appendLine(dump, "rebuildColumnTimedCalls", beardifierStats.rebuildColumnTimedCalls());
+            appendLine(dump, "rebuildColumnTotalNanos", beardifierStats.rebuildColumnTotalNanos());
+            appendLine(dump, "directComputeTimedCalls", beardifierStats.directComputeTimedCalls());
+            appendLine(dump, "directComputeTotalNanos", beardifierStats.directComputeTotalNanos());
+        }
 
-        appendSection(dump, "Registry Warmer");
-        appendLine(dump, "calls", registryWarmerStats.calls());
-        appendLine(dump, "skippedDuplicateCalls", registryWarmerStats.skippedDuplicateCalls());
-        appendLine(dump, "skippedDuplicateEntries", registryWarmerStats.skippedDuplicateEntries());
-        appendLine(dump, "warmedRouters", registryWarmerStats.warmedRouters());
-        appendLine(dump, "warmedDensityFunctions", registryWarmerStats.warmedDensityFunctions());
-        appendLine(dump, "failedEntries", registryWarmerStats.failedEntries());
-        appendLine(dump, "budgetSkips", registryWarmerStats.budgetSkips());
+        if (shouldDumpRegistryWarmer(registryWarmerStats)) {
+            appendSection(dump, "Registry Warmer");
+            appendLine(dump, "calls", registryWarmerStats.calls());
+            appendLine(dump, "skippedDuplicateCalls", registryWarmerStats.skippedDuplicateCalls());
+            appendLine(dump, "skippedDuplicateEntries", registryWarmerStats.skippedDuplicateEntries());
+            appendLine(dump, "warmedRouters", registryWarmerStats.warmedRouters());
+            appendLine(dump, "warmedDensityFunctions", registryWarmerStats.warmedDensityFunctions());
+            appendLine(dump, "failedEntries", registryWarmerStats.failedEntries());
+            appendLine(dump, "budgetSkips", registryWarmerStats.budgetSkips());
+        }
         return dump.toString();
     }
 
@@ -1215,13 +1319,227 @@ public final class GADebugOverlay {
         dump.append(key).append(": ").append(value).append(System.lineSeparator());
     }
 
+    private static List<String> compiledClassSourceCounts(List<DfcCompiledClassRegistry.Entry> entries) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (DfcCompiledClassRegistry.Entry entry : entries) {
+            counts.merge(simpleClassName(entry.sourceRootClass()), 1, Integer::sum);
+        }
+        return counts.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .toList();
+    }
+
+    private static List<String> compactGeneratedClassCounts(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        int generatedCompiledCount = 0;
+        for (String value : values) {
+            int count = trailingCount(value);
+            String key = countKey(value);
+            if (key.contains(".CompiledDF_") || key.contains("CompiledDF_")) {
+                generatedCompiledCount += count;
+            } else {
+                counts.merge(stripHiddenClassSuffix(key), count, Integer::sum);
+            }
+        }
+        if (generatedCompiledCount > 0) {
+            counts.put("CompiledDF_runtime_classes", generatedCompiledCount);
+        }
+        return counts.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .toList();
+    }
+
+    private static String countKey(String value) {
+        if (value == null) {
+            return "unknown";
+        }
+        int equals = value.lastIndexOf('=');
+        return equals > 0 ? value.substring(0, equals) : value;
+    }
+
+    private static int trailingCount(String value) {
+        if (value == null) {
+            return 1;
+        }
+        int equals = value.lastIndexOf('=');
+        if (equals < 0 || equals + 1 >= value.length()) {
+            return 1;
+        }
+        try {
+            return Integer.parseInt(value.substring(equals + 1));
+        } catch (NumberFormatException ignored) {
+            return 1;
+        }
+    }
+
+    private static String formatCompiledClassSummary(DfcCompiledClassRegistry.Entry entry) {
+        StringBuilder out = new StringBuilder(160);
+        out.append(simpleClassName(entry.classBaseName()))
+                .append("{source=").append(simpleClassName(entry.sourceRootClass()))
+                .append(", lattice=").append(entry.latticeEmitted());
+        if (entry.cellAddLatticeSpecialized()) {
+            out.append(", cellAddLattice=true");
+        }
+        if (entry.cellAddBeardifierSpecialized()) {
+            out.append(", cellAddBeardifier=true");
+        }
+        if (entry.cellAddExternSpecialized()) {
+            out.append(", cellAddExtern=true");
+        }
+        if (entry.cellScalarMarkerSpecialized()) {
+            out.append(", cellScalarMarker=true");
+        } else if (entry.cellScalarMarkerReason() != null && !entry.cellScalarMarkerReason().isBlank()) {
+            out.append(", cellScalarMarker=").append(entry.cellScalarMarkerReason());
+        }
+        out.append(", root=").append(rootKind(entry.rootDebug())).append("}");
+        return out.toString();
+    }
+
+    private static String formatCompiledClassRootDetail(DfcCompiledClassRegistry.Entry entry) {
+        return simpleClassName(entry.classBaseName())
+                + "{source=" + simpleClassName(entry.sourceRootClass())
+                + ",cellScalarMarker=" + entry.cellScalarMarkerReason()
+                + ",root=" + stripHiddenClassSuffix(entry.rootDebug())
+                + "}";
+    }
+
+    private static String rootKind(String rootDebug) {
+        if (rootDebug == null || rootDebug.isBlank()) {
+            return "unknown";
+        }
+        int comma = rootDebug.indexOf(',');
+        return comma >= 0 ? rootDebug.substring(0, comma) : rootDebug;
+    }
+
+    private static String simpleClassName(String className) {
+        if (className == null || className.isBlank()) {
+            return "unknown";
+        }
+        int dot = className.lastIndexOf('.');
+        return dot >= 0 ? className.substring(dot + 1) : className;
+    }
+
+    private static String truncateDumpValue(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String normalized = stripHiddenClassSuffix(value);
+        if (normalized.length() <= DUMP_VALUE_MAX_CHARS) {
+            return normalized;
+        }
+        return normalized.substring(0, DUMP_VALUE_MAX_CHARS) + "...";
+    }
+
+    private static String stripHiddenClassSuffix(String value) {
+        return value == null ? null : value.replaceAll("/0x[0-9a-fA-F]+", "");
+    }
+
+    private static boolean shouldDumpCellFill(DfcCellFillStats.Stats stats) {
+        return stats.enabled()
+                || stats.cellScalar() != 0L
+                || stats.cellCompiled() != 0L
+                || stats.cellUnknown() != 0L
+                || stats.cellXzSlab() != 0L
+                || stats.cellExternAccumulate() != 0L
+                || stats.cellExternScalarResidual() != 0L
+                || stats.cellGpuPayloadReady() != 0L
+                || stats.cellGpuPayloadBlocked() != 0L
+                || stats.columnsScalar() != 0L
+                || stats.columnsJavaBatched() != 0L
+                || !stats.fastFillerClasses().isEmpty()
+                || !stats.sourceFillerClasses().isEmpty()
+                || !stats.residualExternFallbackClasses().isEmpty()
+                || !stats.cellGpuFirstBlockers().isEmpty()
+                || !stats.cellGpuUnsupportedNodes().isEmpty();
+    }
+
+    private static boolean shouldDumpCellFillParity(DfcCellFillParity.Stats stats) {
+        return stats.enabled()
+                || stats.checks() != 0L
+                || stats.passes() != 0L
+                || stats.failures() != 0L
+                || stats.skipped() != 0L
+                || stats.candidates() != 0L
+                || stats.fastEligible() != 0L
+                || stats.lazyFastEligible() != 0L
+                || stats.fallbacks() != 0L
+                || !stats.fallbackClasses().isEmpty();
+    }
+
+    private static boolean shouldDumpSpline(DfcSplineStats.Stats stats) {
+        return stats.enabled()
+                || stats.calls() != 0L
+                || stats.linearCalls() != 0L
+                || stats.binaryCalls() != 0L
+                || stats.lutCalls() != 0L;
+    }
+
+    private static boolean shouldDumpAquifer(AquiferStats.Stats stats) {
+        return stats.computeSubstanceCalls() != 0L
+                || stats.refreshDistCalls() != 0L
+                || stats.barrierNoiseComputes() != 0L
+                || stats.refreshDistTimedCalls() != 0L
+                || stats.lazyThirdTimedCalls() != 0L
+                || stats.aquiferStatusTimedCalls() != 0L;
+    }
+
+    private static boolean shouldDumpBeardifier(BeardifierStats.Stats stats) {
+        return stats.enabled()
+                || stats.computeCellCalls() != 0L
+                || stats.computeCellSingleCalls() != 0L
+                || stats.computeCellBulkLogicalCalls() != 0L
+                || stats.fillCellCalls() != 0L
+                || stats.accumulateCellCalls() != 0L
+                || stats.columnsProcessed() != 0L
+                || stats.directComputeFallbacks() != 0L;
+    }
+
+    private static boolean shouldDumpRegistryWarmer(RegistryWarmer.Stats stats) {
+        return stats.calls() != 0L
+                || stats.skippedDuplicateCalls() != 0L
+                || stats.skippedDuplicateEntries() != 0L
+                || stats.warmedRouters() != 0L
+                || stats.warmedDensityFunctions() != 0L
+                || stats.failedEntries() != 0L
+                || stats.budgetSkips() != 0L;
+    }
+
     private static void appendList(StringBuilder dump, String key, List<String> values) {
+        appendLimitedList(dump, key, values, DUMP_LIST_LIMIT);
+    }
+
+    private static void appendLimitedList(StringBuilder dump, String key, List<String> values, int maxItems) {
         if (values == null || values.isEmpty()) {
             return;
         }
         dump.append(key).append(":").append(System.lineSeparator());
-        for (String value : values) {
-            dump.append("- ").append(value).append(System.lineSeparator());
+        int limit = Math.max(1, maxItems);
+        int emitted = Math.min(values.size(), limit);
+        for (int i = 0; i < emitted; i++) {
+            dump.append("- ").append(truncateDumpValue(values.get(i))).append(System.lineSeparator());
+        }
+        if (values.size() > emitted) {
+            dump.append("- ... ").append(values.size() - emitted).append(" more omitted")
+                    .append(System.lineSeparator());
+        }
+    }
+
+    private static void appendLimitedRawList(StringBuilder dump, String key, List<String> values, int maxItems) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        dump.append(key).append(":").append(System.lineSeparator());
+        int limit = Math.max(1, maxItems);
+        int emitted = Math.min(values.size(), limit);
+        for (int i = 0; i < emitted; i++) {
+            dump.append("- ").append(values.get(i)).append(System.lineSeparator());
+        }
+        if (values.size() > emitted) {
+            dump.append("- ... ").append(values.size() - emitted).append(" more omitted")
+                    .append(System.lineSeparator());
         }
     }
 }

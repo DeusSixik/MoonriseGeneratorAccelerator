@@ -5,6 +5,9 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
+import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$InterpolatorSoAPath;
+import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$NoiseInterpolatorPatch;
+import dev.sixik.generator_accelerator.common.noise.utils.DfcNoiseChunkSliceAccess;
 import org.objectweb.asm.*;
 
 import java.util.*;
@@ -127,7 +130,13 @@ public final class Codegen {
     private static final String DFC_SPLINE_SELECT_SEGMENT_DESC = "(" + DFC_SPLINE_SEGMENT_LUT_DESC + "F)I";
     private static final String DFC_SPLINE_SELECT_BINARY_DESC = "([FF)I";
     private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL =
-            "dev/sixik/generator_accelerator/common/noise/DfcNoiseChunkSliceAccess";
+            Type.getInternalName(DfcNoiseChunkSliceAccess.class);
+    private static final String NOISE_INTERPOLATOR_PATCH_INTERNAL =
+            Type.getInternalName(GA$NoiseChunk$NoiseInterpolatorPatch.class);
+    private static final String INTERPOLATOR_SOA_PATH_INTERNAL =
+            Type.getInternalName(GA$NoiseChunk$InterpolatorSoAPath.class);
+    private static final String INTERPOLATOR_SOA_PATH_DESC = "L" + INTERPOLATOR_SOA_PATH_INTERNAL + ";";
+    private static final String INTERPOLATOR_FILLING_DELTA_DESC = "(IDDD)D";
     private static final String DFC_VECTOR_SUPPORT_INTERNAL = Type.getInternalName(DfcVectorSupport.class);
     private static final String DOUBLE_VECTOR_FROM_ARRAY_DESC =
             "(L" + DfcVectorSupport.VECTOR_SPECIES_INTERNAL + ";[DI)L" + DfcVectorSupport.DOUBLE_VECTOR_INTERNAL + ";";
@@ -235,6 +244,20 @@ public final class Codegen {
             GAConfigHolder.getConfig().dfc.cellFillAddExternOverride;
     public static final boolean CELL_FILL_ADD_BEARDIFIER_OVERRIDE_ENABLED =
             GAConfigHolder.getConfig().dfc.cellFillAddBeardifierOverride;
+    /**
+     * Scalar-marker cell-fill override for compact interpolator-marker roots.
+     *
+     * <p>The override emits a loop that passes local in-cell coordinates directly to
+     * the NoiseChunk SoA interpolator path. If any marker has not rebound to a
+     * NoiseInterpolator, the method falls back to the inherited compiled loop.
+     */
+    private static boolean cellFillScalarMarkerOverrideEnabled() {
+        String override = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        if (override != null) {
+            return Boolean.parseBoolean(override);
+        }
+        return GAConfigHolder.getConfig().dfc.cellFillScalarMarkerOverride;
+    }
 
     private static SplineSearchMode parseSplineSearchMode(String raw) {
         if (raw == null) {
@@ -403,6 +426,8 @@ public final class Codegen {
         boolean cellAddLatticeSpecialized = false;
         boolean cellAddBeardifierSpecialized = false;
         boolean cellAddExternSpecialized = false;
+        boolean cellScalarMarkerSpecialized = false;
+        String cellScalarMarkerReason = latticeEmitted ? "blocked-by=lattice" : "not-evaluated";
         if (!latticeEmitted) {
             cellAddLatticeSpecialized = emitCellFillAddScalarOverrideIfPossible(cw, classInternalName, root, helpers);
             if (!cellAddLatticeSpecialized && CELL_FILL_ADD_BEARDIFIER_OVERRIDE_ENABLED) {
@@ -411,11 +436,30 @@ public final class Codegen {
             if (!cellAddLatticeSpecialized && !cellAddBeardifierSpecialized && CELL_FILL_ADD_EXTERN_OVERRIDE_ENABLED) {
                 cellAddExternSpecialized = emitCellFillAddExternOverrideIfPossible(cw, classInternalName, root, helpers, pool);
             }
+            if (cellAddLatticeSpecialized) {
+                cellScalarMarkerReason = "blocked-by=cellAddLattice";
+            } else if (cellAddBeardifierSpecialized) {
+                cellScalarMarkerReason = "blocked-by=cellAddBeardifier";
+            } else if (cellAddExternSpecialized) {
+                cellScalarMarkerReason = "blocked-by=cellAddExtern";
+            }
+            if (!cellAddLatticeSpecialized
+                    && !cellAddBeardifierSpecialized
+                    && !cellAddExternSpecialized) {
+                ScalarMarkerCellFillDecision decision = scalarMarkerCellFillDecision(root, helpers);
+                cellScalarMarkerReason = decision.reason();
+                if (decision.enabled()) {
+                    emitScalarMarkerCellFillOverride(cw, classInternalName, root, helpers);
+                    cellScalarMarkerSpecialized = true;
+                    cellScalarMarkerReason = "emitted";
+                }
+            }
         }
 
         cw.visitEnd();
         return new Result(cw.toByteArray(), helpers.emittedCount(), latticeEmitted,
-                cellAddLatticeSpecialized, cellAddBeardifierSpecialized, cellAddExternSpecialized);
+                cellAddLatticeSpecialized, cellAddBeardifierSpecialized, cellAddExternSpecialized,
+                cellScalarMarkerSpecialized, cellScalarMarkerReason);
     }
 
     /**
@@ -427,7 +471,9 @@ public final class Codegen {
     public record Result(byte[] bytecode, int helpersEmitted, boolean latticeEmitted,
                           boolean cellAddLatticeSpecialized,
                           boolean cellAddBeardifierSpecialized,
-                          boolean cellAddExternSpecialized) {}
+                          boolean cellAddExternSpecialized,
+                          boolean cellScalarMarkerSpecialized,
+                          String cellScalarMarkerReason) {}
 
     /* --------------------------------------------------------------------- */
     /* Constructor                                                           */
@@ -497,11 +543,31 @@ public final class Codegen {
         return "ext_" + index;
     }
 
+    static String externCacheArrayFieldName(int index) {
+        return "ext_" + index + "_cache_array";
+    }
+
+    static String externCacheAccessFieldName(int index) {
+        return "ext_" + index + "_cache_access";
+    }
+
+    static String externInterpolatorIndexFieldName(int index) {
+        return "ext_" + index + "_interpolator_index";
+    }
+
     private static void emitExternFields(ClassWriter cw, ConstantPool pool) {
         int n = pool.externCount();
         for (int i = 0; i < n; i++) {
             cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
                     externFieldName(i), DENSITY_FUNCTION_DESC, null, null).visitEnd();
+            cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                    externInterpolatorIndexFieldName(i), "I", null, null).visitEnd();
+            if (pool.externHasCacheWrapperFastPath(i)) {
+                cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                        externCacheArrayFieldName(i), DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_DESC, null, null).visitEnd();
+                cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                        externCacheAccessFieldName(i), DFC_CELL_CACHE_ACCESS_DESC, null, null).visitEnd();
+            }
         }
     }
 
@@ -530,6 +596,15 @@ public final class Codegen {
             ldcIntStatic(mv, i);
             mv.visitInsn(Opcodes.AALOAD);
             mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, externFieldName(i), DENSITY_FUNCTION_DESC);
+            emitOptionalInterpolatorIndexPutfield(mv, classInternalName, i);
+            if (pool.externHasCacheWrapperFastPath(i)) {
+                emitOptionalExternCastPutfield(mv, classInternalName, i,
+                        externCacheArrayFieldName(i), DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_DESC,
+                        DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_INTERNAL);
+                emitOptionalExternCastPutfield(mv, classInternalName, i,
+                        externCacheAccessFieldName(i), DFC_CELL_CACHE_ACCESS_DESC,
+                        DFC_CELL_CACHE_ACCESS_INTERNAL);
+            }
         }
 
         // Populate per-octave fields from the noiseOctaves[] payload. Layout matches
@@ -563,6 +638,56 @@ public final class Codegen {
         mv.visitInsn(Opcodes.RETURN);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+    }
+
+    private static void emitOptionalInterpolatorIndexPutfield(MethodVisitor mv, String classInternalName,
+                                                              int externIndex) {
+        Label missing = new Label();
+        Label done = new Label();
+
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        ldcIntStatic(mv, externIndex);
+        mv.visitInsn(Opcodes.AALOAD);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitTypeInsn(Opcodes.INSTANCEOF, NOISE_INTERPOLATOR_PATCH_INTERNAL);
+        mv.visitJumpInsn(Opcodes.IFEQ, missing);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_INTERPOLATOR_PATCH_INTERNAL);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, NOISE_INTERPOLATOR_PATCH_INTERNAL,
+                "bts$getSoAIndex", "()I", true);
+        mv.visitJumpInsn(Opcodes.GOTO, done);
+        mv.visitLabel(missing);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.ICONST_M1);
+        mv.visitLabel(done);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName,
+                externInterpolatorIndexFieldName(externIndex), "I");
+    }
+
+    /**
+     * Constructor helper: cache a typed view of {@code externs[i]} once so hot marker
+     * reads do not repeat {@code instanceof/checkcast} for every block position.
+     */
+    private static void emitOptionalExternCastPutfield(MethodVisitor mv, String classInternalName,
+                                                       int externIndex, String fieldName,
+                                                       String fieldDesc, String targetInternalName) {
+        Label missing = new Label();
+        Label done = new Label();
+
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        ldcIntStatic(mv, externIndex);
+        mv.visitInsn(Opcodes.AALOAD);
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitTypeInsn(Opcodes.INSTANCEOF, targetInternalName);
+        mv.visitJumpInsn(Opcodes.IFEQ, missing);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, targetInternalName);
+        mv.visitJumpInsn(Opcodes.GOTO, done);
+        mv.visitLabel(missing);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitLabel(done);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, fieldName, fieldDesc);
     }
 
     /** Single AALOAD+CHECKCAST+PUTFIELD pair for one per-octave field. */
@@ -1101,6 +1226,266 @@ public final class Codegen {
         mv.visitInsn(Opcodes.DRETURN);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+    }
+
+    private record ScalarMarkerCellFillDecision(boolean enabled, String reason) {}
+
+    private static ScalarMarkerCellFillDecision scalarMarkerCellFillDecision(IRNode root, HelperRegistry helpers) {
+        if (!cellFillScalarMarkerOverrideEnabled()) {
+            return new ScalarMarkerCellFillDecision(false, "disabled");
+        }
+        if (root instanceof IRNode.Const) {
+            return new ScalarMarkerCellFillDecision(false, "const-root");
+        }
+        if (!helpers.extracted.isEmpty()) {
+            return new ScalarMarkerCellFillDecision(false, "helpers=" + helpers.extracted.size());
+        }
+        final boolean[] hasMarker = {false};
+        final String[] unsupported = {null};
+        IrTreeSupport.visitUnique(root, node -> {
+            switch (node) {
+                case IRNode.Const ignored -> {}
+                case IRNode.Bin ignored -> {}
+                case IRNode.Unary ignored -> {}
+                case IRNode.Clamp ignored -> {}
+                case IRNode.RangeChoice ignored -> {}
+                case IRNode.Marker ignored -> hasMarker[0] = true;
+                default -> {
+                    if (unsupported[0] == null) {
+                        unsupported[0] = scalarMarkerUnsupportedName(node);
+                    }
+                }
+            }
+        });
+        if (!hasMarker[0]) {
+            return new ScalarMarkerCellFillDecision(false, "marker-missing");
+        }
+        if (unsupported[0] != null) {
+            return new ScalarMarkerCellFillDecision(false, "unsupported=" + unsupported[0]);
+        }
+        CoordinateSlotUse coords = CoordinateSlotUse.analyze(root, Collections.emptySet(), true);
+        if (coords.blockX() || coords.blockY() || coords.blockZ()) {
+            return new ScalarMarkerCellFillDecision(false, "coordinate-dep=" + coordinateUseName(coords));
+        }
+        int estimatedSize = new SizeEstimator(helpers.pool).size(root, helpers.extracted);
+        if (estimatedSize > 1024) {
+            return new ScalarMarkerCellFillDecision(false, "size=" + estimatedSize);
+        }
+        return new ScalarMarkerCellFillDecision(true, "eligible:size=" + estimatedSize);
+    }
+
+    private static String scalarMarkerUnsupportedName(IRNode node) {
+        return switch (node) {
+            case IRNode.BlockX ignored -> "BlockX";
+            case IRNode.BlockY ignored -> "BlockY";
+            case IRNode.BlockZ ignored -> "BlockZ";
+            case IRNode.YClampedGradient ignored -> "YClampedGradient";
+            case IRNode.Noise ignored -> "Noise";
+            case IRNode.ShiftedNoise ignored -> "ShiftedNoise";
+            case IRNode.ShiftA ignored -> "ShiftA";
+            case IRNode.ShiftB ignored -> "ShiftB";
+            case IRNode.Shift ignored -> "Shift";
+            case IRNode.WeirdScaled ignored -> "WeirdScaled";
+            case IRNode.InlinedNoise ignored -> "InlinedNoise";
+            case IRNode.InlinedBlendedNoise ignored -> "InlinedBlendedNoise";
+            case IRNode.WeirdRarity ignored -> "WeirdRarity";
+            case IRNode.EndIslands ignored -> "EndIslands";
+            case IRNode.Beardifier ignored -> "Beardifier";
+            case IRNode.Spline.Constant ignored -> "SplineConstant";
+            case IRNode.Spline.Multipoint ignored -> "SplineMultipoint";
+            case IRNode.Invoke ignored -> "Invoke";
+            case IRNode.BlendDensity ignored -> "BlendDensity";
+            case IRNode.Const ignored -> "Const";
+            case IRNode.Bin ignored -> "Bin";
+            case IRNode.Unary ignored -> "Unary";
+            case IRNode.Clamp ignored -> "Clamp";
+            case IRNode.RangeChoice ignored -> "RangeChoice";
+            case IRNode.Marker ignored -> "Marker";
+        };
+    }
+
+    private static String coordinateUseName(CoordinateSlotUse coords) {
+        StringBuilder out = new StringBuilder(3);
+        if (coords.blockX()) out.append('x');
+        if (coords.blockY()) out.append('y');
+        if (coords.blockZ()) out.append('z');
+        return out.isEmpty() ? "none" : out.toString();
+    }
+
+    private static void emitScalarMarkerCellFillOverride(ClassWriter cw, String classInternalName,
+                                                         IRNode root, HelperRegistry helpers) {
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
+        mv.visitCode();
+        Label fallback = new Label();
+        emitScalarMarkerInterpolatorGuard(mv, classInternalName, root, helpers, fallback, 9);
+        emitScalarMarkerInterpolatorCellFillLoop(mv, classInternalName, root, helpers, false, 9);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitLabel(fallback);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, COMPILED_BASE_INTERNAL, "dfc$fillCell", CELL_FILL_DESC, false);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        MethodVisitor acc = cw.visitMethod(Opcodes.ACC_PUBLIC, DFC_ACCUMULATE_CELL_NAME, CELL_FILL_DESC, null, null);
+        acc.visitCode();
+        Label accFallback = new Label();
+        emitScalarMarkerInterpolatorGuard(acc, classInternalName, root, helpers, accFallback, 9);
+        emitScalarMarkerInterpolatorCellFillLoop(acc, classInternalName, root, helpers, true, 9);
+        acc.visitInsn(Opcodes.RETURN);
+        acc.visitLabel(accFallback);
+        acc.visitVarInsn(Opcodes.ALOAD, 0);
+        acc.visitVarInsn(Opcodes.ALOAD, 1);
+        acc.visitVarInsn(Opcodes.ALOAD, 2);
+        acc.visitMethodInsn(Opcodes.INVOKESPECIAL, COMPILED_BASE_INTERNAL, DFC_ACCUMULATE_CELL_NAME, CELL_FILL_DESC, false);
+        acc.visitInsn(Opcodes.RETURN);
+        acc.visitMaxs(0, 0);
+        acc.visitEnd();
+    }
+
+    private static void emitScalarMarkerInterpolatorGuard(MethodVisitor mv, String classInternalName,
+                                                          IRNode root, HelperRegistry helpers,
+                                                          Label fallback, int soaLocal) {
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.INSTANCEOF, INTERPOLATOR_SOA_PATH_INTERNAL);
+        mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, INTERPOLATOR_SOA_PATH_INTERNAL);
+        mv.visitVarInsn(Opcodes.ASTORE, soaLocal);
+
+        HashSet<Integer> seen = new HashSet<>();
+        IrTreeSupport.visitUnique(root, node -> {
+            if (node instanceof IRNode.Marker marker && seen.add(marker.externIndex())) {
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                        externInterpolatorIndexFieldName(marker.externIndex()), "I");
+            mv.visitJumpInsn(Opcodes.IFLT, fallback);
+            }
+        });
+    }
+
+    private static void emitScalarMarkerInterpolatorCellFillLoop(MethodVisitor mv, String classInternalName,
+                                                                 IRNode root, HelperRegistry helpers,
+                                                                 boolean accumulate, int soaLocal) {
+        // Locals: 0=this, 1=out, 2=chunk, 3=idx, 4=cellW, 5=cellH,
+        // 6=inCellY, 7=inCellX, 8=inCellZ, 9=SoA path,
+        // 10/12=inverse cell W/H, 14/16/18=delta X/Y/Z.
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 3);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellWidth", "I");
+        mv.visitVarInsn(Opcodes.ISTORE, 4);
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
+        mv.visitVarInsn(Opcodes.ISTORE, 5);
+
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$getInverseCellWidth", "()D", true);
+        mv.visitVarInsn(Opcodes.DSTORE, 10);
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$getInverseCellHeight", "()D", true);
+        mv.visitVarInsn(Opcodes.DSTORE, 12);
+
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitInsn(Opcodes.ISUB);
+        mv.visitVarInsn(Opcodes.ISTORE, 6);
+        Label yLoopHead = new Label();
+        Label yLoopExit = new Label();
+        mv.visitLabel(yLoopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 6);
+        mv.visitJumpInsn(Opcodes.IFLT, yLoopExit);
+        mv.visitVarInsn(Opcodes.ILOAD, 6);
+        mv.visitInsn(Opcodes.I2D);
+        mv.visitVarInsn(Opcodes.DLOAD, 12);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitVarInsn(Opcodes.DSTORE, 16);
+
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 7);
+        Label xLoopHead = new Label();
+        Label xLoopExit = new Label();
+        mv.visitLabel(xLoopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 7);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, xLoopExit);
+        mv.visitVarInsn(Opcodes.ILOAD, 7);
+        mv.visitInsn(Opcodes.I2D);
+        mv.visitVarInsn(Opcodes.DLOAD, 10);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitVarInsn(Opcodes.DSTORE, 14);
+
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 8);
+        Label zLoopHead = new Label();
+        Label zLoopExit = new Label();
+        mv.visitLabel(zLoopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 8);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, zLoopExit);
+        mv.visitVarInsn(Opcodes.ILOAD, 8);
+        mv.visitInsn(Opcodes.I2D);
+        mv.visitVarInsn(Opcodes.DLOAD, 10);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitVarInsn(Opcodes.DSTORE, 18);
+
+        if (accumulate) {
+            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ILOAD, 3);
+            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ILOAD, 3);
+            mv.visitInsn(Opcodes.DALOAD);
+        } else {
+            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ILOAD, 3);
+        }
+        EmitState st = new EmitState(mv, classInternalName, helpers, false,
+                CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18);
+        st.reserveLocalsFrom(20);
+        st.emit(root);
+        if (accumulate) {
+            mv.visitInsn(Opcodes.DADD);
+        }
+        mv.visitInsn(Opcodes.DASTORE);
+
+        mv.visitIincInsn(3, 1);
+        mv.visitIincInsn(8, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, zLoopHead);
+        mv.visitLabel(zLoopExit);
+
+        mv.visitIincInsn(7, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, xLoopHead);
+        mv.visitLabel(xLoopExit);
+
+        mv.visitIincInsn(6, -1);
+        mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
+        mv.visitLabel(yLoopExit);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitInsn(Opcodes.ISUB);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellX", "I");
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitInsn(Opcodes.ISUB);
+        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
     }
 
     private static boolean emitCellFillAddScalarOverrideIfPossible(ClassWriter cw, String classInternalName,
@@ -2440,6 +2825,12 @@ public final class Codegen {
         private final CoordinateReusePlan coordinateReuse;
         private final IdentityHashMap<IRNode, Integer> coordinateSlots = new IdentityHashMap<>();
         private int nextLocal = 5; // slots 0..4 are reserved (this/ctx/x/y/z)
+        private final int contextLocal;
+        private final boolean directInterpolatorMarkers;
+        private final int directInterpolatorSoALocal;
+        private final int directInterpolatorXSlot;
+        private final int directInterpolatorYSlot;
+        private final int directInterpolatorZSlot;
         /**
          * True for static {@code helper_N} methods: local 0 is typed as
          * {@link CompiledDensityFunction} in the method descriptor, but
@@ -2451,18 +2842,44 @@ public final class Codegen {
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
                   boolean castSelfForSubclassNoiseFields) {
-            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields, CoordinateReusePlan.EMPTY);
+            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields, CoordinateReusePlan.EMPTY, 1);
         }
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
                   boolean castSelfForSubclassNoiseFields,
                   CoordinateReusePlan coordinateReuse) {
+            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields, coordinateReuse, 1);
+        }
+
+        EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
+                  boolean castSelfForSubclassNoiseFields,
+                  CoordinateReusePlan coordinateReuse,
+                  int contextLocal) {
+            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields, coordinateReuse,
+                    contextLocal, false, -1, -1, -1, -1);
+        }
+
+        EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
+                  boolean castSelfForSubclassNoiseFields,
+                  CoordinateReusePlan coordinateReuse,
+                  int contextLocal,
+                  boolean directInterpolatorMarkers,
+                  int directInterpolatorSoALocal,
+                  int directInterpolatorXSlot,
+                  int directInterpolatorYSlot,
+                  int directInterpolatorZSlot) {
             this.mv = mv;
             this.classInternalName = classInternalName;
             this.helpers = helpers;
             this.pool = helpers.pool;
             this.coordinateReuse = coordinateReuse == null ? CoordinateReusePlan.EMPTY : coordinateReuse;
             this.castSelfForSubclassNoiseFields = castSelfForSubclassNoiseFields;
+            this.contextLocal = contextLocal;
+            this.directInterpolatorMarkers = directInterpolatorMarkers;
+            this.directInterpolatorSoALocal = directInterpolatorSoALocal;
+            this.directInterpolatorXSlot = directInterpolatorXSlot;
+            this.directInterpolatorYSlot = directInterpolatorYSlot;
+            this.directInterpolatorZSlot = directInterpolatorZSlot;
         }
 
         private int allocDoubleSlot() {
@@ -2607,7 +3024,7 @@ public final class Codegen {
                 // the JIT can fully inline (no array load, no field load, no
                 // MH.invokeExact dispatch through the signature-polymorphic adapter).
                 mv.visitVarInsn(Opcodes.ALOAD, 0);          // self
-                mv.visitVarInsn(Opcodes.ALOAD, 1);          // ctx
+                mv.visitVarInsn(Opcodes.ALOAD, contextLocal);          // ctx
                 mv.visitInvokeDynamicInsn(
                         helperName(idx),
                         HELPER_DESC,
@@ -2622,7 +3039,7 @@ public final class Codegen {
             ldcInt(idx);
             mv.visitInsn(Opcodes.AALOAD);
             mv.visitVarInsn(Opcodes.ALOAD, 0);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL,
                     "invokeExact", HELPER_DESC, false);
         }
@@ -3781,62 +4198,85 @@ public final class Codegen {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
             }
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
             mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
                     "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
         }
 
         /** Marker sites flagged as cell-cache wrappers may use {@link DfcCacheFastPath}. */
         private void emitMarkerInvoke(int idx) {
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            if (castSelfForSubclassNoiseFields) {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+            if (directInterpolatorMarkers) {
+                mv.visitVarInsn(Opcodes.ALOAD, directInterpolatorSoALocal);
+                emitGeneratedThis();
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                        externInterpolatorIndexFieldName(idx), "I");
+                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorXSlot);
+                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorYSlot);
+                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorZSlot);
+                mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                        "bts$getInterpolatorFillingValue", INTERPOLATOR_FILLING_DELTA_DESC, true);
+                return;
             }
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
             if (pool.externHasCacheWrapperFastPath(idx)) {
                 int externSlot = allocRefSlot();
-                Label typedArrayIndexCache = new Label();
+                int arrayAccessSlot = allocRefSlot();
+                int cacheAccessSlot = allocRefSlot();
                 Label typedCache = new Label();
                 Label slowCompute = new Label();
                 Label end = new Label();
+
+                emitGeneratedThis();
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
                 mv.visitVarInsn(Opcodes.ASTORE, externSlot);
 
-                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_INTERNAL);
-                mv.visitJumpInsn(Opcodes.IFEQ, typedCache);
+                emitGeneratedThis();
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                        externCacheArrayFieldName(idx), DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_DESC);
+                mv.visitVarInsn(Opcodes.ASTORE, arrayAccessSlot);
 
-                mv.visitLabel(typedArrayIndexCache);
+                mv.visitVarInsn(Opcodes.ALOAD, arrayAccessSlot);
+                mv.visitJumpInsn(Opcodes.IFNULL, typedCache);
                 mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_CACHE_ARRAY_INDEX_ACCESS_INTERNAL);
-                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitVarInsn(Opcodes.ALOAD, arrayAccessSlot);
+                mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeKnownArrayIndexAccess",
                         CACHE_FAST_ARRAY_INDEX_READ_DESC, false);
                 mv.visitJumpInsn(Opcodes.GOTO, end);
 
                 mv.visitLabel(typedCache);
-                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_CACHE_ACCESS_INTERNAL);
-                mv.visitJumpInsn(Opcodes.IFEQ, slowCompute);
+                emitGeneratedThis();
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                        externCacheAccessFieldName(idx), DFC_CELL_CACHE_ACCESS_DESC);
+                mv.visitVarInsn(Opcodes.ASTORE, cacheAccessSlot);
 
+                mv.visitVarInsn(Opcodes.ALOAD, cacheAccessSlot);
+                mv.visitJumpInsn(Opcodes.IFNULL, slowCompute);
                 mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_CACHE_ACCESS_INTERNAL);
-                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitVarInsn(Opcodes.ALOAD, cacheAccessSlot);
+                mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeKnownAccess",
                         CACHE_FAST_TYPED_READ_DESC, false);
                 mv.visitJumpInsn(Opcodes.GOTO, end);
 
                 mv.visitLabel(slowCompute);
                 mv.visitVarInsn(Opcodes.ALOAD, externSlot);
-                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeKnownNonAccess",
                         CACHE_FAST_READ_DESC, false);
                 mv.visitLabel(end);
             } else {
-                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                emitGeneratedThis();
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
                 mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
                         "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+            }
+        }
+
+        private void emitGeneratedThis() {
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            if (castSelfForSubclassNoiseFields) {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
             }
         }
 
@@ -3861,10 +4301,10 @@ public final class Codegen {
             int dSlot = allocDoubleSlot();
             mv.visitVarInsn(Opcodes.DSTORE, dSlot);
 
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
             mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, FUNCTION_CONTEXT_INTERNAL,
                     "getBlender", "()Lnet/minecraft/world/level/levelgen/blending/Blender;", true);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
             mv.visitVarInsn(Opcodes.DLOAD, dSlot);
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
                     "net/minecraft/world/level/levelgen/blending/Blender",

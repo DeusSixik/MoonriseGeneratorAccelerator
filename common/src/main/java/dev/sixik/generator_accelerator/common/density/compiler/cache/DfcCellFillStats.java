@@ -51,6 +51,7 @@ public final class DfcCellFillStats {
                                   boolean cellAddLatticeSpecialized,
                                   boolean cellAddBeardifierSpecialized,
                                   boolean cellAddExternSpecialized,
+                                  boolean cellScalarMarkerSpecialized,
                                   String rootDebug) {
     }
 
@@ -142,6 +143,7 @@ public final class DfcCellFillStats {
                     entry != null && entry.cellAddLatticeSpecialized(),
                     entry != null && entry.cellAddBeardifierSpecialized(),
                     entry != null && entry.cellAddExternSpecialized(),
+                    entry != null && entry.cellScalarMarkerSpecialized(),
                     entry != null ? entry.rootDebug() : "unknown"
             ));
         });

@@ -11,7 +11,10 @@ import net.sixik.ga_utils.javatogpu.runtime.GpuRuntimeCompileOptions;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -26,6 +29,7 @@ public final class GpuPayloadBatchExecutor {
     public static final String SERIALIZE_RUNTIME_PROPERTY = "ga.dfc.gpu.serializeRuntime";
     public static final String PERSISTENT_RUNTIME_SCOPE_PROPERTY = "ga.dfc.gpu.persistentRuntimeScope";
     public static final String OPPORTUNISTIC_RUNTIME_LOCK_PROPERTY = "ga.dfc.gpu.opportunisticRuntimeLock";
+    public static final String RUNTIME_LOCK_WAIT_NANOS_PROPERTY = "ga.dfc.gpu.runtimeLockWaitNanos";
     public static final String RUNTIME_MICRO_BATCH_MAX_PROPERTY = "ga.dfc.gpu.runtimeMicroBatchMax";
     public static final String RUNTIME_MICRO_BATCH_MIN_PROPERTY = "ga.dfc.gpu.runtimeMicroBatchMin";
     public static final String RUNTIME_MICRO_BATCH_COLLECT_NANOS_PROPERTY = "ga.dfc.gpu.runtimeMicroBatchCollectNanos";
@@ -38,8 +42,10 @@ public final class GpuPayloadBatchExecutor {
     public static final String RUNTIME_MIN_POINTS_PROPERTY = "ga.dfc.gpu.runtimeMinPoints";
     public static final String RUNTIME_PARITY_BATCHES_PROPERTY = "ga.dfc.gpu.runtimeParityBatches";
     public static final String RUNTIME_PARITY_EPSILON_PROPERTY = "ga.dfc.gpu.runtimeParityEpsilon";
+    public static final String PREPARED_LAUNCHER_CACHE_MAX_PROPERTY = "ga.dfc.gpu.preparedLauncherCacheMax";
 
     private static final String METHOD_NAME = "computeBatch";
+    private static final String MULTI_METHOD_NAME = "computeMultiPayloadBatch";
     private static final String INVOKER_CLASS = "net.sixik.ga_utils.javatogpu.runtime.GpuGeneratedLauncherInvoker";
     private static final String DIRECT_LAUNCHER_CLASS = "dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.generated.GpuPayloadArithmeticKernel_computeBatch_GpuLauncher";
     private static final String RUNTIME_CLASS = "net.sixik.ga_utils.javatogpu.runtime.GpuRuntime";
@@ -68,6 +74,10 @@ public final class GpuPayloadBatchExecutor {
     private static volatile Object persistentRuntimeScope;
     private static volatile Object persistentRuntimeBackend;
     private static volatile PreparedLauncherState preparedLauncherState;
+    private static final LinkedHashMap<PreparedLauncherCacheKey, PreparedLauncherState> PREPARED_LAUNCHER_CACHE =
+            new LinkedHashMap<>(16, 0.75F, true);
+    private static final LinkedHashMap<MultiPreparedLauncherCacheKey, MultiPreparedLauncherState> MULTI_PREPARED_LAUNCHER_CACHE =
+            new LinkedHashMap<>(16, 0.75F, true);
 
     private GpuPayloadBatchExecutor() {
     }
@@ -219,26 +229,63 @@ public final class GpuPayloadBatchExecutor {
         return RUNTIME_BATCHES_REMAINING.get();
     }
 
+    public static boolean runtimeLaunchWouldSkipForBusyLock() {
+        if (!(booleanProperty(SERIALIZE_RUNTIME_PROPERTY, true) || persistentRuntimeScopeEnabled())) {
+            return false;
+        }
+        if (!booleanProperty(OPPORTUNISTIC_RUNTIME_LOCK_PROPERTY, true) || runtimeLockWaitNanos() > 0L) {
+            return false;
+        }
+        return GPU_RUNTIME_LOCK.isLocked() && !GPU_RUNTIME_LOCK.isHeldByCurrentThread();
+    }
+
     public static boolean shouldAttemptRuntimeBatch() {
         return shouldAttemptRuntimeBatch(0);
     }
 
     public static boolean shouldAttemptRuntimeBatch(int pointCount) {
-        if (!Boolean.getBoolean(GPU_ENABLED_PROPERTY) || !"none".equals(LIFECYCLE_DISABLED_REASON.get())) {
+        return shouldAttemptRuntimeBatch(pointCount, false);
+    }
+
+    public static boolean shouldAttemptRuntimeBatchAllowingSmallPrototype(int pointCount) {
+        return shouldAttemptRuntimeBatch(pointCount, true);
+    }
+
+    private static boolean shouldAttemptRuntimeBatch(int pointCount, boolean allowBelowMinPoints) {
+        if (!Boolean.getBoolean(GPU_ENABLED_PROPERTY)) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("disabled");
+            return false;
+        }
+        if (!"none".equals(LIFECYCLE_DISABLED_REASON.get())) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("lifecycle_disabled");
             return false;
         }
         if (pointCount > 0 && pointCount < runtimeMinPoints()) {
+            if (allowBelowMinPoints) {
+                if (!runtimeMicroBatchCanReachMinPoints(pointCount)) {
+                    RouterPipeline.recordGpuPayloadBatchRuntimeGate("prototype_below_min_unreachable");
+                    return false;
+                }
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("prototype_below_min_allowed");
+            } else if (!runtimeMicroBatchCanReachMinPoints(pointCount)) {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("min_points");
+                return false;
+            } else {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("microbatch_below_min");
+            }
+        }
+        if (consumeRuntimeMicroBatchBackoff()) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("backoff");
+            RouterPipeline.recordGpuPayloadBatchRuntimeBackoffSkip();
             return false;
         }
         if (!claimRuntimeBatch()) {
-            return false;
-        }
-        if (consumeRuntimeMicroBatchBackoff()) {
-            RouterPipeline.recordGpuPayloadBatchRuntimeBackoffSkip();
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("budget");
             return false;
         }
         PreflightResult result = ensurePreflightPassed();
         if (!result.passed()) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("preflight_failed");
             disableGpuForLifecycle(result.reason());
             return false;
         }
@@ -487,42 +534,165 @@ public final class GpuPayloadBatchExecutor {
             return RuntimeParityReport.skipped();
         }
 
-        for (int i = 0; i < gpuOutput.length; i++) {
-            expected[i] = GpuPayloadCpuEvaluator.compute(payload, blockX[i], blockY[i], blockZ[i], externValues, i);
-        }
         double epsilon = runtimeParityEpsilon();
-        return compareRuntimeParity(gpuOutput, expected, epsilon);
-    }
-
-    public static RuntimeParityReport checkRuntimeParityAgainstExpected(double[] gpuOutput, double[] expected) {
-        Objects.requireNonNull(gpuOutput, "gpuOutput");
-        Objects.requireNonNull(expected, "expected");
-        if (expected.length < gpuOutput.length) {
-            throw new IllegalArgumentException("Expected buffer length " + expected.length
-                    + " is smaller than GPU output length " + gpuOutput.length);
-        }
-        if (!claimRuntimeParityCheck()) {
-            return RuntimeParityReport.skipped();
-        }
-        return compareRuntimeParity(gpuOutput, expected, runtimeParityEpsilon());
-    }
-
-    private static RuntimeParityReport compareRuntimeParity(double[] gpuOutput, double[] expected, double epsilon) {
         double maxAbsError = 0.0D;
         for (int i = 0; i < gpuOutput.length; i++) {
+            double mirror = GpuPayloadCpuEvaluator.compute(payload, blockX[i], blockY[i], blockZ[i], externValues, i);
+            expected[i] = mirror;
+
             double actual = gpuOutput[i];
-            double mirror = expected[i];
-            if (Double.doubleToRawLongBits(actual) == Double.doubleToRawLongBits(mirror)
-                    || (Double.isNaN(actual) && Double.isNaN(mirror))) {
+            if (runtimeSameValue(actual, mirror)) {
                 continue;
             }
-            double diff = Math.abs(actual - mirror);
+            double diff = runtimeAbsError(actual, mirror);
             if (diff > maxAbsError) {
                 maxAbsError = diff;
             }
             if (!(diff <= epsilon)) {
                 return RuntimeParityReport.failed(
                         gpuOutput.length,
+                        maxAbsError,
+                        "runtime gpu/payload parity mismatch at index " + i
+                                + ": x=" + blockX[i]
+                                + ", y=" + blockY[i]
+                                + ", z=" + blockZ[i]
+                                + ", gpu=" + actual
+                                + ", payloadMirror=" + mirror
+                                + ", diff=" + diff
+                                + ", epsilon=" + epsilon
+                                + ", nodes=" + payload.nodeCount()
+                                + ", rootIndex=" + payload.rootIndex()
+                                + ", rootOpcode=" + payloadRootOpcode(payload)
+                                + ", nativeNoiseOctaves=" + payload.noiseOctaveCount()
+                                + ", externInputs=" + payload.externInputCount());
+            }
+        }
+        return RuntimeParityReport.passed(gpuOutput.length, maxAbsError);
+    }
+
+    private static int payloadRootOpcode(GpuIrPayload payload) {
+        int rootIndex = payload.rootIndex();
+        int[] opcodes = payload.opcodes();
+        return rootIndex >= 0 && rootIndex < opcodes.length ? opcodes[rootIndex] : Integer.MIN_VALUE;
+    }
+
+    public static RuntimeParityReport checkRuntimeParityAgainstExpected(double[] gpuOutput, double[] expected) {
+        return checkRuntimeParityAgainstExpected(gpuOutput, expected, gpuOutput.length);
+    }
+
+    public static RuntimeParityReport checkRuntimeParityAgainstExpected(double[] gpuOutput, double[] expected, int points) {
+        Objects.requireNonNull(gpuOutput, "gpuOutput");
+        Objects.requireNonNull(expected, "expected");
+        if (points < 0 || points > gpuOutput.length) {
+            throw new IllegalArgumentException("Point count " + points
+                    + " is outside GPU output length " + gpuOutput.length);
+        }
+        if (expected.length < points) {
+            throw new IllegalArgumentException("Expected buffer length " + expected.length
+                    + " is smaller than checked point count " + points);
+        }
+        if (!claimRuntimeParityCheck()) {
+            return RuntimeParityReport.skipped();
+        }
+        return compareRuntimeParity(gpuOutput, expected, runtimeParityEpsilon(), points);
+    }
+
+    public static RuntimeParityReport checkRuntimeParityAgainstRootExpected(
+            GpuIrPayload payload,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] gpuOutput,
+            double[] rootExpected,
+            double[] payloadExpected,
+            int points) {
+        validate(payload, blockX, blockY, blockZ, gpuOutput, externValues);
+        Objects.requireNonNull(rootExpected, "rootExpected");
+        Objects.requireNonNull(payloadExpected, "payloadExpected");
+        if (points < 0 || points > gpuOutput.length) {
+            throw new IllegalArgumentException("Point count " + points
+                    + " is outside GPU output length " + gpuOutput.length);
+        }
+        if (rootExpected.length < points || payloadExpected.length < points) {
+            throw new IllegalArgumentException("Parity buffers are smaller than checked point count " + points);
+        }
+        if (!claimRuntimeParityCheck()) {
+            return RuntimeParityReport.skipped();
+        }
+
+        double maxAbsError = 0.0D;
+        for (int i = 0; i < points; i++) {
+            double payloadMirror = GpuPayloadCpuEvaluator.compute(
+                    payload, blockX[i], blockY[i], blockZ[i], externValues, i);
+            payloadExpected[i] = payloadMirror;
+
+            double gpu = gpuOutput[i];
+            double gpuPayloadDiff = runtimeAbsError(gpu, payloadMirror);
+            if (gpuPayloadDiff > maxAbsError) {
+                maxAbsError = gpuPayloadDiff;
+            }
+            if (!runtimeSameValue(gpu, payloadMirror) && !(gpuPayloadDiff <= runtimeParityEpsilon())) {
+                return RuntimeParityReport.failed(
+                        points,
+                        maxAbsError,
+                        "runtime gpu/payload parity mismatch at index " + i
+                                + ": x=" + blockX[i]
+                                + ", y=" + blockY[i]
+                                + ", z=" + blockZ[i]
+                                + ", gpu=" + gpu
+                                + ", payloadMirror=" + payloadMirror
+                                + ", rootMirror=" + rootExpected[i]
+                                + ", diff=" + gpuPayloadDiff
+                                + ", epsilon=" + runtimeParityEpsilon());
+            }
+
+            double rootMirror = rootExpected[i];
+            double payloadRootDiff = runtimeAbsError(payloadMirror, rootMirror);
+            if (payloadRootDiff > maxAbsError) {
+                maxAbsError = payloadRootDiff;
+            }
+            if (!runtimeSameValue(payloadMirror, rootMirror) && !(payloadRootDiff <= runtimeParityEpsilon())) {
+                return RuntimeParityReport.failed(
+                        points,
+                        maxAbsError,
+                        "runtime payload/root parity mismatch at index " + i
+                                + ": x=" + blockX[i]
+                                + ", y=" + blockY[i]
+                                + ", z=" + blockZ[i]
+                                + ", payloadMirror=" + payloadMirror
+                                + ", rootMirror=" + rootMirror
+                                + ", gpu=" + gpu
+                                + ", diff=" + payloadRootDiff
+                                + ", epsilon=" + runtimeParityEpsilon());
+            }
+        }
+        return RuntimeParityReport.passed(points, maxAbsError);
+    }
+
+    private static RuntimeParityReport compareRuntimeParity(double[] gpuOutput, double[] expected, double epsilon) {
+        return compareRuntimeParity(gpuOutput, expected, epsilon, gpuOutput.length);
+    }
+
+    private static RuntimeParityReport compareRuntimeParity(
+            double[] gpuOutput,
+            double[] expected,
+            double epsilon,
+            int points) {
+        double maxAbsError = 0.0D;
+        for (int i = 0; i < points; i++) {
+            double actual = gpuOutput[i];
+            double mirror = expected[i];
+            if (runtimeSameValue(actual, mirror)) {
+                continue;
+            }
+            double diff = runtimeAbsError(actual, mirror);
+            if (diff > maxAbsError) {
+                maxAbsError = diff;
+            }
+            if (!(diff <= epsilon)) {
+                return RuntimeParityReport.failed(
+                        points,
                         maxAbsError,
                         "runtime parity mismatch at index " + i
                                 + ": gpu=" + actual
@@ -531,7 +701,17 @@ public final class GpuPayloadBatchExecutor {
                                 + ", epsilon=" + epsilon);
             }
         }
-        return RuntimeParityReport.passed(gpuOutput.length, maxAbsError);
+        return RuntimeParityReport.passed(points, maxAbsError);
+    }
+
+    private static boolean runtimeSameValue(double actual, double expected) {
+        return Double.doubleToRawLongBits(actual) == Double.doubleToRawLongBits(expected)
+                || (Double.isNaN(actual) && Double.isNaN(expected));
+    }
+
+    private static double runtimeAbsError(double actual, double expected) {
+        double diff = Math.abs(actual - expected);
+        return Double.isNaN(diff) ? Double.POSITIVE_INFINITY : diff;
     }
 
     public static void computeCpu(GpuIrPayload payload, int[] blockX, int[] blockY, int[] blockZ, double[] output) {
@@ -588,6 +768,33 @@ public final class GpuPayloadBatchExecutor {
             double[] externValues,
             double[] output,
             double[] scratch) {
+        return tryComputeGpu(payload, blockX, blockY, blockZ, externValues, output, scratch, true);
+    }
+
+    private static GpuAttempt tryComputeGpu(
+            GpuIrPayload payload,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] output,
+            double[] scratch,
+            boolean recordRuntimeLockStats) {
+        return tryComputeGpu(
+                payload, blockX, blockY, blockZ, externValues, output, scratch,
+                recordRuntimeLockStats, recordRuntimeLockStats);
+    }
+
+    private static GpuAttempt tryComputeGpu(
+            GpuIrPayload payload,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] output,
+            double[] scratch,
+            boolean recordRuntimeLockStats,
+            boolean publishPreparedLauncherState) {
         validate(payload, blockX, blockY, blockZ, output, externValues);
         Objects.requireNonNull(scratch, "scratch");
         if (output.length == 0) {
@@ -612,6 +819,8 @@ public final class GpuPayloadBatchExecutor {
                     payload.int1(),
                     payload.value0(),
                     payload.value1(),
+                    gpuNoisePermutations(payload),
+                    gpuNoiseOctaveData(payload),
                     payload.externInputCount(),
                     gpuExternValues(payload, externValues),
                     payload.rootIndex(),
@@ -620,7 +829,8 @@ public final class GpuPayloadBatchExecutor {
                     output
             };
 
-            PreparedInvocationResult invocation = invokeGpuRuntime(output.length, kernelArgs);
+            PreparedInvocationResult invocation = invokeGpuRuntime(
+                    output.length, kernelArgs, recordRuntimeLockStats, publishPreparedLauncherState);
             if (!invocation.invoked()) {
                 return GpuAttempt.skipped(invocation.failureReason());
             }
@@ -664,6 +874,77 @@ public final class GpuPayloadBatchExecutor {
         }
     }
 
+    public static GpuAttempt tryComputeGpuRuntimeMultiPayloadBatch(
+            int payloadCount,
+            int pointsPerPayload,
+            int maxExternInputCount,
+            int scratchStride,
+            int[] payloadNodeOffsets,
+            int[] payloadNodeCounts,
+            int[] payloadRootIndices,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            int[] opcodes,
+            int[] arg0,
+            int[] arg1,
+            int[] arg2,
+            int[] int0,
+            int[] int1,
+            double[] value0,
+            double[] value1,
+            int[] noisePermutations,
+            double[] noiseOctaveData,
+            double[] externValues,
+            double[] output,
+            double[] scratch) {
+        validateMultiPayload(
+                payloadCount, pointsPerPayload, maxExternInputCount, scratchStride,
+                payloadNodeOffsets, payloadNodeCounts, payloadRootIndices,
+                blockX, blockY, blockZ, opcodes, arg0, arg1, arg2, int0, int1,
+                value0, value1, noisePermutations, noiseOctaveData, externValues, output, scratch);
+        if (output.length == 0) {
+            return GpuAttempt.ok();
+        }
+        try {
+            Object[] kernelArgs = new Object[]{
+                    blockX,
+                    blockY,
+                    blockZ,
+                    payloadNodeOffsets,
+                    payloadNodeCounts,
+                    payloadRootIndices,
+                    opcodes,
+                    arg0,
+                    arg1,
+                    arg2,
+                    int0,
+                    int1,
+                    value0,
+                    value1,
+                    nonEmptyIntArray(noisePermutations),
+                    nonEmptyDoubleArray(noiseOctaveData),
+                    maxExternInputCount,
+                    nonEmptyDoubleArray(externValues),
+                    pointsPerPayload,
+                    scratchStride,
+                    scratch,
+                    output
+            };
+
+            PreparedInvocationResult invocation = invokeGpuRuntimeMultiPayload(output.length, kernelArgs);
+            if (!invocation.invoked()) {
+                return GpuAttempt.skipped(invocation.failureReason());
+            }
+            return GpuAttempt.ok(invocation.cacheHit(), invocation.timings());
+        } catch (InvocationTargetException exception) {
+            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+            return GpuAttempt.failed(cause.toString());
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            return GpuAttempt.failed(exception.toString());
+        }
+    }
+
     private static GpuAttempt tryComputeGpuRuntimeMicroBatch(
             GpuIrPayload payload,
             int[] blockX,
@@ -678,11 +959,12 @@ public final class GpuPayloadBatchExecutor {
 
         long waitStart = System.nanoTime();
         if (!GPU_RUNTIME_LOCK.tryLock()) {
+            long queueWaitNanos = runtimeMicroBatchWaitNanos();
             RuntimeMicroBatchRequest queued = new RuntimeMicroBatchRequest(
                     payload, blockX, blockY, blockZ, gpuExternValues(payload, externValues), output, scratch, true);
             RUNTIME_MICRO_BATCH_QUEUE.offer(queued);
             try {
-                if (queued.await(runtimeMicroBatchWaitNanos())) {
+                if (queued.await(queueWaitNanos)) {
                     return queued.result();
                 }
                 if (queued.accepted()) {
@@ -692,6 +974,9 @@ public final class GpuPayloadBatchExecutor {
                 if (!queued.cancel()) {
                     queued.awaitDone();
                     return queued.result();
+                }
+                if (tryAcquireRuntimeLockAfterQueueTimeout(queueWaitNanos)) {
+                    return leadRuntimeMicroBatch(payload, pointCount, own, waitStart);
                 }
             } catch (InterruptedException exception) {
                 if (!queued.cancel()) {
@@ -705,21 +990,35 @@ public final class GpuPayloadBatchExecutor {
             return GpuAttempt.skipped("gpu runtime busy");
         }
 
+        return leadRuntimeMicroBatch(payload, pointCount, own, waitStart);
+    }
+
+    private static boolean tryAcquireRuntimeLockAfterQueueTimeout(long queueWaitNanos) throws InterruptedException {
+        return queueWaitNanos > 0L && GPU_RUNTIME_LOCK.tryLock(queueWaitNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private static GpuAttempt leadRuntimeMicroBatch(
+            GpuIrPayload payload,
+            int pointCount,
+            RuntimeMicroBatchRequest own,
+            long waitStart) throws ReflectiveOperationException {
+
         long waitNanos = System.nanoTime() - waitStart;
         long heldStart = System.nanoTime();
         List<RuntimeMicroBatchRequest> requests = List.of(own);
         try {
-            GpuRuntimeCompileOptions compileOptions = openClCompileOptionsTyped();
             requests = collectRuntimeMicroBatch(own);
-            if (requests.size() < runtimeMicroBatchMin()) {
+            int requiredRequests = runtimeMicroBatchRequiredRequests(pointCount);
+            if (requests.size() < requiredRequests) {
                 RouterPipeline.recordGpuPayloadBatchMicroBatchSkipped(requests.size());
                 recordRuntimeMicroBatchTooSmall(requests.size());
                 completeSkipped(requests, requests.size() == 1
                         ? "gpu microbatch single"
-                        : "gpu microbatch below min");
+                        : "gpu microbatch below min points");
                 return own.result();
             }
             recordRuntimeMicroBatchLaunch(requests.size());
+            GpuRuntimeCompileOptions compileOptions = openClCompileOptionsTyped();
             return invokeRuntimeMicroBatchLocked(payload, pointCount, compileOptions, requests, own);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
             completeFailed(requests, exception.toString());
@@ -732,7 +1031,7 @@ public final class GpuPayloadBatchExecutor {
 
     private static List<RuntimeMicroBatchRequest> collectRuntimeMicroBatch(RuntimeMicroBatchRequest own) {
         int maxBatch = runtimeMicroBatchMax();
-        int preferredMinBatch = runtimeMicroBatchMin();
+        int preferredMinBatch = runtimeMicroBatchRequiredRequests(own.output.length);
         long deadline = System.nanoTime() + runtimeMicroBatchCollectNanos();
         ArrayList<RuntimeMicroBatchRequest> requests = new ArrayList<>(maxBatch);
         ArrayList<RuntimeMicroBatchRequest> deferred = new ArrayList<>();
@@ -806,6 +1105,8 @@ public final class GpuPayloadBatchExecutor {
                 payload.int1(),
                 payload.value0(),
                 payload.value1(),
+                gpuNoisePermutations(payload),
+                gpuNoiseOctaveData(payload),
                 payload.externInputCount(),
                 buffers.externValues,
                 payload.rootIndex(),
@@ -893,7 +1194,9 @@ public final class GpuPayloadBatchExecutor {
         int[] blockY = new int[]{10, 3, -64};
         int[] blockZ = new int[]{8, -12, 16};
         double[] gpu = new double[blockX.length];
-        GpuAttempt attempt = tryComputeGpu(payload, blockX, blockY, blockZ, gpu);
+        double[] scratch = new double[Math.multiplyExact(gpu.length, payload.nodeCount())];
+        GpuAttempt attempt = tryComputeGpu(
+                payload, blockX, blockY, blockZ, emptyExternValues(payload), gpu, scratch, false);
         if (!attempt.success()) {
             return PreflightResult.failed("preflight launch failed: " + attempt.failureReason());
         }
@@ -946,7 +1249,9 @@ public final class GpuPayloadBatchExecutor {
                 value0,
                 value1,
                 value2,
-                value3);
+                value3,
+                new int[0],
+                new double[0]);
     }
 
     private static int[] fillInt(int length, int value) {
@@ -1020,6 +1325,8 @@ public final class GpuPayloadBatchExecutor {
                 int[].class,
                 double[].class,
                 double[].class,
+                int[].class,
+                double[].class,
                 int.class,
                 double[].class,
                 int.class,
@@ -1046,19 +1353,41 @@ public final class GpuPayloadBatchExecutor {
                 kernelArgs[13],
                 kernelArgs[14],
                 kernelArgs[15],
-                kernelArgs[16]);
+                kernelArgs[16],
+                kernelArgs[17],
+                kernelArgs[18]);
     }
 
     private static PreparedInvocationResult invokeGpuRuntime(long globalWorkSize, Object[] kernelArgs)
+            throws ReflectiveOperationException {
+        return invokeGpuRuntime(globalWorkSize, kernelArgs, true);
+    }
+
+    private static PreparedInvocationResult invokeGpuRuntime(
+            long globalWorkSize,
+            Object[] kernelArgs,
+            boolean recordRuntimeLockStats)
+            throws ReflectiveOperationException {
+        return invokeGpuRuntime(globalWorkSize, kernelArgs, recordRuntimeLockStats, recordRuntimeLockStats);
+    }
+
+    private static PreparedInvocationResult invokeGpuRuntime(
+            long globalWorkSize,
+            Object[] kernelArgs,
+            boolean recordRuntimeLockStats,
+            boolean publishPreparedLauncherState)
             throws ReflectiveOperationException {
         GpuRuntimeCompileOptions compileOptions = openClCompileOptionsTyped();
         if (booleanProperty(SERIALIZE_RUNTIME_PROPERTY, true) || persistentRuntimeScopeEnabled()) {
             long waitStart = System.nanoTime();
             boolean locked;
             if (booleanProperty(OPPORTUNISTIC_RUNTIME_LOCK_PROPERTY, true)) {
-                locked = GPU_RUNTIME_LOCK.tryLock();
+                locked = tryAcquireRuntimeLockWithBoundedWait(runtimeLockWaitNanos());
                 if (!locked) {
-                    RouterPipeline.recordGpuPayloadBatchRuntimeLock(System.nanoTime() - waitStart, 0L);
+                    recordRuntimeMicroBatchBusy();
+                    if (recordRuntimeLockStats) {
+                        RouterPipeline.recordGpuPayloadBatchRuntimeLock(System.nanoTime() - waitStart, 0L);
+                    }
                     return PreparedInvocationResult.skipped("gpu runtime busy");
                 }
             } else {
@@ -1068,15 +1397,34 @@ public final class GpuPayloadBatchExecutor {
             long waitNanos = System.nanoTime() - waitStart;
             long heldStart = System.nanoTime();
             try {
-                return invokeGpuRuntimeLocked(globalWorkSize, compileOptions, kernelArgs);
+                PreparedInvocationResult result = invokeGpuRuntimeLocked(
+                        globalWorkSize, compileOptions, kernelArgs, publishPreparedLauncherState);
+                if (result.invoked()) {
+                    recordRuntimeGpuLaunch();
+                }
+                return result;
             } finally {
-                RouterPipeline.recordGpuPayloadBatchRuntimeLock(waitNanos, System.nanoTime() - heldStart);
+                if (recordRuntimeLockStats) {
+                    RouterPipeline.recordGpuPayloadBatchRuntimeLock(waitNanos, System.nanoTime() - heldStart);
+                }
                 if (locked) {
                     GPU_RUNTIME_LOCK.unlock();
                 }
             }
         }
-        return invokeGpuRuntimeLocked(globalWorkSize, compileOptions, kernelArgs);
+        return invokeGpuRuntimeLocked(globalWorkSize, compileOptions, kernelArgs, publishPreparedLauncherState);
+    }
+
+    private static boolean tryAcquireRuntimeLockWithBoundedWait(long waitNanos) {
+        if (waitNanos <= 0L) {
+            return GPU_RUNTIME_LOCK.tryLock();
+        }
+        try {
+            return GPU_RUNTIME_LOCK.tryLock(waitNanos, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private static PreparedInvocationResult invokeGpuRuntimeLocked(
@@ -1084,11 +1432,21 @@ public final class GpuPayloadBatchExecutor {
             GpuRuntimeCompileOptions compileOptions,
             Object[] kernelArgs)
             throws ReflectiveOperationException {
+        return invokeGpuRuntimeLocked(globalWorkSize, compileOptions, kernelArgs, true);
+    }
+
+    private static PreparedInvocationResult invokeGpuRuntimeLocked(
+            long globalWorkSize,
+            GpuRuntimeCompileOptions compileOptions,
+            Object[] kernelArgs,
+            boolean publishPreparedLauncherState)
+            throws ReflectiveOperationException {
         if (!booleanProperty(PERSISTENT_RUNTIME_SCOPE_PROPERTY, true)) {
             return invokePreparedLauncherWithPerCallScope(globalWorkSize, compileOptions, kernelArgs);
         }
         ensurePersistentRuntimeScope(compileOptions);
-        PreparedLauncherUse launcherUse = preparedLauncherFor(globalWorkSize, compileOptions, kernelArgs);
+        PreparedLauncherUse launcherUse = preparedLauncherFor(
+                globalWorkSize, compileOptions, kernelArgs, publishPreparedLauncherState);
         launcherUse.launcher().invoke(dynamicKernelArgs(kernelArgs));
         return PreparedInvocationResult.invoked(launcherUse.cacheHit(), launcherUse.launcher().lastInvocationTimings());
     }
@@ -1115,17 +1473,137 @@ public final class GpuPayloadBatchExecutor {
         }
     }
 
-    private static PreparedLauncherUse preparedLauncherFor(
+    private static PreparedInvocationResult invokeGpuRuntimeMultiPayload(long globalWorkSize, Object[] kernelArgs)
+            throws ReflectiveOperationException {
+        GpuRuntimeCompileOptions compileOptions = openClCompileOptionsTyped();
+        if (booleanProperty(SERIALIZE_RUNTIME_PROPERTY, true) || persistentRuntimeScopeEnabled()) {
+            long waitStart = System.nanoTime();
+            boolean locked;
+            if (booleanProperty(OPPORTUNISTIC_RUNTIME_LOCK_PROPERTY, true)) {
+                locked = tryAcquireRuntimeLockWithBoundedWait(runtimeLockWaitNanos());
+                if (!locked) {
+                    recordRuntimeMicroBatchBusy();
+                    RouterPipeline.recordGpuPayloadBatchRuntimeLock(System.nanoTime() - waitStart, 0L);
+                    return PreparedInvocationResult.skipped("gpu runtime busy");
+                }
+            } else {
+                GPU_RUNTIME_LOCK.lock();
+                locked = true;
+            }
+            long waitNanos = System.nanoTime() - waitStart;
+            long heldStart = System.nanoTime();
+            try {
+                PreparedInvocationResult result = invokeGpuRuntimeMultiPayloadLocked(
+                        globalWorkSize, compileOptions, kernelArgs);
+                if (result.invoked()) {
+                    recordRuntimeGpuLaunch();
+                }
+                return result;
+            } finally {
+                RouterPipeline.recordGpuPayloadBatchRuntimeLock(waitNanos, System.nanoTime() - heldStart);
+                if (locked) {
+                    GPU_RUNTIME_LOCK.unlock();
+                }
+            }
+        }
+        return invokeGpuRuntimeMultiPayloadLocked(globalWorkSize, compileOptions, kernelArgs);
+    }
+
+    private static PreparedInvocationResult invokeGpuRuntimeMultiPayloadLocked(
             long globalWorkSize,
             GpuRuntimeCompileOptions compileOptions,
             Object[] kernelArgs) {
-        PreparedLauncherKey key = PreparedLauncherKey.from(globalWorkSize, kernelArgs);
-        PreparedLauncherState current = preparedLauncherState;
-        if (current != null && current.matches(key, compileOptions)) {
+        if (!booleanProperty(PERSISTENT_RUNTIME_SCOPE_PROPERTY, true)) {
+            return invokeMultiPreparedLauncherWithPerCallScope(globalWorkSize, compileOptions, kernelArgs);
+        }
+        ensurePersistentRuntimeScopeUnchecked(compileOptions);
+        PreparedLauncherUse launcherUse = preparedMultiLauncherFor(globalWorkSize, compileOptions, kernelArgs);
+        launcherUse.launcher().invoke(kernelArgs);
+        return PreparedInvocationResult.invoked(launcherUse.cacheHit(), launcherUse.launcher().lastInvocationTimings());
+    }
+
+    private static PreparedInvocationResult invokeMultiPreparedLauncherWithPerCallScope(
+            long globalWorkSize,
+            GpuRuntimeCompileOptions compileOptions,
+            Object[] kernelArgs) {
+        GpuScope scope = JavaToGpu.useOpenClSharedCache();
+        try (GpuPreparedLauncher launcher = JavaToGpu.prepareWithConfigAndCompileOptions(
+                GpuPayloadArithmeticKernel.class,
+                MULTI_METHOD_NAME,
+                JavaToGpu.launch1D(globalWorkSize),
+                compileOptions,
+                kernelArgs)
+                .withStaticArgumentNames(new String[0])
+                .withoutHostUploadArgumentNames("output", "scratch")
+                .withoutHostReadbackArgumentNames("scratch")) {
+            launcher.invoke(kernelArgs);
+            return PreparedInvocationResult.invoked(false, launcher.lastInvocationTimings());
+        } finally {
+            scope.close();
+            JavaToGpu.shutdownOpenClSharedCache();
+        }
+    }
+
+    private static void ensurePersistentRuntimeScopeUnchecked(GpuRuntimeCompileOptions compileOptions) {
+        try {
+            ensurePersistentRuntimeScope(compileOptions);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static PreparedLauncherUse preparedMultiLauncherFor(
+            long globalWorkSize,
+            GpuRuntimeCompileOptions compileOptions,
+            Object[] kernelArgs) {
+        MultiPreparedLauncherKey key = MultiPreparedLauncherKey.from(globalWorkSize, kernelArgs);
+        MultiPreparedLauncherCacheKey cacheKey = new MultiPreparedLauncherCacheKey(key, compileOptions);
+        MultiPreparedLauncherState current = MULTI_PREPARED_LAUNCHER_CACHE.get(cacheKey);
+        if (current != null) {
             return new PreparedLauncherUse(current.launcher(), true);
         }
 
-        closePreparedLauncher();
+        GpuPreparedLauncher launcher = JavaToGpu.prepareWithConfigAndCompileOptions(
+                GpuPayloadArithmeticKernel.class,
+                MULTI_METHOD_NAME,
+                JavaToGpu.launch1D(globalWorkSize),
+                compileOptions,
+                kernelArgs)
+                .withStaticArgumentNames(new String[0])
+                .withoutHostUploadArgumentNames("output", "scratch")
+                .withoutHostReadbackArgumentNames("scratch");
+        MultiPreparedLauncherState state = new MultiPreparedLauncherState(key, compileOptions, launcher);
+        MULTI_PREPARED_LAUNCHER_CACHE.put(cacheKey, state);
+        evictMultiPreparedLaunchers(preparedLauncherCacheMax());
+        return new PreparedLauncherUse(launcher, false);
+    }
+
+    private static void evictMultiPreparedLaunchers(int maxEntries) {
+        int max = Math.max(1, maxEntries);
+        while (MULTI_PREPARED_LAUNCHER_CACHE.size() > max) {
+            Map.Entry<MultiPreparedLauncherCacheKey, MultiPreparedLauncherState> eldest =
+                    MULTI_PREPARED_LAUNCHER_CACHE.entrySet().iterator().next();
+            MultiPreparedLauncherState state = eldest.getValue();
+            MULTI_PREPARED_LAUNCHER_CACHE.remove(eldest.getKey());
+            closeMultiPreparedLauncherState(state);
+        }
+    }
+
+    private static PreparedLauncherUse preparedLauncherFor(
+            long globalWorkSize,
+            GpuRuntimeCompileOptions compileOptions,
+            Object[] kernelArgs,
+            boolean publishPreparedLauncherState) {
+        PreparedLauncherKey key = PreparedLauncherKey.from(globalWorkSize, kernelArgs);
+        PreparedLauncherCacheKey cacheKey = new PreparedLauncherCacheKey(key, compileOptions);
+        PreparedLauncherState current = PREPARED_LAUNCHER_CACHE.get(cacheKey);
+        if (current != null) {
+            if (publishPreparedLauncherState) {
+                preparedLauncherState = current;
+            }
+            return new PreparedLauncherUse(current.launcher(), true);
+        }
+
         GpuPreparedLauncher launcher = JavaToGpu.prepareWithConfigAndCompileOptions(
                 GpuPayloadArithmeticKernel.class,
                 METHOD_NAME,
@@ -1135,26 +1613,32 @@ public final class GpuPayloadBatchExecutor {
                 .withStaticArgumentNames(staticArgumentNames(kernelArgs))
                 .withoutHostUploadArgumentNames("output", "scratch")
                 .withoutHostReadbackArgumentNames("scratch");
-        preparedLauncherState = new PreparedLauncherState(key, compileOptions, launcher);
+        PreparedLauncherState state = new PreparedLauncherState(key, compileOptions, launcher);
+        PREPARED_LAUNCHER_CACHE.put(cacheKey, state);
+        if (publishPreparedLauncherState) {
+            preparedLauncherState = state;
+        }
+        evictPreparedLaunchers(preparedLauncherCacheMax());
         return new PreparedLauncherUse(launcher, false);
     }
 
+    private static void evictPreparedLaunchers(int maxEntries) {
+        int max = Math.max(1, maxEntries);
+        while (PREPARED_LAUNCHER_CACHE.size() > max) {
+            Map.Entry<PreparedLauncherCacheKey, PreparedLauncherState> eldest =
+                    PREPARED_LAUNCHER_CACHE.entrySet().iterator().next();
+            PreparedLauncherState state = eldest.getValue();
+            PREPARED_LAUNCHER_CACHE.remove(eldest.getKey());
+            if (state == preparedLauncherState) {
+                preparedLauncherState = null;
+            }
+            closePreparedLauncherState(state);
+        }
+    }
+
     private static String[] staticArgumentNames(Object[] kernelArgs) {
-        if (externInputCount(kernelArgs) == 0) {
-            return new String[]{
-                    "opcodes",
-                    "arg0",
-                    "arg1",
-                    "arg2",
-                    "int0",
-                    "int1",
-                    "value0",
-                    "value1",
-                    "externInputCount",
-                    "externValues",
-                    "rootIndex",
-                    "nodeCount"
-            };
+        if (externInputCount(kernelArgs) > 0 || hasNativeNoise(kernelArgs)) {
+            return new String[0];
         }
         return new String[]{
                 "opcodes",
@@ -1165,34 +1649,42 @@ public final class GpuPayloadBatchExecutor {
                 "int1",
                 "value0",
                 "value1",
+                "noisePermutations",
+                "noiseOctaveData",
                 "externInputCount",
+                "externValues",
                 "rootIndex",
                 "nodeCount"
         };
     }
 
     private static Object[] dynamicKernelArgs(Object[] kernelArgs) {
-        if (externInputCount(kernelArgs) == 0) {
+        if (externInputCount(kernelArgs) == 0 && !hasNativeNoise(kernelArgs)) {
             return new Object[]{
                     kernelArgs[0],
                     kernelArgs[1],
                     kernelArgs[2],
-                    kernelArgs[15],
-                    kernelArgs[16]
+                    kernelArgs[17],
+                    kernelArgs[18]
             };
         }
-        return new Object[]{
-                kernelArgs[0],
-                kernelArgs[1],
-                kernelArgs[2],
-                kernelArgs[12],
-                kernelArgs[15],
-                kernelArgs[16]
-        };
+        return kernelArgs;
+    }
+
+    private static boolean hasNativeNoise(Object[] kernelArgs) {
+        return intArrayLength(kernelArgs, 11) > 1 || doubleArrayLength(kernelArgs, 12) > 1;
     }
 
     private static int externInputCount(Object[] kernelArgs) {
-        return ((Number) kernelArgs[11]).intValue();
+        return ((Number) kernelArgs[13]).intValue();
+    }
+
+    private static int intArrayLength(Object[] kernelArgs, int index) {
+        return ((int[]) kernelArgs[index]).length;
+    }
+
+    private static int doubleArrayLength(Object[] kernelArgs, int index) {
+        return ((double[]) kernelArgs[index]).length;
     }
 
     private static void ensurePersistentRuntimeScope(GpuRuntimeCompileOptions compileOptions) throws ReflectiveOperationException {
@@ -1279,8 +1771,31 @@ public final class GpuPayloadBatchExecutor {
     }
 
     private static void closePreparedLauncher() {
-        PreparedLauncherState state = preparedLauncherState;
+        List<PreparedLauncherState> states = new ArrayList<>(PREPARED_LAUNCHER_CACHE.values());
+        List<MultiPreparedLauncherState> multiStates = new ArrayList<>(MULTI_PREPARED_LAUNCHER_CACHE.values());
+        PREPARED_LAUNCHER_CACHE.clear();
+        MULTI_PREPARED_LAUNCHER_CACHE.clear();
         preparedLauncherState = null;
+        for (PreparedLauncherState state : states) {
+            closePreparedLauncherState(state);
+        }
+        for (MultiPreparedLauncherState state : multiStates) {
+            closeMultiPreparedLauncherState(state);
+        }
+    }
+
+    private static void closePreparedLauncherState(PreparedLauncherState state) {
+        if (state == null) {
+            return;
+        }
+        try {
+            state.launcher().close();
+        } catch (RuntimeException ignored) {
+            // The runtime can rebuild a launcher on the next batch.
+        }
+    }
+
+    private static void closeMultiPreparedLauncherState(MultiPreparedLauncherState state) {
         if (state == null) {
             return;
         }
@@ -1344,6 +1859,100 @@ public final class GpuPayloadBatchExecutor {
         }
     }
 
+    private static void validateMultiPayload(
+            int payloadCount,
+            int pointsPerPayload,
+            int maxExternInputCount,
+            int scratchStride,
+            int[] payloadNodeOffsets,
+            int[] payloadNodeCounts,
+            int[] payloadRootIndices,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            int[] opcodes,
+            int[] arg0,
+            int[] arg1,
+            int[] arg2,
+            int[] int0,
+            int[] int1,
+            double[] value0,
+            double[] value1,
+            int[] noisePermutations,
+            double[] noiseOctaveData,
+            double[] externValues,
+            double[] output,
+            double[] scratch) {
+        Objects.requireNonNull(payloadNodeOffsets, "payloadNodeOffsets");
+        Objects.requireNonNull(payloadNodeCounts, "payloadNodeCounts");
+        Objects.requireNonNull(payloadRootIndices, "payloadRootIndices");
+        Objects.requireNonNull(blockX, "blockX");
+        Objects.requireNonNull(blockY, "blockY");
+        Objects.requireNonNull(blockZ, "blockZ");
+        Objects.requireNonNull(opcodes, "opcodes");
+        Objects.requireNonNull(arg0, "arg0");
+        Objects.requireNonNull(arg1, "arg1");
+        Objects.requireNonNull(arg2, "arg2");
+        Objects.requireNonNull(int0, "int0");
+        Objects.requireNonNull(int1, "int1");
+        Objects.requireNonNull(value0, "value0");
+        Objects.requireNonNull(value1, "value1");
+        Objects.requireNonNull(noisePermutations, "noisePermutations");
+        Objects.requireNonNull(noiseOctaveData, "noiseOctaveData");
+        Objects.requireNonNull(externValues, "externValues");
+        Objects.requireNonNull(output, "output");
+        Objects.requireNonNull(scratch, "scratch");
+        if (payloadCount <= 0 || pointsPerPayload <= 0) {
+            throw new IllegalArgumentException("payloadCount and pointsPerPayload must be positive");
+        }
+        if (maxExternInputCount < 0 || scratchStride <= 0) {
+            throw new IllegalArgumentException("maxExternInputCount must be non-negative and scratchStride positive");
+        }
+        int expectedPoints = Math.multiplyExact(payloadCount, pointsPerPayload);
+        if (output.length != expectedPoints) {
+            throw new IllegalArgumentException("Output length " + output.length
+                    + " does not match multi-payload point count " + expectedPoints);
+        }
+        if (blockX.length < expectedPoints || blockY.length < expectedPoints || blockZ.length < expectedPoints) {
+            throw new IllegalArgumentException("Coordinate arrays must cover every multi-payload point");
+        }
+        int requiredExternValues = Math.max(1, Math.multiplyExact(expectedPoints, maxExternInputCount));
+        if (externValues.length < requiredExternValues) {
+            throw new IllegalArgumentException("Extern input values length " + externValues.length
+                    + " is smaller than required length " + requiredExternValues);
+        }
+        int requiredScratch = Math.multiplyExact(expectedPoints, scratchStride);
+        if (scratch.length < requiredScratch) {
+            throw new IllegalArgumentException("Scratch buffer length " + scratch.length
+                    + " is smaller than required length " + requiredScratch);
+        }
+        if (payloadNodeOffsets.length < payloadCount
+                || payloadNodeCounts.length < payloadCount
+                || payloadRootIndices.length < payloadCount) {
+            throw new IllegalArgumentException("Payload metadata arrays must cover every payload");
+        }
+        int nodeArrayLength = opcodes.length;
+        if (arg0.length < nodeArrayLength || arg1.length < nodeArrayLength || arg2.length < nodeArrayLength
+                || int0.length < nodeArrayLength || int1.length < nodeArrayLength
+                || value0.length < nodeArrayLength || value1.length < nodeArrayLength) {
+            throw new IllegalArgumentException("Packed payload node arrays must have matching lengths");
+        }
+        for (int payload = 0; payload < payloadCount; payload++) {
+            int nodeOffset = payloadNodeOffsets[payload];
+            int nodeCount = payloadNodeCounts[payload];
+            int rootIndex = payloadRootIndices[payload];
+            if (nodeOffset < 0 || nodeCount <= 0 || nodeOffset + nodeCount > nodeArrayLength) {
+                throw new IllegalArgumentException("Invalid packed payload node range at payload " + payload);
+            }
+            if (rootIndex < 0 || rootIndex >= nodeCount) {
+                throw new IllegalArgumentException("Invalid root index " + rootIndex + " at payload " + payload);
+            }
+            if (nodeCount > scratchStride) {
+                throw new IllegalArgumentException("Payload node count exceeds scratch stride at payload " + payload);
+            }
+        }
+    }
+
     private static double[] emptyExternValues(GpuIrPayload payload) {
         Objects.requireNonNull(payload, "payload");
         if (payload.hasExternInputs()) {
@@ -1357,6 +1966,24 @@ public final class GpuPayloadBatchExecutor {
             return externValues;
         }
         return externValues.length == 0 ? new double[1] : externValues;
+    }
+
+    private static int[] nonEmptyIntArray(int[] values) {
+        return values.length == 0 ? new int[1] : values;
+    }
+
+    private static double[] nonEmptyDoubleArray(double[] values) {
+        return values.length == 0 ? new double[1] : values;
+    }
+
+    private static int[] gpuNoisePermutations(GpuIrPayload payload) {
+        int[] values = payload.noisePermutations();
+        return values.length == 0 ? new int[1] : values;
+    }
+
+    private static double[] gpuNoiseOctaveData(GpuIrPayload payload) {
+        double[] values = payload.noiseOctaveData();
+        return values.length == 0 ? new double[1] : values;
     }
 
     private static String normalizeReason(String reason) {
@@ -1375,38 +2002,68 @@ public final class GpuPayloadBatchExecutor {
         return Math.max(1, intProperty(RUNTIME_MIN_POINTS_PROPERTY, 1024));
     }
 
+    public static long runtimeLockWaitNanos() {
+        return Math.max(0L, longProperty(RUNTIME_LOCK_WAIT_NANOS_PROPERTY, 0L));
+    }
+
+    private static int preparedLauncherCacheMax() {
+        return Math.max(1, intProperty(PREPARED_LAUNCHER_CACHE_MAX_PROPERTY, 128));
+    }
+
     private static boolean runtimeMicroBatchEnabled(int pointCount) {
         return pointCount > 0
+                && pointCount < runtimeMinPoints()
                 && booleanProperty(OPPORTUNISTIC_RUNTIME_LOCK_PROPERTY, true)
                 && runtimeMicroBatchMax() > 1;
     }
 
-    private static int runtimeMicroBatchMax() {
+    private static boolean runtimeMicroBatchCanReachMinPoints(int pointCount) {
+        if (!runtimeMicroBatchEnabled(pointCount)) {
+            return false;
+        }
+        try {
+            return Math.multiplyExact(pointCount, runtimeMicroBatchMax()) >= runtimeMinPoints();
+        } catch (ArithmeticException ignored) {
+            return true;
+        }
+    }
+
+    private static int runtimeMicroBatchRequiredRequests(int pointCount) {
+        int configuredMin = runtimeMicroBatchMin();
+        if (pointCount <= 0) {
+            return configuredMin;
+        }
+        long requiredForMinPoints = ((long) runtimeMinPoints() + pointCount - 1L) / pointCount;
+        long required = Math.max(configuredMin, requiredForMinPoints);
+        return Math.max(1, (int) Math.min(runtimeMicroBatchMax(), required));
+    }
+
+    public static int runtimeMicroBatchMax() {
         return Math.max(1, intProperty(RUNTIME_MICRO_BATCH_MAX_PROPERTY, 8));
     }
 
-    private static int runtimeMicroBatchMin() {
+    public static int runtimeMicroBatchMin() {
         return Math.max(1, Math.min(runtimeMicroBatchMax(), intProperty(RUNTIME_MICRO_BATCH_MIN_PROPERTY, 2)));
     }
 
-    private static long runtimeMicroBatchCollectNanos() {
-        return Math.max(0L, longProperty(RUNTIME_MICRO_BATCH_COLLECT_NANOS_PROPERTY, 100_000L));
+    public static long runtimeMicroBatchCollectNanos() {
+        return Math.max(0L, longProperty(RUNTIME_MICRO_BATCH_COLLECT_NANOS_PROPERTY, 1_000_000L));
     }
 
-    private static long runtimeMicroBatchWaitNanos() {
-        return Math.max(0L, longProperty(RUNTIME_MICRO_BATCH_WAIT_NANOS_PROPERTY, 0L));
+    public static long runtimeMicroBatchWaitNanos() {
+        return Math.max(0L, longProperty(RUNTIME_MICRO_BATCH_WAIT_NANOS_PROPERTY, 100_000L));
     }
 
-    private static int runtimeMicroBatchBackoffSingleStreak() {
-        return Math.max(1, intProperty(RUNTIME_MICRO_BATCH_BACKOFF_SINGLE_STREAK_PROPERTY, 32));
+    public static int runtimeMicroBatchBackoffSingleStreak() {
+        return Math.max(1, intProperty(RUNTIME_MICRO_BATCH_BACKOFF_SINGLE_STREAK_PROPERTY, 1));
     }
 
-    private static int runtimeMicroBatchBackoffBusyStreak() {
+    public static int runtimeMicroBatchBackoffBusyStreak() {
         return Math.max(1, intProperty(RUNTIME_MICRO_BATCH_BACKOFF_BUSY_STREAK_PROPERTY, 32));
     }
 
-    private static int runtimeMicroBatchBackoffBatches() {
-        return Math.max(0, intProperty(RUNTIME_MICRO_BATCH_BACKOFF_BATCHES_PROPERTY, 256));
+    public static int runtimeMicroBatchBackoffBatches() {
+        return Math.max(0, intProperty(RUNTIME_MICRO_BATCH_BACKOFF_BATCHES_PROPERTY, 1024));
     }
 
     private static boolean consumeRuntimeMicroBatchBackoff() {
@@ -1455,6 +2112,11 @@ public final class GpuPayloadBatchExecutor {
             RUNTIME_MICRO_BATCH_SINGLE_STREAK.set(0);
             RUNTIME_MICRO_BATCH_BUSY_STREAK.set(0);
         }
+    }
+
+    private static void recordRuntimeGpuLaunch() {
+        RUNTIME_MICRO_BATCH_SINGLE_STREAK.set(0);
+        RUNTIME_MICRO_BATCH_BUSY_STREAK.set(0);
     }
 
     private static void activateRuntimeMicroBatchBackoff(int streak, int backoffBatches) {
@@ -1579,6 +2241,141 @@ public final class GpuPayloadBatchExecutor {
         }
     }
 
+    private record PreparedLauncherCacheKey(
+            PreparedLauncherKey key,
+            GpuRuntimeCompileOptions compileOptions) {
+    }
+
+    private record MultiPreparedLauncherState(
+            MultiPreparedLauncherKey key,
+            GpuRuntimeCompileOptions compileOptions,
+            GpuPreparedLauncher launcher) {
+    }
+
+    private record MultiPreparedLauncherCacheKey(
+            MultiPreparedLauncherKey key,
+            GpuRuntimeCompileOptions compileOptions) {
+    }
+
+    private static final class PreparedPayloadSignature {
+        private final int[] opcodes;
+        private final int[] arg0;
+        private final int[] arg1;
+        private final int[] arg2;
+        private final int[] int0;
+        private final int[] int1;
+        private final double[] value0;
+        private final double[] value1;
+        private final int[] noisePermutations;
+        private final double[] noiseOctaveData;
+        private final int hash;
+
+        private PreparedPayloadSignature(
+                int[] opcodes,
+                int[] arg0,
+                int[] arg1,
+                int[] arg2,
+                int[] int0,
+                int[] int1,
+                double[] value0,
+                double[] value1,
+                int[] noisePermutations,
+                double[] noiseOctaveData) {
+            this.opcodes = opcodes.clone();
+            this.arg0 = arg0.clone();
+            this.arg1 = arg1.clone();
+            this.arg2 = arg2.clone();
+            this.int0 = int0.clone();
+            this.int1 = int1.clone();
+            this.value0 = value0.clone();
+            this.value1 = value1.clone();
+            this.noisePermutations = noisePermutations.clone();
+            this.noiseOctaveData = noiseOctaveData.clone();
+            this.hash = computeHash();
+        }
+
+        private static PreparedPayloadSignature from(Object[] kernelArgs) {
+            return new PreparedPayloadSignature(
+                    (int[]) kernelArgs[3],
+                    (int[]) kernelArgs[4],
+                    (int[]) kernelArgs[5],
+                    (int[]) kernelArgs[6],
+                    (int[]) kernelArgs[7],
+                    (int[]) kernelArgs[8],
+                    (double[]) kernelArgs[9],
+                    (double[]) kernelArgs[10],
+                    (int[]) kernelArgs[11],
+                    (double[]) kernelArgs[12]);
+        }
+
+        private int computeHash() {
+            int result = Arrays.hashCode(opcodes);
+            result = 31 * result + Arrays.hashCode(arg0);
+            result = 31 * result + Arrays.hashCode(arg1);
+            result = 31 * result + Arrays.hashCode(arg2);
+            result = 31 * result + Arrays.hashCode(int0);
+            result = 31 * result + Arrays.hashCode(int1);
+            result = 31 * result + Arrays.hashCode(value0);
+            result = 31 * result + Arrays.hashCode(value1);
+            result = 31 * result + Arrays.hashCode(noisePermutations);
+            result = 31 * result + Arrays.hashCode(noiseOctaveData);
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof PreparedPayloadSignature signature)) {
+                return false;
+            }
+            return Arrays.equals(opcodes, signature.opcodes)
+                    && Arrays.equals(arg0, signature.arg0)
+                    && Arrays.equals(arg1, signature.arg1)
+                    && Arrays.equals(arg2, signature.arg2)
+                    && Arrays.equals(int0, signature.int0)
+                    && Arrays.equals(int1, signature.int1)
+                    && Arrays.equals(value0, signature.value0)
+                    && Arrays.equals(value1, signature.value1)
+                    && Arrays.equals(noisePermutations, signature.noisePermutations)
+                    && Arrays.equals(noiseOctaveData, signature.noiseOctaveData);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+    }
+
+    private static final class PreparedDoubleArraySignature {
+        private final double[] values;
+        private final int hash;
+
+        private PreparedDoubleArraySignature(double[] values) {
+            this.values = values.clone();
+            this.hash = Arrays.hashCode(this.values);
+        }
+
+        private static PreparedDoubleArraySignature from(double[] values) {
+            return new PreparedDoubleArraySignature(values);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            return other instanceof PreparedDoubleArraySignature signature
+                    && Arrays.equals(values, signature.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+    }
+
     private record PreparedLauncherUse(GpuPreparedLauncher launcher, boolean cacheHit) {
     }
 
@@ -1600,6 +2397,70 @@ public final class GpuPayloadBatchExecutor {
         }
     }
 
+    private record MultiPreparedLauncherKey(
+            long globalWorkSize,
+            int blockXLength,
+            int blockYLength,
+            int blockZLength,
+            int payloadNodeOffsetsLength,
+            int payloadNodeCountsLength,
+            int payloadRootIndicesLength,
+            int opcodesLength,
+            int arg0Length,
+            int arg1Length,
+            int arg2Length,
+            int int0Length,
+            int int1Length,
+            int value0Length,
+            int value1Length,
+            int noisePermutationsLength,
+            int noiseOctaveDataLength,
+            int maxExternInputCount,
+            int externValuesLength,
+            int pointsPerPayload,
+            int scratchStride,
+            int scratchLength,
+            int outputLength) {
+        private static MultiPreparedLauncherKey from(long globalWorkSize, Object[] kernelArgs) {
+            return new MultiPreparedLauncherKey(
+                    globalWorkSize,
+                    intArrayLength(kernelArgs, 0),
+                    intArrayLength(kernelArgs, 1),
+                    intArrayLength(kernelArgs, 2),
+                    intArrayLength(kernelArgs, 3),
+                    intArrayLength(kernelArgs, 4),
+                    intArrayLength(kernelArgs, 5),
+                    intArrayLength(kernelArgs, 6),
+                    intArrayLength(kernelArgs, 7),
+                    intArrayLength(kernelArgs, 8),
+                    intArrayLength(kernelArgs, 9),
+                    intArrayLength(kernelArgs, 10),
+                    intArrayLength(kernelArgs, 11),
+                    doubleArrayLength(kernelArgs, 12),
+                    doubleArrayLength(kernelArgs, 13),
+                    intArrayLength(kernelArgs, 14),
+                    doubleArrayLength(kernelArgs, 15),
+                    intValue(kernelArgs, 16),
+                    doubleArrayLength(kernelArgs, 17),
+                    intValue(kernelArgs, 18),
+                    intValue(kernelArgs, 19),
+                    doubleArrayLength(kernelArgs, 20),
+                    doubleArrayLength(kernelArgs, 21));
+        }
+
+        private static int intArrayLength(Object[] kernelArgs, int index) {
+            return ((int[]) kernelArgs[index]).length;
+        }
+
+        private static int doubleArrayLength(Object[] kernelArgs, int index) {
+            return ((double[]) kernelArgs[index]).length;
+        }
+
+        private static int intValue(Object[] kernelArgs, int index) {
+            return ((Number) kernelArgs[index]).intValue();
+        }
+    }
+
     private record PreparedLauncherKey(
             long globalWorkSize,
             int blockXLength,
@@ -1613,32 +2474,44 @@ public final class GpuPayloadBatchExecutor {
             int int1Length,
             int value0Length,
             int value1Length,
+            int noisePermutationsLength,
+            int noiseOctaveDataLength,
+            PreparedPayloadSignature staticPayloadSignature,
             int externInputCount,
             int externValuesLength,
+            PreparedDoubleArraySignature staticExternValuesSignature,
             int rootIndex,
             int nodeCount,
             int scratchLength,
             int outputLength) {
         private static PreparedLauncherKey from(long globalWorkSize, Object[] kernelArgs) {
+            int externInputCount = intValue(kernelArgs, 13);
+            boolean hasExternInputs = externInputCount > 0;
+            boolean nativeNoise = intArrayLength(kernelArgs, 11) > 1 || doubleArrayLength(kernelArgs, 12) > 1;
+            boolean staticPayload = !hasExternInputs && !nativeNoise;
             return new PreparedLauncherKey(
                     globalWorkSize,
-                    intArrayLength(kernelArgs, 0),
-                    intArrayLength(kernelArgs, 1),
-                    intArrayLength(kernelArgs, 2),
-                    intArrayLength(kernelArgs, 3),
-                    intArrayLength(kernelArgs, 4),
-                    intArrayLength(kernelArgs, 5),
-                    intArrayLength(kernelArgs, 6),
-                    intArrayLength(kernelArgs, 7),
-                    intArrayLength(kernelArgs, 8),
-                    doubleArrayLength(kernelArgs, 9),
-                    doubleArrayLength(kernelArgs, 10),
-                    intValue(kernelArgs, 11),
-                    doubleArrayLength(kernelArgs, 12),
-                    intValue(kernelArgs, 13),
-                    intValue(kernelArgs, 14),
-                    doubleArrayLength(kernelArgs, 15),
-                    doubleArrayLength(kernelArgs, 16));
+                    staticPayload ? intArrayLength(kernelArgs, 0) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 1) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 2) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 3) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 4) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 5) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 6) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 7) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 8) : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 9) : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 10) : -1,
+                    staticPayload ? intArrayLength(kernelArgs, 11) : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 12) : -1,
+                    staticPayload ? PreparedPayloadSignature.from(kernelArgs) : null,
+                    staticPayload ? externInputCount : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 14) : -1,
+                    staticPayload ? PreparedDoubleArraySignature.from((double[]) kernelArgs[14]) : null,
+                    staticPayload ? intValue(kernelArgs, 15) : -1,
+                    staticPayload ? intValue(kernelArgs, 16) : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 17) : -1,
+                    staticPayload ? doubleArrayLength(kernelArgs, 18) : -1);
         }
 
         private static int intArrayLength(Object[] kernelArgs, int index) {
@@ -1710,7 +2583,9 @@ public final class GpuPayloadBatchExecutor {
         private int[] blockZ = new int[0];
         private double[] scratch = new double[0];
         private double[] externValues = new double[0];
+        private double[] output = new double[0];
         private double[] parityExpected = new double[0];
+        private double[] parityPayloadExpected = new double[0];
 
         private BatchBuffers() {
         }
@@ -1722,8 +2597,14 @@ public final class GpuPayloadBatchExecutor {
                 blockZ = new int[pointCount];
                 parityExpected = new double[pointCount];
             }
+            if (output.length != pointCount) {
+                output = new double[pointCount];
+            }
             if (parityExpected.length < pointCount) {
                 parityExpected = new double[pointCount];
+            }
+            if (parityPayloadExpected.length < pointCount) {
+                parityPayloadExpected = new double[pointCount];
             }
             if (scratch.length < scratchLength) {
                 scratch = new double[scratchLength];
@@ -1753,8 +2634,16 @@ public final class GpuPayloadBatchExecutor {
             return externValues;
         }
 
+        public double[] output() {
+            return output;
+        }
+
         public double[] parityExpected() {
             return parityExpected;
+        }
+
+        public double[] parityPayloadExpected() {
+            return parityPayloadExpected;
         }
     }
 

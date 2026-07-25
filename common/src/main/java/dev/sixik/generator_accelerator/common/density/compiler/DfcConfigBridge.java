@@ -51,6 +51,10 @@ public final class DfcConfigBridge {
             setBoolean("dfc.compileMarkerInners", dfc.compileMarkerInners);
             setBoolean("ga.dfc.lazyCellCacheCompile", dfc.lazyCellCacheCompile);
             setInt("ga.dfc.lazyCellCacheCompile.max", Math.max(0, dfc.lazyCellCacheCompileMax));
+            setBoolean("ga.dfc.fillSliceLazyCompile", dfc.fillSliceLazyCompile);
+            setInt("ga.dfc.fillSliceLazyCompile.max", Math.max(0, dfc.fillSliceLazyCompileMax));
+            setBoolean("ga.dfc.gpu.fillSlicePrototype", dfc.fillSliceGpuPrototype);
+            setBoolean("ga.dfc.gpu.cellFillPrototype", dfc.gpuCellFillPrototype);
             setInt("ga.dfc.randomStateCompile.max", dfc.randomStateCompileMax);
             setString("ga.dfc.randomStateCompile.routerRoots", dfc.randomStateCompileRouterRoots);
             setBoolean("ga.dfc.randomStateCompile.sampler", dfc.randomStateCompileSampler);
@@ -65,10 +69,12 @@ public final class DfcConfigBridge {
             setInt("ga.dfc.gpu.runtimeMicroBatchBackoffBatches", dfc.gpuRuntimeMicroBatchBackoffBatches);
             setInt("ga.dfc.gpu.runtimeParityBatches", Math.max(0, dfc.gpuRuntimeParityBatches));
             setBoolean("ga.dfc.gpu.opportunisticRuntimeLock", dfc.gpuRuntimeOpportunisticLock);
+            setLong("ga.dfc.gpu.runtimeLockWaitNanos", dfc.gpuRuntimeLockWaitNanos);
             setBoolean("ga.dfc.gpu.directGeneratedLauncher", dfc.gpuDirectGeneratedLauncher);
             setBoolean("dfc.codegen.cellFillDirectExternResidual", dfc.cellFillDirectExternResidual);
             setBoolean("dfc.codegen.cellFillAddExternOverride", dfc.cellFillAddExternOverride);
             setBoolean("dfc.codegen.cellFillAddBeardifierOverride", dfc.cellFillAddBeardifierOverride);
+            setBoolean("dfc.codegen.cellFillScalarMarkerOverride", dfc.cellFillScalarMarkerOverride);
             setBoolean("dfc.warmer.noiseSettings", dfc.warmerNoiseSettings);
             setBoolean("dfc.warmer.rawDensityFunctions", dfc.warmerRawDensityFunctions);
             setBudget("dfc.warmer.maxSettings", dfc.warmerMaxSettings);

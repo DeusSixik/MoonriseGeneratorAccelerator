@@ -139,7 +139,13 @@ public final class GpuPayloadDirectOpenClExecutor {
                 double[] output) {
             int points = output.length;
             int nodes = payload.nodeCount();
-            buffers.ensure(context, points, nodes, payload.externInputCount());
+            buffers.ensure(
+                    context,
+                    points,
+                    nodes,
+                    payload.externInputCount(),
+                    payload.noisePermutations().length,
+                    payload.noiseOctaveData().length);
 
             writeInt(buffers.blockX, blockX, points);
             writeInt(buffers.blockY, blockY, points);
@@ -152,6 +158,12 @@ public final class GpuPayloadDirectOpenClExecutor {
             writeInt(buffers.int1, payload.int1(), nodes);
             writeDouble(buffers.value0, payload.value0(), nodes);
             writeDouble(buffers.value1, payload.value1(), nodes);
+            if (payload.noisePermutations().length > 0) {
+                writeInt(buffers.noisePermutations, payload.noisePermutations(), payload.noisePermutations().length);
+            }
+            if (payload.noiseOctaveData().length > 0) {
+                writeDouble(buffers.noiseOctaveData, payload.noiseOctaveData(), payload.noiseOctaveData().length);
+            }
             if (payload.externInputCount() > 0) {
                 writeDouble(buffers.externValues, externValues, points * payload.externInputCount());
             }
@@ -167,12 +179,14 @@ public final class GpuPayloadDirectOpenClExecutor {
             kernel.setArg(8, buffers.int1.buffer);
             kernel.setArg(9, buffers.value0.buffer);
             kernel.setArg(10, buffers.value1.buffer);
-            kernel.setArgInt(11, payload.externInputCount());
-            kernel.setArg(12, buffers.externValues.buffer);
-            kernel.setArgInt(13, payload.rootIndex());
-            kernel.setArgInt(14, nodes);
-            kernel.setArg(15, buffers.scratch.buffer);
-            kernel.setArg(16, buffers.output.buffer);
+            kernel.setArg(11, buffers.noisePermutations.buffer);
+            kernel.setArg(12, buffers.noiseOctaveData.buffer);
+            kernel.setArgInt(13, payload.externInputCount());
+            kernel.setArg(14, buffers.externValues.buffer);
+            kernel.setArgInt(15, payload.rootIndex());
+            kernel.setArgInt(16, nodes);
+            kernel.setArg(17, buffers.scratch.buffer);
+            kernel.setArg(18, buffers.output.buffer);
 
             long event = kernel.enqueue1D(queue, points, null);
             OpenClEvents.waitFor(event);
@@ -226,14 +240,24 @@ public final class GpuPayloadDirectOpenClExecutor {
         private final BufferSlot int1 = new BufferSlot();
         private final BufferSlot value0 = new BufferSlot();
         private final BufferSlot value1 = new BufferSlot();
+        private final BufferSlot noisePermutations = new BufferSlot();
+        private final BufferSlot noiseOctaveData = new BufferSlot();
         private final BufferSlot externValues = new BufferSlot();
         private final BufferSlot scratch = new BufferSlot();
         private final BufferSlot output = new BufferSlot();
 
-        private void ensure(OpenClContext context, int points, int nodes, int externInputCount) {
+        private void ensure(
+                OpenClContext context,
+                int points,
+                int nodes,
+                int externInputCount,
+                int noisePermutationLength,
+                int noiseOctaveDataLength) {
             long pointInts = Math.max(1L, Math.multiplyExact((long) points, Integer.BYTES));
             long nodeInts = Math.max(1L, Math.multiplyExact((long) nodes, Integer.BYTES));
             long nodeDoubles = Math.max(1L, Math.multiplyExact((long) nodes, Double.BYTES));
+            long noisePermutationInts = Math.max(1L, Math.multiplyExact((long) noisePermutationLength, Integer.BYTES));
+            long noiseOctaveDataDoubles = Math.max(1L, Math.multiplyExact((long) noiseOctaveDataLength, Double.BYTES));
             long externDoubles = Math.max(1L, Math.multiplyExact(Math.multiplyExact((long) points, externInputCount), Double.BYTES));
             long scratchDoubles = Math.max(1L, Math.multiplyExact(Math.multiplyExact((long) points, nodes), Double.BYTES));
             long outputDoubles = Math.max(1L, Math.multiplyExact((long) points, Double.BYTES));
@@ -249,6 +273,8 @@ public final class GpuPayloadDirectOpenClExecutor {
             int1.ensure(context, nodeInts);
             value0.ensure(context, nodeDoubles);
             value1.ensure(context, nodeDoubles);
+            noisePermutations.ensure(context, noisePermutationInts);
+            noiseOctaveData.ensure(context, noiseOctaveDataDoubles);
             externValues.ensure(context, externDoubles);
             scratch.ensure(context, scratchDoubles);
             output.ensure(context, outputDoubles);
@@ -267,6 +293,8 @@ public final class GpuPayloadDirectOpenClExecutor {
             int1.close();
             value0.close();
             value1.close();
+            noisePermutations.close();
+            noiseOctaveData.close();
             externValues.close();
             scratch.close();
             output.close();

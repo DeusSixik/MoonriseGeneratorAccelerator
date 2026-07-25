@@ -24,6 +24,8 @@ public final class DfcCompiledClassRegistry {
                         boolean cellAddLatticeSpecialized,
                         boolean cellAddBeardifierSpecialized,
                         boolean cellAddExternSpecialized,
+                        boolean cellScalarMarkerSpecialized,
+                        String cellScalarMarkerReason,
                         String rootDebug,
                         String splineDebug) {
     }
@@ -32,12 +34,16 @@ public final class DfcCompiledClassRegistry {
                               boolean latticeEmitted,
                               boolean cellAddLatticeSpecialized, boolean cellAddBeardifierSpecialized,
                               boolean cellAddExternSpecialized,
+                              boolean cellScalarMarkerSpecialized,
+                              String cellScalarMarkerReason,
                               String rootDebug, String splineDebug) {
         String normalized = normalize(classInternalName);
         Entry newEntry = new Entry(
                 normalized, sourceRootClass, latticeEmitted,
                 cellAddLatticeSpecialized, cellAddBeardifierSpecialized,
-                cellAddExternSpecialized, rootDebug, splineDebug);
+                cellAddExternSpecialized, cellScalarMarkerSpecialized,
+                cellScalarMarkerReason == null ? "unknown" : cellScalarMarkerReason,
+                rootDebug, splineDebug);
         Entry previous = ENTRIES.putIfAbsent(normalized, newEntry);
         if (previous == null) {
             synchronized (INSERTION_ORDER) {

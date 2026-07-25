@@ -170,6 +170,7 @@ public final class DensityFunctionCompiler {
                                                         + ", cellAddLattice=" + s.cellAddLatticeSpecialized()
                                                         + ", cellAddBeardifier=" + s.cellAddBeardifierSpecialized()
                                                         + ", cellAddExtern=" + s.cellAddExternSpecialized()
+                                                        + ", cellScalarMarker=" + s.cellScalarMarkerSpecialized()
                                                         + ", root=" + s.rootDebug()
                                                         + "}")
                                                 .reduce((a, b) -> a + ", " + b)

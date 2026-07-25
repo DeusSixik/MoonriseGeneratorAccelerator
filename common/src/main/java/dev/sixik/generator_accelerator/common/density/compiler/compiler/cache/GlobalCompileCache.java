@@ -75,8 +75,10 @@ public final class GlobalCompileCache {
         private final boolean cellAddLatticeSpecialized;
         private final boolean cellAddBeardifierSpecialized;
         private final boolean cellAddExternSpecialized;
+        private final boolean cellScalarMarkerSpecialized;
+        private final String cellScalarMarkerReason;
 
-            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddBeardifierSpecialized, boolean cellAddExternSpecialized) {
+            public CopiedClassBundle(String classInternalName, String sourceRootClass, String rootDebug, String splineDebug, byte[] exactSha256, Class<? extends CompiledDensityFunction> cls, byte[] bytecode, MethodHandle constructorHandle, MethodHandle[] helperHandles, int helpersEmitted, boolean latticeEmitted, boolean cellAddLatticeSpecialized, boolean cellAddBeardifierSpecialized, boolean cellAddExternSpecialized, boolean cellScalarMarkerSpecialized, String cellScalarMarkerReason) {
                 exactSha256 = exactSha256 == null ? null : exactSha256.clone();
                 this.classInternalName = classInternalName;
                 this.sourceRootClass = sourceRootClass;
@@ -92,6 +94,8 @@ public final class GlobalCompileCache {
                 this.cellAddLatticeSpecialized = cellAddLatticeSpecialized;
                 this.cellAddBeardifierSpecialized = cellAddBeardifierSpecialized;
                 this.cellAddExternSpecialized = cellAddExternSpecialized;
+                this.cellScalarMarkerSpecialized = cellScalarMarkerSpecialized;
+                this.cellScalarMarkerReason = cellScalarMarkerReason == null ? "unknown" : cellScalarMarkerReason;
             }
 
         public String classInternalName() {
@@ -150,6 +154,14 @@ public final class GlobalCompileCache {
             return cellAddExternSpecialized;
         }
 
+        public boolean cellScalarMarkerSpecialized() {
+            return cellScalarMarkerSpecialized;
+        }
+
+        public String cellScalarMarkerReason() {
+            return cellScalarMarkerReason;
+        }
+
         @Override
         public boolean equals(Object obj) {
             if (obj == this) return true;
@@ -168,12 +180,14 @@ public final class GlobalCompileCache {
                     this.latticeEmitted == that.latticeEmitted &&
                     this.cellAddLatticeSpecialized == that.cellAddLatticeSpecialized &&
                     this.cellAddBeardifierSpecialized == that.cellAddBeardifierSpecialized &&
-                    this.cellAddExternSpecialized == that.cellAddExternSpecialized;
+                    this.cellAddExternSpecialized == that.cellAddExternSpecialized &&
+                    this.cellScalarMarkerSpecialized == that.cellScalarMarkerSpecialized &&
+                    Objects.equals(this.cellScalarMarkerReason, that.cellScalarMarkerReason);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddBeardifierSpecialized, cellAddExternSpecialized);
+            return Objects.hash(classInternalName, sourceRootClass, rootDebug, splineDebug, exactSha256, cls, bytecode, constructorHandle, helperHandles, helpersEmitted, latticeEmitted, cellAddLatticeSpecialized, cellAddBeardifierSpecialized, cellAddExternSpecialized, cellScalarMarkerSpecialized, cellScalarMarkerReason);
         }
 
         @Override
@@ -192,7 +206,9 @@ public final class GlobalCompileCache {
                     "latticeEmitted=" + latticeEmitted + ", " +
                     "cellAddLatticeSpecialized=" + cellAddLatticeSpecialized + ", " +
                     "cellAddBeardifierSpecialized=" + cellAddBeardifierSpecialized + ", " +
-                    "cellAddExternSpecialized=" + cellAddExternSpecialized + ']';
+                    "cellAddExternSpecialized=" + cellAddExternSpecialized + ", " +
+                    "cellScalarMarkerSpecialized=" + cellScalarMarkerSpecialized + ", " +
+                    "cellScalarMarkerReason=" + cellScalarMarkerReason + ']';
         }
 
         }

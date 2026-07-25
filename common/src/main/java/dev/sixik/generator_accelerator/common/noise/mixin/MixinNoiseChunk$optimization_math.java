@@ -7,7 +7,14 @@ import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFill
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuIrPayload;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadBatchExecutor;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import dev.sixik.generator_accelerator.common.density.path.NoiseChunk$FlatCache$FlatArray;
+import dev.sixik.generator_accelerator.common.noise.FillSliceLazyCompileBudget;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 import dev.sixik.generator_accelerator.common.noise.utils.CachedPointContext;
 import dev.sixik.generator_accelerator.common.noise.utils.NoiseChunkSliceProvider;
@@ -25,7 +32,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -119,7 +128,28 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     @Final
     private NoiseChunk.FlatCache blendOffset;
     @Unique
+    private static final String FILL_SLICE_LAZY_COMPILE_PROPERTY = "ga.dfc.fillSliceLazyCompile";
+    @Unique
+    private static final String FILL_SLICE_LAZY_COMPILE_MAX_PROPERTY = "ga.dfc.fillSliceLazyCompile.max";
+    @Unique
+    private static final String FILL_SLICE_GPU_PROTOTYPE_PROPERTY = "ga.dfc.gpu.fillSlicePrototype";
+    @Unique
+    private static final String FILL_SLICE_GPU_ADAPTIVE_DISABLE_PROPERTY = "ga.dfc.gpu.fillSliceAdaptiveDisable";
+    @Unique
+    private static final String FILL_SLICE_GPU_WARM_INVOKE_MAX_NANOS_PROPERTY = "ga.dfc.gpu.fillSliceWarmInvokeMaxNanos";
+    @Unique
+    private static final String FILL_SLICE_GPU_SLOW_WARM_STREAK_PROPERTY = "ga.dfc.gpu.fillSliceSlowWarmStreak";
+    @Unique
+    private static final java.util.concurrent.atomic.AtomicInteger bts$fillSliceGpuSlowWarmStreak =
+            new java.util.concurrent.atomic.AtomicInteger();
+    @Unique
+    private static volatile String bts$fillSliceGpuDisabledReason = "none";
+    @Unique
     private NoiseChunk.NoiseInterpolator[] bts$interpolatorsArray;
+    @Unique
+    private CompiledDensityFunction[] bts$fillSliceCompiledRoots;
+    @Unique
+    private GpuIrPayload[] bts$fillSliceGpuPayloads;
     @Unique
     private NoiseChunk.CacheAllInCell[] bts$cellCachesArray;
     @Unique
@@ -224,6 +254,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             Converting lists to arrays for quick access
         */
         this.bts$interpolatorsArray = this.interpolators.toArray(new NoiseChunk.NoiseInterpolator[0]);
+        this.bts$compileFillSliceInterpolatorRoots();
         this.bts$cellCachesArray = this.cellCaches.toArray(new NoiseChunk.CacheAllInCell[0]);
         this.bts$initCellCacheArrays();
         bts$initInterpolatorSoA();
@@ -268,6 +299,53 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
                 this.bts$cellCacheFastFillers[i] = access;
             }
         }
+    }
+
+    @Unique
+    private void bts$compileFillSliceInterpolatorRoots() {
+        if (!Boolean.getBoolean(FILL_SLICE_LAZY_COMPILE_PROPERTY)
+                || !bts$fillSliceGpuPrototypeAvailable()) {
+            return;
+        }
+        this.bts$fillSliceCompiledRoots = new CompiledDensityFunction[this.bts$interpolatorsArray.length];
+        this.bts$fillSliceGpuPayloads = new GpuIrPayload[this.bts$interpolatorsArray.length];
+        for (int i = 0; i < this.bts$interpolatorsArray.length; i++) {
+            NoiseChunk.NoiseInterpolator interpolator = this.bts$interpolatorsArray[i];
+            if (!(interpolator instanceof GA$NoiseChunk$NoiseInterpolatorPatch access)) {
+                continue;
+            }
+            DensityFunction root = access.bts$getNoiseFiller();
+            CompiledDensityFunction compiledRoot;
+            if (root instanceof CompiledDensityFunction compiled) {
+                compiledRoot = compiled;
+            } else {
+                if (!bts$claimFillSliceLazyCompile()) {
+                    break;
+                }
+                NoiseChunkTimingStats.recordFillSliceLazyCompileAttempt();
+                try {
+                    DensityFunction compiled = Compiler.compile(root);
+                    if (compiled instanceof CompiledDensityFunction compiledDensityFunction) {
+                        compiledRoot = compiledDensityFunction;
+                        NoiseChunkTimingStats.recordFillSliceLazyCompileSuccess();
+                    } else {
+                        NoiseChunkTimingStats.recordFillSliceLazyCompileFailure();
+                        continue;
+                    }
+                } catch (RuntimeException | LinkageError exception) {
+                    NoiseChunkTimingStats.recordFillSliceLazyCompileFailure();
+                    continue;
+                }
+            }
+            this.bts$fillSliceCompiledRoots[i] = compiledRoot;
+            this.bts$fillSliceGpuPayloads[i] = GpuPayloadRuntimeRegistry.lookup(compiledRoot);
+        }
+    }
+
+    @Unique
+    private static boolean bts$claimFillSliceLazyCompile() {
+        int maxCompiles = Math.max(0, Integer.getInteger(FILL_SLICE_LAZY_COMPILE_MAX_PROPERTY, 16));
+        return FillSliceLazyCompileBudget.tryClaim(maxCompiles);
     }
 
     @Unique
@@ -518,16 +596,35 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     }
 
     @Override
+    public double bts$getInverseCellWidth() {
+        return this.bts$inverseCellWidth;
+    }
+
+    @Override
+    public double bts$getInverseCellHeight() {
+        return this.bts$inverseCellHeight;
+    }
+
+    @Override
     public double bts$getInterpolatorValue(int index) {
         return this.bts$value[index];
     }
 
     @Override
     public double bts$getInterpolatorFillingValue(int index) {
-        final double deltaX = this.inCellX * this.bts$inverseCellWidth;
-        final double deltaY = this.inCellY * this.bts$inverseCellHeight;
-        final double deltaZ = this.inCellZ * this.bts$inverseCellWidth;
+        return bts$getInterpolatorFillingValue(index, this.inCellX, this.inCellY, this.inCellZ);
+    }
 
+    @Override
+    public double bts$getInterpolatorFillingValue(int index, int inCellX, int inCellY, int inCellZ) {
+        final double deltaX = inCellX * this.bts$inverseCellWidth;
+        final double deltaY = inCellY * this.bts$inverseCellHeight;
+        final double deltaZ = inCellZ * this.bts$inverseCellWidth;
+        return this.bts$getInterpolatorFillingValue(index, deltaX, deltaY, deltaZ);
+    }
+
+    @Override
+    public double bts$getInterpolatorFillingValue(int index, double deltaX, double deltaY, double deltaZ) {
         final double n000 = this.bts$noise000[index];
         final double n100 = this.bts$noise100[index];
         final double n010 = this.bts$noise010[index];
@@ -689,19 +786,34 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         this.inCellX = 0;
 
         int sizeY = this.cellCountY + 1;
+        NoiseChunkTimingStats.recordFillSliceBatchSurface(
+                this.cellCountXZ + 1,
+                sizeY,
+                this.bts$interpolatorsArray.length);
+        final int columns = this.cellCountXZ + 1;
+        final NoiseChunk.NoiseInterpolator[] interpolatorsArray = this.bts$interpolatorsArray;
+        final double[] target = pIsSlice0 ? this.bts$interpolatorSlice0Flat : this.bts$interpolatorSlice1Flat;
+        final int planeSize = this.bts$interpolatorPlaneSize;
+        final boolean[] gpuFilledRoots;
+        if (bts$fillSliceGpuPrototypeAvailable()) {
+            bts$recordFillSlicePayloadSurface(columns, sizeY, interpolatorsArray);
+            gpuFilledRoots = bts$tryFillSliceGpuPrototype(columns, sizeY, interpolatorsArray, target, planeSize);
+        } else {
+            gpuFilledRoots = null;
+        }
 
-        for (int i = 0; i < this.cellCountXZ + 1; i++) {
+        for (int i = 0; i < columns; i++) {
             int j = this.firstCellZ + i;
             this.cellStartBlockZ = j * this.cellWidth;
             this.inCellZ = 0;
             this.arrayInterpolationCounter++;
 
-            final NoiseChunk.NoiseInterpolator[] interpolatorsArray = this.bts$interpolatorsArray;
-            final double[] target = pIsSlice0 ? this.bts$interpolatorSlice0Flat : this.bts$interpolatorSlice1Flat;
             final int zOffset = i * sizeY;
-            final int planeSize = this.bts$interpolatorPlaneSize;
 
             for (int k = 0; k < interpolatorsArray.length; k++) {
+                if (gpuFilledRoots != null && gpuFilledRoots[k]) {
+                    continue;
+                }
                 NoiseChunk.NoiseInterpolator noisechunk$noiseinterpolator = interpolatorsArray[k];
                 noisechunk$noiseinterpolator.fillArray(this.sliceBuffer, this.sliceFillingContextProvider);
                 System.arraycopy(
@@ -717,6 +829,812 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
         this.arrayInterpolationCounter++;
         NoiseChunkTimingStats.finishFillSlice(timingStart);
+    }
+
+    @Unique
+    private boolean[] bts$tryFillSliceGpuPrototype(
+            int columns,
+            int yCount,
+            NoiseChunk.NoiseInterpolator[] interpolators,
+            double[] target,
+            int planeSize) {
+        if (!bts$fillSliceGpuPrototypeEnabled()
+                || columns <= 0
+                || yCount <= 0
+                || interpolators.length == 0
+                || this.bts$fillSliceCompiledRoots == null
+                || this.bts$fillSliceGpuPayloads == null) {
+            return null;
+        }
+        if (!"none".equals(bts$fillSliceGpuDisabledReason)) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_adaptive_disabled");
+            return null;
+        }
+        final int pointCount;
+        try {
+            pointCount = Math.multiplyExact(columns, yCount);
+        } catch (ArithmeticException ignored) {
+            return null;
+        }
+
+        ArrayList<Integer> candidateIndices = new ArrayList<>();
+        ArrayList<CompiledDensityFunction> candidateRoots = new ArrayList<>();
+        ArrayList<GpuIrPayload> candidatePayloads = new ArrayList<>();
+        for (int k = 0; k < interpolators.length; k++) {
+            CompiledDensityFunction compiled = this.bts$fillSliceCompiledRoots[k];
+            GpuIrPayload payload = this.bts$fillSliceGpuPayloads[k];
+            if (compiled == null || payload == null) {
+                continue;
+            }
+            candidateIndices.add(k);
+            candidateRoots.add(compiled);
+            candidatePayloads.add(payload);
+        }
+        if (candidatePayloads.isEmpty()) {
+            return null;
+        }
+
+        int groupCount = candidatePayloads.size();
+        int combinedPointCount;
+        try {
+            combinedPointCount = Math.multiplyExact(pointCount, groupCount);
+        } catch (ArithmeticException ignored) {
+            return null;
+        }
+        NoiseChunkTimingStats.recordFillSliceGpuGroupCandidate(
+                candidatePayloads.size(), groupCount, combinedPointCount);
+        if (combinedPointCount < GpuPayloadBatchExecutor.runtimeMinPoints()) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_group_below_min");
+            return null;
+        }
+        if (GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("runtime_lock_busy_precheck");
+            return null;
+        }
+        if (!GpuPayloadBatchExecutor.shouldAttemptRuntimeBatchAllowingSmallPrototype(combinedPointCount)) {
+            return null;
+        }
+
+        int[] groupIndices = new int[groupCount];
+        CompiledDensityFunction[] groupRoots = new CompiledDensityFunction[groupCount];
+        GpuIrPayload[] groupPayloads = new GpuIrPayload[groupCount];
+        for (int i = 0; i < groupCount; i++) {
+            groupIndices[i] = candidateIndices.get(i);
+            groupRoots[i] = candidateRoots.get(i);
+            groupPayloads[i] = candidatePayloads.get(i);
+        }
+
+        long arrayCounterBase = this.arrayInterpolationCounter;
+        if (bts$tryFillSliceMultiPayloadGpu(
+                groupRoots,
+                groupPayloads,
+                columns,
+                yCount,
+                pointCount,
+                combinedPointCount,
+                target,
+                groupIndices,
+                planeSize,
+                arrayCounterBase)) {
+            boolean[] filled = new boolean[interpolators.length];
+            for (int groupIndex : groupIndices) {
+                filled[groupIndex] = true;
+            }
+            return filled;
+        }
+        return null;
+    }
+
+    @Unique
+    private static GpuIrPayload bts$bestFillSlicePayloadGroup(List<GpuIrPayload> payloads) {
+        IdentityHashMap<GpuIrPayload, Integer> counts = new IdentityHashMap<>();
+        GpuIrPayload best = null;
+        int bestCount = 0;
+        for (GpuIrPayload payload : payloads) {
+            int count = counts.merge(payload, 1, Integer::sum);
+            if (best == null
+                    || count > bestCount
+                    || (count == bestCount && best.hasExternInputs() && !payload.hasExternInputs())) {
+                best = payload;
+                bestCount = count;
+            }
+        }
+        return best;
+    }
+
+    @Unique
+    private static int bts$countFillSlicePayloadGroup(List<GpuIrPayload> payloads, GpuIrPayload target) {
+        int count = 0;
+        for (GpuIrPayload payload : payloads) {
+            if (payload == target) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Unique
+    private boolean bts$tryFillSliceMultiPayloadGpu(
+            CompiledDensityFunction[] roots,
+            GpuIrPayload[] payloads,
+            int columns,
+            int yCount,
+            int pointCount,
+            int combinedPointCount,
+            double[] target,
+            int[] targetIndices,
+            int planeSize,
+            long arrayCounterBase) {
+        long totalStart = System.nanoTime();
+        long externNanos = 0L;
+        long invokeNanos = 0L;
+        long parityNanos = 0L;
+        try {
+            bts$FillSliceMultiPayload packed = bts$packFillSlicePayloads(payloads);
+            GpuPayloadBatchExecutor.BatchBuffers buffers = GpuPayloadBatchExecutor.localBuffers(
+                    combinedPointCount, packed.scratchStride(), packed.maxExternInputCount());
+            int[] blockX = buffers.blockX();
+            int[] blockY = buffers.blockY();
+            int[] blockZ = buffers.blockZ();
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                bts$fillSliceCoordinates(columns, yCount, blockX, blockY, blockZ, rootIndex * pointCount);
+            }
+
+            double[] externValues = buffers.externValues();
+            long externStart = System.nanoTime();
+            if (packed.maxExternInputCount() > 0) {
+                java.util.Arrays.fill(externValues, 0, combinedPointCount * packed.maxExternInputCount(), 0.0D);
+            }
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                if (!bts$fillSliceExternInputValues(
+                        payloads[rootIndex], roots[rootIndex], columns, yCount, externValues,
+                        rootIndex * pointCount, packed.maxExternInputCount(), arrayCounterBase)) {
+                    return false;
+                }
+            }
+            externNanos = System.nanoTime() - externStart;
+
+            double[] gpuOutput = buffers.output();
+            RouterPipeline.recordGpuPayloadBatchAttempt(combinedPointCount);
+            long invokeStart = System.nanoTime();
+            GpuPayloadBatchExecutor.GpuAttempt attempt = GpuPayloadBatchExecutor.tryComputeGpuRuntimeMultiPayloadBatch(
+                    payloads.length,
+                    pointCount,
+                    packed.maxExternInputCount(),
+                    packed.scratchStride(),
+                    packed.payloadNodeOffsets(),
+                    packed.payloadNodeCounts(),
+                    packed.payloadRootIndices(),
+                    blockX,
+                    blockY,
+                    blockZ,
+                    packed.opcodes(),
+                    packed.arg0(),
+                    packed.arg1(),
+                    packed.arg2(),
+                    packed.int0(),
+                    packed.int1(),
+                    packed.value0(),
+                    packed.value1(),
+                    packed.noisePermutations(),
+                    packed.noiseOctaveData(),
+                    externValues,
+                    gpuOutput,
+                    buffers.scratch());
+            invokeNanos = System.nanoTime() - invokeStart;
+            RouterPipeline.recordGpuPayloadBatchArgumentLayout(
+                    GpuPayloadBatchExecutor.preparedLauncherStaticArguments(),
+                    GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+            if (!attempt.success()) {
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                if (attempt.disablesGpu()) {
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(attempt.failureReason());
+                }
+                RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, attempt.failureReason());
+                return false;
+            }
+
+            long parityStart = System.nanoTime();
+            GpuPayloadBatchExecutor.RuntimeParityReport parity = bts$fillSliceMultiPayloadRuntimeParity(
+                    roots, columns, yCount, pointCount, gpuOutput, buffers.parityExpected(),
+                    arrayCounterBase, combinedPointCount);
+            parityNanos = System.nanoTime() - parityStart;
+            RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                    parity.checked(), parity.passed(), parity.pointsChecked(),
+                    parity.maxAbsError(), parity.failureReason());
+            if (parity.checked() && !parity.passed()) {
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+                RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, parity.failureReason());
+                return false;
+            }
+
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                System.arraycopy(
+                        gpuOutput,
+                        rootIndex * pointCount,
+                        target,
+                        targetIndices[rootIndex] * planeSize,
+                        pointCount);
+                if (payloads[rootIndex].externInputCount() == 0) {
+                    bts$advanceFillSliceProviderState(columns, yCount);
+                }
+            }
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                    attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+            RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+            RouterPipeline.recordGpuPayloadBatchGpuSuccess(combinedPointCount);
+            NoiseChunkTimingStats.recordFillSliceGpuGroupLaunch(roots.length, combinedPointCount);
+            bts$recordFillSliceGpuWarmTiming(attempt, invokeNanos);
+            return true;
+        } catch (RuntimeException | LinkageError exception) {
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart);
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(exception.toString());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, exception.toString());
+            return false;
+        }
+    }
+
+    @Unique
+    private static void bts$recordFillSliceGpuWarmTiming(
+            GpuPayloadBatchExecutor.GpuAttempt attempt,
+            long invokeNanos) {
+        if (!bts$fillSliceGpuAdaptiveDisableEnabled()
+                || !attempt.preparedLauncherCacheHit()
+                || !attempt.preparedLauncherInvoked()) {
+            return;
+        }
+        long maxWarmInvokeNanos = bts$fillSliceGpuWarmInvokeMaxNanos();
+        if (invokeNanos <= maxWarmInvokeNanos) {
+            bts$fillSliceGpuSlowWarmStreak.set(0);
+            return;
+        }
+        RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_slow_warm_invoke");
+        int streak = bts$fillSliceGpuSlowWarmStreak.incrementAndGet();
+        if (streak >= bts$fillSliceGpuSlowWarmStreakThreshold()) {
+            bts$fillSliceGpuDisabledReason = "warm invoke " + invokeNanos
+                    + "ns > " + maxWarmInvokeNanos + "ns";
+            RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_adaptive_disable_triggered");
+        }
+    }
+
+    @Unique
+    private static boolean bts$fillSliceGpuAdaptiveDisableEnabled() {
+        return Boolean.parseBoolean(System.getProperty(FILL_SLICE_GPU_ADAPTIVE_DISABLE_PROPERTY, "true"));
+    }
+
+    @Unique
+    private static boolean bts$fillSliceGpuPrototypeEnabled() {
+        return Boolean.getBoolean(FILL_SLICE_GPU_PROTOTYPE_PROPERTY);
+    }
+
+    @Unique
+    private static boolean bts$fillSliceGpuPrototypeAvailable() {
+        return bts$fillSliceGpuPrototypeEnabled() && "none".equals(bts$fillSliceGpuDisabledReason);
+    }
+
+    @Unique
+    private static long bts$fillSliceGpuWarmInvokeMaxNanos() {
+        return Math.max(1L, Long.getLong(FILL_SLICE_GPU_WARM_INVOKE_MAX_NANOS_PROPERTY, 1_000_000L));
+    }
+
+    @Unique
+    private static int bts$fillSliceGpuSlowWarmStreakThreshold() {
+        return Math.max(1, Integer.getInteger(FILL_SLICE_GPU_SLOW_WARM_STREAK_PROPERTY, 2));
+    }
+
+    @Unique
+    private GpuPayloadBatchExecutor.RuntimeParityReport bts$fillSliceMultiPayloadRuntimeParity(
+            CompiledDensityFunction[] roots,
+            int columns,
+            int yCount,
+            int pointCount,
+            double[] gpuOutput,
+            double[] expected,
+            long arrayCounterBase,
+            int combinedPointCount) {
+        if (GpuPayloadBatchExecutor.runtimeParityRemaining() <= 0) {
+            return GpuPayloadBatchExecutor.RuntimeParityReport.skipped();
+        }
+        for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+            bts$fillSliceCpuExpected(
+                    roots[rootIndex], columns, yCount, expected,
+                    rootIndex * pointCount, arrayCounterBase);
+        }
+        return GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(gpuOutput, expected, combinedPointCount);
+    }
+
+    @Unique
+    private static bts$FillSliceMultiPayload bts$packFillSlicePayloads(GpuIrPayload[] payloads) {
+        int payloadCount = payloads.length;
+        int totalNodes = 0;
+        int maxNodeCount = 0;
+        int maxExternInputCount = 0;
+        int totalNoisePermutations = 0;
+        int totalNoiseOctaveData = 0;
+        for (GpuIrPayload payload : payloads) {
+            totalNodes = Math.addExact(totalNodes, payload.nodeCount());
+            maxNodeCount = Math.max(maxNodeCount, payload.nodeCount());
+            maxExternInputCount = Math.max(maxExternInputCount, payload.externInputCount());
+            totalNoisePermutations = Math.addExact(totalNoisePermutations, payload.noisePermutations().length);
+            totalNoiseOctaveData = Math.addExact(totalNoiseOctaveData, payload.noiseOctaveData().length);
+        }
+
+        int[] payloadNodeOffsets = new int[payloadCount];
+        int[] payloadNodeCounts = new int[payloadCount];
+        int[] payloadRootIndices = new int[payloadCount];
+        int[] opcodes = new int[totalNodes];
+        int[] arg0 = new int[totalNodes];
+        int[] arg1 = new int[totalNodes];
+        int[] arg2 = new int[totalNodes];
+        int[] int0 = new int[totalNodes];
+        int[] int1 = new int[totalNodes];
+        double[] value0 = new double[totalNodes];
+        double[] value1 = new double[totalNodes];
+        int[] noisePermutations = new int[totalNoisePermutations];
+        double[] noiseOctaveData = new double[totalNoiseOctaveData];
+
+        int nodeOffset = 0;
+        int noisePermutationOffset = 0;
+        int noiseOctaveDataOffset = 0;
+        int noiseOctaveOffset = 0;
+        for (int payloadIndex = 0; payloadIndex < payloadCount; payloadIndex++) {
+            GpuIrPayload payload = payloads[payloadIndex];
+            int nodeCount = payload.nodeCount();
+            payloadNodeOffsets[payloadIndex] = nodeOffset;
+            payloadNodeCounts[payloadIndex] = nodeCount;
+            payloadRootIndices[payloadIndex] = payload.rootIndex();
+
+            System.arraycopy(payload.opcodes(), 0, opcodes, nodeOffset, nodeCount);
+            System.arraycopy(payload.arg0(), 0, arg0, nodeOffset, nodeCount);
+            System.arraycopy(payload.arg1(), 0, arg1, nodeOffset, nodeCount);
+            System.arraycopy(payload.arg2(), 0, arg2, nodeOffset, nodeCount);
+            System.arraycopy(payload.int1(), 0, int1, nodeOffset, nodeCount);
+            System.arraycopy(payload.value0(), 0, value0, nodeOffset, nodeCount);
+            System.arraycopy(payload.value1(), 0, value1, nodeOffset, nodeCount);
+            for (int i = 0; i < nodeCount; i++) {
+                int opcode = payload.opcodes()[i];
+                int value = payload.int0()[i];
+                int0[nodeOffset + i] = opcode == GpuIrPayload.INLINED_NOISE
+                        || opcode == GpuIrPayload.INLINED_BLENDED_NOISE
+                        ? value + noiseOctaveOffset
+                        : value;
+            }
+            System.arraycopy(payload.noisePermutations(), 0,
+                    noisePermutations, noisePermutationOffset, payload.noisePermutations().length);
+            System.arraycopy(payload.noiseOctaveData(), 0,
+                    noiseOctaveData, noiseOctaveDataOffset, payload.noiseOctaveData().length);
+
+            nodeOffset += nodeCount;
+            noisePermutationOffset += payload.noisePermutations().length;
+            noiseOctaveDataOffset += payload.noiseOctaveData().length;
+            noiseOctaveOffset += payload.noiseOctaveCount();
+        }
+
+        return new bts$FillSliceMultiPayload(
+                maxNodeCount,
+                maxExternInputCount,
+                payloadNodeOffsets,
+                payloadNodeCounts,
+                payloadRootIndices,
+                opcodes,
+                arg0,
+                arg1,
+                arg2,
+                int0,
+                int1,
+                value0,
+                value1,
+                noisePermutations,
+                noiseOctaveData);
+    }
+
+    private record bts$FillSliceMultiPayload(
+            int scratchStride,
+            int maxExternInputCount,
+            int[] payloadNodeOffsets,
+            int[] payloadNodeCounts,
+            int[] payloadRootIndices,
+            int[] opcodes,
+            int[] arg0,
+            int[] arg1,
+            int[] arg2,
+            int[] int0,
+            int[] int1,
+            double[] value0,
+            double[] value1,
+            int[] noisePermutations,
+            double[] noiseOctaveData) {
+    }
+
+    @Unique
+    private boolean bts$tryFillSliceRootGroupGpu(
+            CompiledDensityFunction[] roots,
+            GpuIrPayload payload,
+            int columns,
+            int yCount,
+            int pointCount,
+            int combinedPointCount,
+            double[] target,
+            int[] targetIndices,
+            int planeSize,
+            long arrayCounterBase) {
+        long totalStart = System.nanoTime();
+        long externNanos = 0L;
+        long invokeNanos = 0L;
+        long parityNanos = 0L;
+        try {
+            int launchPointCount = bts$fillSliceLaunchPointCount(combinedPointCount);
+            GpuPayloadBatchExecutor.BatchBuffers buffers = GpuPayloadBatchExecutor.localBuffers(
+                    launchPointCount, payload.nodeCount(), payload.externInputCount());
+            int[] blockX = buffers.blockX();
+            int[] blockY = buffers.blockY();
+            int[] blockZ = buffers.blockZ();
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                bts$fillSliceCoordinates(columns, yCount, blockX, blockY, blockZ, rootIndex * pointCount);
+            }
+
+            double[] externValues = buffers.externValues();
+            long externStart = System.nanoTime();
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                if (!bts$fillSliceExternInputValues(
+                        payload, roots[rootIndex], columns, yCount, externValues,
+                        rootIndex * pointCount, payload.externInputCount(), arrayCounterBase)) {
+                    return false;
+                }
+            }
+            bts$clearFillSlicePadding(combinedPointCount, launchPointCount, payload.externInputCount(),
+                    blockX, blockY, blockZ, externValues);
+            externNanos = System.nanoTime() - externStart;
+
+            double[] gpuOutput = buffers.output();
+            RouterPipeline.recordGpuPayloadBatchAttempt(combinedPointCount);
+            long invokeStart = System.nanoTime();
+            GpuPayloadBatchExecutor.GpuAttempt attempt = GpuPayloadBatchExecutor.tryComputeGpu(
+                    payload, blockX, blockY, blockZ, externValues, gpuOutput, buffers.scratch());
+            invokeNanos = System.nanoTime() - invokeStart;
+            RouterPipeline.recordGpuPayloadBatchArgumentLayout(
+                    GpuPayloadBatchExecutor.preparedLauncherStaticArguments(),
+                    GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+            if (!attempt.success()) {
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                if (attempt.disablesGpu()) {
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(attempt.failureReason());
+                }
+                RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, attempt.failureReason());
+                return false;
+            }
+
+            long parityStart = System.nanoTime();
+            GpuPayloadBatchExecutor.RuntimeParityReport parity = bts$fillSliceRuntimeParity(
+                    roots, payload, columns, yCount, pointCount, blockX, blockY, blockZ,
+                    externValues, gpuOutput, buffers.parityExpected(), buffers.parityPayloadExpected(),
+                    arrayCounterBase, combinedPointCount);
+            parityNanos = System.nanoTime() - parityStart;
+            RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                    parity.checked(), parity.passed(), parity.pointsChecked(),
+                    parity.maxAbsError(), parity.failureReason());
+            if (parity.checked() && !parity.passed()) {
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+                RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, parity.failureReason());
+                return false;
+            }
+
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                System.arraycopy(
+                        gpuOutput,
+                        rootIndex * pointCount,
+                        target,
+                        targetIndices[rootIndex] * planeSize,
+                        pointCount);
+            }
+            if (payload.externInputCount() == 0) {
+                for (int ignored = 0; ignored < roots.length; ignored++) {
+                    bts$advanceFillSliceProviderState(columns, yCount);
+                }
+            }
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                    attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+            RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+            RouterPipeline.recordGpuPayloadBatchGpuSuccess(combinedPointCount);
+            NoiseChunkTimingStats.recordFillSliceGpuGroupLaunch(roots.length, combinedPointCount);
+            return true;
+        } catch (RuntimeException | LinkageError exception) {
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart);
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(exception.toString());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, exception.toString());
+            return false;
+        }
+    }
+
+    @Unique
+    private GpuPayloadBatchExecutor.RuntimeParityReport bts$fillSliceRuntimeParity(
+            CompiledDensityFunction[] roots,
+            GpuIrPayload payload,
+            int columns,
+            int yCount,
+            int pointCount,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] gpuOutput,
+            double[] expected,
+            double[] payloadExpected,
+            long arrayCounterBase,
+            int combinedPointCount) {
+        if ((payload.hasExternInputs() || payload.requiresRootParity())
+                && GpuPayloadBatchExecutor.runtimeParityRemaining() > 0) {
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                bts$fillSliceCpuExpected(
+                        roots[rootIndex], columns, yCount, expected,
+                        rootIndex * pointCount, arrayCounterBase);
+            }
+            return GpuPayloadBatchExecutor.checkRuntimeParityAgainstRootExpected(
+                    payload, blockX, blockY, blockZ, externValues, gpuOutput,
+                    expected, payloadExpected, combinedPointCount);
+        }
+        return GpuPayloadBatchExecutor.checkRuntimeParity(
+                payload, blockX, blockY, blockZ, externValues, gpuOutput, expected);
+    }
+
+    @Unique
+    private static int bts$fillSliceLaunchPointCount(int pointCount) {
+        return pointCount;
+    }
+
+    @Unique
+    private static void bts$clearFillSlicePadding(
+            int pointCount,
+            int launchPointCount,
+            int externInputCount,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues) {
+        if (launchPointCount <= pointCount) {
+            return;
+        }
+        java.util.Arrays.fill(blockX, pointCount, launchPointCount, 0);
+        java.util.Arrays.fill(blockY, pointCount, launchPointCount, 0);
+        java.util.Arrays.fill(blockZ, pointCount, launchPointCount, 0);
+        if (externInputCount > 0) {
+            java.util.Arrays.fill(externValues,
+                    pointCount * externInputCount,
+                    launchPointCount * externInputCount,
+                    0.0D);
+        }
+    }
+
+    @Unique
+    private void bts$fillSliceCoordinates(
+            int columns,
+            int yCount,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            int pointOffset) {
+        int idx = pointOffset;
+        final int startX = this.cellStartBlockX;
+        for (int column = 0; column < columns; column++) {
+            int startZ = (this.firstCellZ + column) * this.cellWidth;
+            for (int y = 0; y < yCount; y++) {
+                blockX[idx] = startX;
+                blockY[idx] = (y + this.cellNoiseMinY) * this.cellHeight;
+                blockZ[idx] = startZ;
+                idx++;
+            }
+        }
+    }
+
+    @Unique
+    private boolean bts$fillSliceExternInputValues(
+            GpuIrPayload payload,
+            CompiledDensityFunction root,
+            int columns,
+            int yCount,
+            double[] externValues,
+            int pointOffset,
+            int externStride,
+            long arrayCounterBase) {
+        int externInputCount = payload.externInputCount();
+        if (externInputCount == 0) {
+            return true;
+        }
+        DensityFunction[] inputFunctions = bts$resolveExternInputFunctions(payload, root);
+        if (inputFunctions == null) {
+            return false;
+        }
+        int idx = 0;
+        NoiseChunk self = (NoiseChunk) (Object) this;
+        long restoreArrayCounter = this.arrayInterpolationCounter;
+        try {
+            for (int column = 0; column < columns; column++) {
+                this.arrayInterpolationCounter = arrayCounterBase + column + 1L;
+                this.cellStartBlockZ = (this.firstCellZ + column) * this.cellWidth;
+                this.inCellZ = 0;
+                for (int y = 0; y < yCount; y++) {
+                    bts$setFillSliceProviderPoint(y);
+                    int base = (pointOffset + idx) * externStride;
+                    for (int slot = 0; slot < externInputCount; slot++) {
+                        externValues[base + slot] = inputFunctions[slot].compute(self);
+                    }
+                    idx++;
+                }
+            }
+        } finally {
+            this.arrayInterpolationCounter = restoreArrayCounter;
+        }
+        return true;
+    }
+
+    @Unique
+    private void bts$fillSliceCpuExpected(
+            CompiledDensityFunction root,
+            int columns,
+            int yCount,
+            double[] expected,
+            int pointOffset,
+            long arrayCounterBase) {
+        int idx = pointOffset;
+        NoiseChunk self = (NoiseChunk) (Object) this;
+        long restoreArrayCounter = this.arrayInterpolationCounter;
+        try {
+            for (int column = 0; column < columns; column++) {
+                this.arrayInterpolationCounter = arrayCounterBase + column + 1L;
+                this.cellStartBlockZ = (this.firstCellZ + column) * this.cellWidth;
+                this.inCellZ = 0;
+                for (int y = 0; y < yCount; y++) {
+                    bts$setFillSliceProviderPoint(y);
+                    expected[idx++] = root.compute(self);
+                }
+            }
+        } finally {
+            this.arrayInterpolationCounter = restoreArrayCounter;
+        }
+    }
+
+    @Unique
+    private void bts$advanceFillSliceProviderState(int columns, int yCount) {
+        for (int column = 0; column < columns; column++) {
+            this.cellStartBlockZ = (this.firstCellZ + column) * this.cellWidth;
+            this.inCellZ = 0;
+            for (int y = 0; y < yCount; y++) {
+                bts$setFillSliceProviderPoint(y);
+            }
+        }
+    }
+
+    @Unique
+    private void bts$setFillSliceProviderPoint(int y) {
+        this.cellStartBlockY = (y + this.cellNoiseMinY) * this.cellHeight;
+        ++this.interpolationCounter;
+        this.inCellX = 0;
+        this.inCellY = 0;
+        this.arrayIndex = y;
+    }
+
+    @Unique
+    private static DensityFunction[] bts$resolveExternInputFunctions(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner) {
+        int count = payload.externInputCount();
+        DensityFunction[] inputFunctions = new DensityFunction[count];
+        for (int slot = 0; slot < count; slot++) {
+            CompiledDensityFunction owner = rootOwner;
+            int pathOffset = payload.externInputPathOffsets()[slot];
+            int pathLength = payload.externInputPathLengths()[slot];
+            for (int i = 0; i < pathLength; i++) {
+                DensityFunction next = owner.dfc$extern(payload.externInputOwnerPath()[pathOffset + i]);
+                if (!(next instanceof CompiledDensityFunction compiled)) {
+                    return null;
+                }
+                owner = compiled;
+            }
+            DensityFunction input = owner.dfc$extern(payload.externInputLeafExternIndices()[slot]);
+            if (input == null) {
+                return null;
+            }
+            inputFunctions[slot] = input;
+        }
+        return inputFunctions;
+    }
+
+    @Unique
+    private static DensityFunction bts$fillSliceRoot(NoiseChunk.NoiseInterpolator interpolator) {
+        return interpolator instanceof DensityFunctions.MarkerOrMarked marked
+                ? marked.wrapped()
+                : interpolator;
+    }
+
+    @Unique
+    private void bts$recordFillSlicePayloadSurface(
+            int columns,
+            int yCount,
+            NoiseChunk.NoiseInterpolator[] interpolators) {
+        if (!NoiseChunkTimingStats.ENABLED
+                || !bts$fillSliceGpuPrototypeAvailable()
+                || columns <= 0
+                || yCount <= 0
+                || interpolators.length == 0
+                || this.bts$fillSliceCompiledRoots == null
+                || this.bts$fillSliceGpuPayloads == null) {
+            return;
+        }
+        long pointsPerRoot;
+        try {
+            pointsPerRoot = Math.multiplyExact((long) columns, yCount);
+        } catch (ArithmeticException ignored) {
+            pointsPerRoot = Long.MAX_VALUE;
+        }
+        for (int i = 0; i < interpolators.length; i++) {
+            NoiseChunk.NoiseInterpolator interpolator = interpolators[i];
+            CompiledDensityFunction compiledRoot = this.bts$fillSliceCompiledRoots[i];
+            DensityFunction root = compiledRoot != null ? compiledRoot : bts$fillSliceRoot(interpolator);
+            GpuIrPayload payload = this.bts$fillSliceGpuPayloads[i];
+            GpuPayloadRuntimeRegistry.Diagnostics diagnostics = null;
+            if (compiledRoot != null && payload == null) {
+                diagnostics = GpuPayloadRuntimeRegistry.diagnostics(compiledRoot);
+            }
+            NoiseChunkTimingStats.recordFillSlicePayloadRoot(
+                    payload != null,
+                    payload != null && payload.hasExternInputs(),
+                    pointsPerRoot,
+                    root,
+                    bts$describeFillSlicePayloadBlocker(root, payload, diagnostics));
+        }
+    }
+
+    @Unique
+    private static String bts$describeFillSlicePayloadBlocker(
+            DensityFunction root,
+            GpuIrPayload payload,
+            GpuPayloadRuntimeRegistry.Diagnostics diagnostics) {
+        if (payload != null || !(root instanceof CompiledDensityFunction)) {
+            return null;
+        }
+        if (diagnostics == null) {
+            return "compiled:diagnostics-missing";
+        }
+        String reason = bts$firstNonNone(
+                diagnostics.firstUnsupportedDetail(),
+                diagnostics.firstUnsupportedNode(),
+                diagnostics.firstEligibilityBlocker());
+        if (reason == null) {
+            if (!diagnostics.eligibilityBlockers().isEmpty()) {
+                reason = diagnostics.eligibilityBlockers().get(0);
+            } else {
+                reason = "unknown";
+            }
+        }
+        return "compiled:" + reason;
+    }
+
+    @Unique
+    private static String bts$firstNonNone(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank() && !"none".equals(value) && !"unknown".equals(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     @Unique

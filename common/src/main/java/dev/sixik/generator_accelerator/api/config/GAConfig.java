@@ -271,6 +271,41 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by fillSlice.
+                        Only active together with fillSliceGpuPrototype; CPU-only slice filling is faster without it.
+                        Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile=true
+                        """
+        )
+        public boolean fillSliceLazyCompile = true;
+
+        @Serializable(
+                comment = """
+                        Maximum per-lifecycle lazy fillSlice root compiles when fillSliceLazyCompile is enabled.
+                        Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile.max=16
+                        """
+        )
+        public int fillSliceLazyCompileMax = 16;
+
+        @Serializable(
+                comment = """
+                        Allows the first fillSlice GPU prototype to batch one compiled NoiseInterpolator root over a whole slice plane.
+                        This is a correctness experiment; failed, skipped, or parity-failing launches fall back to the existing CPU path.
+                        Mirrors old VM arg: -Dga.dfc.gpu.fillSlicePrototype=true
+                        """
+        )
+        public boolean fillSliceGpuPrototype = false;
+
+        @Serializable(
+                comment = """
+                        Allows compiled cell-fill roots to try the GPU payload runtime before falling back to CPU.
+                        Disabled by default: current 128-point cell batches rarely form useful microbatches.
+                        Mirrors old VM arg: -Dga.dfc.gpu.cellFillPrototype=false
+                        """
+        )
+        public boolean gpuCellFillPrototype = false;
+
+        @Serializable(
+                comment = """
                         Maximum RandomState instances that may eagerly compile their NoiseRouter per server lifecycle.
                         Use 0 to disable eager DFC router compilation, or -1 to restore the old unlimited behaviour.
                         This prevents world-load stalls when a modpack constructs many RandomState instances.
@@ -309,7 +344,7 @@ public final class GAConfig {
         @Serializable(
                 comment = """
                         Minimum point count for real worldgen GPU runtime batches.
-                        Current 128-point NoiseChunk cell batches are too small; keep 1024 until larger batch aggregation exists.
+                        Single 128-point NoiseChunk cell batches are too small; microbatching may pass when the padded launch reaches this threshold.
                         Mirrors old VM arg: -Dga.dfc.gpu.runtimeMinPoints=1024
                         """
         )
@@ -355,10 +390,10 @@ public final class GAConfig {
                 comment = """
                         Consecutive single-request microbatch candidates before runtime GPU enters temporary backoff.
                         This avoids repeatedly taking the runtime lock when the current workload is not batching.
-                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak=32
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak=1
                         """
         )
-        public int gpuRuntimeMicroBatchBackoffSingleStreak = 32;
+        public int gpuRuntimeMicroBatchBackoffSingleStreak = 1;
 
         @Serializable(
                 comment = """
@@ -372,11 +407,11 @@ public final class GAConfig {
         @Serializable(
                 comment = """
                         Runtime batch checks skipped after microbatch backoff triggers.
-                        After this window, GPU is sampled again to detect if batching became useful.
-                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBatches=256
+                        Keep this short for fillSlice prototype sampling; after this window, GPU is sampled again.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBatches=64
                         """
         )
-        public int gpuRuntimeMicroBatchBackoffBatches = 256;
+        public int gpuRuntimeMicroBatchBackoffBatches = 64;
 
         @Serializable(
                 comment = """
@@ -395,6 +430,15 @@ public final class GAConfig {
                         """
         )
         public boolean gpuRuntimeOpportunisticLock = true;
+
+        @Serializable(
+                comment = """
+                        Maximum nanoseconds a direct runtime GPU caller waits for the serialized runtime lock before CPU fallback.
+                        Use 0 for immediate opportunistic fallback; positive values can increase worker-thread stalls.
+                        Mirrors old VM arg: -Dga.dfc.gpu.runtimeLockWaitNanos=0
+                        """
+        )
+        public long gpuRuntimeLockWaitNanos = 0L;
 
         @Serializable(
                 comment = """
@@ -429,6 +473,15 @@ public final class GAConfig {
                         """
         )
         public boolean cellFillAddBeardifierOverride = false;
+
+        @Serializable(
+                comment = """
+                        Enables the direct-interpolator scalar marker cell-fill override for compact marker-only roots.
+                        Disabled by default until the specialized path proves stable across worldgen runs.
+                        Mirrors old VM arg: -Ddfc.codegen.cellFillScalarMarkerOverride=true
+                        """
+        )
+        public boolean cellFillScalarMarkerOverride = false;
 
         @Serializable(
                 comment = """

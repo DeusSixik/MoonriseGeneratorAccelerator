@@ -81,12 +81,6 @@ public final class GpuEligibility {
             if (pool.noiseCount() > 0) {
                 add(blockers, Blocker.VANILLA_NOISE_OBJECT, pool.noiseCount());
             }
-            if (pool.noiseSpecCount() > 0) {
-                add(blockers, Blocker.INLINED_NOISE_OBJECT_PAYLOAD, pool.noiseSpecCount());
-            }
-            if (pool.blendedNoiseSpecCount() > 0) {
-                add(blockers, Blocker.BLENDED_NOISE_OBJECT_PAYLOAD, pool.blendedNoiseSpecCount());
-            }
         }
 
         return new Report(blockers.isEmpty(), visited.size(), Collections.unmodifiableMap(new EnumMap<>(blockers)));
@@ -100,10 +94,6 @@ public final class GpuEligibility {
                 || node instanceof IRNode.Shift
                 || node instanceof IRNode.WeirdScaled) {
             add(blockers, Blocker.VANILLA_NOISE_OBJECT, 1);
-        } else if (node instanceof IRNode.InlinedNoise) {
-            add(blockers, Blocker.INLINED_NOISE_OBJECT_PAYLOAD, 1);
-        } else if (node instanceof IRNode.InlinedBlendedNoise) {
-            add(blockers, Blocker.BLENDED_NOISE_OBJECT_PAYLOAD, 1);
         } else if (node instanceof IRNode.Spline.Multipoint) {
             add(blockers, Blocker.SPLINE_OBJECT_PAYLOAD, 1);
         } else if (node instanceof IRNode.Invoke invoke) {
@@ -114,8 +104,6 @@ public final class GpuEligibility {
             add(blockers, Blocker.BEARDIFIER_EXTERN, 1);
         } else if (node instanceof IRNode.EndIslands) {
             add(blockers, Blocker.END_ISLANDS_EXTERN, 1);
-        } else if (node instanceof IRNode.BlendDensity) {
-            add(blockers, Blocker.BLEND_DENSITY_CONTEXT, 1);
         }
     }
 

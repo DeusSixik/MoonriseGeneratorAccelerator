@@ -90,6 +90,7 @@ public final class RouterPipeline {
     private static final AtomicLong GPU_PAYLOAD_NODES_TOTAL = new AtomicLong();
     private static final ConcurrentHashMap<String, LongAdder> GPU_BLOCKER_COUNTS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> GPU_PAYLOAD_UNSUPPORTED_COUNTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> GPU_PAYLOAD_BATCH_RUNTIME_GATE_COUNTS = new ConcurrentHashMap<>();
     private static final AtomicLong GPU_PAYLOAD_PARITY_CHECKS = new AtomicLong();
     private static final AtomicLong GPU_PAYLOAD_PARITY_PASSES = new AtomicLong();
     private static final AtomicLong GPU_PAYLOAD_PARITY_FAILURES = new AtomicLong();
@@ -177,6 +178,7 @@ public final class RouterPipeline {
     private static final AtomicLong CELL_ADD_LATTICE_SPECIALIZED_ROOTS = new AtomicLong();
     private static final AtomicLong CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS = new AtomicLong();
     private static final AtomicLong CELL_ADD_EXTERN_SPECIALIZED_ROOTS = new AtomicLong();
+    private static final AtomicLong CELL_SCALAR_MARKER_SPECIALIZED_ROOTS = new AtomicLong();
 
     /**
      * Compiles each router / sampler top-level field in the GA compile lane. Running
@@ -506,10 +508,12 @@ public final class RouterPipeline {
     }
 
     public static void recordCellFillSpecializations(boolean addLatticeSpecialized,
-            boolean addBeardifierSpecialized, boolean addExternSpecialized) {
+            boolean addBeardifierSpecialized, boolean addExternSpecialized,
+            boolean scalarMarkerSpecialized) {
         if (addLatticeSpecialized) CELL_ADD_LATTICE_SPECIALIZED_ROOTS.incrementAndGet();
         if (addBeardifierSpecialized) CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.incrementAndGet();
         if (addExternSpecialized) CELL_ADD_EXTERN_SPECIALIZED_ROOTS.incrementAndGet();
+        if (scalarMarkerSpecialized) CELL_SCALAR_MARKER_SPECIALIZED_ROOTS.incrementAndGet();
     }
 
     public static void recordGpuEligibility(boolean eligible, int blockerCount) {
@@ -739,6 +743,10 @@ public final class RouterPipeline {
         }
     }
 
+    public static void recordGpuPayloadBatchRuntimeGate(String gate) {
+        addCount(GPU_PAYLOAD_BATCH_RUNTIME_GATE_COUNTS, gate, 1L);
+    }
+
     public static void recordGpuPayloadBatchCpuFallback(int points, String reason) {
         GPU_PAYLOAD_BATCH_CPU_FALLBACKS.incrementAndGet();
         if (points > 0) {
@@ -845,6 +853,8 @@ public final class RouterPipeline {
                           long cellAddBeardifierSpecializedRoots,
                           /** Compiled roots whose cell filler specialized ADD(extern cell-fill, residual). */
                           long cellAddExternSpecializedRoots,
+                          /** Compiled roots whose cell filler specialized a small marker-only scalar expression. */
+                          long cellScalarMarkerSpecializedRoots,
                          /** Roots whose current IR has no JavaToGpu-readiness blockers. */
                          long gpuEligibleRoots,
                           /** Roots currently blocked from a JavaToGpu-style kernel. */
@@ -873,6 +883,8 @@ public final class RouterPipeline {
                           List<String> gpuBlockerCounts,
                           /** Top first unsupported nodes from primitive payload packing. */
                           List<String> gpuPayloadUnsupportedCounts,
+                          /** Runtime GPU gate categories observed before JavaToGpu launch attempts. */
+                          List<String> gpuPayloadBatchRuntimeGateCounts,
                           /** Real DFC cell batches routed into the JavaToGpu payload path. */
                           long gpuPayloadBatchAttempts,
                           /** Routed DFC cell batches completed on GPU. */
@@ -1074,6 +1086,7 @@ public final class RouterPipeline {
                 CELL_ADD_LATTICE_SPECIALIZED_ROOTS.get(),
                 CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.get(),
                 CELL_ADD_EXTERN_SPECIALIZED_ROOTS.get(),
+                CELL_SCALAR_MARKER_SPECIALIZED_ROOTS.get(),
                 GPU_ELIGIBLE_ROOTS.get(),
                 GPU_BLOCKED_ROOTS.get(),
                 GPU_BLOCKERS_TOTAL.get(),
@@ -1088,6 +1101,7 @@ public final class RouterPipeline {
                 GPU_PAYLOAD_PARITY_FIRST_FAILURE.get(),
                 topCounts(GPU_BLOCKER_COUNTS, 5),
                 topCounts(GPU_PAYLOAD_UNSUPPORTED_COUNTS, 5),
+                topCounts(GPU_PAYLOAD_BATCH_RUNTIME_GATE_COUNTS, 8),
                 GPU_PAYLOAD_BATCH_ATTEMPTS.get(),
                 GPU_PAYLOAD_BATCH_GPU_SUCCESSES.get(),
                 GPU_PAYLOAD_BATCH_CPU_FALLBACKS.get(),
@@ -1172,6 +1186,7 @@ public final class RouterPipeline {
         CELL_ADD_LATTICE_SPECIALIZED_ROOTS.set(0L);
         CELL_ADD_BEARDIFIER_SPECIALIZED_ROOTS.set(0L);
         CELL_ADD_EXTERN_SPECIALIZED_ROOTS.set(0L);
+        CELL_SCALAR_MARKER_SPECIALIZED_ROOTS.set(0L);
         GPU_ELIGIBLE_ROOTS.set(0L);
         GPU_BLOCKED_ROOTS.set(0L);
         GPU_BLOCKERS_TOTAL.set(0L);
@@ -1186,6 +1201,7 @@ public final class RouterPipeline {
         GPU_PAYLOAD_PARITY_FIRST_FAILURE.set("none");
         GPU_BLOCKER_COUNTS.clear();
         GPU_PAYLOAD_UNSUPPORTED_COUNTS.clear();
+        GPU_PAYLOAD_BATCH_RUNTIME_GATE_COUNTS.clear();
         GPU_PAYLOAD_BATCH_ATTEMPTS.set(0L);
         GPU_PAYLOAD_BATCH_GPU_SUCCESSES.set(0L);
         GPU_PAYLOAD_BATCH_CPU_FALLBACKS.set(0L);

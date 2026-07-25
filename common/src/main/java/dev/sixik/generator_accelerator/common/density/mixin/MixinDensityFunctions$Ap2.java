@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillFastPath;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcZeroCellFillAccess;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -57,11 +58,17 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
                 return;
             }
             long secondaryStart = NoiseChunkTimingStats.startStage();
+            if (DfcCellFillStats.ENABLED) {
+                DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
+            }
             this.ga$rightCellFill.dfc$fillCell(out, chunk);
             NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
             return;
         }
         long primaryStart = NoiseChunkTimingStats.startStage();
+        if (DfcCellFillStats.ENABLED) {
+            DfcCellFillStats.recordCellFill(this.ga$leftCellFill, this.argument1());
+        }
         this.ga$leftCellFill.dfc$fillCell(out, chunk);
         NoiseChunkTimingStats.recordAp2Primary(primaryStart);
         if (this.ga$rightCellFillZero) {
@@ -69,6 +76,9 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
             return;
         }
         long secondaryStart = NoiseChunkTimingStats.startStage();
+        if (DfcCellFillStats.ENABLED) {
+            DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
+        }
         this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
         NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
     }
@@ -82,11 +92,17 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
         }
         if (!this.ga$leftCellFillZero) {
             long primaryStart = NoiseChunkTimingStats.startStage();
+            if (DfcCellFillStats.ENABLED) {
+                DfcCellFillStats.recordCellFill(this.ga$leftCellFill, this.argument1());
+            }
             this.ga$leftCellFill.dfc$accumulateCell(out, chunk);
             NoiseChunkTimingStats.recordAp2Primary(primaryStart);
         }
         if (!this.ga$rightCellFillZero) {
             long secondaryStart = NoiseChunkTimingStats.startStage();
+            if (DfcCellFillStats.ENABLED) {
+                DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
+            }
             this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
             NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
         } else {

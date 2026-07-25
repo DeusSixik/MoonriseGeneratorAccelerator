@@ -58,6 +58,10 @@ dfc:
   # Enables extra residual class debug for cell-fill stats.
   # Mirrors old VM arg: -Ddfc.cellfill.stats.residualClassDebug=true
   cell-fill-residual-class-debug: false
+  # Enables the direct-interpolator scalar marker cell-fill override for compact marker-only roots.
+  # Disabled by default until the specialized path proves stable across worldgen runs.
+  # Mirrors old VM arg: -Ddfc.codegen.cellFillScalarMarkerOverride=true
+  cell-fill-scalar-marker-override: false
   # Enables cell-fill runtime statistics.
   # Mirrors old VM arg: -Ddfc.cellfill.stats=true
   cell-fill-stats: false
@@ -67,6 +71,21 @@ dfc:
   # Allows compilation of marker inners in the compiling visitor.
   # Mirrors old VM arg: -Ddfc.compileMarkerInners=true
   compile-marker-inners: false
+  # Allows the first fillSlice GPU prototype to batch one compiled NoiseInterpolator root over a whole slice plane.
+  # This is a correctness experiment; failed, skipped, or parity-failing launches fall back to the existing CPU path.
+  # Mirrors old VM arg: -Dga.dfc.gpu.fillSlicePrototype=true
+  fill-slice-gpu-prototype: false
+  # Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by fillSlice.
+  # Only active together with fillSliceGpuPrototype; CPU-only slice filling is faster without it.
+  # Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile=true
+  fill-slice-lazy-compile: true
+  # Maximum per-lifecycle lazy fillSlice root compiles when fillSliceLazyCompile is enabled.
+  # Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile.max=16
+  fill-slice-lazy-compile-max: 16
+  # Allows compiled cell-fill roots to try the GPU payload runtime before falling back to CPU.
+  # Disabled by default: current 128-point cell batches rarely form useful microbatches.
+  # Mirrors old VM arg: -Dga.dfc.gpu.cellFillPrototype=false
+  gpu-cell-fill-prototype: false
   # Calls the generated JavaToGpu launcher directly instead of the generic launcher invoker.
   # This is a runtime-overhead experiment; disable if direct generated launcher lookup fails.
   # Mirrors old VM arg: -Dga.dfc.gpu.directGeneratedLauncher=true
@@ -75,18 +94,22 @@ dfc:
   # Use 0 to keep runtime GPU batches disabled while allowing GPU Probe diagnostics; -1 means unlimited.
   # Mirrors old VM arg: -Dga.dfc.gpu.runtimeBatchMax=0
   gpu-runtime-batch-max: 1024
+  # Maximum nanoseconds a direct runtime GPU caller waits for the serialized runtime lock before CPU fallback.
+  # Use 0 for immediate opportunistic fallback; positive values can increase worker-thread stalls.
+  # Mirrors old VM arg: -Dga.dfc.gpu.runtimeLockWaitNanos=0
+  gpu-runtime-lock-wait-nanos: 0
   # Runtime batch checks skipped after microbatch backoff triggers.
-  # After this window, GPU is sampled again to detect if batching became useful.
-  # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBatches=256
-  gpu-runtime-micro-batch-backoff-batches: 256
+  # Keep this short for fillSlice prototype sampling; after this window, GPU is sampled again.
+  # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBatches=64
+  gpu-runtime-micro-batch-backoff-batches: 64
   # Consecutive busy GPU runtime attempts before runtime GPU enters temporary backoff.
   # This avoids paying repeated queue/lock overhead when another worker owns the serialized runtime.
   # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffBusyStreak=32
   gpu-runtime-micro-batch-backoff-busy-streak: 32
   # Consecutive single-request microbatch candidates before runtime GPU enters temporary backoff.
   # This avoids repeatedly taking the runtime lock when the current workload is not batching.
-  # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak=32
-  gpu-runtime-micro-batch-backoff-single-streak: 32
+  # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchBackoffSingleStreak=1
+  gpu-runtime-micro-batch-backoff-single-streak: 1
   # Maximum nanoseconds the GPU lock owner spins to collect compatible runtime microbatch requests.
   # Keep this small; 100000ns is 0.1ms.
   # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchCollectNanos=100000
@@ -104,7 +127,7 @@ dfc:
   # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMicroBatchWaitNanos=0
   gpu-runtime-micro-batch-wait-nanos: 0
   # Minimum point count for real worldgen GPU runtime batches.
-  # Current 128-point NoiseChunk cell batches are too small; keep 1024 until larger batch aggregation exists.
+  # Single 128-point NoiseChunk cell batches are too small; microbatching may pass when the padded launch reaches this threshold.
   # Mirrors old VM arg: -Dga.dfc.gpu.runtimeMinPoints=1024
   gpu-runtime-min-points: 1024
   # Makes real worldgen GPU batches opportunistic: if another chunk worker is using the GPU runtime,

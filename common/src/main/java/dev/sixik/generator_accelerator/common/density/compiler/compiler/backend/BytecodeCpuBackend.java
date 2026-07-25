@@ -70,7 +70,9 @@ public final class BytecodeCpuBackend implements DfcBackend {
                 latticeEmitted,
                 emitResult.cellAddLatticeSpecialized(),
                 emitResult.cellAddBeardifierSpecialized(),
-                emitResult.cellAddExternSpecialized());
+                emitResult.cellAddExternSpecialized(),
+                emitResult.cellScalarMarkerSpecialized(),
+                emitResult.cellScalarMarkerReason());
     }
 
     private static MethodHandle[] resolveHelperHandles(

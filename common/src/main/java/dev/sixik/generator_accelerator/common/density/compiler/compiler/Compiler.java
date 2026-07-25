@@ -257,6 +257,8 @@ public final class Compiler {
                 bundle.cellAddLatticeSpecialized(),
                 bundle.cellAddBeardifierSpecialized(),
                 bundle.cellAddExternSpecialized(),
+                bundle.cellScalarMarkerSpecialized(),
+                bundle.cellScalarMarkerReason(),
                 bundle.rootDebug(),
                 bundle.splineDebug());
         if (reusedClassFromCache) {
@@ -270,7 +272,8 @@ public final class Compiler {
         RouterPipeline.recordCellFillSpecializations(
                 bundle.cellAddLatticeSpecialized(),
                 bundle.cellAddBeardifierSpecialized(),
-                bundle.cellAddExternSpecialized());
+                bundle.cellAddExternSpecialized(),
+                bundle.cellScalarMarkerSpecialized());
         RouterPipeline.recordOptimizerRewrites(optimizerRewrites);
         RouterPipeline.recordNoiseInline(noisesSpecialized, octavesUnrolled);
         RouterPipeline.recordBlendedInline(pool.blendedNoiseSpecCount(), countBlendedNonNullOctaves(pool));
@@ -278,15 +281,30 @@ public final class Compiler {
         RouterPipeline.recordGpuPayload(gpuPayload);
         GpuPayloadParity.Report gpuPayloadParity = GpuPayloadParity.check(compiled, gpuPayload);
         RouterPipeline.recordGpuPayloadParity(gpuPayloadParity);
+        GpuPayloadCompiler.Result runtimeGpuPayload = runtimePayloadAfterParity(gpuPayload, gpuPayloadParity);
         GpuPayloadRuntimeRegistry.register(
-                compiled, gpuEligibility, gpuPayload,
-                describeFirstGpuPayloadUnsupported(root, pool, gpuPayload));
+                compiled, gpuEligibility, runtimeGpuPayload,
+                describeFirstGpuPayloadUnsupported(root, pool, runtimeGpuPayload));
         logSplineSearchIfInteresting(root, bundle, reusedClassFromCache, splineStats);
 
         return new Result(
                 compiled, root, rc, pool, bundle.bytecode(), bundle.classInternalName(),
                 uniqueNodes, cseSavings, bundle.helpersEmitted(), optimizerRewrites,
                 noisesSpecialized, octavesUnrolled, minVal, maxVal, gpuEligibility, gpuPayload, gpuPayloadParity);
+    }
+
+    private static GpuPayloadCompiler.Result runtimePayloadAfterParity(
+            GpuPayloadCompiler.Result payload,
+            GpuPayloadParity.Report parity) {
+        if (payload == null || parity == null || !parity.checked() || parity.passed()) {
+            return payload;
+        }
+        return new GpuPayloadCompiler.Result(
+                false,
+                null,
+                "PayloadParity",
+                "PayloadParity:" + parity.firstMismatch(),
+                payload.nodesVisited());
     }
 
     private static long countBlendedNonNullOctaves(ConstantPool pool) {
@@ -399,7 +417,7 @@ public final class Compiler {
     }
 
     private static String describeRootForCellFillDebug(IRNode root) {
-        String tree = describeIrTree(root, 4);
+        String tree = describeIrTree(root, 6);
         String beardifierPath = findFirstPath(root, "root", node -> node instanceof IRNode.Beardifier)
                 .orElse("none");
         String beardifierAddPath = findFirstPath(root, "root", Compiler::isImmediateBeardifierAdd)
@@ -469,6 +487,8 @@ public final class Compiler {
             case IRNode.Unary unary -> unary.op().name();
             case IRNode.Clamp clamp -> "Clamp[" + clamp.min() + "," + clamp.max() + "]";
             case IRNode.RangeChoice rc -> "RangeChoice[" + rc.min() + "," + rc.max() + ")";
+            case IRNode.YClampedGradient g -> "YClampedGradient[y=" + g.fromY() + ".." + g.toY()
+                    + ",v=" + g.fromValue() + ".." + g.toValue() + "]";
             case IRNode.Const c -> "Const(" + c.value() + ")";
             case IRNode.Noise noise -> "Noise#" + noise.noiseIndex();
             case IRNode.ShiftedNoise noise -> "ShiftedNoise#" + noise.noiseIndex();
