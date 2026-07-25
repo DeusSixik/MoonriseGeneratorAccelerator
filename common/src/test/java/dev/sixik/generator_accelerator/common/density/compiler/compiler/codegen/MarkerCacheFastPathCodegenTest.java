@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheArrayIndexAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
@@ -13,6 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MarkerCacheFastPathCodegenTest {
@@ -47,6 +49,30 @@ class MarkerCacheFastPathCodegenTest {
         assertEquals(1, cacheExtern.arrayIndexReads);
         assertEquals(0, cacheExtern.genericReads);
         assertEquals(0, cacheExtern.computeCalls);
+    }
+
+    @Test
+    void scalarMarkerCellFillOverrideDefinesInlineArrayBytecode() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+
+        String previous = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", "true");
+        try {
+            DensityFunction root = DensityFunctions.cacheAllInCell(DensityFunctions.constant(4.0));
+            DensityFunction compiled = Compiler.compile(root);
+            assertInstanceOf(CompiledDensityFunction.class, compiled);
+
+            DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(compiled.getClass().getName());
+            assertNotNull(entry);
+            assertTrue(entry.cellScalarMarkerSpecialized(), entry.cellScalarMarkerReason());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerOverride");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", previous);
+            }
+        }
     }
 
     private static final class TestArrayIndexCacheExtern implements DensityFunction, DfcCellCacheArrayIndexAccess {

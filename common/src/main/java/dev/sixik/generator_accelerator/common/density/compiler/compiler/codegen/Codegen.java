@@ -137,6 +137,8 @@ public final class Codegen {
             Type.getInternalName(GA$NoiseChunk$InterpolatorSoAPath.class);
     private static final String INTERPOLATOR_SOA_PATH_DESC = "L" + INTERPOLATOR_SOA_PATH_INTERNAL + ";";
     private static final String INTERPOLATOR_FILLING_DELTA_DESC = "(IDDD)D";
+    private static final String INTERPOLATOR_NOISE_ARRAY_DESC = "()[D";
+    private static final String INTERPOLATOR_UPDATE_DELTA_DESC = "(D)V";
     private static final String DFC_VECTOR_SUPPORT_INTERNAL = Type.getInternalName(DfcVectorSupport.class);
     private static final String DOUBLE_VECTOR_FROM_ARRAY_DESC =
             "(L" + DfcVectorSupport.VECTOR_SPECIES_INTERNAL + ";[DI)L" + DfcVectorSupport.DOUBLE_VECTOR_INTERNAL + ";";
@@ -1371,7 +1373,8 @@ public final class Codegen {
                                                                  boolean accumulate, int soaLocal) {
         // Locals: 0=this, 1=out, 2=chunk, 3=idx, 4=cellW, 5=cellH,
         // 6=inCellY, 7=inCellX, 8=inCellZ, 9=SoA path,
-        // 10/12=inverse cell W/H, 14/16/18=delta X/Y/Z.
+        // 10/12=inverse cell W/H, 14/16/18=delta X/Y/Z,
+        // 20=SoA staged value array.
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 3);
 
@@ -1391,6 +1394,12 @@ public final class Codegen {
                 "bts$getInverseCellHeight", "()D", true);
         mv.visitVarInsn(Opcodes.DSTORE, 12);
 
+        final int directInterpolatorValueArraySlot = 20;
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$getValueArray", INTERPOLATOR_NOISE_ARRAY_DESC, true);
+        mv.visitVarInsn(Opcodes.ASTORE, directInterpolatorValueArraySlot);
+
         mv.visitVarInsn(Opcodes.ILOAD, 5);
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitInsn(Opcodes.ISUB);
@@ -1405,6 +1414,10 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 12);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 16);
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitVarInsn(Opcodes.DLOAD, 16);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$updateFillingY", INTERPOLATOR_UPDATE_DELTA_DESC, true);
 
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 7);
@@ -1419,6 +1432,10 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 10);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 14);
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitVarInsn(Opcodes.DLOAD, 14);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$updateFillingX", INTERPOLATOR_UPDATE_DELTA_DESC, true);
 
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 8);
@@ -1433,6 +1450,10 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 10);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 18);
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitVarInsn(Opcodes.DLOAD, 18);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                "bts$updateFillingZ", INTERPOLATOR_UPDATE_DELTA_DESC, true);
 
         if (accumulate) {
             mv.visitVarInsn(Opcodes.ALOAD, 1);
@@ -1445,8 +1466,9 @@ public final class Codegen {
             mv.visitVarInsn(Opcodes.ILOAD, 3);
         }
         EmitState st = new EmitState(mv, classInternalName, helpers, false,
-                CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18);
-        st.reserveLocalsFrom(20);
+                CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18,
+                directInterpolatorValueArraySlot);
+        st.reserveLocalsFrom(21);
         st.emit(root);
         if (accumulate) {
             mv.visitInsn(Opcodes.DADD);
@@ -2831,6 +2853,7 @@ public final class Codegen {
         private final int directInterpolatorXSlot;
         private final int directInterpolatorYSlot;
         private final int directInterpolatorZSlot;
+        private final int directInterpolatorValueArraySlot;
         /**
          * True for static {@code helper_N} methods: local 0 is typed as
          * {@link CompiledDensityFunction} in the method descriptor, but
@@ -2856,7 +2879,7 @@ public final class Codegen {
                   CoordinateReusePlan coordinateReuse,
                   int contextLocal) {
             this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields, coordinateReuse,
-                    contextLocal, false, -1, -1, -1, -1);
+                    contextLocal, false, -1, -1, -1, -1, -1);
         }
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
@@ -2867,7 +2890,8 @@ public final class Codegen {
                   int directInterpolatorSoALocal,
                   int directInterpolatorXSlot,
                   int directInterpolatorYSlot,
-                  int directInterpolatorZSlot) {
+                  int directInterpolatorZSlot,
+                  int directInterpolatorValueArraySlot) {
             this.mv = mv;
             this.classInternalName = classInternalName;
             this.helpers = helpers;
@@ -2880,6 +2904,7 @@ public final class Codegen {
             this.directInterpolatorXSlot = directInterpolatorXSlot;
             this.directInterpolatorYSlot = directInterpolatorYSlot;
             this.directInterpolatorZSlot = directInterpolatorZSlot;
+            this.directInterpolatorValueArraySlot = directInterpolatorValueArraySlot;
         }
 
         private int allocDoubleSlot() {
@@ -3156,9 +3181,46 @@ public final class Codegen {
         }
 
         private void emitSqueeze() {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC,
-                    "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime",
-                    "squeeze", "(D)D", false);
+            int inputSlot = allocDoubleSlot();
+            int clampedSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DSTORE, inputSlot);
+
+            Label notBelowMin = new Label();
+            Label notAboveMax = new Label();
+            Label clamped = new Label();
+
+            mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+            mv.visitLdcInsn(-1.0D);
+            mv.visitInsn(Opcodes.DCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, notBelowMin);
+            mv.visitLdcInsn(-1.0D);
+            mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+            mv.visitLabel(notBelowMin);
+            mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+            mv.visitInsn(Opcodes.DCONST_1);
+            mv.visitInsn(Opcodes.DCMPL);
+            mv.visitJumpInsn(Opcodes.IFLE, notAboveMax);
+            mv.visitInsn(Opcodes.DCONST_1);
+            mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+            mv.visitLabel(notAboveMax);
+            mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+
+            mv.visitLabel(clamped);
+            mv.visitVarInsn(Opcodes.DSTORE, clampedSlot);
+
+            mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+            mv.visitLdcInsn(2.0D);
+            mv.visitInsn(Opcodes.DDIV);
+            mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+            mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitLdcInsn(24.0D);
+            mv.visitInsn(Opcodes.DDIV);
+            mv.visitInsn(Opcodes.DSUB);
         }
 
         private void emitClamp(IRNode.Clamp c) {
@@ -4206,15 +4268,23 @@ public final class Codegen {
         /** Marker sites flagged as cell-cache wrappers may use {@link DfcCacheFastPath}. */
         private void emitMarkerInvoke(int idx) {
             if (directInterpolatorMarkers) {
-                mv.visitVarInsn(Opcodes.ALOAD, directInterpolatorSoALocal);
-                emitGeneratedThis();
-                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
-                        externInterpolatorIndexFieldName(idx), "I");
-                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorXSlot);
-                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorYSlot);
-                mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorZSlot);
-                mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
-                        "bts$getInterpolatorFillingValue", INTERPOLATOR_FILLING_DELTA_DESC, true);
+                if (directInterpolatorValueArraySlot >= 0) {
+                    mv.visitVarInsn(Opcodes.ALOAD, directInterpolatorValueArraySlot);
+                    emitGeneratedThis();
+                    mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                            externInterpolatorIndexFieldName(idx), "I");
+                    mv.visitInsn(Opcodes.DALOAD);
+                } else {
+                    mv.visitVarInsn(Opcodes.ALOAD, directInterpolatorSoALocal);
+                    emitGeneratedThis();
+                    mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                            externInterpolatorIndexFieldName(idx), "I");
+                    mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorXSlot);
+                    mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorYSlot);
+                    mv.visitVarInsn(Opcodes.DLOAD, directInterpolatorZSlot);
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                            "bts$getInterpolatorFillingValue", INTERPOLATOR_FILLING_DELTA_DESC, true);
+                }
                 return;
             }
             if (pool.externHasCacheWrapperFastPath(idx)) {

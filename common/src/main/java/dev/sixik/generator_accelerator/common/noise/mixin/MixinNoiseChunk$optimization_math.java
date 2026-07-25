@@ -661,6 +661,105 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         return lerpX0 + deltaZ * (lerpX1 - lerpX0);
     }
 
+    @Override
+    public void bts$updateFillingY(double deltaY) {
+        final double[] noise000 = this.bts$noise000;
+        final double[] noise100 = this.bts$noise100;
+        final double[] noise001 = this.bts$noise001;
+        final double[] noise101 = this.bts$noise101;
+        final double[] noise010 = this.bts$noise010;
+        final double[] noise110 = this.bts$noise110;
+        final double[] noise011 = this.bts$noise011;
+        final double[] noise111 = this.bts$noise111;
+        final double[] valueXZ00 = this.bts$valueXZ00;
+        final double[] valueXZ10 = this.bts$valueXZ10;
+        final double[] valueXZ01 = this.bts$valueXZ01;
+        final double[] valueXZ11 = this.bts$valueXZ11;
+        for (int i = 0; i < noise000.length; i++) {
+            final double n000 = noise000[i];
+            final double n100 = noise100[i];
+            final double n001 = noise001[i];
+            final double n101 = noise101[i];
+
+            valueXZ00[i] = n000 + deltaY * (noise010[i] - n000);
+            valueXZ10[i] = n100 + deltaY * (noise110[i] - n100);
+            valueXZ01[i] = n001 + deltaY * (noise011[i] - n001);
+            valueXZ11[i] = n101 + deltaY * (noise111[i] - n101);
+        }
+    }
+
+    @Override
+    public void bts$updateFillingX(double deltaX) {
+        final double[] valueXZ00 = this.bts$valueXZ00;
+        final double[] valueXZ01 = this.bts$valueXZ01;
+        final double[] valueXZ10 = this.bts$valueXZ10;
+        final double[] valueXZ11 = this.bts$valueXZ11;
+        final double[] valueZ0 = this.bts$valueZ0;
+        final double[] valueZ1 = this.bts$valueZ1;
+        for (int i = 0; i < valueXZ00.length; i++) {
+            final double v0 = valueXZ00[i];
+            final double v1 = valueXZ01[i];
+            valueZ0[i] = v0 + deltaX * (valueXZ10[i] - v0);
+            valueZ1[i] = v1 + deltaX * (valueXZ11[i] - v1);
+        }
+    }
+
+    @Override
+    public void bts$updateFillingZ(double deltaZ) {
+        final double[] valueZ0 = this.bts$valueZ0;
+        final double[] valueZ1 = this.bts$valueZ1;
+        final double[] value = this.bts$value;
+        for (int i = 0; i < valueZ0.length; i++) {
+            final double v = valueZ0[i];
+            value[i] = v + deltaZ * (valueZ1[i] - v);
+        }
+    }
+
+    @Override
+    public double[] bts$getValueArray() {
+        return this.bts$value;
+    }
+
+    @Override
+    public double[] bts$getNoise000Array() {
+        return this.bts$noise000;
+    }
+
+    @Override
+    public double[] bts$getNoise100Array() {
+        return this.bts$noise100;
+    }
+
+    @Override
+    public double[] bts$getNoise010Array() {
+        return this.bts$noise010;
+    }
+
+    @Override
+    public double[] bts$getNoise110Array() {
+        return this.bts$noise110;
+    }
+
+    @Override
+    public double[] bts$getNoise001Array() {
+        return this.bts$noise001;
+    }
+
+    @Override
+    public double[] bts$getNoise101Array() {
+        return this.bts$noise101;
+    }
+
+    @Override
+    public double[] bts$getNoise011Array() {
+        return this.bts$noise011;
+    }
+
+    @Override
+    public double[] bts$getNoise111Array() {
+        return this.bts$noise111;
+    }
+
     /**
      * @author Sixik
      * @reason Micro optimization
