@@ -13,6 +13,9 @@ public final class NoiseChunkTimingStats {
     public static volatile boolean ENABLED = Boolean.parseBoolean(System.getProperty(
             "ga.noiseChunk.timingStats",
             Boolean.toString(GAConfigHolder.getConfig().dfc.noiseChunkTimingStats)));
+    public static volatile boolean STAGE_ENABLED = Boolean.parseBoolean(System.getProperty(
+            "ga.noiseChunk.stageTimingStats",
+            Boolean.toString(GAConfigHolder.getConfig().dfc.noiseChunkStageTimingStats)));
 
     private static final LongAdder FILL_SLICE_CALLS = new LongAdder();
     private static final LongAdder FILL_SLICE_TOTAL_NANOS = new LongAdder();
@@ -70,6 +73,7 @@ public final class NoiseChunkTimingStats {
 
     public record Stats(
             boolean enabled,
+            boolean stageTimingEnabled,
             long fillSliceCalls,
             long fillSliceTotalNanos,
             long fillSliceBatchSurfacePoints,
@@ -120,6 +124,7 @@ public final class NoiseChunkTimingStats {
     public static Stats snapshotStats() {
         return new Stats(
                 ENABLED,
+                stageTimingEnabled(),
                 FILL_SLICE_CALLS.sum(),
                 FILL_SLICE_TOTAL_NANOS.sum(),
                 FILL_SLICE_BATCH_SURFACE_POINTS.sum(),
@@ -216,6 +221,14 @@ public final class NoiseChunkTimingStats {
 
     public static void setEnabled(boolean enabled) {
         ENABLED = enabled;
+    }
+
+    public static void setStageEnabled(boolean enabled) {
+        STAGE_ENABLED = enabled;
+    }
+
+    public static boolean stageTimingEnabled() {
+        return STAGE_ENABLED && ENABLED;
     }
 
     public static long startFillSlice() {
@@ -352,7 +365,7 @@ public final class NoiseChunkTimingStats {
     }
 
     public static long startStage() {
-        return ENABLED ? System.nanoTime() : 0L;
+        return stageTimingEnabled() ? System.nanoTime() : 0L;
     }
 
     public static void recordFastFill(long startNanos) {
@@ -396,7 +409,7 @@ public final class NoiseChunkTimingStats {
     }
 
     public static void recordAp2ZeroSecondarySkip() {
-        if (!ENABLED) {
+        if (!stageTimingEnabled()) {
             return;
         }
         SELECT_CELL_YZ_AP2_ZERO_SECONDARY_SKIPS.increment();

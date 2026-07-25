@@ -165,6 +165,17 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
+                        Enables nested NoiseChunk stage timing statistics, such as fast-fill,
+                        lazy-resolve, and Ap2 primary/secondary timings. Requires
+                        noiseChunkTimingStats=true. Disable for lower-overhead selectCellYZ
+                        benchmarking while keeping outer selectCellYZ totals.
+                        Mirrors old VM arg: -Dga.noiseChunk.stageTimingStats=true
+                        """
+        )
+        public boolean noiseChunkStageTimingStats = true;
+
+        @Serializable(
+                comment = """
                         Enables extra residual class debug for cell-fill stats.
                         Mirrors old VM arg: -Ddfc.cellfill.stats.residualClassDebug=true
                         """

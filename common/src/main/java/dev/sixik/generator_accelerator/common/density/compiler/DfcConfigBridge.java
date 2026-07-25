@@ -38,6 +38,8 @@ public final class DfcConfigBridge {
             BeardifierStats.setEnabled(dfc.beardifierStats);
             setBoolean("ga.noiseChunk.timingStats", dfc.noiseChunkTimingStats);
             NoiseChunkTimingStats.setEnabled(dfc.noiseChunkTimingStats);
+            setBoolean("ga.noiseChunk.stageTimingStats", dfc.noiseChunkStageTimingStats);
+            NoiseChunkTimingStats.setStageEnabled(dfc.noiseChunkStageTimingStats);
             setBoolean("dfc.cellfill.stats.residualClassDebug", dfc.cellFillResidualClassDebug);
             setBoolean("dfc.cellfill.parity", dfc.cellFillParity);
             setInt("dfc.cellfill.parity.maxChecks", dfc.cellFillParityMaxChecks);

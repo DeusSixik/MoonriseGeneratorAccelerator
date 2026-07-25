@@ -18,11 +18,9 @@ public class MixinBlendedNoise$optimization_math {
     @Shadow
     @Final
     private double yMultiplier;
-    @Mutable
     @Shadow
     @Final
     private double xzFactor;
-    @Mutable
     @Shadow
     @Final
     private double yFactor;
@@ -61,6 +59,11 @@ public class MixinBlendedNoise$optimization_math {
     private double[] bts$maxAmps;
 
     @Unique
+    private double bts$xzFactorInv;
+    @Unique
+    private double bts$yFactorInv;
+
+    @Unique
     private static final double WRAP_DIVISOR_INV = 1.0 / 3.3554432E7;
 
     @Inject(method = "<init>(Lnet/minecraft/world/level/levelgen/synth/PerlinNoise;Lnet/minecraft/world/level/levelgen/synth/PerlinNoise;Lnet/minecraft/world/level/levelgen/synth/PerlinNoise;DDDDD)V", at = @At("RETURN"))
@@ -78,8 +81,8 @@ public class MixinBlendedNoise$optimization_math {
         this.bts$flattenNoise(this.minLimitNoise, 16, true);
         this.bts$flattenNoise(this.maxLimitNoise, 16, true);
 
-        this.xzFactor = 1.0 / this.xzMultiplier;
-        this.yFactor = 1.0 / this.yMultiplier;
+        this.bts$xzFactorInv = 1.0 / this.xzFactor;
+        this.bts$yFactorInv = 1.0 / this.yFactor;
     }
 
     @Unique
@@ -142,12 +145,12 @@ public class MixinBlendedNoise$optimization_math {
         double blockY = (double) ctx.blockY() * this.yMultiplier;
         double blockZ = (double) ctx.blockZ() * this.xzMultiplier;
 
-        double g = blockX * this.xzFactor;
-        double h = blockY * this.yFactor;
-        double i = blockZ * this.xzFactor;
+        double g = blockX * this.bts$xzFactorInv;
+        double h = blockY * this.bts$yFactorInv;
+        double i = blockZ * this.bts$xzFactorInv;
 
         double j = this.yMultiplier * this.smearScaleMultiplier;
-        double k = j * this.yFactor;
+        double k = j * this.bts$yFactorInv;
 
         double[] bts$mainFreqs = this.bts$mainFreqs;
         double[] bts$mainAmps = this.bts$mainAmps;

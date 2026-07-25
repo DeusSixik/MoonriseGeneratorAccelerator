@@ -152,6 +152,12 @@ dfc:
   # Logs additional spline-search debug information.
   # Mirrors old VM arg: -Ddfc.codegen.logSplineSearch=true
   log-spline-search: false
+  # Enables nested NoiseChunk stage timing statistics, such as fast-fill,
+  # lazy-resolve, and Ap2 primary/secondary timings. Requires
+  # noiseChunkTimingStats=true. Disable for lower-overhead selectCellYZ
+  # benchmarking while keeping outer selectCellYZ totals.
+  # Mirrors old VM arg: -Dga.noiseChunk.stageTimingStats=true
+  noise-chunk-stage-timing-stats: true
   # Enables NoiseChunk fillSlice/selectCellYZ timing statistics.
   # Keep false for normal world loading; this is diagnostic-only.
   # Mirrors old VM arg: -Dga.noiseChunk.timingStats=true

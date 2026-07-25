@@ -10,6 +10,7 @@ class NoiseParityTest {
 
     private static final double SIMPLEX_EPSILON = 1.0E-12;
     private static final double IMPROVED_EPSILON = 1.0E-12;
+    private static final double BLENDED_EPSILON = 1.0E-10;
     private static final double DERIVATIVE_EPSILON = 1.0E-10;
     private static final int SAMPLE_COUNT = 2_000;
     private static final long SEED = 0x5EEDC0DEL;
@@ -92,6 +93,31 @@ class NoiseParityTest {
         }
     }
 
+    @Test
+    void blendedNoiseFactorParity() {
+        Random random = new Random(SEED ^ 0xB1EDED5015EL);
+        OctaveSet mainNoise = createOctaves(random, 8);
+        OctaveSet minLimitNoise = createOctaves(random, 16);
+        OctaveSet maxLimitNoise = createOctaves(random, 16);
+        double xzMultiplier = 684.412 * nextBlendedScale(random);
+        double yMultiplier = 684.412 * nextBlendedScale(random);
+        double xzFactor = nextBlendedFactor(random);
+        double yFactor = nextBlendedFactor(random);
+        double smearScaleMultiplier = 1.0 + random.nextDouble() * 7.0;
+
+        for (int i = 0; i < SAMPLE_COUNT; i++) {
+            int blockX = nextBlockCoord(random);
+            int blockY = random.nextInt(512) - 128;
+            int blockZ = nextBlockCoord(random);
+
+            double expected = blendedNoiseReference(minLimitNoise, maxLimitNoise, mainNoise,
+                    blockX, blockY, blockZ, xzMultiplier, yMultiplier, xzFactor, yFactor, smearScaleMultiplier);
+            double actual = blendedNoiseOptimized(minLimitNoise, maxLimitNoise, mainNoise,
+                    blockX, blockY, blockZ, xzMultiplier, yMultiplier, xzFactor, yFactor, smearScaleMultiplier);
+            assertEquals(expected, actual, BLENDED_EPSILON, "BlendedNoise mismatch at sample " + i);
+        }
+    }
+
     private static double nextCoord(Random random) {
         return (random.nextDouble() - 0.5) * 8192.0;
     }
@@ -102,6 +128,18 @@ class NoiseParityTest {
 
     private static double nextScale(Random random) {
         return 0.01 + random.nextDouble() * 4.0;
+    }
+
+    private static double nextBlendedScale(Random random) {
+        return 0.001 + random.nextDouble() * 8.0;
+    }
+
+    private static double nextBlendedFactor(Random random) {
+        return 1.0 + random.nextDouble() * 999.0;
+    }
+
+    private static int nextBlockCoord(Random random) {
+        return random.nextInt(200_001) - 100_000;
     }
 
     private static int[] createPermutation(Random random) {
@@ -465,6 +503,194 @@ class NoiseParityTest {
         double deltaY = inputY - gridY;
         double deltaZ = inputZ - gridZ;
         return improvedSampleWithDerivativeOptimized(permutation, gridX, gridY, gridZ, deltaX, deltaY, deltaZ, derivatives);
+    }
+
+    private static double blendedNoiseReference(OctaveSet minLimitNoise, OctaveSet maxLimitNoise, OctaveSet mainNoise,
+                                                int blockX, int blockY, int blockZ,
+                                                double xzMultiplier, double yMultiplier,
+                                                double xzFactor, double yFactor,
+                                                double smearScaleMultiplier) {
+        double d = (double) blockX * xzMultiplier;
+        double e = (double) blockY * yMultiplier;
+        double f = (double) blockZ * xzMultiplier;
+        double g = d / xzFactor;
+        double h = e / yFactor;
+        double i = f / xzFactor;
+        double j = yMultiplier * smearScaleMultiplier;
+        double k = j / yFactor;
+        double l = 0.0;
+        double m = 0.0;
+        double n = 0.0;
+        double o = 1.0;
+        for (int p = 0; p < 8; ++p) {
+            NoiseOctave octave = mainNoise.getOctaveNoise(p);
+            if (octave != null) {
+                n += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo,
+                        wrap(g * o), wrap(h * o), wrap(i * o), k * o, h * o) / o;
+            }
+            o /= 2.0;
+        }
+        double q = (n / 10.0 + 1.0) / 2.0;
+        boolean skipMin = q >= 1.0;
+        boolean skipMax = q <= 0.0;
+        o = 1.0;
+        for (int r = 0; r < 16; ++r) {
+            double s = wrap(d * o);
+            double t = wrap(e * o);
+            double u = wrap(f * o);
+            double v = j * o;
+            NoiseOctave octave = minLimitNoise.getOctaveNoise(r);
+            if (!skipMin && octave != null) {
+                l += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo, s, t, u, v, e * o) / o;
+            }
+            octave = maxLimitNoise.getOctaveNoise(r);
+            if (!skipMax && octave != null) {
+                m += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo, s, t, u, v, e * o) / o;
+            }
+            o /= 2.0;
+        }
+        return clampedLerp(l / 512.0, m / 512.0, q) / 128.0;
+    }
+
+    private static double blendedNoiseOptimized(OctaveSet minLimitNoise, OctaveSet maxLimitNoise, OctaveSet mainNoise,
+                                                int blockX, int blockY, int blockZ,
+                                                double xzMultiplier, double yMultiplier,
+                                                double xzFactor, double yFactor,
+                                                double smearScaleMultiplier) {
+        FlatOctaves main = flattenOctaves(mainNoise, 8);
+        FlatOctaves min = flattenOctaves(minLimitNoise, 16);
+        FlatOctaves max = flattenOctaves(maxLimitNoise, 16);
+        double xzFactorInv = 1.0 / xzFactor;
+        double yFactorInv = 1.0 / yFactor;
+
+        double blockXD = (double) blockX * xzMultiplier;
+        double blockYD = (double) blockY * yMultiplier;
+        double blockZD = (double) blockZ * xzMultiplier;
+        double g = blockXD * xzFactorInv;
+        double h = blockYD * yFactorInv;
+        double i = blockZD * xzFactorInv;
+        double j = yMultiplier * smearScaleMultiplier;
+        double k = j * yFactorInv;
+
+        double n = 0.0;
+        for (int idx = 0; idx < main.noises.length; idx++) {
+            NoiseOctave octave = main.noises[idx];
+            double freq = main.freqs[idx];
+            n += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo,
+                    wrap(g * freq), wrap(h * freq), wrap(i * freq), k * freq, h * freq) * main.amps[idx];
+        }
+
+        double q = (n * 0.1 + 1.0) * 0.5;
+        boolean skipMin = q >= 1.0;
+        boolean skipMax = q <= 0.0;
+        double l = 0.0;
+        double m = 0.0;
+
+        if (!skipMin) {
+            for (int idx = 0; idx < min.noises.length; idx++) {
+                NoiseOctave octave = min.noises[idx];
+                double freq = min.freqs[idx];
+                l += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo,
+                        wrap(blockXD * freq), wrap(blockYD * freq), wrap(blockZD * freq),
+                        j * freq, blockYD * freq) * min.amps[idx];
+            }
+        }
+        if (!skipMax) {
+            for (int idx = 0; idx < max.noises.length; idx++) {
+                NoiseOctave octave = max.noises[idx];
+                double freq = max.freqs[idx];
+                m += improvedNoiseReference(octave.permutation, octave.xo, octave.yo, octave.zo,
+                        wrap(blockXD * freq), wrap(blockYD * freq), wrap(blockZD * freq),
+                        j * freq, blockYD * freq) * max.amps[idx];
+            }
+        }
+
+        return clampedLerp(l * 0.001953125, m * 0.001953125, q) * 0.0078125;
+    }
+
+    private static OctaveSet createOctaves(Random random, int octaveCount) {
+        NoiseOctave[] octaves = new NoiseOctave[octaveCount];
+        for (int i = 0; i < octaveCount; i++) {
+            if (random.nextDouble() < 0.85) {
+                octaves[i] = new NoiseOctave(createBytePermutation(random), nextOffset(random), nextOffset(random), nextOffset(random));
+            }
+        }
+        return new OctaveSet(octaves);
+    }
+
+    private static FlatOctaves flattenOctaves(OctaveSet source, int octaves) {
+        int count = 0;
+        for (int i = 0; i < octaves; i++) {
+            if (source.getOctaveNoise(i) != null) {
+                count++;
+            }
+        }
+
+        NoiseOctave[] noises = new NoiseOctave[count];
+        double[] freqs = new double[count];
+        double[] amps = new double[count];
+        int idx = 0;
+        double o = 1.0;
+        for (int i = 0; i < octaves; i++) {
+            NoiseOctave noise = source.getOctaveNoise(i);
+            if (noise != null) {
+                noises[idx] = noise;
+                freqs[idx] = o;
+                amps[idx] = 1.0 / o;
+                idx++;
+            }
+            o *= 0.5;
+        }
+        return new FlatOctaves(noises, freqs, amps);
+    }
+
+    private static double wrap(double value) {
+        return value - (double) floor(value / 3.3554432E7 + 0.5) * 3.3554432E7;
+    }
+
+    private static double clampedLerp(double start, double end, double delta) {
+        if (delta < 0.0) {
+            return start;
+        }
+        return delta > 1.0 ? end : lerp(delta, start, end);
+    }
+
+    private static final class OctaveSet {
+        private final NoiseOctave[] octaves;
+
+        private OctaveSet(NoiseOctave[] octaves) {
+            this.octaves = octaves;
+        }
+
+        private NoiseOctave getOctaveNoise(int index) {
+            return this.octaves[index];
+        }
+    }
+
+    private static final class NoiseOctave {
+        private final byte[] permutation;
+        private final double xo;
+        private final double yo;
+        private final double zo;
+
+        private NoiseOctave(byte[] permutation, double xo, double yo, double zo) {
+            this.permutation = permutation;
+            this.xo = xo;
+            this.yo = yo;
+            this.zo = zo;
+        }
+    }
+
+    private static final class FlatOctaves {
+        private final NoiseOctave[] noises;
+        private final double[] freqs;
+        private final double[] amps;
+
+        private FlatOctaves(NoiseOctave[] noises, double[] freqs, double[] amps) {
+            this.noises = noises;
+            this.freqs = freqs;
+            this.amps = amps;
+        }
     }
 
     private static double improvedSampleAndLerpReference(byte[] permutation, int gridX, int gridY, int gridZ, double deltaX, double weirdDeltaY, double deltaZ, double deltaY) {

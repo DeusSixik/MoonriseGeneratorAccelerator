@@ -165,6 +165,8 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     @Unique
     private boolean[] bts$cellCacheFastClassReported;
     @Unique
+    private boolean bts$cellCacheFastClassReportComplete;
+    @Unique
     private double[][] bts$cellCacheValues;
 
     @Unique
@@ -419,7 +421,11 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         final boolean[] lazyFastFillers = this.bts$cellCacheLazyFastFillers;
         final double[][] valuesArray = this.bts$cellCacheValues;
         long cacheFillTimingStart = NoiseChunkTimingStats.startSelectCellYzCacheFill(timingStart);
-        final boolean timingStages = cacheFillTimingStart != 0L;
+        final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
+        final boolean timingStats = NoiseChunkTimingStats.ENABLED;
+        final boolean reportFastClasses = timingStats && !this.bts$cellCacheFastClassReportComplete;
+        final boolean cellFillStats = DfcCellFillStats.ENABLED;
+        final boolean parityEnabled = DfcCellFillParity.ENABLED;
         for (int i = 0; i < fillers.length; i++) {
             final DensityFunction filler = fillers[i];
             DfcCellFillAccess fast = fastFillers[i];
@@ -440,34 +446,44 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
             final double[] values = valuesArray[i];
             if (fast != null) {
-                this.bts$recordFastFillerClass(i, filler);
-                if (DfcCellFillStats.ENABLED) {
+                if (reportFastClasses && !this.bts$cellCacheFastClassReported[i]) {
+                    this.bts$recordFastFillerClass(i, filler);
+                }
+                if (cellFillStats) {
                     DfcCellFillStats.recordCellFill(fast, filler);
                 }
                 long fastFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                 fast.dfc$fillCell(values, self);
                 NoiseChunkTimingStats.recordFastFill(fastFillTimingStart);
-                if (DfcCellFillParity.isActive()) {
+                if (parityEnabled && DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, true, lazyFastFillers[i]);
                     if (!DfcCellFillParity.check(filler, values, self)) {
                         fastFillers[i] = null;
                         lazyFastFillers[i] = false;
                         this.bts$cellCacheRejectedFastFillers[i] = true;
-                        this.bts$recordFallbackFillerClass(i, filler);
+                        if (timingStats && !this.bts$cellCacheFallbackClassReported[i]) {
+                            this.bts$recordFallbackFillerClass(i, filler);
+                        }
                         long fallbackFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                         filler.fillArray(values, self);
                         NoiseChunkTimingStats.recordFallbackFill(fallbackFillTimingStart);
                     }
                 }
             } else {
-                if (DfcCellFillParity.isActive()) {
+                if (parityEnabled && DfcCellFillParity.isActive()) {
                     DfcCellFillParity.recordCandidate(filler, false, false);
                 }
-                this.bts$recordFallbackFillerClass(i, filler);
+                if (timingStats && !this.bts$cellCacheFallbackClassReported[i]) {
+                    this.bts$recordFallbackFillerClass(i, filler);
+                }
                 long fallbackFillTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
                 filler.fillArray(values, self);
                 NoiseChunkTimingStats.recordFallbackFill(fallbackFillTimingStart);
             }
+        }
+
+        if (reportFastClasses) {
+            this.bts$cellCacheFastClassReportComplete = true;
         }
 
         ++this.arrayInterpolationCounter;

@@ -40,73 +40,97 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
 
     @Override
     public boolean dfc$hasFastCellFillPath() {
-        this.ga$resolveCellFillPath();
+        if (!this.ga$cellFillPathResolved) {
+            this.ga$resolveCellFillPath();
+        }
         return this.ga$hasFastCellFillPath;
     }
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
-        this.ga$resolveCellFillPath();
+        if (!this.ga$cellFillPathResolved) {
+            this.ga$resolveCellFillPath();
+        }
         if (!this.ga$hasFastCellFillPath) {
             ((DensityFunction) (Object) this).fillArray(out, chunk);
             return;
         }
+        final boolean cellFillStats = DfcCellFillStats.ENABLED;
+        final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
         if (this.ga$leftCellFillZero) {
             if (this.ga$rightCellFillZero) {
                 Arrays.fill(out, 0.0D);
                 ga$finishCellState(chunk, out.length);
                 return;
             }
-            long secondaryStart = NoiseChunkTimingStats.startStage();
-            if (DfcCellFillStats.ENABLED) {
+            if (cellFillStats) {
                 DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
             }
+            long secondaryStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
             this.ga$rightCellFill.dfc$fillCell(out, chunk);
-            NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+            if (timingStages) {
+                NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+            }
             return;
         }
-        long primaryStart = NoiseChunkTimingStats.startStage();
-        if (DfcCellFillStats.ENABLED) {
+        if (cellFillStats) {
             DfcCellFillStats.recordCellFill(this.ga$leftCellFill, this.argument1());
         }
+        long primaryStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
         this.ga$leftCellFill.dfc$fillCell(out, chunk);
-        NoiseChunkTimingStats.recordAp2Primary(primaryStart);
+        if (timingStages) {
+            NoiseChunkTimingStats.recordAp2Primary(primaryStart);
+        }
         if (this.ga$rightCellFillZero) {
-            NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
+            if (timingStages) {
+                NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
+            }
             return;
         }
-        long secondaryStart = NoiseChunkTimingStats.startStage();
-        if (DfcCellFillStats.ENABLED) {
+        if (cellFillStats) {
             DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
         }
+        long secondaryStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
         this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
-        NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+        if (timingStages) {
+            NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+        }
     }
 
     @Override
     public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
-        this.ga$resolveCellFillPath();
+        if (!this.ga$cellFillPathResolved) {
+            this.ga$resolveCellFillPath();
+        }
         if (!this.ga$hasFastCellFillPath) {
             DfcCellFillAccess.super.dfc$accumulateCell(out, chunk);
             return;
         }
+        final boolean cellFillStats = DfcCellFillStats.ENABLED;
+        final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
         if (!this.ga$leftCellFillZero) {
-            long primaryStart = NoiseChunkTimingStats.startStage();
-            if (DfcCellFillStats.ENABLED) {
+            if (cellFillStats) {
                 DfcCellFillStats.recordCellFill(this.ga$leftCellFill, this.argument1());
             }
+            long primaryStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
             this.ga$leftCellFill.dfc$accumulateCell(out, chunk);
-            NoiseChunkTimingStats.recordAp2Primary(primaryStart);
+            if (timingStages) {
+                NoiseChunkTimingStats.recordAp2Primary(primaryStart);
+            }
         }
         if (!this.ga$rightCellFillZero) {
-            long secondaryStart = NoiseChunkTimingStats.startStage();
-            if (DfcCellFillStats.ENABLED) {
+            if (cellFillStats) {
                 DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
             }
+            long secondaryStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
             this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
-            NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+            if (timingStages) {
+                NoiseChunkTimingStats.recordAp2Secondary(secondaryStart);
+            }
         } else {
-            NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
+            if (timingStages) {
+                NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
+            }
         }
     }
 

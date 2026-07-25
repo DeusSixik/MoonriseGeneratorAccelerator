@@ -1048,6 +1048,7 @@ public final class GADebugOverlay {
 
         appendSection(dump, "NoiseChunk Timing");
         appendLine(dump, "enabled", noiseChunkTimingStats.enabled());
+        appendLine(dump, "stageTimingEnabled", noiseChunkTimingStats.stageTimingEnabled());
         appendLine(dump, "fillSliceCalls", noiseChunkTimingStats.fillSliceCalls());
         appendLine(dump, "fillSliceTotalNanos", noiseChunkTimingStats.fillSliceTotalNanos());
         appendLine(dump, "fillSliceAvgNanos", formatAverageNanos(
