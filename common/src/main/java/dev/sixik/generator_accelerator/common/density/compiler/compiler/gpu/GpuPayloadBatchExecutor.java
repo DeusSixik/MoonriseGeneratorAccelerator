@@ -279,10 +279,6 @@ public final class GpuPayloadBatchExecutor {
             RouterPipeline.recordGpuPayloadBatchRuntimeBackoffSkip();
             return false;
         }
-        if (!claimRuntimeBatch()) {
-            RouterPipeline.recordGpuPayloadBatchRuntimeGate("budget");
-            return false;
-        }
         PreflightResult result = ensurePreflightPassed();
         if (!result.passed()) {
             RouterPipeline.recordGpuPayloadBatchRuntimeGate("preflight_failed");
@@ -865,6 +861,10 @@ public final class GpuPayloadBatchExecutor {
             if (runtimeMicroBatchEnabled(output.length)) {
                 return tryComputeGpuRuntimeMicroBatch(payload, blockX, blockY, blockZ, externValues, output, scratch);
             }
+            if (!claimRuntimeBatch()) {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("budget");
+                return GpuAttempt.skipped("gpu runtime budget");
+            }
             return tryComputeGpu(payload, blockX, blockY, blockZ, externValues, output, scratch);
         } catch (InvocationTargetException exception) {
             Throwable cause = exception.getCause() == null ? exception : exception.getCause();
@@ -932,6 +932,10 @@ public final class GpuPayloadBatchExecutor {
                     output
             };
 
+            if (!claimRuntimeBatch()) {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("budget");
+                return GpuAttempt.skipped("gpu runtime budget");
+            }
             PreparedInvocationResult invocation = invokeGpuRuntimeMultiPayload(output.length, kernelArgs);
             if (!invocation.invoked()) {
                 return GpuAttempt.skipped(invocation.failureReason());
@@ -1015,6 +1019,11 @@ public final class GpuPayloadBatchExecutor {
                 completeSkipped(requests, requests.size() == 1
                         ? "gpu microbatch single"
                         : "gpu microbatch below min points");
+                return own.result();
+            }
+            if (!claimRuntimeBatch()) {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("budget");
+                completeSkipped(requests, "gpu runtime budget");
                 return own.result();
             }
             recordRuntimeMicroBatchLaunch(requests.size());

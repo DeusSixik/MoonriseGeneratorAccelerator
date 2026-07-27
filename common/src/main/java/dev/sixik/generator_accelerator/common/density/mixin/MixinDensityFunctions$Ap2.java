@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.density.mixin;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellZeroCheck;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcZeroCellFillAccess;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -28,6 +29,8 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
     private boolean ga$leftCellFillZero;
     @Unique
     private boolean ga$rightCellFillZero;
+    @Unique
+    private DfcCellZeroCheck ga$rightCellZeroCheck;
 
     @Shadow
     public abstract DensityFunctions.TwoArgumentSimpleFunction.Type type();
@@ -57,10 +60,17 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
         }
         final boolean cellFillStats = DfcCellFillStats.ENABLED;
         final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
+        if (!cellFillStats && !timingStages) {
+            this.ga$fillCellFast(out, chunk);
+            return;
+        }
         if (this.ga$leftCellFillZero) {
-            if (this.ga$rightCellFillZero) {
+            if (this.ga$rightCellFillZero || this.ga$isRightCellZero(chunk)) {
                 Arrays.fill(out, 0.0D);
                 ga$finishCellState(chunk, out.length);
+                if (timingStages) {
+                    NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
+                }
                 return;
             }
             if (cellFillStats) {
@@ -81,7 +91,7 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
         if (timingStages) {
             NoiseChunkTimingStats.recordAp2Primary(primaryStart);
         }
-        if (this.ga$rightCellFillZero) {
+        if (this.ga$rightCellFillZero || this.ga$isRightCellZero(chunk)) {
             if (timingStages) {
                 NoiseChunkTimingStats.recordAp2ZeroSecondarySkip();
             }
@@ -108,6 +118,10 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
         }
         final boolean cellFillStats = DfcCellFillStats.ENABLED;
         final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
+        if (!cellFillStats && !timingStages) {
+            this.ga$accumulateCellFast(out, chunk);
+            return;
+        }
         if (!this.ga$leftCellFillZero) {
             if (cellFillStats) {
                 DfcCellFillStats.recordCellFill(this.ga$leftCellFill, this.argument1());
@@ -118,7 +132,7 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
                 NoiseChunkTimingStats.recordAp2Primary(primaryStart);
             }
         }
-        if (!this.ga$rightCellFillZero) {
+        if (!this.ga$rightCellFillZero && !this.ga$isRightCellZero(chunk)) {
             if (cellFillStats) {
                 DfcCellFillStats.recordCellFill(this.ga$rightCellFill, this.argument2());
             }
@@ -147,10 +161,43 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
                 this.ga$rightCellFill = right;
                 this.ga$leftCellFillZero = left instanceof DfcZeroCellFillAccess;
                 this.ga$rightCellFillZero = right instanceof DfcZeroCellFillAccess;
+                this.ga$rightCellZeroCheck = right instanceof DfcCellZeroCheck check ? check : null;
                 this.ga$hasFastCellFillPath = true;
             }
         }
         this.ga$cellFillPathResolved = true;
+    }
+
+    @Unique
+    private boolean ga$isRightCellZero(NoiseChunk chunk) {
+        return this.ga$rightCellZeroCheck != null && this.ga$rightCellZeroCheck.dfc$isCellZero(chunk);
+    }
+
+    @Unique
+    private void ga$fillCellFast(double[] out, NoiseChunk chunk) {
+        if (this.ga$leftCellFillZero) {
+            if (this.ga$rightCellFillZero || this.ga$isRightCellZero(chunk)) {
+                Arrays.fill(out, 0.0D);
+                ga$finishCellState(chunk, out.length);
+                return;
+            }
+            this.ga$rightCellFill.dfc$fillCell(out, chunk);
+            return;
+        }
+        this.ga$leftCellFill.dfc$fillCell(out, chunk);
+        if (!this.ga$rightCellFillZero && !this.ga$isRightCellZero(chunk)) {
+            this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
+        }
+    }
+
+    @Unique
+    private void ga$accumulateCellFast(double[] out, NoiseChunk chunk) {
+        if (!this.ga$leftCellFillZero) {
+            this.ga$leftCellFill.dfc$accumulateCell(out, chunk);
+        }
+        if (!this.ga$rightCellFillZero && !this.ga$isRightCellZero(chunk)) {
+            this.ga$rightCellFill.dfc$accumulateCell(out, chunk);
+        }
     }
 
     @Unique

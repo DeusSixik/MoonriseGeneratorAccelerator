@@ -1314,6 +1314,21 @@ public final class Codegen {
         return out.isEmpty() ? "none" : out.toString();
     }
 
+    private static int[] scalarMarkerIndexes(IRNode root) {
+        TreeSet<Integer> indexes = new TreeSet<>();
+        IrTreeSupport.visitUnique(root, node -> {
+            if (node instanceof IRNode.Marker marker) {
+                indexes.add(marker.externIndex());
+            }
+        });
+        int[] out = new int[indexes.size()];
+        int i = 0;
+        for (int index : indexes) {
+            out[i++] = index;
+        }
+        return out;
+    }
+
     private static void emitScalarMarkerCellFillOverride(ClassWriter cw, String classInternalName,
                                                          IRNode root, HelperRegistry helpers) {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
@@ -1371,10 +1386,11 @@ public final class Codegen {
     private static void emitScalarMarkerInterpolatorCellFillLoop(MethodVisitor mv, String classInternalName,
                                                                  IRNode root, HelperRegistry helpers,
                                                                  boolean accumulate, int soaLocal) {
+        int[] markerIndexes = scalarMarkerIndexes(root);
         // Locals: 0=this, 1=out, 2=chunk, 3=idx, 4=cellW, 5=cellH,
         // 6=inCellY, 7=inCellX, 8=inCellZ, 9=SoA path,
         // 10/12=inverse cell W/H, 14/16/18=delta X/Y/Z,
-        // 20=SoA staged value array.
+        // 20+ = SoA staged/noise arrays used by subset marker interpolation.
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 3);
 
@@ -1395,10 +1411,38 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DSTORE, 12);
 
         final int directInterpolatorValueArraySlot = 20;
-        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
-        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
-                "bts$getValueArray", INTERPOLATOR_NOISE_ARRAY_DESC, true);
-        mv.visitVarInsn(Opcodes.ASTORE, directInterpolatorValueArraySlot);
+        int arraySlot = directInterpolatorValueArraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueArray", arraySlot);
+        int valueXZ00Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueXZ00Array", arraySlot);
+        int valueXZ10Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueXZ10Array", arraySlot);
+        int valueXZ01Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueXZ01Array", arraySlot);
+        int valueXZ11Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueXZ11Array", arraySlot);
+        int valueZ0Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueZ0Array", arraySlot);
+        int valueZ1Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getValueZ1Array", arraySlot);
+        int noise000Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise000Array", arraySlot);
+        int noise100Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise100Array", arraySlot);
+        int noise010Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise010Array", arraySlot);
+        int noise110Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise110Array", arraySlot);
+        int noise001Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise001Array", arraySlot);
+        int noise101Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise101Array", arraySlot);
+        int noise011Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise011Array", arraySlot);
+        int noise111Slot = arraySlot;
+        arraySlot = emitSoAArrayLocal(mv, soaLocal, "bts$getNoise111Array", arraySlot);
+        int lerpLowTempSlot = arraySlot;
+        arraySlot += 2;
 
         mv.visitVarInsn(Opcodes.ILOAD, 5);
         mv.visitInsn(Opcodes.ICONST_1);
@@ -1414,10 +1458,10 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 12);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 16);
-        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
-        mv.visitVarInsn(Opcodes.DLOAD, 16);
-        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
-                "bts$updateFillingY", INTERPOLATOR_UPDATE_DELTA_DESC, true);
+        emitScalarMarkerUpdateYSubset(mv, markerIndexes, 16, lerpLowTempSlot,
+                noise000Slot, noise100Slot, noise001Slot, noise101Slot,
+                noise010Slot, noise110Slot, noise011Slot, noise111Slot,
+                valueXZ00Slot, valueXZ10Slot, valueXZ01Slot, valueXZ11Slot);
 
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 7);
@@ -1432,10 +1476,9 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 10);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 14);
-        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
-        mv.visitVarInsn(Opcodes.DLOAD, 14);
-        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
-                "bts$updateFillingX", INTERPOLATOR_UPDATE_DELTA_DESC, true);
+        emitScalarMarkerUpdateXSubset(mv, markerIndexes, 14, lerpLowTempSlot,
+                valueXZ00Slot, valueXZ10Slot, valueXZ01Slot, valueXZ11Slot,
+                valueZ0Slot, valueZ1Slot);
 
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 8);
@@ -1450,10 +1493,8 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 10);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 18);
-        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
-        mv.visitVarInsn(Opcodes.DLOAD, 18);
-        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
-                "bts$updateFillingZ", INTERPOLATOR_UPDATE_DELTA_DESC, true);
+        emitScalarMarkerUpdateZSubset(mv, markerIndexes, 18, lerpLowTempSlot,
+                valueZ0Slot, valueZ1Slot, directInterpolatorValueArraySlot);
 
         if (accumulate) {
             mv.visitVarInsn(Opcodes.ALOAD, 1);
@@ -1468,7 +1509,7 @@ public final class Codegen {
         EmitState st = new EmitState(mv, classInternalName, helpers, false,
                 CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18,
                 directInterpolatorValueArraySlot);
-        st.reserveLocalsFrom(21);
+        st.reserveLocalsFrom(arraySlot);
         st.emit(root);
         if (accumulate) {
             mv.visitInsn(Opcodes.DADD);
@@ -1508,6 +1549,76 @@ public final class Codegen {
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitInsn(Opcodes.ISUB);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
+    }
+
+    private static int emitSoAArrayLocal(MethodVisitor mv, int soaLocal, String methodName, int local) {
+        mv.visitVarInsn(Opcodes.ALOAD, soaLocal);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, INTERPOLATOR_SOA_PATH_INTERNAL,
+                methodName, INTERPOLATOR_NOISE_ARRAY_DESC, true);
+        mv.visitVarInsn(Opcodes.ASTORE, local);
+        return local + 1;
+    }
+
+    private static void emitScalarMarkerUpdateYSubset(MethodVisitor mv, int[] markerIndexes,
+                                                      int deltaYSlot, int lowTempSlot,
+                                                      int noise000Slot, int noise100Slot,
+                                                      int noise001Slot, int noise101Slot,
+                                                      int noise010Slot, int noise110Slot,
+                                                      int noise011Slot, int noise111Slot,
+                                                      int valueXZ00Slot, int valueXZ10Slot,
+                                                      int valueXZ01Slot, int valueXZ11Slot) {
+        for (int markerIndex : markerIndexes) {
+            emitLerpArrayStore(mv, valueXZ00Slot, markerIndex, noise000Slot, noise010Slot, deltaYSlot, lowTempSlot);
+            emitLerpArrayStore(mv, valueXZ10Slot, markerIndex, noise100Slot, noise110Slot, deltaYSlot, lowTempSlot);
+            emitLerpArrayStore(mv, valueXZ01Slot, markerIndex, noise001Slot, noise011Slot, deltaYSlot, lowTempSlot);
+            emitLerpArrayStore(mv, valueXZ11Slot, markerIndex, noise101Slot, noise111Slot, deltaYSlot, lowTempSlot);
+        }
+    }
+
+    private static void emitScalarMarkerUpdateXSubset(MethodVisitor mv, int[] markerIndexes,
+                                                      int deltaXSlot, int lowTempSlot,
+                                                      int valueXZ00Slot, int valueXZ10Slot,
+                                                      int valueXZ01Slot, int valueXZ11Slot,
+                                                      int valueZ0Slot, int valueZ1Slot) {
+        for (int markerIndex : markerIndexes) {
+            emitLerpArrayStore(mv, valueZ0Slot, markerIndex, valueXZ00Slot, valueXZ10Slot, deltaXSlot, lowTempSlot);
+            emitLerpArrayStore(mv, valueZ1Slot, markerIndex, valueXZ01Slot, valueXZ11Slot, deltaXSlot, lowTempSlot);
+        }
+    }
+
+    private static void emitScalarMarkerUpdateZSubset(MethodVisitor mv, int[] markerIndexes,
+                                                      int deltaZSlot, int lowTempSlot,
+                                                      int valueZ0Slot, int valueZ1Slot,
+                                                      int valueSlot) {
+        for (int markerIndex : markerIndexes) {
+            emitLerpArrayStore(mv, valueSlot, markerIndex, valueZ0Slot, valueZ1Slot, deltaZSlot, lowTempSlot);
+        }
+    }
+
+    private static void emitLerpArrayStore(MethodVisitor mv, int dstSlot, int index,
+                                           int lowSlot, int highSlot, int deltaSlot, int lowTempSlot) {
+        mv.visitVarInsn(Opcodes.ALOAD, dstSlot);
+        ldcIntStatic(mv, index);
+        emitLerpValue(mv, index, lowSlot, highSlot, deltaSlot, lowTempSlot);
+        mv.visitInsn(Opcodes.DASTORE);
+    }
+
+    private static void emitLerpValue(MethodVisitor mv, int index,
+                                      int lowSlot, int highSlot, int deltaSlot, int lowTempSlot) {
+        mv.visitVarInsn(Opcodes.ALOAD, lowSlot);
+        ldcIntStatic(mv, index);
+        mv.visitInsn(Opcodes.DALOAD);
+        mv.visitVarInsn(Opcodes.DSTORE, lowTempSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, lowTempSlot);
+        mv.visitVarInsn(Opcodes.DLOAD, deltaSlot);
+        mv.visitVarInsn(Opcodes.ALOAD, highSlot);
+        ldcIntStatic(mv, index);
+        mv.visitInsn(Opcodes.DALOAD);
+        mv.visitVarInsn(Opcodes.DLOAD, lowTempSlot);
+        mv.visitInsn(Opcodes.DSUB);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitInsn(Opcodes.DADD);
     }
 
     private static boolean emitCellFillAddScalarOverrideIfPossible(ClassWriter cw, String classInternalName,

@@ -422,10 +422,40 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         final double[][] valuesArray = this.bts$cellCacheValues;
         long cacheFillTimingStart = NoiseChunkTimingStats.startSelectCellYzCacheFill(timingStart);
         final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
-        final boolean timingStats = NoiseChunkTimingStats.ENABLED;
-        final boolean reportFastClasses = timingStats && !this.bts$cellCacheFastClassReportComplete;
         final boolean cellFillStats = DfcCellFillStats.ENABLED;
         final boolean parityEnabled = DfcCellFillParity.ENABLED;
+        if (!timingStages && !cellFillStats && !parityEnabled) {
+            for (int i = 0; i < fillers.length; i++) {
+                final DensityFunction filler = fillers[i];
+                DfcCellFillAccess fast = fastFillers[i];
+
+                if (fast == null
+                        && !this.bts$cellCacheRejectedFastFillers[i]
+                        && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
+                    fast = access.dfc$getOrCompileCellFiller();
+                    if (fast != null) {
+                        fastFillers[i] = fast;
+                        lazyFastFillers[i] = true;
+                    } else {
+                        this.bts$cellCacheRejectedFastFillers[i] = true;
+                    }
+                }
+
+                final double[] values = valuesArray[i];
+                if (fast != null) {
+                    fast.dfc$fillCell(values, self);
+                } else {
+                    filler.fillArray(values, self);
+                }
+            }
+
+            ++this.arrayInterpolationCounter;
+            this.fillingCell = false;
+            NoiseChunkTimingStats.finishSelectCellYz(timingStart, cacheFillTimingStart);
+            return;
+        }
+        final boolean timingStats = NoiseChunkTimingStats.ENABLED;
+        final boolean reportFastClasses = timingStages && !this.bts$cellCacheFastClassReportComplete;
         for (int i = 0; i < fillers.length; i++) {
             final DensityFunction filler = fillers[i];
             DfcCellFillAccess fast = fastFillers[i];
@@ -498,13 +528,6 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
         this.bts$cellCacheFastClassReported[index] = true;
         NoiseChunkTimingStats.recordFastFillerClass(filler);
-        if (filler instanceof DensityFunctions.TwoArgumentSimpleFunction tas) {
-            NoiseChunkTimingStats.recordFastFillerDetail(
-                    "TwoArg." + tas.type()
-                            + "(left=" + bts$fastPathDebug(tas.argument1())
-                            + ",right=" + bts$fastPathDebug(tas.argument2())
-                            + ")");
-        }
     }
 
     @Unique
@@ -514,19 +537,6 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
         this.bts$cellCacheFallbackClassReported[index] = true;
         NoiseChunkTimingStats.recordFallbackFillerClass(filler);
-        if (filler instanceof DensityFunctions.TwoArgumentSimpleFunction tas) {
-            NoiseChunkTimingStats.recordFallbackFillerDetail(
-                    "TwoArg." + tas.type()
-                            + "(left=" + bts$fastPathDebug(tas.argument1())
-                            + ",right=" + bts$fastPathDebug(tas.argument2())
-                            + ")");
-        }
-    }
-
-    @Unique
-    private static String bts$fastPathDebug(DensityFunction function) {
-        boolean fast = DfcCellFillFastPath.asFastPath(function) != null;
-        return (fast ? "fast:" : "slow:") + function.getClass().getName();
     }
 
     /**
@@ -718,6 +728,36 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     @Override
     public double[] bts$getValueArray() {
         return this.bts$value;
+    }
+
+    @Override
+    public double[] bts$getValueXZ00Array() {
+        return this.bts$valueXZ00;
+    }
+
+    @Override
+    public double[] bts$getValueXZ10Array() {
+        return this.bts$valueXZ10;
+    }
+
+    @Override
+    public double[] bts$getValueXZ01Array() {
+        return this.bts$valueXZ01;
+    }
+
+    @Override
+    public double[] bts$getValueXZ11Array() {
+        return this.bts$valueXZ11;
+    }
+
+    @Override
+    public double[] bts$getValueZ0Array() {
+        return this.bts$valueZ0;
+    }
+
+    @Override
+    public double[] bts$getValueZ1Array() {
+        return this.bts$valueZ1;
     }
 
     @Override

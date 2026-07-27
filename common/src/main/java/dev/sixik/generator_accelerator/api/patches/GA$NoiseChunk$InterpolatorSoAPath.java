@@ -22,6 +22,18 @@ public interface GA$NoiseChunk$InterpolatorSoAPath {
 
     double[] bts$getValueArray();
 
+    double[] bts$getValueXZ00Array();
+
+    double[] bts$getValueXZ10Array();
+
+    double[] bts$getValueXZ01Array();
+
+    double[] bts$getValueXZ11Array();
+
+    double[] bts$getValueZ0Array();
+
+    double[] bts$getValueZ1Array();
+
     double[] bts$getNoise000Array();
 
     double[] bts$getNoise100Array();

@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.sixik.generator_accelerator.common.beardifier.*;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellZeroCheck;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.Beardifier;
@@ -18,7 +19,7 @@ import org.spongepowered.asm.mixin.*;
 import java.util.Arrays;
 
 @Mixin(Beardifier.class)
-public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker, DfcCellFillAccess {
+public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMarker, DfcCellFillAccess, DfcCellZeroCheck {
 
     @Shadow
     @Final
@@ -533,13 +534,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         if (this.ga$isCachedOutsideCell(chunk, cellW, cellH)) {
             return this.ga$cachedOutsideCellResult;
         }
-        boolean result = !this.ga$hasInfluence
-                || chunk.cellStartBlockX > this.ga$influenceMaxX
-                || chunk.cellStartBlockX + cellW - 1 < this.ga$influenceMinX
-                || chunk.cellStartBlockY > this.ga$influenceMaxY
-                || chunk.cellStartBlockY + cellH - 1 < this.ga$influenceMinY
-                || chunk.cellStartBlockZ > this.ga$influenceMaxZ
-                || chunk.cellStartBlockZ + cellW - 1 < this.ga$influenceMinZ;
+        boolean result = this.ga$cellOutsideInfluenceBounds(chunk, cellW, cellH);
         this.ga$cachedOutsideCellChunk = chunk;
         this.ga$cachedOutsideCellStartX = chunk.cellStartBlockX;
         this.ga$cachedOutsideCellStartY = chunk.cellStartBlockY;
@@ -549,6 +544,31 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         this.ga$cachedOutsideCellResult = result;
         this.ga$cachedOutsideCellBulkStats = false;
         return result;
+    }
+
+    @Unique
+    private boolean ga$cellOutsideInfluenceBounds(NoiseChunk chunk, int cellW, int cellH) {
+        return !this.ga$hasInfluence
+                || chunk.cellStartBlockX > this.ga$influenceMaxX
+                || chunk.cellStartBlockX + cellW - 1 < this.ga$influenceMinX
+                || chunk.cellStartBlockY > this.ga$influenceMaxY
+                || chunk.cellStartBlockY + cellH - 1 < this.ga$influenceMinY
+                || chunk.cellStartBlockZ > this.ga$influenceMaxZ
+                || chunk.cellStartBlockZ + cellW - 1 < this.ga$influenceMinZ;
+    }
+
+    @Unique
+    private boolean ga$cellOutsideInfluenceFast(NoiseChunk chunk, int cellW, int cellH) {
+        if (!this.ga$hasInfluence) {
+            return true;
+        }
+        return this.ga$cellOutsideInfluence(chunk, cellW, cellH);
+    }
+
+    @Override
+    public boolean dfc$isCellZero(NoiseChunk chunk) {
+        this.ga$ensureArraysReady();
+        return this.ga$cellOutsideInfluenceBounds(chunk, chunk.cellWidth, chunk.cellHeight);
     }
 
     @Unique
@@ -898,7 +918,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         }
         long sampledStart = BeardifierStats.sampleComputeCellStart();
         this.ga$ensureArraysReady();
-        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+        if (this.ga$cellOutsideInfluenceFast(chunk, cellW, cellH)) {
             this.ga$recordOutsideCellReturn(chunk, ga$cellValueCount(cellW, cellH));
             return ga$finishSampledCompute(0.0D, sampledStart);
         }
@@ -1008,7 +1028,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
         int cellValues = ga$cellValueCount(cellW, cellH);
-        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+        if (this.ga$cellOutsideInfluenceFast(chunk, cellW, cellH)) {
             if (statsEnabled) {
                 this.ga$recordOutsideCellReturn(chunk, cellValues);
             }
@@ -1172,7 +1192,7 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
         int cellValues = ga$cellValueCount(cellW, cellH);
-        if (this.ga$cellOutsideInfluence(chunk, cellW, cellH)) {
+        if (this.ga$cellOutsideInfluenceFast(chunk, cellW, cellH)) {
             if (statsEnabled) {
                 this.ga$recordOutsideCellReturn(chunk, cellValues);
             }
