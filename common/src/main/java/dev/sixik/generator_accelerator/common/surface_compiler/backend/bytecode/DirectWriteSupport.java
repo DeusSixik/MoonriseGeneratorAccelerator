@@ -26,6 +26,18 @@ public final class DirectWriteSupport {
     private DirectWriteSupport() {
     }
 
+    public static int[] rawBlockDataForSurface(LevelChunkSection$FlatBlockArray section) {
+        int[] rawBlockData = section.bts$getRawBlockData();
+        if (rawBlockData == null) {
+            section.bts$unpackForGeneration();
+            rawBlockData = section.bts$getRawBlockData();
+            if (rawBlockData == null) {
+                throw new IllegalStateException("Surface section raw block data unavailable after unpack");
+            }
+        }
+        return rawBlockData;
+    }
+
     public static boolean fillChunkDirect(SurfaceExecutionContext context, BlockState state) {
         if (context == null || context.chunk() == null || context.surfaceSystem() == null || state == null || DEFAULT_BLOCK == null) {
             return false;
@@ -73,8 +85,8 @@ public final class DirectWriteSupport {
             if (section == null) {
                 return false;
             }
-            if (section instanceof LevelChunkSection$FlatBlockArray flatBlockArray && flatBlockArray.bts$getRawBlockData() == null) {
-                return false;
+            if (section instanceof LevelChunkSection$FlatBlockArray flatBlockArray) {
+                rawBlockDataForSurface(flatBlockArray);
             }
         }
         return true;
@@ -83,7 +95,7 @@ public final class DirectWriteSupport {
     private static void writeRawSection(LevelChunkSection$FlatBlockArray section, ChunkAccess chunk, BlockState state, int stateId, int defaultStateId,
                                         int minBuildY, int chunkMinX, int chunkMinZ, int sectionIndex, int[] topYByColumn,
                                         boolean updateHeightmaps, boolean markPostprocessing, boolean mirrorWorkspace, Scratch scratch) {
-        int[] raw = section.bts$getRawBlockData();
+        int[] raw = rawBlockDataForSurface(section);
         int[] copy = scratch.copy;
         int[] changedIndices = scratch.changedIndices;
         int changedCount = 0;

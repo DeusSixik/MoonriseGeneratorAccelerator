@@ -279,7 +279,8 @@ public final class IRBuilder {
         return type == DensityFunctions.Marker.Type.Cache2D
                 || type == DensityFunctions.Marker.Type.FlatCache
                 || type == DensityFunctions.Marker.Type.CacheOnce
-                || type == DensityFunctions.Marker.Type.CacheAllInCell;
+                || type == DensityFunctions.Marker.Type.CacheAllInCell
+                || type == DensityFunctions.Marker.Type.Interpolated;
     }
 
     private static IRNode canonicalizeCommutativeBin(IRNode node) {

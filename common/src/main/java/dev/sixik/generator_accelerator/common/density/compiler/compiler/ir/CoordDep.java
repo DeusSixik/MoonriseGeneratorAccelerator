@@ -1,8 +1,5 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
-import net.sixik.javastructg.structs.maps.Object2NativeMap;
-import net.sixik.javastructg.utils.NativeUtils;
-
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -68,7 +65,7 @@ public final class CoordDep {
 
         @Override
         public int hashCode() {
-            return NativeUtils.mix(
+            return Integer.hashCode(
                     (usesX ? 1 : 0) |
                             ((usesY ? 1 : 0) << 1) |
                             ((usesZ ? 1 : 0) << 2)

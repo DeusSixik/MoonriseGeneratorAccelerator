@@ -7,7 +7,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
 import net.minecraft.world.level.levelgen.feature.treedecorators.AttachedToLeavesDecorator;
 import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecorator;
-import net.sixik.javastructg.structs.sets.NativeLongSet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.spongepowered.asm.mixin.*;
 
 import java.util.HashSet;
@@ -48,12 +48,12 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
             ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Unique
-    private static final ThreadLocal<NativeLongSet> BTS$EXCLUSION_SET =
-            ThreadLocal.withInitial(() -> new NativeLongSet(256));
+    private static final ThreadLocal<LongOpenHashSet> BTS$EXCLUSION_SET =
+            ThreadLocal.withInitial(() -> new LongOpenHashSet(256));
 
     /**
      * @author Sixik
-     * @reason Replaced {@link HashSet} with {@link NativeLongSet}, removed shuffledCopy, replaced betweenClosed with nested int loops.
+     * @reason Replaced {@link HashSet} with a primitive long set, removed shuffledCopy, replaced betweenClosed with nested int loops.
      */
     @Overwrite
     public void place(TreeDecorator.Context context) {
@@ -61,7 +61,7 @@ public abstract class MixinAttachedToLeavesDecorator extends TreeDecorator {
         if (leaves.isEmpty()) return;
 
         final RandomSource randomSource = context.random();
-        final NativeLongSet exclusionSet = BTS$EXCLUSION_SET.get();
+        final LongOpenHashSet exclusionSet = BTS$EXCLUSION_SET.get();
         exclusionSet.clear();
         final BlockPos.MutableBlockPos mutPos = BTS$MUTABLE_POS.get();
         try (NativeBlockPosBuffer shuffledLeaves = new NativeBlockPosBuffer(leaves.size())) {

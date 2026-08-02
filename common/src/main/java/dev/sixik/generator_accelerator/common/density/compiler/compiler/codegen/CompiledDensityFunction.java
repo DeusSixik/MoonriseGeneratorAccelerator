@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import net.minecraft.util.KeyDispatchDataCodec;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -182,6 +183,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
     }
 
     @Override
+    public abstract double compute(DensityFunction.FunctionContext context);
+
+    @Override
     public final double minValue() {
         return this.minValue;
     }
@@ -205,16 +209,47 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      */
     @Override
     public void fillArray(double[] out, DensityFunction.ContextProvider provider) {
-        provider.fillAllDirectly(out, this);
+        if (!DfcRuntimeTelemetry.enabled()) {
+            provider.fillAllDirectly(out, this);
+            return;
+        }
+        long startedAt = DfcRuntimeTelemetry.sampleStart();
+        try {
+            provider.fillAllDirectly(out, this);
+        } finally {
+            DfcRuntimeTelemetry.recordFillArray(this.getClass(), startedAt);
+        }
     }
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
-        fillArray(out, chunk);
+        if (!DfcRuntimeTelemetry.enabled()) {
+            fillArray(out, chunk);
+            return;
+        }
+        long startedAt = DfcRuntimeTelemetry.sampleStart();
+        try {
+            fillArray(out, chunk);
+        } finally {
+            DfcRuntimeTelemetry.recordFillCell(this.getClass(), startedAt);
+        }
     }
 
     @Override
     public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        if (!DfcRuntimeTelemetry.enabled()) {
+            dfc$accumulateCellDirect(out, chunk);
+            return;
+        }
+        long startedAt = DfcRuntimeTelemetry.sampleStart();
+        try {
+            dfc$accumulateCellDirect(out, chunk);
+        } finally {
+            DfcRuntimeTelemetry.recordAccumulateCell(this.getClass(), startedAt);
+        }
+    }
+
+    private void dfc$accumulateCellDirect(double[] out, NoiseChunk chunk) {
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
         int idx = 0;

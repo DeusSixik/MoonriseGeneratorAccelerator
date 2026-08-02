@@ -9,6 +9,13 @@
 - Quick SurfaceProgram apply without column/interval `./gradlew :common:surfaceApplyQuickBenchmark -PsurfaceColumnInterval=false`
 - Quick Surface benchmarks without DAG optimizer `./gradlew :common:surfaceQuickBenchmark -PsurfaceDag=false`
 
+## Benchmark Diagnostics
+
+- Server benchmark tasks write normalized diagnostics JSON to `benchmark-dumps` by default; disable with `-PbenchmarkDiagnostics=false`.
+- Override the output folder with `-PbenchmarkDumpDir=benchmark-dumps/my-run`; avoid spaces because loader JVM args are whitespace-split.
+- Key fields: `extra.benchmark.chunksPerSecond`, `extra.benchmark.msPerChunk`, `extra.benchmark.runtime.allocation.allocatedBytesPerChunk`, `extra.benchmark.runtime.gc.collectionTimeMsPerChunk`, `extra.benchmark.runtime.memory.metaspaceUsedBytesDeltaPerChunk`, and `artifacts.parity`.
+- Use `-PbenchmarkAllocationCounters=false` for the lowest-overhead run; JFR allocation artifacts still require `-Dga.diagnostics.jfr=true` / `-Dga.diagnostics.jfr.allocations=true`.
+
 ## Decoration Pipeline Benchmarks
 
 - Quick fair comparison, metrics off `./gradlew runDecorationPipelineQuickBenchmarks -PbenchRuns=1`

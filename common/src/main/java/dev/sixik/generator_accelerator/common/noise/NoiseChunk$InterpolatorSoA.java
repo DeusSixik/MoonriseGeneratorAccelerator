@@ -8,4 +8,6 @@ public interface NoiseChunk$InterpolatorSoA {
     double bts$getInterpolatorValue(int index);
 
     double bts$getInterpolatorFillingValue(int index);
+
+    double bts$getInterpolatorCurrentValue(int index);
 }

@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator_benchmark.mixin;
 
 import com.mojang.authlib.GameProfile;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
 import dev.sixik.generator_accelerator.diagnostics.GADiagnostics;
@@ -176,7 +177,7 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         if(!benchmarkFinished && isProfilerStart && (tickCounter >= stopTick || (maxBatches >= 0 && this.generatedBatches >= maxBatches))) {
             if (useSpark) {
                 var commandSource = server.createCommandSourceStack().withPermission(4);
-                server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMANd);
+                server.getCommands().performPrefixedCommand(commandSource, MainBenchmark.STOP_COMMAND);
             }
             long elapsedMs = (System.nanoTime() - this.benchmarkStartNanos) / 1_000_000L;
             MainBenchmark.log("Benchmark wall time ms: " + elapsedMs);
@@ -189,6 +190,9 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
             }
             if (DecorationPipelineMetrics.ENABLED) {
                 MainBenchmark.log(DecorationPipelineMetrics.summary());
+            }
+            if (DfcRuntimeTelemetry.enabled()) {
+                MainBenchmark.log(DfcRuntimeTelemetry.summary());
             }
             Path diagnosticsPath = GADiagnostics.writeBenchmarkDump(
                     "benchmark-finished",
@@ -393,6 +397,8 @@ public abstract class MinecraftServerMixin extends ReentrantBlockableEventLoop<T
         benchmark.put("uniqueChunks", this.ga$uniqueChunkRequests.size());
         benchmark.put("requestedChunksPerSecond", this.ga$chunkRequests / (Math.max(elapsedMs, 1L) / 1000.0D));
         benchmark.put("uniqueChunksPerSecond", this.ga$uniqueChunkRequests.size() / (Math.max(elapsedMs, 1L) / 1000.0D));
+        benchmark.put("dfcTelemetry", DfcRuntimeTelemetry.snapshot());
+        benchmark.put("dfcTelemetrySummary", DfcRuntimeTelemetry.summary());
         benchmark.put("tickCounter", this.tickCounter);
         return benchmark;
     }

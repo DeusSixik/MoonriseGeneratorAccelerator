@@ -481,8 +481,7 @@ public final class GAChunkBlockIo {
     }
 
     private static int[] copyWorkspaceSection(GAChunkWorkspace workspace, int sectionIndex) {
-        int[] source = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
-        Arrays.fill(source, airId());
+        int[] source = workspace.sectionBlockScratch(airId());
 
         int[] blockIds = workspace.blockIds();
         if (!workspace.blockBufferEnabled() || blockIds == null) {

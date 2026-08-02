@@ -147,9 +147,12 @@ public abstract class MixinChunkGenerator$optimize_creating_structure {
                 return;
             }
 
-            // Удаление за O(1): ставим последний элемент на место выбранного
+            // Preserve vanilla ArrayList.remove(index) ordering for subsequent weighted rolls.
             totalWeight -= entries.get(pickedEntryIdx).weight();
-            indices[pickedIdxInArray] = indices[remaining - 1];
+            int shifted = remaining - pickedIdxInArray - 1;
+            if (shifted > 0) {
+                System.arraycopy(indices, pickedIdxInArray + 1, indices, pickedIdxInArray, shifted);
+            }
             remaining--;
         }
     }

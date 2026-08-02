@@ -22,11 +22,7 @@ public class MixinBiomeManager$optimize_biome_getter {
     private static final long LCG_ADD = 1442695040888963407L;
 
     @Unique
-    private static volatile boolean ga$hasObfuscatedSeed;
-    @Unique
-    private static volatile long ga$lastSeed;
-    @Unique
-    private static volatile long ga$lastObfuscatedSeed;
+    private static volatile long[] ga$obfuscatedSeedCache;
 
     /**
      * @author Sixik
@@ -35,14 +31,13 @@ public class MixinBiomeManager$optimize_biome_getter {
      */
     @Overwrite
     public static long obfuscateSeed(long seed) {
-        if (ga$hasObfuscatedSeed && ga$lastSeed == seed) {
-            return ga$lastObfuscatedSeed;
+        long[] cached = ga$obfuscatedSeedCache;
+        if (cached != null && cached[0] == seed) {
+            return cached[1];
         }
 
         long obfuscated = Hashing.sha256().hashLong(seed).asLong();
-        ga$lastSeed = seed;
-        ga$lastObfuscatedSeed = obfuscated;
-        ga$hasObfuscatedSeed = true;
+        ga$obfuscatedSeedCache = new long[] {seed, obfuscated};
         return obfuscated;
     }
 
@@ -66,9 +61,9 @@ public class MixinBiomeManager$optimize_biome_getter {
         /*
             Pre-calculate fractions
          */
-        final double fracX = (double) (x & 3) / 4.0D;
-        final double fracY = (double) (y & 3) / 4.0D;
-        final double fracZ = (double) (z & 3) / 4.0D;
+        final double fracX = (double) (x & 3) * 0.25D;
+        final double fracY = (double) (y & 3) * 0.25D;
+        final double fracZ = (double) (z & 3) * 0.25D;
 
         int bestCornerIndex = 0;
         double minDistance = Double.POSITIVE_INFINITY;
@@ -141,7 +136,7 @@ public class MixinBiomeManager$optimize_biome_getter {
      */
     @Unique
     private static double bts$getFiddle(long l) {
-        double d = (double) ((int) (l >> 24) & 1023) / 1024.0D;
+        double d = (double) ((int) (l >> 24) & 1023) * 0.0009765625D;
         return (d - 0.5D) * 0.9D;
     }
 

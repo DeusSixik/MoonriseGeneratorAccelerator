@@ -4,26 +4,32 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
 }
 
-def configureBenchmarkServerPropertiesIn = { File runDir, String seedValue ->
-    if (seedValue == null || seedValue.isBlank()) {
-        return
-    }
-
+def configureBenchmarkServerPropertiesIn = { File runDir, String seedValue, String serverPortValue = null ->
     runDir.mkdirs()
     def propsFile = new File(runDir, "server.properties")
     def lines = propsFile.exists() ? propsFile.readLines("ISO-8859-1") : []
-    def updated = false
 
-    for (int i = 0; i < lines.size(); i++) {
-        if (lines[i].startsWith("level-seed=")) {
-            lines[i] = "level-seed=${seedValue}"
-            updated = true
-            break
+    def upsertProp = { String key, String value ->
+        if (value == null || value.isBlank()) {
+            return
+        }
+        def updated = false
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines[i].startsWith("${key}=")) {
+                lines[i] = "${key}=${value}"
+                updated = true
+                break
+            }
+        }
+        if (!updated) {
+            lines.add("${key}=${value}")
         }
     }
 
-    if (!updated) {
-        lines.add("level-seed=${seedValue}")
+    upsertProp("level-seed", seedValue)
+    if (serverPortValue != null && !serverPortValue.isBlank()) {
+        upsertProp("server-port", serverPortValue)
+        upsertProp("query.port", serverPortValue)
     }
 
     propsFile.setText(lines.join(System.lineSeparator()) + System.lineSeparator(), "ISO-8859-1")
@@ -182,7 +188,7 @@ tasks.register("runBenchmarks") {
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
 
         // Берем путь к Java, на которой сейчас работает этот скрипт (например, из настроек IDE)
         def currentJavaHome = System.getProperty("java.home")
@@ -227,7 +233,7 @@ tasks.register("runFeatureVmBenchmarks") {
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
         def currentJavaHome = System.getProperty("java.home")
         def runs = (findProperty("benchRuns") ?: "3") as int
         def benchWorldSeed = (findProperty("benchWorldSeed") ?: "918273645546372819").toString()
@@ -264,7 +270,7 @@ tasks.register("runDecorationPipelineBenchmarks") {
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
         def currentJavaHome = System.getProperty("java.home")
         def runs = (findProperty("benchRuns") ?: "3") as int
         def watchdogArgs = "-Dga.benchmark.startupWatchdogSeconds=180 -Dga.benchmark.tickWatchdogSeconds=90"
@@ -301,7 +307,7 @@ tasks.register("runDecorationPipelineQuickBenchmarks") {
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
         def currentJavaHome = System.getProperty("java.home")
         def runs = (findProperty("benchRuns") ?: "1") as int
         def quickStartTick = findProperty("quickStartTick") ?: "20"
@@ -370,7 +376,7 @@ tasks.register("runGAChunkgenBenchmark") {
 
     doLast {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
-        def gradleCmd = isWindows ? "gradlew.bat" : "./gradlew"
+        def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
         def currentJavaHome = System.getProperty("java.home")
         def runs = (findProperty("benchRuns") ?: "1") as int
         def benchStartTick = findProperty("chunkgenStartTick") ?: "20"
@@ -383,10 +389,30 @@ tasks.register("runGAChunkgenBenchmark") {
         def benchWorldSeed = (findProperty("chunkgenWorldSeed") ?: "918273645546372819").toString()
         def benchRunDirPath = findProperty("chunkgenRunDir") ?: "run-ga-chunkgen"
         def benchRunDir = file("neoforge/${benchRunDirPath}")
+        def benchServerPort = findProperty("chunkgenServerPort")
         def startupWatchdogSeconds = findProperty("chunkgenStartupWatchdogSeconds") ?: "120"
         def tickWatchdogSeconds = findProperty("chunkgenTickWatchdogSeconds") ?: "45"
+        def chunkgenDfcTelemetry = findProperty("chunkgenDfcTelemetry") ?: "true"
+        def chunkgenDfcTelemetrySampleShift = findProperty("chunkgenDfcTelemetrySampleShift") ?: "7"
+        def chunkgenDfcRuntimeChecks = findProperty("chunkgenDfcRuntimeChecks") ?: "false"
+        def chunkgenDfcBatchedFill = findProperty("chunkgenDfcBatchedFill") ?: "true"
+        def chunkgenDfcVectorApi = findProperty("chunkgenDfcVectorApi") ?: "off"
+        def chunkgenDfcCompileQueue = findProperty("chunkgenDfcCompileQueue") ?: "jdk"
+        def chunkgenDfcCellFillAddExternOverride = findProperty("chunkgenDfcCellFillAddExternOverride") ?: "true"
+        def chunkgenDfcInlineWrapAxis = findProperty("chunkgenDfcInlineWrapAxis") ?: "true"
         def chunkgenArgs = "-Dga.benchmark.useSpark=false " +
                 "-Dga.benchmark.directChunkLoad=true " +
+                "-Dga.benchmark.diagnostics=true " +
+                "-Ddfc.telemetry.enabled=$chunkgenDfcTelemetry " +
+                "-Ddfc.telemetry.sampleShift=$chunkgenDfcTelemetrySampleShift " +
+                "-Ddfc.parity.runtimeChecks=$chunkgenDfcRuntimeChecks " +
+                "-Ddfc.codegen.batchedFill=$chunkgenDfcBatchedFill " +
+                "-Ddfc.codegen.vectorApi=$chunkgenDfcVectorApi " +
+                "-Ddfc.codegen.cellFillAddExternOverride=$chunkgenDfcCellFillAddExternOverride " +
+                "-Ddfc.codegen.inlineWrapAxis=$chunkgenDfcInlineWrapAxis " +
+                "-Ddfc.compileQueue=$chunkgenDfcCompileQueue " +
+                "-Ddfc.cellfill.stats=$chunkgenDfcTelemetry " +
+                "-Dga.dfc.cacheFastPath.stats=$chunkgenDfcTelemetry " +
                 "-Dga.benchmark.startTick=$benchStartTick " +
                 "-Dga.benchmark.stopTick=$benchStopTick " +
                 "-Dga.benchmark.haltTick=$benchHaltTick " +
@@ -409,7 +435,7 @@ tasks.register("runGAChunkgenBenchmark") {
             def sparkConfigDir = new File(benchRunDir, "config/spark")
             sparkConfigDir.mkdirs()
             new File(sparkConfigDir, "config.json").text = '{"backgroundProfiler":false}\n'
-            configureBenchmarkServerPropertiesIn(benchRunDir, benchWorldSeed)
+            configureBenchmarkServerPropertiesIn(benchRunDir, benchWorldSeed, benchServerPort == null ? null : benchServerPort.toString())
             exec {
                 environment "JAVA_HOME", currentJavaHome
                 commandLine gradleCmd, ":neoforge:runServer", "-PgaJvmArgs=$chunkgenArgs", "-PgaRunDir=${benchRunDirPath}", "-PwithoutSpark", "--no-daemon"

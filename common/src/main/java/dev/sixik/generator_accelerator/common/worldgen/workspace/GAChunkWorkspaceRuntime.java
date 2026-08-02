@@ -63,6 +63,14 @@ public final class GAChunkWorkspaceRuntime {
         return FINAL_REPACK_ENABLED;
     }
 
+    public static void resetForServerLifecycle() {
+        GAChunkWorkspaceContext.clearCurrent();
+        GADecorationJournalContext.clearCurrent();
+        GAChunkWorkspacePool.clearRetained();
+        GACrossChunkMailboxRuntime.clearQueuedBlockWrites();
+        GAWorkspaceWriteBridge.clearSessionState();
+    }
+
     public static CompletableFuture<ChunkAccess> drainCrossChunkMailboxAfter(CompletableFuture<ChunkAccess> future) {
         CompletableFuture<ChunkAccess> checked = requireFuture(future);
         if (!shouldAttachCrossChunkMailboxDrain()) {

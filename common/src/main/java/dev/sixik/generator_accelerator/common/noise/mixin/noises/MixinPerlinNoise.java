@@ -3,10 +3,13 @@ package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
 import dev.sixik.generator_accelerator.common.noise.FastVectorNoise;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -15,11 +18,6 @@ import java.util.Arrays;
 
 @Mixin(PerlinNoise.class)
 public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
-
-    @Unique
-    private static final double WRAP_DOMAIN = 33554432.0;
-    @Unique
-    private static final double WRAP_RECRIPROCAL = 1.0 / WRAP_DOMAIN;
 
     @Shadow
     @Final
@@ -49,117 +47,86 @@ public abstract class MixinPerlinNoise implements ColumnNoiseFiller {
         canvas$octaveSamplersCount = noiseLevels.length;
         canvas$amplitudesArray = amplitudes.toDoubleArray();
 
-        // Создаем массив наших быстрых векторизованных сэмплеров
         canvas$fastOctaves = new FastVectorNoise[canvas$octaveSamplersCount];
         for (int i = 0; i < canvas$octaveSamplersCount; i++) {
             ImprovedNoise vanillaOctave = noiseLevels[i];
             if (vanillaOctave != null) {
-                byte[] p = vanillaOctave.p;
-                double xo = vanillaOctave.xo;
-                double yo = vanillaOctave.yo;
-                double zo = vanillaOctave.zo;
-                canvas$fastOctaves[i] = new FastVectorNoise(p, xo, yo, zo);
+                canvas$fastOctaves[i] = new FastVectorNoise(vanillaOctave.p, vanillaOctave.xo, vanillaOctave.yo, vanillaOctave.zo);
             }
         }
     }
 
     /**
      * @author Sixik
-     * @reason
+     * @reason Allocation-free scalar octave loop preserving vanilla order and double accumulation.
      */
     @Overwrite
     public double getValue(double x, double y, double z) {
-        double d = 0.0;
-        double e = this.lowestFreqInputFactor;
-        double f = this.lowestFreqValueFactor;
-
+        double result = 0.0;
+        double inputFactor = this.lowestFreqInputFactor;
+        double valueFactor = this.lowestFreqValueFactor;
         final double[] amplitudesArray = this.canvas$amplitudesArray;
+        final FastVectorNoise[] fastOctaves = this.canvas$fastOctaves;
 
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
-
+            FastVectorNoise fastOctave = fastOctaves[i];
             if (fastOctave != null) {
-                // wrap() остается нашим, оптимизированным из MixinPerlinNoise
-                double g = fastOctave.computeSingle(wrap(x * e), wrap(y * e), wrap(z * e));
-                d += amplitudesArray[i] * g * f;
+                double sample = fastOctave.computeSingle(
+                        FastVectorNoise.wrap(x * inputFactor),
+                        FastVectorNoise.wrap(y * inputFactor),
+                        FastVectorNoise.wrap(z * inputFactor));
+                result += amplitudesArray[i] * sample * valueFactor;
             }
-            e *= 2.0;
-            f *= 0.5;
+            inputFactor *= 2.0;
+            valueFactor *= 0.5;
         }
-        return d;
+        return result;
     }
 
     /**
      * @author Sixik
-     * @reason
+     * @reason Mirror vanilla wrap with no Mth call in the hot path.
      */
     @Overwrite
     public static double wrap(double value) {
-        return value - Mth.floor(value * WRAP_RECRIPROCAL + 0.5) * WRAP_DOMAIN;
+        return FastVectorNoise.wrap(value);
     }
 
     @Override
-    public void fillColumn(
-            double[] values, int x, int z, int yStart, int yCount,
-            double scaleX, double scaleY, double scaleZ, double additionalScale) {
-
-        Arrays.fill(values, 0.0);
-
-        double inputFactor = this.lowestFreqInputFactor;
-        double valueFactor = this.lowestFreqValueFactor;
-
-        final double[] amplitudesArray = this.canvas$amplitudesArray;
-
-        for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
-
-            if (fastOctave != null) {
-                // Домножаем на additionalScale, если ванилла его передает
-                double currentAmp = amplitudesArray[i] * valueFactor * additionalScale;
-
-                double freqX = scaleX * inputFactor;
-                double freqY = scaleY * inputFactor;
-                double freqZ = scaleZ * inputFactor;
-
-                // Используем наш векторизованный метод. valueFactor_main = 1.0
-                fastOctave.fillColumnVectorized(
-                        values, x, z, yStart, yCount,
-                        freqX, freqY, freqZ,
-                        currentAmp, 1.0
-                );
-            }
-            inputFactor *= 2.0;
-            valueFactor /= 2.0;
-        }
+    public void fillColumn(double[] values, int x, int z, int yStart, int yCount,
+                           double scaleX, double scaleY, double scaleZ, double outputFactor) {
+        fillColumnWithFactor(values, x, z, yStart, yCount, scaleX, scaleY, scaleZ, outputFactor);
     }
 
     @Override
-    public void fillColumnWithFactor(double[] values, int x, int z, int yStart, int yCount, double scaleX, double scaleY, double scaleZ, double valueFactor_main) {
+    public void fillColumnWithFactor(double[] values, int x, int z, int yStart, int yCount,
+                                     double scaleX, double scaleY, double scaleZ, double outputFactor) {
         Arrays.fill(values, 0.0);
+        addColumnWithFactor(values, x, z, yStart, yCount, scaleX, scaleY, scaleZ, outputFactor);
+    }
 
+    @Override
+    public void addColumnWithFactor(double[] values, int x, int z, int yStart, int yCount,
+                                    double scaleX, double scaleY, double scaleZ, double outputFactor) {
         double inputFactor = this.lowestFreqInputFactor;
         double valueFactor = this.lowestFreqValueFactor;
         final double[] amplitudesArray = this.canvas$amplitudesArray;
+        final FastVectorNoise[] fastOctaves = this.canvas$fastOctaves;
 
         for (int i = 0; i < this.canvas$octaveSamplersCount; ++i) {
-            // ИСПОЛЬЗУЕМ НАШ ВЕКТОРИЗОВАННЫЙ СЭМПЛЕР
-            FastVectorNoise fastOctave = this.canvas$fastOctaves[i];
+            FastVectorNoise fastOctave = fastOctaves[i];
             if (fastOctave != null) {
-                double currentAmp = amplitudesArray[i] * valueFactor;
-
-                double freqX = scaleX * inputFactor;
-                double freqY = scaleY * inputFactor;
-                double freqZ = scaleZ * inputFactor;
-
-                // ВЫЗОВ СВЕРХБЫСТРОГО МЕТОДА
-                fastOctave.fillColumnVectorized(
+                double currentAmplitude = amplitudesArray[i] * valueFactor * outputFactor;
+                fastOctave.fillWrappedColumn(
                         values, x, z, yStart, yCount,
-                        freqX, freqY, freqZ,
-                        currentAmp, valueFactor_main
+                        scaleX * inputFactor,
+                        scaleY * inputFactor,
+                        scaleZ * inputFactor,
+                        currentAmplitude
                 );
             }
             inputFactor *= 2.0;
-            valueFactor /= 2.0;
+            valueFactor *= 0.5;
         }
     }
 }

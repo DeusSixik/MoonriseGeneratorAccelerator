@@ -10,6 +10,10 @@ public final class GAChunkWorkspaceContext {
         return CURRENT.get();
     }
 
+    public static void clearCurrent() {
+        CURRENT.remove();
+    }
+
     public static Scope bind(GAChunkWorkspace workspace) {
         GAChunkWorkspace previous = CURRENT.get();
         if (workspace == null) {

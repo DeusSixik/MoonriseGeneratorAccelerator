@@ -3,6 +3,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.mixin;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.NoiseChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
@@ -20,8 +21,24 @@ public class NoiseChunkCache2dMixin implements DfcCellCacheAccess {
 
     @Override
     public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
+        if (context instanceof NoiseChunk chunk) {
+            return dfc$tryDirectRead(chunk);
+        }
+
         final int bx = context.blockX();
         final int bz = context.blockZ();
+        final long key = (long)bx & 0xFFFFFFFFL | ((long)bz << 32);
+
+        if (this.lastPos2D == key) {
+            return this.lastValue;
+        }
+        return DfcCacheFastPath.CACHE_MISS;
+    }
+
+    @Override
+    public double dfc$tryDirectRead(NoiseChunk chunk) {
+        final int bx = chunk.cellStartBlockX + chunk.inCellX;
+        final int bz = chunk.cellStartBlockZ + chunk.inCellZ;
         final long key = (long)bx & 0xFFFFFFFFL | ((long)bz << 32);
 
         if (this.lastPos2D == key) {

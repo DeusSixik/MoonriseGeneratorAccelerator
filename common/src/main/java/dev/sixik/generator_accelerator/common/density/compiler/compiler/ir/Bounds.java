@@ -32,6 +32,14 @@ public final class Bounds {
         return intervalImpl(node, pool, memo);
     }
 
+    private static double[] unboundedCoordinateInterval() {
+        return new double[]{Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY};
+    }
+
+    private static double[] yCoordinateInterval() {
+        return new double[]{DimensionType.MIN_Y * 2.0, DimensionType.MAX_Y * 2.0};
+    }
+
     private static double[] intervalImpl(IRNode node, ConstantPool pool, IdentityHashMap<IRNode, double[]> memo) {
         double[] hit = memo.get(node);
         if (hit != null) {
@@ -39,9 +47,12 @@ public final class Bounds {
         }
         double[] out = switch (node) {
             case IRNode.Const c -> new double[]{c.value(), c.value()};
-            case IRNode.BlockX bx -> new double[]{DimensionType.MIN_Y * 2, DimensionType.MAX_Y * 2};
-            case IRNode.BlockY by -> new double[]{DimensionType.MIN_Y * 2, DimensionType.MAX_Y * 2};
-            case IRNode.BlockZ bz -> new double[]{DimensionType.MIN_Y * 2, DimensionType.MAX_Y * 2};
+            // X/Z coordinates are horizontal block coordinates, not vertical build-height
+            // coordinates. Treat them as unbounded so interval-driven peepholes never prove
+            // far positive/negative horizontal ranges impossible just because Y is finite.
+            case IRNode.BlockX bx -> unboundedCoordinateInterval();
+            case IRNode.BlockY by -> yCoordinateInterval();
+            case IRNode.BlockZ bz -> unboundedCoordinateInterval();
 
             case IRNode.Bin bin -> binInterval(bin, pool, memo);
             case IRNode.Unary u -> unaryInterval(u, pool, memo);

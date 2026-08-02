@@ -15,7 +15,8 @@ import java.util.concurrent.atomic.LongAdder;
  * Optional runtime parity check for generated {@link DfcCellFillAccess#dfc$fillCell}.
  */
 public final class DfcCellFillParity {
-    public static final boolean ENABLED = Boolean.getBoolean("dfc.cellfill.parity");
+    public static final boolean ENABLED = Boolean.getBoolean("dfc.cellfill.parity")
+            || Boolean.getBoolean("dfc.parity.runtimeChecks");
 
     private static final int MAX_CHECKS = Integer.getInteger("dfc.cellfill.parity.maxChecks", 1024);
     private static final double EPSILON = Double.parseDouble(System.getProperty("dfc.cellfill.parity.epsilon", "1.0E-9"));
@@ -48,7 +49,7 @@ public final class DfcCellFillParity {
     }
 
     public static boolean isActive() {
-        return ACTIVE;
+        return ENABLED && ACTIVE;
     }
 
     public static void recordCandidate(DensityFunction filler, boolean fastEligible) {

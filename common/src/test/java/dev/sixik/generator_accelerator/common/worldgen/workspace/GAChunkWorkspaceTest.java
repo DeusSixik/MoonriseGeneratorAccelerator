@@ -261,6 +261,19 @@ class GAChunkWorkspaceTest {
     }
 
     @Test
+    void sectionScratchBufferIsReusedAndRefilled() {
+        GAChunkWorkspace workspace = new GAChunkWorkspace();
+
+        int[] first = workspace.sectionBlockScratch(7);
+        first[0] = 42;
+        int[] second = workspace.sectionBlockScratch(3);
+
+        assertSame(first, second);
+        assertEquals(3, second[0]);
+        assertEquals(3, second[GAChunkWorkspace.BLOCKS_PER_SECTION - 1]);
+    }
+
+    @Test
     void blockAccessRequiresAllocatedBuffer() {
         GAChunkWorkspace workspace = new GAChunkWorkspace();
         workspace.begin(chunk(0, 0, 0, 256, 16, 0, 16));

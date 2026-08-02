@@ -7,7 +7,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -103,6 +105,79 @@ class GAChunkStatusPipelineTest {
         assertEquals(1, secondRan.get());
         releaseFirst.complete(null);
         first.get(10, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void writeRadiusKeepsNeighborWritersGuardedAndReadOnlyStagesUnguarded() throws Exception {
+        Method writeRadius = GAChunkStatusPipeline.class.getDeclaredMethod(
+                "writeRadius",
+                GAChunkStatusPipeline.Stage.class,
+                net.minecraft.world.level.chunk.status.ChunkStep.class
+        );
+        writeRadius.setAccessible(true);
+
+        assertEquals(0, ((Number) writeRadius.invoke(null, GAChunkStatusPipeline.Stage.SURFACE, null)).intValue());
+        assertEquals(1, ((Number) writeRadius.invoke(null, GAChunkStatusPipeline.Stage.FEATURES, null)).intValue());
+        assertEquals(1, ((Number) writeRadius.invoke(null, GAChunkStatusPipeline.Stage.SPAWN, null)).intValue());
+        assertEquals(0, ((Number) writeRadius.invoke(null, GAChunkStatusPipeline.Stage.STRUCTURE_STARTS, null)).intValue());
+    }
+
+    @Test
+    void guardedStageWithSyntheticNullChunkBypassesLease() throws Exception {
+        GAChunkStatusPipeline.schedule(
+                GAChunkStatusPipeline.Stage.FEATURES,
+                GAScheduler.Lane.TRANSACTIONAL,
+                null,
+                null,
+                () -> null
+        ).get(10, TimeUnit.SECONDS);
+
+        Map<?, ?> features = stageSnapshot("features");
+        assertEquals(1L, features.get("submitted"));
+        assertEquals(1L, features.get("completed"));
+        assertEquals(0L, features.get("failed"));
+    }
+
+    @Test
+    void guardScratchCompactsDuplicateStripesAfterSorting() throws Exception {
+        Class<?> scratchClass = null;
+        for (Class<?> declaredClass : GAChunkStatusPipeline.class.getDeclaredClasses()) {
+            if ("GuardScratch".equals(declaredClass.getSimpleName())) {
+                scratchClass = declaredClass;
+                break;
+            }
+        }
+        assertTrue(scratchClass != null);
+
+        Constructor<?> constructor = scratchClass.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object scratch = constructor.newInstance();
+
+        Method reset = scratchClass.getDeclaredMethod("reset", int.class);
+        Method addStripe = scratchClass.getDeclaredMethod("addStripe", int.class);
+        Method sortAndCompactStripes = scratchClass.getDeclaredMethod("sortAndCompactStripes");
+        reset.setAccessible(true);
+        addStripe.setAccessible(true);
+        sortAndCompactStripes.setAccessible(true);
+
+        reset.invoke(scratch, 8);
+        addStripe.invoke(scratch, 9);
+        addStripe.invoke(scratch, 3);
+        addStripe.invoke(scratch, 9);
+        addStripe.invoke(scratch, 5);
+        addStripe.invoke(scratch, 3);
+        sortAndCompactStripes.invoke(scratch);
+
+        Field stripeCount = scratchClass.getDeclaredField("stripeCount");
+        Field stripes = scratchClass.getDeclaredField("stripes");
+        stripeCount.setAccessible(true);
+        stripes.setAccessible(true);
+
+        int[] stripeValues = (int[]) stripes.get(scratch);
+        assertEquals(3, stripeCount.getInt(scratch));
+        assertEquals(3, stripeValues[0]);
+        assertEquals(5, stripeValues[1]);
+        assertEquals(9, stripeValues[2]);
     }
 
     private static Map<?, ?> stageSnapshot(String stage) {

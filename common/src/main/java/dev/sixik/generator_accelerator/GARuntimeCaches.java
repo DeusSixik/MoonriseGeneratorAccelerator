@@ -13,6 +13,7 @@ import dev.sixik.generator_accelerator.common.features.FeatureCacheEpoch;
 import dev.sixik.generator_accelerator.common.features.cache.SharedWeakCache;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineCompatibility;
 import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
 
 public final class GARuntimeCaches {
     private GARuntimeCaches() {
@@ -23,6 +24,7 @@ public final class GARuntimeCaches {
         DecorationPipelineCompatibility.clearSessionCaches();
         SharedWeakCache.clearAll();
         SurfaceRuntime.clearCaches();
+        GAChunkWorkspaceRuntime.resetForServerLifecycle();
         CarverReplaceableCache.clear();
         NoiseSpecCache.clear();
         GlobalCompileCache.INSTANCE.clear();
@@ -34,4 +36,3 @@ public final class GARuntimeCaches {
         RegistryWarmer.clear();
     }
 }
-

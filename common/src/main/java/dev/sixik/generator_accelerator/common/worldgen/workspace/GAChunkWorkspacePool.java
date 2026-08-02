@@ -20,6 +20,7 @@ public final class GAChunkWorkspacePool {
     private static final Object INIT_LOCK = new Object();
     private static final ConcurrentLinkedQueue<GAChunkWorkspace> POOL = new ConcurrentLinkedQueue<>();
     private static final AtomicInteger IN_FLIGHT = new AtomicInteger();
+    private static final AtomicInteger POOLED = new AtomicInteger();
     private static final AtomicInteger MAX_IN_FLIGHT_SEEN = new AtomicInteger();
     private static final AtomicLong ACQUIRE_ATTEMPTS = new AtomicLong();
     private static final AtomicLong ACQUIRED = new AtomicLong();
@@ -31,6 +32,7 @@ public final class GAChunkWorkspacePool {
     private static volatile boolean initialized;
     private static volatile Semaphore permits;
     private static volatile int maxInFlight;
+    private static volatile int maxRetainedWorkspaces;
     private static volatile int maxRetainedBlockInts;
 
     private GAChunkWorkspacePool() {
@@ -48,7 +50,7 @@ public final class GAChunkWorkspacePool {
             return null;
         }
 
-        GAChunkWorkspace workspace = POOL.poll();
+        GAChunkWorkspace workspace = pollRetained();
         if (workspace == null) {
             workspace = new GAChunkWorkspace(maxRetainedBlockInts, GAChunkWorkspace.COLUMN_COUNT, dirtyWordLimit());
             CREATED.incrementAndGet();
@@ -63,8 +65,12 @@ public final class GAChunkWorkspacePool {
             ACQUIRED.incrementAndGet();
             return workspace;
         } catch (RuntimeException | Error failure) {
-            permits.release();
-            POOL.offer(workspace);
+            try {
+                workspace.release();
+                retain(workspace);
+            } finally {
+                permits.release();
+            }
             throw failure;
         }
     }
@@ -74,19 +80,34 @@ public final class GAChunkWorkspacePool {
             return;
         }
         workspace.release();
-        POOL.offer(workspace);
+        retain(workspace);
         RELEASED.incrementAndGet();
-        IN_FLIGHT.decrementAndGet();
+        IN_FLIGHT.updateAndGet(active -> Math.max(0, active - 1));
         permits.release();
+    }
+
+    public static void clearRetained() {
+        if (!initialized) {
+            return;
+        }
+        int cleared = 0;
+        while (POOL.poll() != null) {
+            cleared++;
+        }
+        if (cleared > 0) {
+            int clearedCount = cleared;
+            POOLED.updateAndGet(pooled -> Math.max(0, pooled - clearedCount));
+        }
     }
 
     public static Map<String, Object> snapshot() {
         ensureInitialized();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("maxInFlight", maxInFlight);
+        out.put("maxRetainedWorkspaces", maxRetainedWorkspaces);
         out.put("inFlight", IN_FLIGHT.get());
         out.put("availablePermits", permits.availablePermits());
-        out.put("pooled", POOL.size());
+        out.put("pooled", POOLED.get());
         out.put("maxInFlightSeen", MAX_IN_FLIGHT_SEEN.get());
         out.put("acquireAttempts", ACQUIRE_ATTEMPTS.get());
         out.put("acquired", ACQUIRED.get());
@@ -120,9 +141,49 @@ public final class GAChunkWorkspacePool {
             GAConfig config = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
             int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
             maxInFlight = config.maxInFlightWorkspaces > 0 ? config.maxInFlightWorkspaces : Math.max(1, processors / 2);
+            maxRetainedWorkspaces = Math.max(0, intProperty(
+                    "ga.chunkWorkspace.pool.maxRetainedWorkspaces",
+                    maxInFlight
+            ));
             maxRetainedBlockInts = retainedBlockInts(config.workspaceMaxRetainedBytes);
             permits = new Semaphore(maxInFlight);
             initialized = true;
+        }
+    }
+
+    private static GAChunkWorkspace pollRetained() {
+        GAChunkWorkspace workspace = POOL.poll();
+        if (workspace != null) {
+            POOLED.updateAndGet(pooled -> Math.max(0, pooled - 1));
+        }
+        return workspace;
+    }
+
+    private static boolean retain(GAChunkWorkspace workspace) {
+        if (workspace == null || maxRetainedWorkspaces <= 0) {
+            return false;
+        }
+        for (;;) {
+            int pooled = POOLED.get();
+            if (pooled >= maxRetainedWorkspaces) {
+                return false;
+            }
+            if (POOLED.compareAndSet(pooled, pooled + 1)) {
+                POOL.offer(workspace);
+                return true;
+            }
+        }
+    }
+
+    private static int intProperty(String property, int fallback) {
+        String value = System.getProperty(property);
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
         }
     }
 

@@ -1,8 +1,10 @@
 package dev.sixik.generator_accelerator.diagnostics;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.features.pipeline.DecorationPipelineMetrics;
 import dev.sixik.generator_accelerator.common.features.vm.FeatureVmMetrics;
@@ -176,6 +178,8 @@ public final class GADiagnostics {
         FeatureVmMetrics.reset();
         SurfaceMetrics.reset();
         DfcCellFillStats.reset();
+        DfcCacheFastPath.resetStats();
+        DfcRuntimeTelemetry.reset();
         DfcNativePlanningStats.reset();
         DfcSplineStats.reset();
         GAScheduler.resetMetrics();
@@ -202,6 +206,8 @@ public final class GADiagnostics {
         setProperty("ga.worldgenProfile.metrics", "true");
         setProperty("dfc.cellfill.stats", "true");
         setProperty("dfc.cellfill.stats.residualClassDebug", "true");
+        setProperty("dfc.telemetry.enabled", "true");
+        setProperty("ga.dfc.cacheFastPath.stats", "true");
         setProperty("dfc.codegen.splineRuntimeStats", "true");
         syncMetricFlagsFromProperties();
         installShutdownHook();
@@ -219,6 +225,8 @@ public final class GADiagnostics {
         setProperty("ga.worldgenProfile.metrics", "false");
         setProperty("dfc.cellfill.stats", "false");
         setProperty("dfc.cellfill.stats.residualClassDebug", "false");
+        setProperty("dfc.telemetry.enabled", "false");
+        setProperty("ga.dfc.cacheFastPath.stats", "false");
         setProperty("dfc.codegen.splineRuntimeStats", "false");
         syncMetricFlagsFromProperties();
     }
@@ -275,6 +283,8 @@ public final class GADiagnostics {
         DfcCellFillStats.setEnabled(
                 Boolean.getBoolean("dfc.cellfill.stats"),
                 Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug"));
+        DfcCacheFastPath.setStatsEnabled(Boolean.getBoolean("ga.dfc.cacheFastPath.stats"));
+        DfcRuntimeTelemetry.setEnabled(Boolean.getBoolean("dfc.telemetry.enabled"));
         DfcSplineStats.setEnabled(Boolean.getBoolean("dfc.codegen.splineRuntimeStats"));
     }
 
@@ -287,6 +297,7 @@ public final class GADiagnostics {
                 + ", featureVm=" + FeatureVmMetrics.ENABLED
                 + ", surface=" + SurfaceMetrics.ENABLED
                 + ", cellFill=" + DfcCellFillStats.ENABLED
+                + ", dfcTelemetry=" + DfcRuntimeTelemetry.ENABLED
                 + ", spline=" + DfcSplineStats.ENABLED
                 + ", worldgenProfiles=" + WorldgenProfileMetrics.ENABLED
                 + ", scheduler=true"
@@ -589,6 +600,10 @@ public final class GADiagnostics {
     private static Map<String, Object> densityCompilerSnapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cellFill", DfcCellFillStats.snapshot());
+        out.put("cacheFastPath", DfcCacheFastPath.snapshotStats());
+        out.put("runtimeTelemetry", DfcRuntimeTelemetry.snapshot());
+        out.put("topGeneratedDebugClasses", DfcRuntimeTelemetry.snapshotTopGeneratedDebugClasses());
+        out.put("runtimeTelemetrySummary", DfcRuntimeTelemetry.summary());
         out.put("nativePlanning", DfcNativePlanningStats.snapshot());
         out.put("spline", DfcSplineStats.snapshot());
         out.put("splineTopClasses", DfcSplineStats.snapshotTopClasses(12));

@@ -34,7 +34,7 @@ import net.minecraft.world.level.levelgen.feature.VegetationPatchFeature;
 import net.minecraft.world.level.levelgen.feature.WaterloggedVegetationPatchFeature;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifier;
-import net.sixik.javastructg.structs.sets.NativeLongSet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import java.util.Iterator;
 import java.util.List;
@@ -56,8 +56,8 @@ public final class DecorationPipelineExecutor {
             "ga.decorationConflictScheduler.snapshotRadius",
             CONFIG.decorationConflictSchedulerSnapshotRadius
     ));
-    private static final ThreadLocal<NativeLongSet> CONFLICT_POSITIONS =
-            ThreadLocal.withInitial(() -> new NativeLongSet(256));
+    private static final ThreadLocal<LongOpenHashSet> CONFLICT_POSITIONS =
+            ThreadLocal.withInitial(() -> new LongOpenHashSet(256));
 
     public static boolean conflictSchedulerRuntimeEnabled() {
         return CONFLICT_SCHEDULER_ENABLED
@@ -398,7 +398,7 @@ public final class DecorationPipelineExecutor {
     }
 
     private static boolean hasJournalConflicts(JournalTaskResult[] results) {
-        NativeLongSet positions = CONFLICT_POSITIONS.get();
+        LongOpenHashSet positions = CONFLICT_POSITIONS.get();
         positions.clear();
         for (JournalTaskResult result : results) {
             GADecorationWriteJournal journal = result.journal();

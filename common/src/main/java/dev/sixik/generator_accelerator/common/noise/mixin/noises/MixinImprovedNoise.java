@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin.noises;
 
 import dev.sixik.generator_accelerator.common.noise.ColumnNoiseFiller;
+import dev.sixik.generator_accelerator.common.noise.FastVectorNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import org.spongepowered.asm.mixin.*;
 
@@ -39,42 +40,7 @@ public abstract class MixinImprovedNoise implements ColumnNoiseFiller {
     @Deprecated
     @Overwrite
     public double noise(double x, double y, double z, double yScale, double yMax) {
-        final double inputX = x + this.xo;
-        final double inputY = y + this.yo;
-        final double inputZ = z + this.zo;
-
-        int gridX = (int) inputX;
-        if (inputX < gridX) gridX--;
-
-        int gridY = (int) inputY;
-        if (inputY < gridY) gridY--;
-
-        int gridZ = (int) inputZ;
-        if (inputZ < gridZ) gridZ--;
-
-        final double deltaX = inputX - gridX;
-        final double deltaY = inputY - gridY;
-        final double deltaZ = inputZ - gridZ;
-
-        final double weirdDeltaY;
-        if (yScale != 0.0) {
-            final double range;
-            if (yMax >= 0.0 && yMax < deltaY) {
-                range = yMax;
-            } else {
-                range = deltaY;
-            }
-
-            final double scaled = range / yScale + 1.0E-7;
-            int scaledFloor = (int) scaled;
-            if (scaled < scaledFloor) scaledFloor--;
-
-            weirdDeltaY = deltaY - (scaledFloor * yScale);
-        } else {
-            weirdDeltaY = deltaY;
-        }
-
-        return this.bts$sampleAndLerp(gridX, gridY, gridZ, deltaX, weirdDeltaY, deltaZ, deltaY);
+        return FastVectorNoise.sample(this.p, this.xo, this.yo, this.zo, x, y, z, yScale, yMax);
     }
 
     /**

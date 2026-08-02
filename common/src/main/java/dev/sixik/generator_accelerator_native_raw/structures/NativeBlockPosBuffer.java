@@ -1,44 +1,59 @@
 package dev.sixik.generator_accelerator_native_raw.structures;
 
-import dev.sixik.generator_accelerator_native_raw.memory.BlockPosPackedMemory;
 import net.minecraft.core.BlockPos;
-import net.sixik.javastructg.structs.arrays.NativeObjectArray;
 
+/**
+ * Heap-backed BlockPos buffer retained under the old class name to avoid off-heap/native runtime dependencies.
+ */
 public final class NativeBlockPosBuffer implements AutoCloseable {
-    private final NativeObjectArray<BlockPos> values;
+    private long[] values;
+    private int size;
 
     public NativeBlockPosBuffer(int expectedCapacity) {
-        this.values = new NativeObjectArray<>(Math.max(1, expectedCapacity), BlockPosPackedMemory.MEMORY);
+        this.values = new long[Math.max(1, expectedCapacity)];
     }
 
     public void add(BlockPos pos) {
-        this.values.add(pos);
+        ensureCapacity(this.size + 1);
+        this.values[this.size++] = pos.asLong();
     }
 
     public int size() {
-        return this.values.size();
+        return this.size;
     }
 
     public void get(int index, BlockPos.MutableBlockPos out) {
-        this.values.get(index, out);
+        long packed = this.values[index];
+        out.set(BlockPos.getX(packed), BlockPos.getY(packed), BlockPos.getZ(packed));
     }
 
     public void set(int index, BlockPos pos) {
-        this.values.set(index, pos);
+        this.values[index] = pos.asLong();
     }
 
     public void swap(int left, int right, BlockPos.MutableBlockPos first, BlockPos.MutableBlockPos second) {
         if (left == right) {
             return;
         }
-        this.values.get(left, first);
-        this.values.get(right, second);
-        this.values.set(left, second);
-        this.values.set(right, first);
+        long packed = this.values[left];
+        this.values[left] = this.values[right];
+        this.values[right] = packed;
+    }
+
+    private void ensureCapacity(int required) {
+        if (required <= this.values.length) {
+            return;
+        }
+        int capacity = this.values.length;
+        while (capacity < required) {
+            capacity = Math.max(required, capacity << 1);
+        }
+        this.values = java.util.Arrays.copyOf(this.values, capacity);
     }
 
     @Override
     public void close() {
-        this.values.freeMemory();
+        this.size = 0;
+        this.values = new long[0];
     }
 }

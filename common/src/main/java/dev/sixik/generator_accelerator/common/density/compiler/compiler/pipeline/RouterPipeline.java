@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpecCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpecCache;
@@ -97,8 +98,11 @@ public final class RouterPipeline {
 
     private static void compileFieldsParallel(CompilingVisitor visitor, DensityFunction[] sources,
             DensityFunction[] compiled, int n, String failureKind) {
+        long submittedAt = DfcRuntimeTelemetry.enabled() ? System.nanoTime() : 0L;
         try {
-            GAScheduler.invokeBlocking(GAScheduler.Lane.COMPILE, () -> IntStream.range(0, n).parallel().forEach(i -> {
+            GAScheduler.invokeBlocking(GAScheduler.Lane.COMPILE, () -> {
+                DfcRuntimeTelemetry.recordCompileStartQueueWait(submittedAt);
+                IntStream.range(0, n).parallel().forEach(i -> {
                 DensityFunction src = sources[i];
                 try {
                     compiled[i] = visitor.apply(src);
@@ -109,7 +113,8 @@ public final class RouterPipeline {
                             failureKind, i, t);
                     compiled[i] = src;
                 }
-            }));
+                });
+            });
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             compileFieldsSequential(visitor, sources, compiled, n, failureKind);

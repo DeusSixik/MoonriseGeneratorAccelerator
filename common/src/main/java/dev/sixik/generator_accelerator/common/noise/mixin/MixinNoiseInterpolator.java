@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.noise.mixin;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$NoiseInterpolatorPatch;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunk$InterpolatorSoA;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -13,7 +15,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(NoiseChunk.NoiseInterpolator.class)
 public abstract class MixinNoiseInterpolator implements
-        DensityFunctions.MarkerOrMarked, NoiseChunk.NoiseChunkDensityFunction, NoiseChunk$NoiseInterpolatorPatch {
+        DensityFunctions.MarkerOrMarked,
+        NoiseChunk.NoiseChunkDensityFunction,
+        NoiseChunk$NoiseInterpolatorPatch,
+        DfcCellCacheAccess {
 
     @Shadow @Final
     NoiseChunk field_34622;
@@ -96,10 +101,48 @@ public abstract class MixinNoiseInterpolator implements
 
         final int soaIndex = this.bts$soaIndex;
         if (soaIndex >= 0 && chunk instanceof NoiseChunk$InterpolatorSoA soa) {
-            if (chunk.fillingCell) {
-                return soa.bts$getInterpolatorFillingValue(soaIndex);
-            }
-            return soa.bts$getInterpolatorValue(soaIndex);
+            return soa.bts$getInterpolatorCurrentValue(soaIndex);
+        }
+
+        if (!chunk.fillingCell) {
+            return this.value;
+        }
+
+        final double deltaX = (double) chunk.inCellX / (double) chunk.cellWidth;
+        final double deltaY = (double) chunk.inCellY / (double) chunk.cellHeight;
+        final double deltaZ = (double) chunk.inCellZ / (double) chunk.cellWidth;
+
+        final double lerpY00 = noise000 + deltaY * (noise010 - noise000);
+        final double lerpY10 = noise100 + deltaY * (noise110 - noise100);
+        final double lerpY01 = noise001 + deltaY * (noise011 - noise001);
+        final double lerpY11 = noise101 + deltaY * (noise111 - noise101);
+
+        final double lerpX0 = lerpY00 + deltaX * (lerpY10 - lerpY00);
+        final double lerpX1 = lerpY01 + deltaX * (lerpY11 - lerpY01);
+
+        return lerpX0 + deltaZ * (lerpX1 - lerpX0);
+    }
+
+    @Override
+    public double dfc$tryDirectRead(DensityFunction.FunctionContext context) {
+        if (context != this.field_34622) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        return dfc$tryDirectRead(this.field_34622);
+    }
+
+    @Override
+    public double dfc$tryDirectRead(NoiseChunk chunk) {
+        if (chunk != this.field_34622) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        if (!chunk.interpolating) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+
+        final int soaIndex = this.bts$soaIndex;
+        if (soaIndex >= 0 && chunk instanceof NoiseChunk$InterpolatorSoA soa) {
+            return soa.bts$getInterpolatorCurrentValue(soaIndex);
         }
 
         if (!chunk.fillingCell) {

@@ -68,9 +68,13 @@ public final class GAWorkspaceWriteBridge {
         }
     }
 
-    public static void resetWorkspaceOnlyCircuitBreakerForTests() {
+    public static void clearSessionState() {
         WORKSPACE_ONLY_RUNTIME_DISABLED.set(false);
         WORKSPACE_ONLY_DISABLE_REASON.set(null);
+    }
+
+    public static void resetWorkspaceOnlyCircuitBreakerForTests() {
+        clearSessionState();
     }
 
     public static BlockState readCurrent(BlockPos pos) {

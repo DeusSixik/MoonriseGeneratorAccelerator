@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.CompilationFingerprint;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
@@ -76,6 +77,7 @@ public final class Compiler {
      * (caller should fall back to the original DensityFunction).
      */
     public static Result compileWithDetail(DensityFunction df) {
+        long compileStartedAt = DfcRuntimeTelemetry.compileStart();
         try {
             ConstantPool pool = new ConstantPool();
             IRBuilder builder = new IRBuilder(pool, CompilingVisitor.global());
@@ -205,9 +207,12 @@ public final class Compiler {
                         emitResult.cellAddLatticeSpecialized(), emitResult.cellAddExternSpecialized(),
                         emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
             });
-            return linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
+            Result result = linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
                     cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats);
+            DfcRuntimeTelemetry.recordCompileEnd(df.getClass(), result != null, compileStartedAt);
+            return result;
         } catch (Throwable t) {
+            DfcRuntimeTelemetry.recordCompileEnd(df.getClass(), false, compileStartedAt);
             DensityFunctionCompiler.LOGGER.warn(
                     "Compilation failed for {} ({}): {} — falling back to vanilla evaluator",
                     df.getClass().getSimpleName(),
@@ -445,17 +450,68 @@ public final class Compiler {
 
     private static String describeRootForCellFillDebug(IRNode root) {
         if (root instanceof IRNode.Bin bin) {
-            String leftType = bin.left().getClass().getSimpleName();
-            String rightType = bin.right().getClass().getSimpleName();
             var leftPlan = CellLatticeOption.analyze(bin.left()).orElse(null);
             var rightPlan = CellLatticeOption.analyze(bin.right()).orElse(null);
             return "bin=" + bin.op()
-                    + ",left=" + leftType
-                    + ",right=" + rightType
+                    + ",left=" + describeIrShape(bin.left(), 2)
+                    + ",right=" + describeIrShape(bin.right(), 2)
                     + ",leftPlan=" + (leftPlan != null ? leftPlan.hoistAxis() + ":" + leftPlan.hoistedNodeCount() : "none")
                     + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none");
         }
-        return root.getClass().getSimpleName();
+        return describeIrShape(root, 3);
+    }
+
+    private static String describeIrShape(IRNode node, int depth) {
+        if (node == null) {
+            return "null";
+        }
+        if (depth <= 0) {
+            return node.getClass().getSimpleName();
+        }
+        if (node instanceof IRNode.Const c) {
+            return "Const(" + compactDouble(c.value()) + ")";
+        }
+        if (node instanceof IRNode.Bin b) {
+            return "Bin(" + b.op() + "," + describeIrShape(b.left(), depth - 1)
+                    + "," + describeIrShape(b.right(), depth - 1) + ")";
+        }
+        if (node instanceof IRNode.Unary u) {
+            return "Unary(" + u.op() + "," + describeIrShape(u.input(), depth - 1) + ")";
+        }
+        if (node instanceof IRNode.Clamp c) {
+            return "Clamp(" + compactDouble(c.min()) + ".." + compactDouble(c.max())
+                    + "," + describeIrShape(c.input(), depth - 1) + ")";
+        }
+        if (node instanceof IRNode.RangeChoice rc) {
+            return "RangeChoice(" + compactDouble(rc.min()) + ".." + compactDouble(rc.max())
+                    + ",in=" + describeIrShape(rc.input(), depth - 1)
+                    + ",yes=" + describeIrShape(rc.whenInRange(), depth - 1)
+                    + ",no=" + describeIrShape(rc.whenOutOfRange(), depth - 1) + ")";
+        }
+        if (node instanceof IRNode.YClampedGradient g) {
+            return "YClampedGradient(" + g.fromY() + ".." + g.toY()
+                    + "," + compactDouble(g.fromValue()) + ".." + compactDouble(g.toValue()) + ")";
+        }
+        if (node instanceof IRNode.Marker m) {
+            return "Marker#" + m.externIndex();
+        }
+        if (node instanceof IRNode.Invoke in) {
+            return "Invoke#" + in.externIndex();
+        }
+        if (node instanceof IRNode.Beardifier b) {
+            return "Beardifier#" + b.externIndex();
+        }
+        if (node instanceof IRNode.EndIslands e) {
+            return "EndIslands#" + e.externIndex();
+        }
+        return node.getClass().getSimpleName();
+    }
+
+    private static String compactDouble(double value) {
+        if (value == (long) value) {
+            return Long.toString((long) value);
+        }
+        return Double.toString(value);
     }
 
     /** Diagnostic snapshot of one compile() call. */

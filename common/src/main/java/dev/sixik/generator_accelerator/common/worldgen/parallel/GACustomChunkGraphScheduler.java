@@ -24,7 +24,9 @@ import net.minecraft.world.level.chunk.status.ChunkStep;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -99,7 +101,7 @@ public final class GACustomChunkGraphScheduler {
     private static final AtomicLong ACTIVE_TASKS = new AtomicLong();
     private static final AtomicLong ACTIVE_NODES = new AtomicLong();
     private static final AtomicLong STALLED_PHASES = new AtomicLong();
-    private static final ConcurrentLinkedQueue<TaskRun> ACTIVE_RUNS = new ConcurrentLinkedQueue<>();
+    private static final Set<TaskRun> ACTIVE_RUNS = ConcurrentHashMap.newKeySet();
     private static volatile boolean shutdownRequested;
     private static volatile boolean startupPhase = true;
 
@@ -406,6 +408,10 @@ public final class GACustomChunkGraphScheduler {
             int maxZ = this.center.z + radius;
 
             for (int x = minX; x <= maxX; x++) {
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
+                    return;
+                }
                 int xIndex = cacheExtern.ga$getX(x);
                 int baseIndex = xIndex + cacheExtern.ga$getZ(minZ);
 
@@ -451,6 +457,10 @@ public final class GACustomChunkGraphScheduler {
                 int maxZ = this.center.z + radius;
 
                 for (int x = minX; x <= maxX; x++) {
+                    if (this.shouldCancel()) {
+                        this.requestCancellation();
+                        return;
+                    }
                     int xIndex = cacheExtern.ga$getX(x);
                     int baseIndex = xIndex + cacheExtern.ga$getZ(minZ);
 
@@ -517,6 +527,10 @@ public final class GACustomChunkGraphScheduler {
             int radius = dependencies.getRadius();
             ChunkPos pos = node.holder.getPos();
             for (int x = pos.x - radius; x <= pos.x + radius; x++) {
+                if (this.shouldCancel()) {
+                    this.requestCancellation();
+                    return;
+                }
                 int xIndex = cacheExtern.ga$getX(x);
                 for (int z = pos.z - radius; z <= pos.z + radius; z++) {
                     int distance = pos.getChessboardDistance(x, z);
@@ -577,6 +591,12 @@ public final class GACustomChunkGraphScheduler {
             do {
                 if (this.isTerminal()) {
                     this.ready.clear();
+                    this.drainWork.addAndGet(-missed);
+                    return;
+                }
+                if (this.shouldCancel()) {
+                    this.ready.clear();
+                    this.requestCancellation();
                     this.drainWork.addAndGet(-missed);
                     return;
                 }

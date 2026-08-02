@@ -36,15 +36,23 @@ public class NoiseChunkCacheOnceMixin implements DfcCellCacheAccess {
         if (context != this.field_36605) {
             return DfcCacheFastPath.CACHE_MISS;
         }
+        return dfc$tryDirectRead(this.field_36605);
+    }
+
+    @Override
+    public double dfc$tryDirectRead(NoiseChunk chunk) {
+        if (chunk != this.field_36605) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
         double[] array = this.lastArray;
         if (array != null
-                && this.lastArrayCounter == this.field_36605.arrayInterpolationCounter) {
-            int index = this.field_36605.arrayIndex;
+                && this.lastArrayCounter == chunk.arrayInterpolationCounter) {
+            int index = chunk.arrayIndex;
             if (index >= 0 && index < array.length) {
                 return array[index];
             }
         }
-        if (this.lastCounter == this.field_36605.interpolationCounter) {
+        if (this.lastCounter == chunk.interpolationCounter) {
             return this.lastValue;
         }
         return DfcCacheFastPath.CACHE_MISS;

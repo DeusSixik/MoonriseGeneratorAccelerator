@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.surface_compiler.backend.template;
 
+import dev.sixik.generator_accelerator.common.surface_compiler.backend.bytecode.DirectWriteSupport;
+
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
@@ -479,7 +481,7 @@ public final class DirectTemplateSurfaceKernel implements GeneratedKernel {
         private boolean canCommit() {
             return this.section instanceof LevelChunkSection$FlatBlockArray flatBlockArray
                     && this.working != null
-                    && flatBlockArray.bts$getRawBlockData() != null;
+                    && DirectWriteSupport.rawBlockDataForSurface(flatBlockArray) != null;
         }
 
         private void clear() {

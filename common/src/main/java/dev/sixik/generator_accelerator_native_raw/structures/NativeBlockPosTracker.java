@@ -1,31 +1,29 @@
 package dev.sixik.generator_accelerator_native_raw.structures;
 
-import dev.sixik.generator_accelerator_native_raw.memory.BlockPosPackedMemory;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
-import net.sixik.javastructg.structs.arrays.NativeObjectArray;
-import net.sixik.javastructg.structs.sets.NativeLongSet;
 
+/**
+ * Heap-backed BlockPos tracker retained under the old class name to avoid off-heap/native runtime dependencies.
+ */
 public final class NativeBlockPosTracker implements AutoCloseable {
-    private final NativeLongSet membership;
-    private final NativeObjectArray<BlockPos> recorded;
+    private final LongOpenHashSet membership;
+    private long[] recorded;
     private int recordedSize;
 
     public NativeBlockPosTracker(int expectedCapacity) {
         int capacity = Math.max(1, expectedCapacity);
-        this.membership = new NativeLongSet(capacity);
-        this.recorded = new NativeObjectArray<>(capacity, BlockPosPackedMemory.MEMORY);
+        this.membership = new LongOpenHashSet(capacity);
+        this.recorded = new long[capacity];
     }
 
     public boolean add(BlockPos pos) {
-        if (!this.membership.add(pos.asLong())) {
+        long packed = pos.asLong();
+        if (!this.membership.add(packed)) {
             return false;
         }
-        if (this.recordedSize < this.recorded.size()) {
-            this.recorded.set(this.recordedSize, pos);
-        } else {
-            this.recorded.add(pos);
-        }
-        this.recordedSize++;
+        ensureRecordedCapacity(this.recordedSize + 1);
+        this.recorded[this.recordedSize++] = packed;
         return true;
     }
 
@@ -46,7 +44,8 @@ public final class NativeBlockPosTracker implements AutoCloseable {
     }
 
     public void getRecorded(int index, BlockPos.MutableBlockPos out) {
-        this.recorded.get(index, out);
+        long packed = this.recorded[index];
+        out.set(BlockPos.getX(packed), BlockPos.getY(packed), BlockPos.getZ(packed));
     }
 
     public void clear() {
@@ -54,10 +53,21 @@ public final class NativeBlockPosTracker implements AutoCloseable {
         this.recordedSize = 0;
     }
 
+    private void ensureRecordedCapacity(int required) {
+        if (required <= this.recorded.length) {
+            return;
+        }
+        int capacity = this.recorded.length;
+        while (capacity < required) {
+            capacity = Math.max(required, capacity << 1);
+        }
+        this.recorded = java.util.Arrays.copyOf(this.recorded, capacity);
+    }
+
     @Override
     public void close() {
+        this.membership.clear();
         this.recordedSize = 0;
-        this.recorded.freeMemory();
-        this.membership.freeMemory();
+        this.recorded = new long[0];
     }
 }

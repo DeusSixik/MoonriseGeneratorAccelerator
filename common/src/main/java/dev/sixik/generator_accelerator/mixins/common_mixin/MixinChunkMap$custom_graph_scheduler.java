@@ -23,16 +23,21 @@ public abstract class MixinChunkMap$custom_graph_scheduler {
 
         List<ChunkGenerationTask> pending =
                 ((MixinChunkMapAccessor) (Object) this).ga$getPendingGenerationTasks();
-        if (pending.isEmpty()) {
+        int size = pending.size();
+        if (size == 0) {
             ci.cancel();
             return;
         }
 
         ArrayList<ChunkGenerationTask> tasks = new ArrayList<>(pending);
         pending.clear();
-        for (ChunkGenerationTask task : tasks) {
+        for (int i = 0; i < size; i++) {
+            ChunkGenerationTask task = tasks.get(i);
             if (!GACustomChunkGraphScheduler.schedule(chunkMap, task)) {
-                pending.add(task);
+                for (int j = i; j < size; j++) {
+                    pending.add(tasks.get(j));
+                }
+                return;
             }
         }
         ci.cancel();

@@ -329,6 +329,42 @@ class GAChunkWorkspaceRuntimeTest {
         session.close();
     }
 
+    @Test
+    void serverLifecycleResetClearsWorkspaceSessionState() {
+        LevelChunkSection section = flatSection(new int[GAChunkWorkspace.BLOCKS_PER_SECTION]);
+        ChunkAccess chunk = chunk(section);
+        GAChunkWorkspace workspace = GAChunkWorkspacePool.acquire(chunk, false);
+        assertNotNull(workspace);
+        GAChunkWorkspacePool.release(workspace);
+        assertTrue(((Number) GAChunkWorkspacePool.snapshot().get("pooled")).intValue() >= 1);
+
+        assertTrue(GACrossChunkMailboxRuntime.enqueueBlockWrite(
+                0,
+                0,
+                16,
+                2,
+                3,
+                Block.getId(Blocks.DIRT.defaultBlockState()),
+                2
+        ));
+        GAWorkspaceWriteBridge.disableWorkspaceOnlyWritesForSession("test disable", new IllegalStateException("boom"));
+        GAChunkWorkspaceContext.Scope workspaceScope = GAChunkWorkspaceContext.bind(workspace);
+        GADecorationJournalContext.Scope journalScope = GADecorationJournalContext.bind(new GADecorationWriteJournal());
+
+        try {
+            GAChunkWorkspaceRuntime.resetForServerLifecycle();
+
+            assertEquals(0, ((Number) GAChunkWorkspacePool.snapshot().get("pooled")).intValue());
+            assertEquals(0, GACrossChunkMailboxRuntime.queuedCommands());
+            assertFalse(GAWorkspaceWriteBridge.workspaceOnlyWritesRuntimeDisabled());
+            assertNull(GAChunkWorkspaceContext.current());
+            assertNull(GADecorationJournalContext.current());
+        } finally {
+            journalScope.close();
+            workspaceScope.close();
+        }
+    }
+
     private static long metric(String key) {
         return ((Number) GAChunkWorkspaceMetrics.snapshotGlobal().get(key)).longValue();
     }

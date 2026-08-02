@@ -53,6 +53,7 @@ public final class GAChunkWorkspace {
     private int[] biomeIds = new int[COLUMN_COUNT];
     private boolean biomeBufferEnabled;
     private int[] surfaceBlockIds = new int[COLUMN_COUNT];
+    private int[] sectionBlockScratch;
     private boolean surfaceBufferEnabled;
     private long[] carverMaskWords = new long[1];
     private int carverMaskCapacity;
@@ -904,6 +905,15 @@ public final class GAChunkWorkspace {
         clearTerrainSectionOnlyDirty(sectionIndex);
     }
 
+    int[] sectionBlockScratch(int fillBlockId) {
+        if (sectionBlockScratch == null) {
+            sectionBlockScratch = new int[BLOCKS_PER_SECTION];
+            metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+        }
+        Arrays.fill(sectionBlockScratch, fillBlockId);
+        return sectionBlockScratch;
+    }
+
     public long estimatedRetainedBytes() {
         long bytes = 16L; // object/header approximation anchor
         bytes += retainedIntBytes(blockIds);
@@ -911,6 +921,7 @@ public final class GAChunkWorkspace {
         bytes += retainedIntBytes(aquiferBlockIds);
         bytes += retainedIntBytes(biomeIds);
         bytes += retainedIntBytes(surfaceBlockIds);
+        bytes += retainedIntBytes(sectionBlockScratch);
         bytes += retainedLongBytes(carverMaskWords);
         bytes += retainedIntBytes(heightCandidates);
         bytes += retainedLongBytes(dirtySectionWords);
@@ -1285,6 +1296,9 @@ public final class GAChunkWorkspace {
         }
         if (aquiferBlockIds != null && aquiferBlockIds.length > maxRetainedBlockInts) {
             aquiferBlockIds = null;
+        }
+        if (sectionBlockScratch != null && maxRetainedBlockInts < BLOCKS_PER_SECTION) {
+            sectionBlockScratch = null;
         }
         if (heightCandidates.length > maxRetainedHeightInts) {
             heightCandidates = new int[COLUMN_COUNT];

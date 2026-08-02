@@ -10,9 +10,17 @@ public final class GADecorationJournalContext {
         return CURRENT.get();
     }
 
+    public static void clearCurrent() {
+        CURRENT.remove();
+    }
+
     public static Scope bind(GADecorationWriteJournal journal) {
         GADecorationWriteJournal previous = CURRENT.get();
-        CURRENT.set(journal);
+        if (journal == null) {
+            CURRENT.remove();
+        } else {
+            CURRENT.set(journal);
+        }
         return new Scope(previous);
     }
 

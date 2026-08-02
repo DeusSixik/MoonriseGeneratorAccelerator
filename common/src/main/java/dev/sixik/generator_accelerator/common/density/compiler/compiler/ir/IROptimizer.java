@@ -59,6 +59,8 @@ public final class IROptimizer {
     /** Snapshot of refcounts at the start of the current iteration. Re-taken each
      *  iteration because rewrites can change which nodes are shared. */
     private Map<IRNode, Integer> refSnapshot;
+    private IdentityHashMap<IRNode, Boolean> finiteMemo;
+    private IdentityHashMap<IRNode, double[]> intervalMemo;
 
     private IROptimizer(IRBuilder builder, ConstantPool pool) {
         this.builder = builder;
@@ -76,6 +78,8 @@ public final class IROptimizer {
         for (int iter = 0; iter < MAX_ITERATIONS; iter++) {
             opt.refSnapshot = rc.refs();
             opt.memo = new IdentityHashMap<>();
+            opt.finiteMemo = new IdentityHashMap<>();
+            opt.intervalMemo = new IdentityHashMap<>();
             opt.changed = false;
             IRNode next = opt.rewrite(root);
             if (!opt.changed) {
@@ -236,34 +240,36 @@ public final class IROptimizer {
 
         switch (bin.op()) {
             case ADD -> {
-                if (isConst(l, 0.0)) return r;
-                if (isConst(r, 0.0)) return l;
+                if (isConst(l, 0.0) && isDefinitelyNonZeroFinite(r)) return r;
+                if (isConst(r, 0.0) && isDefinitelyNonZeroFinite(l)) return l;
             }
             case SUB -> {
-                if (isConst(r, 0.0)) return l;
-                if (isConst(l, 0.0)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, r));
+                if (isConst(r, 0.0) && isDefinitelyFinite(l)) return l;
+                if (isConst(l, 0.0) && isDefinitelyNonZeroFinite(r)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, r));
             }
             case MUL -> {
-                if (isConst(l, 0.0) || isConst(r, 0.0)) return intern(new IRNode.Const(0.0));
-                if (isConst(l, 1.0)) return r;
-                if (isConst(r, 1.0)) return l;
-                if (isConst(l, -1.0)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, r));
-                if (isConst(r, -1.0)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, l));
-                // Strength reduction: x * 2 -> x + x. Only when duplicating the
-                // non-constant operand is free — i.e. it's a literal/coordinate leaf
-                // (single-instruction re-emit, never spilled) or it's already shared
-                // (refcount >= 2 -> codegen spills once and both uses are DLOAD).
-                if (isConst(r, 2.0) && cheap(l)) return intern(new IRNode.Bin(IRNode.BinOp.ADD, l, l));
-                if (isConst(l, 2.0) && cheap(r)) return intern(new IRNode.Bin(IRNode.BinOp.ADD, r, r));
+                if (isConst(l, 0.0) && isDefinitelyPositiveFinite(r)) return intern(new IRNode.Const(0.0));
+                if (isConst(r, 0.0) && isDefinitelyPositiveFinite(l)) return intern(new IRNode.Const(0.0));
+                if (isConst(l, 1.0) && isDefinitelyFinite(r)) return r;
+                if (isConst(r, 1.0) && isDefinitelyFinite(l)) return l;
+                if (isConst(l, -1.0) && isDefinitelyFinite(r)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, r));
+                if (isConst(r, -1.0) && isDefinitelyFinite(l)) return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, l));
+                // Strength reduction: x * 2 -> x + x. Only when x is known finite
+                // and duplicating the non-constant operand is free — i.e. it's a
+                // literal/coordinate leaf (single-instruction re-emit, never spilled)
+                // or it's already shared (refcount >= 2 -> codegen spills once and
+                // both uses are DLOAD).
+                if (isConst(r, 2.0) && isDefinitelyFinite(l) && cheap(l)) return intern(new IRNode.Bin(IRNode.BinOp.ADD, l, l));
+                if (isConst(l, 2.0) && isDefinitelyFinite(r) && cheap(r)) return intern(new IRNode.Bin(IRNode.BinOp.ADD, r, r));
             }
             case DIV -> {
-                if (isConst(r, 1.0)) return l;
+                if (isConst(r, 1.0) && isDefinitelyFinite(l)) return l;
                 // x / c -> x * (1/c). DMUL is one cycle on every JVM, DDIV is 8-20.
-                // Guarded against c being non-finite, zero, or a value whose
-                // reciprocal isn't exactly representable — the round-trip check
-                // (1.0 / inv) == c rejects rewrites that would shift any sample
-                // by a ULP and break parity.
-                if (r instanceof IRNode.Const rc) {
+                // Guarded against non-finite inputs, c being non-finite/zero, or a
+                // reciprocal that is not exactly representable. Without the finite
+                // input proof this would erase NaN/Infinity behaviour that DDIV would
+                // otherwise execute at runtime.
+                if (r instanceof IRNode.Const rc && isDefinitelyFinite(l)) {
                     double c = rc.value();
                     if (Double.isFinite(c) && c != 0.0) {
                         double inv = 1.0 / c;
@@ -276,10 +282,10 @@ public final class IROptimizer {
             }
             case MIN, MAX -> {
                 // After interning, structurally-identical operands share identity.
-                if (l == r) return l;
+                if (l == r && isDefinitelyFinite(l)) return l;
                 if (bin.op() == IRNode.BinOp.MIN) {
-                    if (isConst(l, Double.POSITIVE_INFINITY)) return r;
-                    if (isConst(r, Double.POSITIVE_INFINITY)) return l;
+                    if (isConst(l, Double.POSITIVE_INFINITY) && isDefinitelyFinite(r)) return r;
+                    if (isConst(r, Double.POSITIVE_INFINITY) && isDefinitelyFinite(l)) return l;
                     IRNode clamp = clampFromMinMax(bin.left(), bin.right());
                     if (clamp != null) return clamp;
                     clamp = clampFromMinMax(bin.right(), bin.left());
@@ -289,8 +295,8 @@ public final class IROptimizer {
                     collapsed = collapseNestedMinConst(r, l);
                     if (collapsed != null) return collapsed;
                 } else {
-                    if (isConst(l, Double.NEGATIVE_INFINITY)) return r;
-                    if (isConst(r, Double.NEGATIVE_INFINITY)) return l;
+                    if (isConst(l, Double.NEGATIVE_INFINITY) && isDefinitelyFinite(r)) return r;
+                    if (isConst(r, Double.NEGATIVE_INFINITY) && isDefinitelyFinite(l)) return l;
                     IRNode clamp = clampFromMaxMin(bin.left(), bin.right());
                     if (clamp != null) return clamp;
                     clamp = clampFromMaxMin(bin.right(), bin.left());
@@ -325,24 +331,21 @@ public final class IROptimizer {
             return intern(new IRNode.Const(folded));
         }
 
-        // Bounds-proven ABS simplifications. Using Double.isFinite keeps us
-        // conservative around opaque/unbounded inputs.
+        // Bounds-proven ABS simplifications. Strict sign checks avoid changing
+        // the sign of zero (abs(-0.0) is +0.0, while returning the input would
+        // preserve -0.0; abs(+0.0) is +0.0, while negating would produce -0.0).
         if (u.op() == IRNode.UnaryOp.ABS) {
-            try {
-                double[] iv = Bounds.interval(in, pool);
-                if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
-                    return in;
-                }
-                if (Double.isFinite(iv[1]) && iv[1] <= 0.0) {
-                    return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, in));
-                }
-            } catch (RuntimeException ignore) {
+            if (isDefinitelyPositiveFinite(in)) {
+                return in;
+            }
+            if (isDefinitelyNegativeFinite(in)) {
+                return intern(new IRNode.Unary(IRNode.UnaryOp.NEG, in));
             }
         }
         if (u.op() == IRNode.UnaryOp.HALF_NEGATIVE || u.op() == IRNode.UnaryOp.QUARTER_NEGATIVE) {
             try {
                 double[] iv = Bounds.interval(in, pool);
-                if (Double.isFinite(iv[0]) && iv[0] >= 0.0) {
+                if (isDefinitelyFinite(in) && Double.isFinite(iv[0]) && iv[0] >= 0.0) {
                     return in;
                 }
             } catch (RuntimeException ignore) {
@@ -355,8 +358,9 @@ public final class IROptimizer {
             return intern(new IRNode.Unary(IRNode.UnaryOp.SQUEEZE, cl.input()));
         }
 
-        // Nested-unary collapses. abs(square(x)) is valid because square(NaN) = NaN
-        // and abs(NaN) = NaN, so the IEEE behaviour is preserved.
+        // Nested-unary collapses. Keep only identities that are bit-equivalent for
+        // signed zero and NaN raw bits; notably abs(square(x)) and
+        // square(abs/neg(x)) can change the sign bit of NaN payloads.
         if (in instanceof IRNode.Unary inner) {
             switch (u.op()) {
                 case ABS -> {
@@ -364,15 +368,9 @@ public final class IROptimizer {
                     if (inner.op() == IRNode.UnaryOp.NEG) {
                         return intern(new IRNode.Unary(IRNode.UnaryOp.ABS, inner.input()));
                     }
-                    if (inner.op() == IRNode.UnaryOp.SQUARE) return inner;
                 }
                 case NEG -> {
                     if (inner.op() == IRNode.UnaryOp.NEG) return inner.input();
-                }
-                case SQUARE -> {
-                    if (inner.op() == IRNode.UnaryOp.NEG || inner.op() == IRNode.UnaryOp.ABS) {
-                        return intern(new IRNode.Unary(IRNode.UnaryOp.SQUARE, inner.input()));
-                    }
                 }
                 default -> { /* no nested-unary identities for the others */ }
             }
@@ -386,41 +384,45 @@ public final class IROptimizer {
             double v = Math.max(cl.min(), Math.min(cl.max(), c.value()));
             return intern(new IRNode.Const(v));
         }
-        // Clamp(x, -INF, +INF) is an exact no-op, including for NaN:
-        // min(+INF, NaN) = NaN and max(-INF, NaN) = NaN.
-        if (cl.min() == Double.NEGATIVE_INFINITY && cl.max() == Double.POSITIVE_INFINITY) {
+        // Clamp(x, -INF, +INF) is an exact no-op for finite inputs. Keep the
+        // Math.min/Math.max calls for NaN/Infinity-capable inputs so we do not
+        // erase IEEE edge behaviour.
+        if (cl.min() == Double.NEGATIVE_INFINITY && cl.max() == Double.POSITIVE_INFINITY
+                && isDefinitelyFinite(cl.input())) {
             return cl.input();
         }
-        // One-sided infinite clamps are exactly min/max wrappers and can be
-        // expressed with the cheaper binary nodes.
-        if (cl.min() == Double.NEGATIVE_INFINITY) {
+        // One-sided infinite clamps are exactly min/max wrappers for finite inputs
+        // and can be expressed with the cheaper binary nodes.
+        if (cl.min() == Double.NEGATIVE_INFINITY && isDefinitelyFinite(cl.input())) {
             return intern(new IRNode.Bin(IRNode.BinOp.MIN, cl.input(),
                     intern(new IRNode.Const(cl.max()))));
         }
-        if (cl.max() == Double.POSITIVE_INFINITY) {
+        if (cl.max() == Double.POSITIVE_INFINITY && isDefinitelyFinite(cl.input())) {
             return intern(new IRNode.Bin(IRNode.BinOp.MAX, cl.input(),
                     intern(new IRNode.Const(cl.min()))));
         }
-        // Degenerate range: vanilla Clamp.compute returns max(min, min(max, v)),
-        // and when min >= max the outer Math.max forces the result to min for any
-        // v. That collapse is safe for every input.
-        if (cl.min() >= cl.max()) {
+        // Degenerate range: for finite inputs vanilla Clamp.compute returns
+        // max(min, min(max, v)), and when min >= max the outer Math.max forces
+        // the result to min. NaN inputs must keep the runtime calls.
+        if (cl.min() >= cl.max() && isDefinitelyFinite(cl.input())) {
             return intern(new IRNode.Const(cl.min()));
         }
         // If Bounds prove every value of the input is already in [min, max], the
         // clamp is a no-op (vanilla: max(min, min(v, max)) = v for v in range).
         try {
             double[] iv = Bounds.interval(cl.input(), pool);
-            if (Double.isFinite(iv[0]) && Double.isFinite(iv[1])
-                    && iv[0] >= cl.min() && iv[1] <= cl.max()) {
+            if (isDefinitelyFinite(cl.input())
+                    && Double.isFinite(iv[0]) && Double.isFinite(iv[1])
+                    && iv[0] >= cl.min() && iv[1] <= cl.max()
+                    && clampRangePreservesZeroSign(cl.min(), cl.max(), iv)) {
                 return cl.input();
             }
             double tightenedMin = cl.min();
             double tightenedMax = cl.max();
-            if (Double.isFinite(iv[0]) && iv[0] > tightenedMin) {
+            if (Double.isFinite(iv[0]) && iv[0] > tightenedMin && iv[0] != 0.0) {
                 tightenedMin = iv[0];
             }
-            if (Double.isFinite(iv[1]) && iv[1] < tightenedMax) {
+            if (Double.isFinite(iv[1]) && iv[1] < tightenedMax && iv[1] != 0.0) {
                 tightenedMax = iv[1];
             }
             if ((tightenedMin != cl.min() || tightenedMax != cl.max())
@@ -448,7 +450,7 @@ public final class IROptimizer {
         // intersection of the two intervals. If they don't overlap the inner
         // clamp's output is fully outside the outer one and the result collapses
         // to a constant (the outer min, which is what max(min, ...) returns).
-        if (cl.input() instanceof IRNode.Clamp inner) {
+        if (cl.input() instanceof IRNode.Clamp inner && isDefinitelyFinite(inner.input())) {
             double newMin = Math.max(cl.min(), inner.min());
             double newMax = Math.min(cl.max(), inner.max());
             if (newMin >= newMax) return intern(new IRNode.Const(newMin));
@@ -459,12 +461,13 @@ public final class IROptimizer {
 
     private IRNode peepholeRangeChoice(IRNode.RangeChoice rc) {
         // Both arms identical -> the branch is a no-op, drop it.
-        if (rc.whenInRange() == rc.whenOutOfRange()) {
+        if (rc.whenInRange() == rc.whenOutOfRange() && isDefinitelyFinite(rc.input())) {
             return rc.whenInRange();
         }
-        // Empty half-open interval [min, max) can never match, so RangeChoice
-        // always takes the out-of-range arm.
-        if (rc.min() >= rc.max()) {
+        // Empty half-open interval [min, max) can never match for finite inputs, so
+        // RangeChoice always takes the out-of-range arm. NaN-capable inputs keep the
+        // runtime compare path.
+        if (rc.min() >= rc.max() && isDefinitelyFinite(rc.input())) {
             return rc.whenOutOfRange();
         }
         // Constant condition -> resolve the branch exactly with the runtime's
@@ -498,7 +501,7 @@ public final class IROptimizer {
             double[] iv = Bounds.interval(rc.input(), pool);
             double lo = iv[0];
             double hi = iv[1];
-            if (Double.isFinite(lo) && Double.isFinite(hi)) {
+            if (Double.isFinite(lo) && Double.isFinite(hi) && isDefinitelyFinite(rc.input())) {
                 // Always out of [min, max): every value is below min or at-or-above max.
                 if (hi < rc.min() || lo >= rc.max()) {
                     return rc.whenOutOfRange();
@@ -676,13 +679,14 @@ public final class IROptimizer {
             double[] iv = Bounds.interval(x, pool);
             double lo = iv[0];
             double hi = iv[1];
-            if (!Double.isFinite(lo) || !Double.isFinite(hi) || !Double.isFinite(c)) {
+            if (!Double.isFinite(lo) || !Double.isFinite(hi) || !Double.isFinite(c)
+                    || !isDefinitelyFinite(x)) {
                 return null;
             }
-            if (hi <= c) {
+            if (hi <= c && minWithConstCanReturnExpr(c, lo, hi)) {
                 return x;
             }
-            if (lo >= c) {
+            if (lo >= c && minWithConstCanReturnConst(c, lo, hi)) {
                 return intern(new IRNode.Const(c));
             }
         } catch (RuntimeException ignore) {
@@ -712,13 +716,14 @@ public final class IROptimizer {
             double[] iv = Bounds.interval(x, pool);
             double lo = iv[0];
             double hi = iv[1];
-            if (!Double.isFinite(lo) || !Double.isFinite(hi) || !Double.isFinite(c)) {
+            if (!Double.isFinite(lo) || !Double.isFinite(hi) || !Double.isFinite(c)
+                    || !isDefinitelyFinite(x)) {
                 return null;
             }
-            if (lo >= c) {
+            if (lo >= c && maxWithConstCanReturnExpr(c, lo, hi)) {
                 return x;
             }
-            if (hi <= c) {
+            if (hi <= c && maxWithConstCanReturnConst(c, lo, hi)) {
                 return intern(new IRNode.Const(c));
             }
         } catch (RuntimeException ignore) {
@@ -805,6 +810,134 @@ public final class IROptimizer {
     /* --------------------------------------------------------------------- */
     /* Cost model + helpers                                                  */
     /* --------------------------------------------------------------------- */
+
+    private boolean isDefinitelyFinite(IRNode n) {
+        Boolean cached = finiteMemo.get(n);
+        if (cached != null) return cached;
+        boolean result = switch (n) {
+            case IRNode.Const c -> Double.isFinite(c.value());
+            case IRNode.BlockX bx -> true;
+            case IRNode.BlockY by -> true;
+            case IRNode.BlockZ bz -> true;
+            case IRNode.Bin bin -> isDefinitelyFinite(bin.left())
+                    && isDefinitelyFinite(bin.right())
+                    && hasFiniteBounds(bin);
+            case IRNode.Unary u -> isDefinitelyFinite(u.input()) && hasFiniteBounds(u);
+            case IRNode.Clamp cl -> isDefinitelyFinite(cl.input())
+                    && Double.isFinite(cl.min())
+                    && Double.isFinite(cl.max());
+            case IRNode.RangeChoice rc -> isDefinitelyFinite(rc.input())
+                    && isDefinitelyFinite(rc.whenInRange())
+                    && isDefinitelyFinite(rc.whenOutOfRange());
+            case IRNode.YClampedGradient g -> Double.isFinite(g.fromValue()) && Double.isFinite(g.toValue());
+            case IRNode.Noise n0 -> Double.isFinite(n0.maxValue())
+                    && Double.isFinite(n0.xzScale())
+                    && Double.isFinite(n0.yScale());
+            case IRNode.ShiftedNoise sn -> Double.isFinite(sn.maxValue())
+                    && Double.isFinite(sn.xzScale())
+                    && Double.isFinite(sn.yScale())
+                    && isDefinitelyFinite(sn.shiftX())
+                    && isDefinitelyFinite(sn.shiftY())
+                    && isDefinitelyFinite(sn.shiftZ());
+            case IRNode.ShiftA sa -> Double.isFinite(sa.maxValue());
+            case IRNode.ShiftB sb -> Double.isFinite(sb.maxValue());
+            case IRNode.Shift s -> Double.isFinite(s.maxValue());
+            case IRNode.WeirdScaled w -> isDefinitelyFinite(w.input()) && Double.isFinite(w.maxValue());
+            case IRNode.InlinedNoise in -> Double.isFinite(in.maxValue())
+                    && isDefinitelyFinite(in.coordX())
+                    && isDefinitelyFinite(in.coordY())
+                    && isDefinitelyFinite(in.coordZ());
+            case IRNode.InlinedBlendedNoise b -> Double.isFinite(b.maxValue());
+            case IRNode.WeirdRarity wr -> isDefinitelyFinite(wr.input());
+            case IRNode.EndIslands e -> true;
+            case IRNode.Spline.Constant sc -> Float.isFinite(sc.value());
+            case IRNode.Spline.Multipoint mp -> Float.isFinite(mp.minValue())
+                    && Float.isFinite(mp.maxValue())
+                    && isDefinitelyFinite(mp.coordinate())
+                    && splinesDefinitelyFinite(mp.values());
+            default -> false;
+        };
+        finiteMemo.put(n, result);
+        return result;
+    }
+
+    private boolean splinesDefinitelyFinite(List<IRNode.Spline> values) {
+        for (IRNode.Spline value : values) {
+            if (!isDefinitelyFinite(value)) return false;
+        }
+        return true;
+    }
+
+    private double[] intervalOrNull(IRNode n) {
+        if (intervalMemo.containsKey(n)) {
+            return intervalMemo.get(n);
+        }
+        try {
+            double[] iv = Bounds.interval(n, pool);
+            intervalMemo.put(n, iv);
+            return iv;
+        } catch (RuntimeException ex) {
+            intervalMemo.put(n, null);
+            return null;
+        }
+    }
+
+    private boolean hasFiniteBounds(IRNode n) {
+        double[] iv = intervalOrNull(n);
+        return iv != null && Double.isFinite(iv[0]) && Double.isFinite(iv[1]);
+    }
+
+    private boolean isDefinitelyNonZeroFinite(IRNode n) {
+        if (!isDefinitelyFinite(n)) return false;
+        double[] iv = intervalOrNull(n);
+        return iv != null && Double.isFinite(iv[0]) && Double.isFinite(iv[1])
+                && (iv[1] < 0.0 || iv[0] > 0.0);
+    }
+
+    private boolean isDefinitelyPositiveFinite(IRNode n) {
+        if (!isDefinitelyFinite(n)) return false;
+        double[] iv = intervalOrNull(n);
+        return iv != null && Double.isFinite(iv[0]) && iv[0] > 0.0;
+    }
+
+    private boolean isDefinitelyNegativeFinite(IRNode n) {
+        if (!isDefinitelyFinite(n)) return false;
+        double[] iv = intervalOrNull(n);
+        return iv != null && Double.isFinite(iv[1]) && iv[1] < 0.0;
+    }
+
+    private static boolean clampRangePreservesZeroSign(double min, double max, double[] inputBounds) {
+        if (!intervalMayContainZero(inputBounds[0], inputBounds[1])) return true;
+        return !isPositiveZero(min) && !isNegativeZero(max);
+    }
+
+    private static boolean minWithConstCanReturnExpr(double c, double lo, double hi) {
+        return hi < c || !isNegativeZero(c) || !intervalMayContainZero(lo, hi);
+    }
+
+    private static boolean minWithConstCanReturnConst(double c, double lo, double hi) {
+        return lo > c || !isPositiveZero(c) || !intervalMayContainZero(lo, hi);
+    }
+
+    private static boolean maxWithConstCanReturnExpr(double c, double lo, double hi) {
+        return lo > c || !isPositiveZero(c) || !intervalMayContainZero(lo, hi);
+    }
+
+    private static boolean maxWithConstCanReturnConst(double c, double lo, double hi) {
+        return hi < c || !isNegativeZero(c) || !intervalMayContainZero(lo, hi);
+    }
+
+    private static boolean intervalMayContainZero(double lo, double hi) {
+        return lo <= 0.0 && hi >= 0.0;
+    }
+
+    private static boolean isPositiveZero(double v) {
+        return Double.doubleToRawLongBits(v) == Double.doubleToRawLongBits(0.0);
+    }
+
+    private static boolean isNegativeZero(double v) {
+        return Double.doubleToRawLongBits(v) == Double.doubleToRawLongBits(-0.0);
+    }
 
     private static boolean isConst(IRNode n, double v) {
         // Double.compare keeps -0.0 != 0.0 — important for ADD/SUB identities

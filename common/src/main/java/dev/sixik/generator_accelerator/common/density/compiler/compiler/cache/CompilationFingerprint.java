@@ -90,10 +90,15 @@ public final class CompilationFingerprint {
      */
     private static void hashCodegenCapabilities(MessageDigest d) {
         d.update((byte) 0xC0);
-        d.update((byte) 3);
+        d.update((byte) 10);
+        putUtf8(d, DfcVectorSupport.MODE);
         d.update((byte) (DfcVectorSupport.AVAILABLE ? 1 : 0));
         putU32(d, DfcVectorSupport.AVAILABLE ? DfcVectorSupport.PREFERRED_LANES : 0);
+        d.update((byte) (Codegen.BATCHED_FILL_ENABLED ? 1 : 0));
         d.update((byte) (Codegen.CELL_LATTICE_ENABLED ? 1 : 0));
+        d.update((byte) (Codegen.CELL_FILL_ADD_EXTERN_OVERRIDE_ENABLED ? 1 : 0));
+        d.update((byte) (Codegen.SPLINE_RUNTIME_STATS_ENABLED ? 1 : 0));
+        d.update((byte) (Codegen.INLINE_SMALL_RUNTIME_HELPERS ? 1 : 0));
         d.update((byte) (CodegenNativeNoise.enabled() ? 1 : 0));
         d.update((byte) (CodegenNativeNoise.emitNativeOps() ? 1 : 0));
     }
@@ -154,6 +159,12 @@ public final class CompilationFingerprint {
         d.update((byte) ((v >> 8) & 0xff));
         d.update((byte) ((v >> 16) & 0xff));
         d.update((byte) ((v >> 24) & 0xff));
+    }
+
+    private static void putUtf8(MessageDigest d, String v) {
+        byte[] bytes = v.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        putU32(d, bytes.length);
+        d.update(bytes);
     }
 
     private static void putF64(MessageDigest d, double v) {

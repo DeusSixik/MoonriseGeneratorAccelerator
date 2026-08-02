@@ -2,14 +2,15 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.DfcNativeBridge;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -34,17 +35,7 @@ public final class DensityFunctionCompiler {
         initialized = true;
         LOGGER.info("DensityFunctionCompiler initialising - runtime DF JIT pipeline enabling.");
         DfcVectorSupport.logStatusOnce();
-        LOGGER.info("DFC native noise: libraryLoaded={}, avx2={}",
-                DfcNativeBridge.isAvailable(), DfcNativeBridge.hasAvx2());
-        if (!DfcNativeBridge.isAvailable()) {
-            Throwable err = DfcNativeBridge.nativeLoadError();
-            if (err != null) {
-                LOGGER.warn("DFC native noise: not loaded ({})", err.getMessage());
-            } else {
-                LOGGER.warn("DFC native noise: not loaded (unknown reason). Put natives/dfc/prebuilts/<platform>/... "
-                        + "or set env DFC_NATIVE_LIBRARY to the absolute path of dfc_native.dll / .so / .dylib.");
-            }
-        }
+        LOGGER.info("DFC native noise: disabled (Java-only density compiler path).");
     }
 
     public static void onServerStarting(MinecraftServer server) {
@@ -77,6 +68,39 @@ public final class DensityFunctionCompiler {
                                     false);
                             return result.classesDumped();
                         }))
+                .then(Commands.literal("stats")
+                        .executes(context -> {
+                            DfcRuntimeTelemetry.Stats stats = DfcRuntimeTelemetry.snapshot();
+                            DfcCacheFastPath.Stats cacheStats = DfcCacheFastPath.snapshotStats();
+                            context.getSource().sendSuccess(() -> Component.literal(DfcRuntimeTelemetry.summary()), false);
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "DFC cache fast-path: eligible=" + cacheStats.eligibleCalls()
+                                            + ", hits=" + cacheStats.hits()
+                                            + ", misses=" + cacheStats.misses()
+                                            + ", nonAccessFallbacks=" + cacheStats.nonAccessFallbacks()), false);
+                            if (!stats.topExternClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC top externs: " + stats.topExternClasses().stream()
+                                                .map(DensityFunctionCompiler::formatTelemetryTopEntry)
+                                                .reduce((a, b) -> a + ", " + b)
+                                                .orElse("")), false);
+                            }
+                            if (!stats.topMarkerClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC top markers: " + stats.topMarkerClasses().stream()
+                                                .map(DensityFunctionCompiler::formatTelemetryTopEntry)
+                                                .reduce((a, b) -> a + ", " + b)
+                                                .orElse("")), false);
+                            }
+                            return (int) Math.min(Integer.MAX_VALUE, stats.compiledComputeCalls());
+                        }))
+                .then(Commands.literal("benchmark-summary")
+                        .executes(context -> {
+                            context.getSource().sendSuccess(() -> Component.literal(DfcRuntimeTelemetry.summary()), false);
+                            return 1;
+                        }))
+                .then(Commands.literal("parity")
+                        .executes(context -> sendParityStatus(context.getSource())))
                 .then(Commands.literal("splinestats")
                         .executes(context -> {
                             DfcSplineStats.Stats stats = DfcSplineStats.snapshot();
@@ -130,28 +154,7 @@ public final class DensityFunctionCompiler {
                                     return 1;
                                 })))
                 .then(Commands.literal("cellfillparity")
-                        .executes(context -> {
-                            DfcCellFillParity.Stats stats = DfcCellFillParity.snapshotStats();
-                            context.getSource().sendSuccess(() -> Component.literal(
-                                    "DFC cell-fill parity: enabled=" + stats.enabled()
-                                            + ", candidates=" + stats.candidates()
-                                            + ", fastEligible=" + stats.fastEligible()
-                                            + ", lazyFastEligible=" + stats.lazyFastEligible()
-                                            + ", fallbacks=" + stats.fallbacks()
-                                            + ", checks=" + stats.checks()
-                                            + ", passes=" + stats.passes()
-                                            + ", failures=" + stats.failures()
-                                            + ", skipped=" + stats.skipped()
-                                            + ", remaining=" + stats.remaining() + "/" + stats.maxChecks()
-                                            + ", epsilon=" + stats.epsilon()),
-                                    false);
-                            if (!stats.fallbackClasses().isEmpty()) {
-                                context.getSource().sendSuccess(() -> Component.literal(
-                                        "DFC cell-fill fallback classes: " + String.join(", ", stats.fallbackClasses())),
-                                        false);
-                            }
-                            return (int) stats.failures();
-                        }))
+                        .executes(context -> sendParityStatus(context.getSource())))
                 .then(Commands.literal("cellfillstats")
                         .executes(context -> {
                             DfcCellFillStats.Stats stats = DfcCellFillStats.snapshot();
@@ -236,6 +239,29 @@ public final class DensityFunctionCompiler {
         return bucket.calls() + "/" + formatNanosMillis(bucket.nanos()) + "ms";
     }
 
+    private static int sendParityStatus(CommandSourceStack source) {
+        DfcCellFillParity.Stats stats = DfcCellFillParity.snapshotStats();
+        source.sendSuccess(() -> Component.literal(
+                "DFC cell-fill parity: enabled=" + stats.enabled()
+                        + ", candidates=" + stats.candidates()
+                        + ", fastEligible=" + stats.fastEligible()
+                        + ", lazyFastEligible=" + stats.lazyFastEligible()
+                        + ", fallbacks=" + stats.fallbacks()
+                        + ", checks=" + stats.checks()
+                        + ", passes=" + stats.passes()
+                        + ", failures=" + stats.failures()
+                        + ", skipped=" + stats.skipped()
+                        + ", remaining=" + stats.remaining() + "/" + stats.maxChecks()
+                        + ", epsilon=" + stats.epsilon()),
+                false);
+        if (!stats.fallbackClasses().isEmpty()) {
+            source.sendSuccess(() -> Component.literal(
+                    "DFC cell-fill fallback classes: " + String.join(", ", stats.fallbackClasses())),
+                    false);
+        }
+        return (int) stats.failures();
+    }
+
     private static String formatNanosMillis(long nanos) {
         return String.format(Locale.ROOT, "%.3f", nanos / 1_000_000.0d);
     }
@@ -245,6 +271,11 @@ public final class DensityFunctionCompiler {
             return "0.0";
         }
         return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
+    }
+
+    private static String formatTelemetryTopEntry(DfcRuntimeTelemetry.ClassStats stats) {
+        return stats.className() + "{calls=" + stats.calls()
+                + ", sampleMs=" + formatNanosMillis(stats.sampledNanos()) + "}";
     }
 
     private static String formatSplineTopEntry(DfcSplineStats.ClassStats stats) {

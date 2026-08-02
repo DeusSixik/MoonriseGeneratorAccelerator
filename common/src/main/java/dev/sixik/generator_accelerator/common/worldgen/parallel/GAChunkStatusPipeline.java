@@ -9,6 +9,7 @@ import net.minecraft.world.level.chunk.status.ChunkStep;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -228,7 +229,7 @@ public final class GAChunkStatusPipeline {
             Supplier<ChunkAccess> task
     ) {
         int radius = writeRadius(stage, step);
-        if (!GUARDS_ENABLED || radius <= 0) {
+        if (!GUARDS_ENABLED || radius <= 0 || chunk == null) {
             return task.get();
         }
 
@@ -247,6 +248,9 @@ public final class GAChunkStatusPipeline {
                 return task.get();
             }
             backoff(retries);
+            if (Thread.currentThread().isInterrupted()) {
+                throw interruptedGuardWait(stage, pos, radius);
+            }
         }
 
         recordGuardWait(stage, retries, waitStart);
@@ -296,7 +300,7 @@ public final class GAChunkStatusPipeline {
 
     private static GuardLease acquireLease(Stage stage, ChunkStep step, ChunkAccess chunk) {
         int radius = writeRadius(stage, step);
-        if (!GUARDS_ENABLED || radius <= 0) {
+        if (!GUARDS_ENABLED || radius <= 0 || chunk == null) {
             return GuardLease.NOOP;
         }
 
@@ -315,6 +319,9 @@ public final class GAChunkStatusPipeline {
                 return GuardLease.NOOP;
             }
             backoff(retries);
+            if (Thread.currentThread().isInterrupted()) {
+                throw interruptedGuardWait(stage, pos, radius);
+            }
         }
 
         recordGuardWait(stage, retries, waitStart);
@@ -350,12 +357,10 @@ public final class GAChunkStatusPipeline {
         for (int dz = -radius; dz <= radius; dz++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 int stripe = stripe(centerX + dx, centerZ + dz);
-                if (!scratch.addStripe(stripe)) {
-                    continue;
-                }
+                scratch.addStripe(stripe);
             }
         }
-        scratch.sortStripes();
+        scratch.sortAndCompactStripes();
 
         for (int i = 0; i < scratch.stripeCount; i++) {
             int stripe = scratch.stripes[i];
@@ -403,6 +408,15 @@ public final class GAChunkStatusPipeline {
         if (Thread.interrupted()) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static CancellationException interruptedGuardWait(Stage stage, ChunkPos pos, int radius) {
+        Thread.currentThread().interrupt();
+        return new CancellationException(
+                "Interrupted while waiting for " + stage.jsonName()
+                        + " chunk-status guard at " + pos
+                        + " radius=" + radius
+        );
     }
 
     private static long nextToken() {
@@ -515,18 +529,26 @@ public final class GAChunkStatusPipeline {
             acquiredCount = 0;
         }
 
-        private boolean addStripe(int stripe) {
-            for (int i = 0; i < stripeCount; i++) {
-                if (stripes[i] == stripe) {
-                    return false;
-                }
-            }
+        private void addStripe(int stripe) {
             stripes[stripeCount++] = stripe;
-            return true;
         }
 
-        private void sortStripes() {
+        private void sortAndCompactStripes() {
+            if (stripeCount <= 1) {
+                return;
+            }
             java.util.Arrays.sort(stripes, 0, stripeCount);
+            int unique = 1;
+            int previous = stripes[0];
+            for (int i = 1; i < stripeCount; i++) {
+                int stripe = stripes[i];
+                if (stripe == previous) {
+                    continue;
+                }
+                stripes[unique++] = stripe;
+                previous = stripe;
+            }
+            stripeCount = unique;
         }
 
         private void ensureCapacity(int required) {

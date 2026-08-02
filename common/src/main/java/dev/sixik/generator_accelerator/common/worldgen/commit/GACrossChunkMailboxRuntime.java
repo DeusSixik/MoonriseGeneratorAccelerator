@@ -159,6 +159,13 @@ public final class GACrossChunkMailboxRuntime {
         return execution;
     }
 
+    public static void clearQueuedBlockWrites() {
+        synchronized (LOCK) {
+            QUEUES.clear();
+            queuedCommands = 0;
+        }
+    }
+
     public static Map<String, Object> snapshot() {
         Map<String, Object> out = new LinkedHashMap<>();
         synchronized (LOCK) {
@@ -187,10 +194,7 @@ public final class GACrossChunkMailboxRuntime {
     }
 
     public static void resetForTests() {
-        synchronized (LOCK) {
-            QUEUES.clear();
-            queuedCommands = 0;
-        }
+        clearQueuedBlockWrites();
         SEQUENCE.set(0L);
         ATTEMPTED.set(0L);
         ENQUEUED.set(0L);

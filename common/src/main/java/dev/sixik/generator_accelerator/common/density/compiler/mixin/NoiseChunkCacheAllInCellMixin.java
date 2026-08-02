@@ -42,14 +42,22 @@ public class NoiseChunkCacheAllInCellMixin implements DfcCellCacheAccess, DfcCel
         if (context != this.field_36602) {
             return DfcCacheFastPath.CACHE_MISS;
         }
-        if (!this.field_36602.interpolating) {
+        return dfc$tryDirectRead(this.field_36602);
+    }
+
+    @Override
+    public double dfc$tryDirectRead(NoiseChunk chunk) {
+        if (chunk != this.field_36602) {
             return DfcCacheFastPath.CACHE_MISS;
         }
-        int inX = this.field_36602.inCellX;
-        int inY = this.field_36602.inCellY;
-        int inZ = this.field_36602.inCellZ;
-        int cellW = this.field_36602.cellWidth;
-        int cellH = this.field_36602.cellHeight;
+        if (!chunk.interpolating) {
+            return DfcCacheFastPath.CACHE_MISS;
+        }
+        int inX = chunk.inCellX;
+        int inY = chunk.inCellY;
+        int inZ = chunk.inCellZ;
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
         if (inX < 0
                 || inY < 0
                 || inZ < 0

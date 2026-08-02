@@ -1,12 +1,15 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.CellLatticeOption;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.Bounds;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount;
@@ -113,7 +116,9 @@ public final class Codegen {
     static final SplineSearchMode SPLINE_SEARCH_MODE =
             parseSplineSearchMode(System.getProperty("dfc.codegen.splineSearchMode", "auto"));
     public static final boolean SPLINE_RUNTIME_STATS_ENABLED =
-            Boolean.parseBoolean(System.getProperty("dfc.codegen.splineRuntimeStats.emit", "true"));
+            Boolean.parseBoolean(System.getProperty("dfc.codegen.splineRuntimeStats.emit", "false"));
+    public static final boolean INLINE_SMALL_RUNTIME_HELPERS =
+            Boolean.parseBoolean(System.getProperty("dfc.codegen.inlineSmallRuntimeHelpers", "true"));
     /**
      * Optional exact LUT-guided segment selection for large interior splines.
      *
@@ -130,13 +135,17 @@ public final class Codegen {
 
     private static final String COMPILED_BASE_INTERNAL =
             Type.getInternalName(CompiledDensityFunction.class);
+    private static final String COMPILED_BASE_DESC = "L" + COMPILED_BASE_INTERNAL + ";";
     private static final String NORMAL_NOISE_INTERNAL = "net/minecraft/world/level/levelgen/synth/NormalNoise";
     static final String IMPROVED_NOISE_INTERNAL = "net/minecraft/world/level/levelgen/synth/ImprovedNoise";
     private static final String DENSITY_FUNCTION_INTERNAL = "net/minecraft/world/level/levelgen/DensityFunction";
     private static final String DENSITY_FUNCTION_DESC = "L" + DENSITY_FUNCTION_INTERNAL + ";";
     private static final String CACHE_FAST_PATH_INTERNAL = Type.getInternalName(DfcCacheFastPath.class);
+    private static final String DFC_CELL_CACHE_ACCESS_INTERNAL = Type.getInternalName(DfcCellCacheAccess.class);
+    private static final String DFC_CELL_CACHE_ACCESS_DESC = "L" + DFC_CELL_CACHE_ACCESS_INTERNAL + ";";
     private static final String DFC_CELL_FILL_ACCESS_INTERNAL = Type.getInternalName(DfcCellFillAccess.class);
     private static final String DFC_CELL_FILL_STATS_INTERNAL = Type.getInternalName(DfcCellFillStats.class);
+    private static final String DFC_RUNTIME_TELEMETRY_INTERNAL = Type.getInternalName(DfcRuntimeTelemetry.class);
     private static final String DFC_SPLINE_STATS_INTERNAL = Type.getInternalName(DfcSplineStats.class);
     private static final String DFC_SPLINE_STATS_RECORD_DETAILED_DESC = "(Ljava/lang/String;IIIJ)V";
     private static final String DFC_SPLINE_SUPPORT_INTERNAL = Type.getInternalName(DfcSplineSupport.class);
@@ -156,6 +165,7 @@ public final class Codegen {
     /** {@link DfcCacheFastPath#computeWithOptionalDirectRead}. */
     private static final String CACHE_FAST_READ_DESC =
             "(" + DENSITY_FUNCTION_DESC + "L" + FUNCTION_CONTEXT_INTERNAL + ";)D";
+    private static final String DFC_TELEMETRY_RECORD_CLASS_LONG_DESC = "(Ljava/lang/Class;J)V";
     private static final String CONTEXT_PROVIDER_INTERNAL =
             "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider";
     private static final String METHOD_HANDLE_INTERNAL = "java/lang/invoke/MethodHandle";
@@ -227,25 +237,14 @@ public final class Codegen {
      * still go through the legacy MH dispatch; only {@code lattice_y} /
      * {@code lattice_inner} ride indy.
      */
-    public static final boolean CELL_LATTICE_ENABLED = true;
-    /**
-     * Direct residual-extern cell-fill loops inline another extern compute into the
-     * add-extern fast path. They are currently opt-in because some shapes trigger ASM
-     * frame-computation failures in the generated override.
-     */
-    public static final boolean CELL_FILL_DIRECT_EXTERN_RESIDUAL_ENABLED =
-            Boolean.getBoolean("dfc.codegen.cellFillDirectExternResidual");
-    /**
-     * Experimental add-extern cell-fill specialization.
-     *
-     * <p>Left disabled by default because real worldgen runs hit ASM 9.8 frame-merge
-     * failures ({@code Frame.merge} / {@code ArrayIndexOutOfBoundsException}) on some
-     * generated root shapes. Re-enable only when actively iterating on this path or when a
-     * future rewrite simplifies the CFG enough to make frame computation stable again.
-     */
+    public static final boolean BATCHED_FILL_ENABLED =
+            Boolean.parseBoolean(System.getProperty("dfc.codegen.batchedFill", "true"));
+    public static final boolean CELL_LATTICE_ENABLED = BATCHED_FILL_ENABLED
+            && Boolean.parseBoolean(System.getProperty("dfc.cell_lattice", "true"));
+    /** Stable add-extern cell-fill specialization for {@code ADD(extern, extern)} roots. */
     public static final boolean CELL_FILL_ADD_EXTERN_OVERRIDE_ENABLED =
-            Boolean.getBoolean("dfc.codegen.cellFillAddExternOverride");
-
+            BATCHED_FILL_ENABLED
+                    && Boolean.parseBoolean(System.getProperty("dfc.codegen.cellFillAddExternOverride", "true"));
     private static SplineSearchMode parseSplineSearchMode(String raw) {
         if (raw == null) {
             return SplineSearchMode.AUTO;
@@ -293,6 +292,11 @@ public final class Codegen {
     static final String NOISE_CHUNK_INTERNAL = "net/minecraft/world/level/levelgen/NoiseChunk";
     /** Reference desc for a {@code NoiseChunk}. */
     static final String NOISE_CHUNK_DESC = "L" + NOISE_CHUNK_INTERNAL + ";";
+    /** NoiseChunk-specialized cache fast path; avoids a runtime context instanceof in cell/slab loops. */
+    private static final String CACHE_FAST_READ_NOISE_CHUNK_DESC =
+            "(" + DENSITY_FUNCTION_DESC + NOISE_CHUNK_DESC + ")D";
+    private static final String CACHE_TRUSTED_READ_NOISE_CHUNK_DESC =
+            "(" + DFC_CELL_CACHE_ACCESS_DESC + DENSITY_FUNCTION_DESC + NOISE_CHUNK_DESC + ")D";
     private static final String CELL_FILL_DESC = "([D" + NOISE_CHUNK_DESC + ")V";
     private static final String DFC_NOISE_CHUNK_SLICE_ACCESS_DESC =
             "L" + DFC_NOISE_CHUNK_SLICE_ACCESS_INTERNAL + ";";
@@ -318,14 +322,7 @@ public final class Codegen {
     private static final String CELL_ADD_LATTICE_XZ_NAME = "cell_add_lattice_xz";
     private static final String CELL_ADD_LATTICE_INNER_XZ_NAME = "cell_add_lattice_inner_xz";
     private static final String CELL_ADD_RESIDUAL_NAME = "cell_add_residual";
-    private static final String CELL_ADD_EXTERN_LEFT_RESIDUAL_NAME = "cell_add_extern_left_residual";
-    private static final String CELL_ADD_EXTERN_RIGHT_RESIDUAL_NAME = "cell_add_extern_right_residual";
     private static final String DFC_ACCUMULATE_CELL_NAME = "dfc$accumulateCell";
-    private static final String CELL_FILL_TRY_ADD_EXTERN_LEFT_NAME = "dfc$tryCellFillAddExternLeft";
-    private static final String CELL_FILL_TRY_ADD_EXTERN_RIGHT_NAME = "dfc$tryCellFillAddExternRight";
-    private static final String CELL_ACCUMULATE_TRY_ADD_EXTERN_LEFT_NAME = "dfc$tryCellAccumulateAddExternLeft";
-    private static final String CELL_ACCUMULATE_TRY_ADD_EXTERN_RIGHT_NAME = "dfc$tryCellAccumulateAddExternRight";
-    private static final String CELL_FILL_TRY_DESC = "([D" + NOISE_CHUNK_DESC + ")Z";
 
     /**
      * Private XZ+slab {@code fillArray} body, split from the public override so one large CFG
@@ -622,11 +619,31 @@ public final class Codegen {
         return "ext_" + index;
     }
 
+    static String cacheAccessFieldName(int index) {
+        return "ext_cache_" + index;
+    }
+
+    static String compiledExternFieldName(int index) {
+        return "ext_compiled_" + index;
+    }
+
+    static String cellFillAccessFieldName(int index) {
+        return "ext_cellfill_" + index;
+    }
+
     private static void emitExternFields(ClassWriter cw, ConstantPool pool) {
         int n = pool.externCount();
         for (int i = 0; i < n; i++) {
             cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
                     externFieldName(i), DENSITY_FUNCTION_DESC, null, null).visitEnd();
+            cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                    compiledExternFieldName(i), COMPILED_BASE_DESC, null, null).visitEnd();
+            cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                    cellFillAccessFieldName(i), "L" + DFC_CELL_FILL_ACCESS_INTERNAL + ";", null, null).visitEnd();
+            if (pool.externHasCacheWrapperFastPath(i)) {
+                cw.visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL,
+                        cacheAccessFieldName(i), DFC_CELL_CACHE_ACCESS_DESC, null, null).visitEnd();
+            }
         }
     }
 
@@ -663,6 +680,59 @@ public final class Codegen {
             ldcIntStatic(mv, i);
             mv.visitInsn(Opcodes.AALOAD);
             mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, externFieldName(i), DENSITY_FUNCTION_DESC);
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 5);
+            ldcIntStatic(mv, i);
+            mv.visitInsn(Opcodes.AALOAD);
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitTypeInsn(Opcodes.INSTANCEOF, COMPILED_BASE_INTERNAL);
+            Label notCompiledExtern = new Label();
+            Label storeCompiledExtern = new Label();
+            mv.visitJumpInsn(Opcodes.IFEQ, notCompiledExtern);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, COMPILED_BASE_INTERNAL);
+            mv.visitJumpInsn(Opcodes.GOTO, storeCompiledExtern);
+            mv.visitLabel(notCompiledExtern);
+            mv.visitInsn(Opcodes.POP);
+            mv.visitInsn(Opcodes.ACONST_NULL);
+            mv.visitLabel(storeCompiledExtern);
+            mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, compiledExternFieldName(i),
+                    COMPILED_BASE_DESC);
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitVarInsn(Opcodes.ALOAD, 5);
+            ldcIntStatic(mv, i);
+            mv.visitInsn(Opcodes.AALOAD);
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_FILL_ACCESS_INTERNAL);
+            Label notCellFillAccess = new Label();
+            Label storeCellFillAccess = new Label();
+            mv.visitJumpInsn(Opcodes.IFEQ, notCellFillAccess);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_FILL_ACCESS_INTERNAL);
+            mv.visitJumpInsn(Opcodes.GOTO, storeCellFillAccess);
+            mv.visitLabel(notCellFillAccess);
+            mv.visitInsn(Opcodes.POP);
+            mv.visitInsn(Opcodes.ACONST_NULL);
+            mv.visitLabel(storeCellFillAccess);
+            mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, cellFillAccessFieldName(i),
+                    "L" + DFC_CELL_FILL_ACCESS_INTERNAL + ";");
+            if (pool.externHasCacheWrapperFastPath(i)) {
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                mv.visitVarInsn(Opcodes.ALOAD, 5);
+                ldcIntStatic(mv, i);
+                mv.visitInsn(Opcodes.AALOAD);
+                mv.visitInsn(Opcodes.DUP);
+                mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_CACHE_ACCESS_INTERNAL);
+                Label notCacheAccess = new Label();
+                Label storeCacheAccess = new Label();
+                mv.visitJumpInsn(Opcodes.IFEQ, notCacheAccess);
+                mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_CACHE_ACCESS_INTERNAL);
+                mv.visitJumpInsn(Opcodes.GOTO, storeCacheAccess);
+                mv.visitLabel(notCacheAccess);
+                mv.visitInsn(Opcodes.POP);
+                mv.visitInsn(Opcodes.ACONST_NULL);
+                mv.visitLabel(storeCacheAccess);
+                mv.visitFieldInsn(Opcodes.PUTFIELD, classInternalName, cacheAccessFieldName(i),
+                        DFC_CELL_CACHE_ACCESS_DESC);
+            }
         }
 
         // Populate per-octave fields from the noiseOctaves[] payload. Layout matches
@@ -781,17 +851,44 @@ public final class Codegen {
         Label handler = new Label();
         mv.visitTryCatchBlock(start, end, handler, "java/lang/ArrayIndexOutOfBoundsException");
         mv.visitLabel(start);
+        boolean telemetry = DfcRuntimeTelemetry.enabled();
+        boolean preciseTelemetry = telemetry && DfcRuntimeTelemetry.preciseHotCounters();
+        int nextLocal = 5;
+        if (telemetry) {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL,
+                    "sampleStart", "()J", false);
+            mv.visitVarInsn(Opcodes.LSTORE, 5);
+            nextLocal = 7;
+        }
         emitCoordPrologue(mv, CoordinateSlotUse.analyze(root, helpers.extracted, false));
 
-        EmitState st = new EmitState(mv, classInternalName, helpers, false, coordinateReuse);
+        EmitState st = new EmitState(mv, classInternalName, helpers, false, coordinateReuse, nextLocal);
         st.emit(root);
 
+        if (telemetry) {
+            Label skipTelemetry = null;
+            if (!preciseTelemetry) {
+                skipTelemetry = new Label();
+                mv.visitVarInsn(Opcodes.LLOAD, 5);
+                mv.visitInsn(Opcodes.LCONST_0);
+                mv.visitInsn(Opcodes.LCMP);
+                mv.visitJumpInsn(Opcodes.IFEQ, skipTelemetry);
+            }
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false);
+            mv.visitVarInsn(Opcodes.LLOAD, 5);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL,
+                    "recordCompiledCompute", DFC_TELEMETRY_RECORD_CLASS_LONG_DESC, false);
+            if (skipTelemetry != null) {
+                mv.visitLabel(skipTelemetry);
+            }
+        }
         mv.visitInsn(Opcodes.DRETURN);
         mv.visitLabel(end);
         mv.visitLabel(handler);
-        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitVarInsn(Opcodes.ASTORE, nextLocal);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
-        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, nextLocal);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitLdcInsn("compute");
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COMPILED_BASE_INTERNAL,
@@ -844,9 +941,9 @@ public final class Codegen {
      * regular helpers use — no double emission of the same extracted subtree.
      */
     private static void emitLatticePrecomputeHelper(ClassWriter cw, String classInternalName,
-                                                    CellLatticeOption.LatticePlan plan,
-                                                    HelperRegistry helpers,
-                                                    String methodName) {
+                                                     CellLatticeOption.LatticePlan plan,
+                                                     HelperRegistry helpers,
+                                                     String methodName) {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 methodName, HELPER_DESC, null, null);
         mv.visitCode();
@@ -888,7 +985,6 @@ public final class Codegen {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 innerMethodName, LATTICE_INNER_DESC, null, null);
         mv.visitCode();
-
         // Copy yPrecomputed (slots 2/3) into a "safe" double slot before the
         // coord prologue overwrites slot 2 with int blockX. Slot 5/6 is the first
         // free slot pair past the coord-prologue slots (2, 3, 4).
@@ -1205,16 +1301,53 @@ public final class Codegen {
 
     private static void emitMarkerSlotCompute(MethodVisitor mv, String classInternalName,
                                               ConstantPool pool, int externIndex, int contextLocal) {
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(externIndex), DENSITY_FUNCTION_DESC);
-        mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
         if (pool.externHasCacheWrapperFastPath(externIndex)) {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
-                    CACHE_FAST_READ_DESC, false);
+            Label optionalFastPath = new Label();
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, cacheAccessFieldName(externIndex),
+                    DFC_CELL_CACHE_ACCESS_DESC);
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitJumpInsn(Opcodes.IFNULL, optionalFastPath);
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(externIndex), DENSITY_FUNCTION_DESC);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
+            if (DfcRuntimeTelemetry.enabled()) {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL,
+                        "computeMarkerTrustedFastPath", CACHE_TRUSTED_READ_NOISE_CHUNK_DESC, false);
+            } else {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL,
+                        "computeTrustedDirectRead", CACHE_TRUSTED_READ_NOISE_CHUNK_DESC, false);
+            }
+            Label afterTrustedFastPath = new Label();
+            mv.visitJumpInsn(Opcodes.GOTO, afterTrustedFastPath);
+            mv.visitLabel(optionalFastPath);
+            mv.visitInsn(Opcodes.POP);
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(externIndex), DENSITY_FUNCTION_DESC);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
+            if (DfcRuntimeTelemetry.enabled()) {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
+                        CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
+            } else {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                        CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
+            }
+            mv.visitLabel(afterTrustedFastPath);
         } else {
-            mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
-                    "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+            mv.visitVarInsn(Opcodes.ALOAD, 0);
+            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(externIndex), DENSITY_FUNCTION_DESC);
+            mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
+            if (DfcRuntimeTelemetry.enabled()) {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerExtern",
+                        CACHE_FAST_READ_DESC, false);
+            } else {
+                mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
+                        "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+            }
         }
     }
 
@@ -1381,6 +1514,7 @@ public final class Codegen {
         acc.visitInsn(Opcodes.ICONST_0);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
 
+        emitStoreCellAreaLocal9(acc);
         acc.visitInsn(Opcodes.ICONST_0);
         acc.visitVarInsn(Opcodes.ISTORE, 7);
         Label xLoopHead = new Label();
@@ -1407,6 +1541,8 @@ public final class Codegen {
         acc.visitVarInsn(Opcodes.ILOAD, 8);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
 
+        emitStoreColumnBaseIndexLocal10(acc);
+
         acc.visitVarInsn(Opcodes.ALOAD, 0);
         acc.visitVarInsn(Opcodes.ALOAD, 3);
         acc.visitInvokeDynamicInsn(LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
@@ -1426,30 +1562,21 @@ public final class Codegen {
         acc.visitVarInsn(Opcodes.ILOAD, 6);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
 
-        acc.visitVarInsn(Opcodes.ILOAD, 5);
-        acc.visitInsn(Opcodes.ICONST_1);
-        acc.visitInsn(Opcodes.ISUB);
-        acc.visitVarInsn(Opcodes.ILOAD, 6);
-        acc.visitInsn(Opcodes.ISUB);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitVarInsn(Opcodes.ILOAD, 7);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitInsn(Opcodes.IADD);
-        acc.visitVarInsn(Opcodes.ILOAD, 8);
-        acc.visitInsn(Opcodes.IADD);
-        acc.visitVarInsn(Opcodes.ISTORE, 10);
-
         acc.visitVarInsn(Opcodes.ALOAD, 0);
         acc.visitVarInsn(Opcodes.ALOAD, 3);
         acc.visitVarInsn(Opcodes.DLOAD, 11);
         acc.visitInvokeDynamicInsn(LATTICE_INNER_XZ_NAME, LATTICE_INNER_DESC, HELPER_BSM);
         acc.visitVarInsn(Opcodes.DSTORE, 13);
 
-        emitArrayAccumulateFromTemp(acc, 13, 10);
+        acc.visitVarInsn(Opcodes.ALOAD, 1);
+        acc.visitVarInsn(Opcodes.ILOAD, 10);
+        acc.visitVarInsn(Opcodes.ALOAD, 1);
+        acc.visitVarInsn(Opcodes.ILOAD, 10);
+        acc.visitInsn(Opcodes.DALOAD);
+        acc.visitVarInsn(Opcodes.DLOAD, 13);
+        acc.visitInsn(Opcodes.DADD);
+        acc.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(acc);
 
         acc.visitIincInsn(6, -1);
         acc.visitJumpInsn(Opcodes.GOTO, yLoopHead2);
@@ -1490,7 +1617,7 @@ public final class Codegen {
     }
 
     private static boolean emitCellFillAddScalarOverrideIfPossible(ClassWriter cw, String classInternalName,
-                                                                   IRNode root, HelperRegistry helpers) {
+                                                                    IRNode root, HelperRegistry helpers) {
         CellFillAddLatticePlan plan = analyzeCellFillAddLattice(root).orElse(null);
         if (plan == null) {
             return false;
@@ -1516,6 +1643,7 @@ public final class Codegen {
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
 
+        emitStoreCellAreaLocal9(mv);
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 7);
         Label xLoopHead = new Label();
@@ -1542,6 +1670,8 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ILOAD, 8);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
 
+        emitStoreColumnBaseIndexLocal10(mv);
+
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitInvokeDynamicInsn(CELL_ADD_LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
@@ -1561,23 +1691,6 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ILOAD, 6);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
 
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
-
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ILOAD, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -1589,6 +1702,7 @@ public final class Codegen {
         mv.visitInvokeDynamicInsn(CELL_ADD_RESIDUAL_NAME, HELPER_DESC, HELPER_BSM);
         mv.visitInsn(Opcodes.DADD);
         mv.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(mv);
 
         mv.visitIincInsn(6, -1);
         mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
@@ -1628,6 +1742,7 @@ public final class Codegen {
         acc.visitInsn(Opcodes.ICONST_0);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
 
+        emitStoreCellAreaLocal9(acc);
         acc.visitInsn(Opcodes.ICONST_0);
         acc.visitVarInsn(Opcodes.ISTORE, 7);
         Label accXLoopHead = new Label();
@@ -1654,6 +1769,8 @@ public final class Codegen {
         acc.visitVarInsn(Opcodes.ILOAD, 8);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
 
+        emitStoreColumnBaseIndexLocal10(acc);
+
         acc.visitVarInsn(Opcodes.ALOAD, 0);
         acc.visitVarInsn(Opcodes.ALOAD, 3);
         acc.visitInvokeDynamicInsn(CELL_ADD_LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
@@ -1673,23 +1790,6 @@ public final class Codegen {
         acc.visitVarInsn(Opcodes.ILOAD, 6);
         acc.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
 
-        acc.visitVarInsn(Opcodes.ILOAD, 5);
-        acc.visitInsn(Opcodes.ICONST_1);
-        acc.visitInsn(Opcodes.ISUB);
-        acc.visitVarInsn(Opcodes.ILOAD, 6);
-        acc.visitInsn(Opcodes.ISUB);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitVarInsn(Opcodes.ILOAD, 7);
-        acc.visitVarInsn(Opcodes.ILOAD, 4);
-        acc.visitInsn(Opcodes.IMUL);
-        acc.visitInsn(Opcodes.IADD);
-        acc.visitVarInsn(Opcodes.ILOAD, 8);
-        acc.visitInsn(Opcodes.IADD);
-        acc.visitVarInsn(Opcodes.ISTORE, 10);
-
         acc.visitVarInsn(Opcodes.ALOAD, 0);
         acc.visitVarInsn(Opcodes.ALOAD, 3);
         acc.visitVarInsn(Opcodes.DLOAD, 11);
@@ -1700,7 +1800,15 @@ public final class Codegen {
         acc.visitInsn(Opcodes.DADD);
         acc.visitVarInsn(Opcodes.DSTORE, 13);
 
-        emitArrayAccumulateFromTemp(acc, 13, 10);
+        acc.visitVarInsn(Opcodes.ALOAD, 1);
+        acc.visitVarInsn(Opcodes.ILOAD, 10);
+        acc.visitVarInsn(Opcodes.ALOAD, 1);
+        acc.visitVarInsn(Opcodes.ILOAD, 10);
+        acc.visitInsn(Opcodes.DALOAD);
+        acc.visitVarInsn(Opcodes.DLOAD, 13);
+        acc.visitInsn(Opcodes.DADD);
+        acc.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(acc);
 
         acc.visitIincInsn(6, -1);
         acc.visitJumpInsn(Opcodes.GOTO, accYLoopHead);
@@ -1734,58 +1842,24 @@ public final class Codegen {
             return false;
         }
 
-        CellFillAddExternPlan leftPlan = analyzeCellFillAddExternSide(
-                bin.left(), bin.right(), CELL_ADD_EXTERN_RIGHT_RESIDUAL_NAME).orElse(null);
-        CellFillAddExternPlan rightPlan = analyzeCellFillAddExternSide(
-                bin.right(), bin.left(), CELL_ADD_EXTERN_LEFT_RESIDUAL_NAME).orElse(null);
-        if (leftPlan == null && rightPlan == null) {
+        int leftExternIndex = cellFillExternIndex(bin.left());
+        int rightExternIndex = cellFillExternIndex(bin.right());
+        if (leftExternIndex < 0 || rightExternIndex < 0) {
             return false;
         }
 
-        if (leftPlan != null && leftPlan.residualHelperName() != null) {
-            emitCellFillComputeHelper(cw, classInternalName, leftPlan.residualRoot(), helpers, leftPlan.residualHelperName());
-        }
-        if (rightPlan != null && rightPlan.residualHelperName() != null) {
-            emitCellFillComputeHelper(cw, classInternalName, rightPlan.residualRoot(), helpers, rightPlan.residualHelperName());
-        }
+        emitCellFillAddTwoExternOverride(cw, classInternalName, leftExternIndex, rightExternIndex);
+        return true;
+    }
 
-        if (leftPlan != null) {
-            emitCellFillAddExternHelperMethod(cw, classInternalName, leftPlan, pool,
-                    CELL_FILL_TRY_ADD_EXTERN_LEFT_NAME, false);
-            emitCellFillAddExternHelperMethod(cw, classInternalName, leftPlan, pool,
-                    CELL_ACCUMULATE_TRY_ADD_EXTERN_LEFT_NAME, true);
-        }
-        if (rightPlan != null) {
-            emitCellFillAddExternHelperMethod(cw, classInternalName, rightPlan, pool,
-                    CELL_FILL_TRY_ADD_EXTERN_RIGHT_NAME, false);
-            emitCellFillAddExternHelperMethod(cw, classInternalName, rightPlan, pool,
-                    CELL_ACCUMULATE_TRY_ADD_EXTERN_RIGHT_NAME, true);
-        }
-
+    private static void emitCellFillAddTwoExternOverride(ClassWriter cw, String classInternalName,
+                                                         int leftExternIndex, int rightExternIndex) {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
         mv.visitCode();
-        if (leftPlan != null) {
-            Label next = new Label();
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
-            mv.visitVarInsn(Opcodes.ALOAD, 2);
-            mv.visitMethodInsn(Opcodes.INVOKESPECIAL, classInternalName,
-                    CELL_FILL_TRY_ADD_EXTERN_LEFT_NAME, CELL_FILL_TRY_DESC, false);
-            mv.visitJumpInsn(Opcodes.IFEQ, next);
-            mv.visitInsn(Opcodes.RETURN);
-            mv.visitLabel(next);
-        }
-        if (rightPlan != null) {
-            Label next = new Label();
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
-            mv.visitVarInsn(Opcodes.ALOAD, 2);
-            mv.visitMethodInsn(Opcodes.INVOKESPECIAL, classInternalName,
-                    CELL_FILL_TRY_ADD_EXTERN_RIGHT_NAME, CELL_FILL_TRY_DESC, false);
-            mv.visitJumpInsn(Opcodes.IFEQ, next);
-            mv.visitInsn(Opcodes.RETURN);
-            mv.visitLabel(next);
-        }
+        Label fallback = new Label();
+        emitCellFillAddTwoExternBody(mv, classInternalName, leftExternIndex, rightExternIndex,
+                false, fallback);
+        mv.visitLabel(fallback);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
@@ -1796,416 +1870,62 @@ public final class Codegen {
 
         MethodVisitor acc = cw.visitMethod(Opcodes.ACC_PUBLIC, DFC_ACCUMULATE_CELL_NAME, CELL_FILL_DESC, null, null);
         acc.visitCode();
-        if (leftPlan != null) {
-            Label next = new Label();
-            acc.visitVarInsn(Opcodes.ALOAD, 0);
-            acc.visitVarInsn(Opcodes.ALOAD, 1);
-            acc.visitVarInsn(Opcodes.ALOAD, 2);
-            acc.visitMethodInsn(Opcodes.INVOKESPECIAL, classInternalName,
-                    CELL_ACCUMULATE_TRY_ADD_EXTERN_LEFT_NAME, CELL_FILL_TRY_DESC, false);
-            acc.visitJumpInsn(Opcodes.IFEQ, next);
-            acc.visitInsn(Opcodes.RETURN);
-            acc.visitLabel(next);
-        }
-        if (rightPlan != null) {
-            Label next = new Label();
-            acc.visitVarInsn(Opcodes.ALOAD, 0);
-            acc.visitVarInsn(Opcodes.ALOAD, 1);
-            acc.visitVarInsn(Opcodes.ALOAD, 2);
-            acc.visitMethodInsn(Opcodes.INVOKESPECIAL, classInternalName,
-                    CELL_ACCUMULATE_TRY_ADD_EXTERN_RIGHT_NAME, CELL_FILL_TRY_DESC, false);
-            acc.visitJumpInsn(Opcodes.IFEQ, next);
-            acc.visitInsn(Opcodes.RETURN);
-            acc.visitLabel(next);
-        }
+        Label accFallback = new Label();
+        emitCellFillAddTwoExternBody(acc, classInternalName, leftExternIndex, rightExternIndex,
+                true, accFallback);
+        acc.visitLabel(accFallback);
         acc.visitVarInsn(Opcodes.ALOAD, 0);
         acc.visitVarInsn(Opcodes.ALOAD, 1);
         acc.visitVarInsn(Opcodes.ALOAD, 2);
-        acc.visitMethodInsn(Opcodes.INVOKESPECIAL, COMPILED_BASE_INTERNAL, DFC_ACCUMULATE_CELL_NAME, CELL_FILL_DESC, false);
+        acc.visitMethodInsn(Opcodes.INVOKESPECIAL, COMPILED_BASE_INTERNAL, DFC_ACCUMULATE_CELL_NAME,
+                CELL_FILL_DESC, false);
         acc.visitInsn(Opcodes.RETURN);
         acc.visitMaxs(0, 0);
         acc.visitEnd();
-        return true;
     }
 
-    private static void emitCellFillAddExternHelperMethod(ClassWriter cw, String classInternalName,
-                                                          CellFillAddExternPlan plan, ConstantPool pool,
-                                                          String methodName, boolean accumulatePrimary) {
-        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE, methodName, CELL_FILL_TRY_DESC, null, null);
-        mv.visitCode();
+    private static void emitCellFillAddTwoExternBody(MethodVisitor mv, String classInternalName,
+                                                     int leftExternIndex, int rightExternIndex,
+                                                     boolean accumulateOnly, Label fallback) {
+        emitCellFillExternAccessToLocal(mv, classInternalName, leftExternIndex, 3, fallback);
+        emitCellFillExternAccessToLocal(mv, classInternalName, rightExternIndex, 4, fallback);
 
-        Label noPrimaryFastPath = new Label();
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.externIndex()), DENSITY_FUNCTION_DESC);
-        mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_FILL_ACCESS_INTERNAL);
-        mv.visitJumpInsn(Opcodes.IFEQ, noPrimaryFastPath);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.externIndex()), DENSITY_FUNCTION_DESC);
-        mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_FILL_ACCESS_INTERNAL);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_CELL_FILL_ACCESS_INTERNAL,
-                accumulatePrimary ? DFC_ACCUMULATE_CELL_NAME : "dfc$fillCell",
+                accumulateOnly ? DFC_ACCUMULATE_CELL_NAME : "dfc$fillCell",
                 CELL_FILL_DESC, true);
 
-        if (plan.residualExternIndex() >= 0) {
-            Label scalarResidual = new Label();
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-            mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_FILL_ACCESS_INTERNAL);
-            mv.visitJumpInsn(Opcodes.IFEQ, scalarResidual);
-
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-            mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_FILL_ACCESS_INTERNAL);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
-            mv.visitVarInsn(Opcodes.ALOAD, 2);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternAccumulate", "()V", false);
-            mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_CELL_FILL_ACCESS_INTERNAL, DFC_ACCUMULATE_CELL_NAME,
-                    CELL_FILL_DESC, true);
-            mv.visitInsn(Opcodes.ICONST_1);
-            mv.visitInsn(Opcodes.IRETURN);
-
-            mv.visitLabel(scalarResidual);
-            if (DfcCellFillStats.RESIDUAL_CLASS_DEBUG_ENABLED) {
-                mv.visitVarInsn(Opcodes.ALOAD, 0);
-                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL,
-                        "recordCellExternScalarResidualClass", "(Ljava/lang/Object;)V", false);
-            }
-        }
-
-        if (plan.residualDirectExtern() != null) {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternScalarResidual", "()V", false);
-            emitCellFillAddDirectExternResidualLoop(mv, classInternalName, pool, plan.residualDirectExtern());
-        } else if (plan.residualHelperName() != null) {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternScalarResidual", "()V", false);
-            emitCellFillAddResidualLoop(mv, plan.residualHelperName());
-        }
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.IRETURN);
-
-        mv.visitLabel(noPrimaryFastPath);
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitInsn(Opcodes.IRETURN);
-        mv.visitMaxs(0, 0);
-        mv.visitEnd();
-    }
-
-    private static void emitCellFillAddExternCase(MethodVisitor mv, String classInternalName,
-                                                  CellFillAddExternPlan plan, Label fallback,
-                                                  boolean accumulatePrimary,
-                                                  ConstantPool pool) {
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
-            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-        }
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.externIndex()), DENSITY_FUNCTION_DESC);
-        mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_FILL_ACCESS_INTERNAL);
-        mv.visitJumpInsn(Opcodes.IFEQ, fallback);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
-            mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-        }
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.externIndex()), DENSITY_FUNCTION_DESC);
-        mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_FILL_ACCESS_INTERNAL);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL,
+                "recordCellExternAccumulate", "()V", false);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ALOAD, 2);
         mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_CELL_FILL_ACCESS_INTERNAL,
-                accumulatePrimary ? DFC_ACCUMULATE_CELL_NAME : "dfc$fillCell",
-                CELL_FILL_DESC, true);
-
-        if (plan.residualExternIndex() >= 0) {
-            Label scalarResidual = new Label();
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-            }
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-            mv.visitTypeInsn(Opcodes.INSTANCEOF, DFC_CELL_FILL_ACCESS_INTERNAL);
-            mv.visitJumpInsn(Opcodes.IFEQ, scalarResidual);
-
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-            }
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-            mv.visitTypeInsn(Opcodes.CHECKCAST, DFC_CELL_FILL_ACCESS_INTERNAL);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
-            mv.visitVarInsn(Opcodes.ALOAD, 2);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternAccumulate", "()V", false);
-            mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DFC_CELL_FILL_ACCESS_INTERNAL, DFC_ACCUMULATE_CELL_NAME,
-                    CELL_FILL_DESC, true);
-            mv.visitInsn(Opcodes.RETURN);
-
-            mv.visitLabel(scalarResidual);
-            if (DfcCellFillStats.RESIDUAL_CLASS_DEBUG_ENABLED) {
-                mv.visitVarInsn(Opcodes.ALOAD, 0);
-                if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
-                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-                }
-                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(plan.residualExternIndex()), DENSITY_FUNCTION_DESC);
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL,
-                        "recordCellExternScalarResidualClass", "(Ljava/lang/Object;)V", false);
-            }
-        }
-
-        if (plan.residualDirectExtern() != null) {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternScalarResidual", "()V", false);
-            emitCellFillAddDirectExternResidualLoop(mv, classInternalName, pool, plan.residualDirectExtern());
-        } else if (plan.residualHelperName() != null) {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_CELL_FILL_STATS_INTERNAL, "recordCellExternScalarResidual", "()V", false);
-            emitCellFillAddResidualLoop(mv, plan.residualHelperName());
-        }
+                DFC_ACCUMULATE_CELL_NAME, CELL_FILL_DESC, true);
         mv.visitInsn(Opcodes.RETURN);
     }
 
-    private static void emitCellFillAddResidualLoop(MethodVisitor mv, String residualHelperName) {
-        mv.visitVarInsn(Opcodes.ALOAD, 2);
-        mv.visitVarInsn(Opcodes.ASTORE, 3);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellWidth", "I");
-        mv.visitVarInsn(Opcodes.ISTORE, 4);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
-        mv.visitVarInsn(Opcodes.ISTORE, 5);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ISTORE, 6);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitVarInsn(Opcodes.ISTORE, 7);
-        Label xLoopHead = new Label();
-        Label xLoopExit = new Label();
-        mv.visitLabel(xLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitJumpInsn(Opcodes.IF_ICMPGE, xLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellX", "I");
-
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitVarInsn(Opcodes.ISTORE, 8);
-        Label zLoopHead = new Label();
-        Label zLoopExit = new Label();
-        mv.visitLabel(zLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitJumpInsn(Opcodes.IF_ICMPGE, zLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
-
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ISTORE, 9);
-        Label yLoopHead = new Label();
-        Label yLoopExit = new Label();
-        mv.visitLabel(yLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitJumpInsn(Opcodes.IFLT, yLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
-
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 10);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-
-        mv.visitVarInsn(Opcodes.ALOAD, 1);
-        mv.visitVarInsn(Opcodes.ILOAD, 10);
-        mv.visitVarInsn(Opcodes.ALOAD, 1);
-        mv.visitVarInsn(Opcodes.ILOAD, 10);
-        mv.visitInsn(Opcodes.DALOAD);
-        mv.visitVarInsn(Opcodes.ALOAD, 0);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitInvokeDynamicInsn(residualHelperName, HELPER_DESC, HELPER_BSM);
-        mv.visitInsn(Opcodes.DADD);
-        mv.visitInsn(Opcodes.DASTORE);
-
-        mv.visitIincInsn(9, -1);
-        mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
-        mv.visitLabel(yLoopExit);
-
-        mv.visitIincInsn(8, 1);
-        mv.visitJumpInsn(Opcodes.GOTO, zLoopHead);
-        mv.visitLabel(zLoopExit);
-
-        mv.visitIincInsn(7, 1);
-        mv.visitJumpInsn(Opcodes.GOTO, xLoopHead);
-        mv.visitLabel(xLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-    }
-
-    private static void emitCellFillAddDirectExternResidualLoop(MethodVisitor mv, String classInternalName,
-                                                                ConstantPool pool, DirectExternResidual residual) {
-        mv.visitVarInsn(Opcodes.ALOAD, 2);
-        mv.visitVarInsn(Opcodes.ASTORE, 3);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellWidth", "I");
-        mv.visitVarInsn(Opcodes.ISTORE, 4);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitFieldInsn(Opcodes.GETFIELD, NOISE_CHUNK_INTERNAL, "cellHeight", "I");
-        mv.visitVarInsn(Opcodes.ISTORE, 5);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ISTORE, 6);
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitVarInsn(Opcodes.ISTORE, 7);
-        Label xLoopHead = new Label();
-        Label xLoopExit = new Label();
-        mv.visitLabel(xLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitJumpInsn(Opcodes.IF_ICMPGE, xLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellX", "I");
-
-        mv.visitInsn(Opcodes.ICONST_0);
-        mv.visitVarInsn(Opcodes.ISTORE, 8);
-        Label zLoopHead = new Label();
-        Label zLoopExit = new Label();
-        mv.visitLabel(zLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitJumpInsn(Opcodes.IF_ICMPGE, zLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
-
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ISTORE, 9);
-        Label yLoopHead = new Label();
-        Label yLoopExit = new Label();
-        mv.visitLabel(yLoopHead);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitJumpInsn(Opcodes.IFLT, yLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
-
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 9);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 10);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-
-        emitDirectExternCompute(mv, classInternalName, pool, residual, 3);
-        mv.visitVarInsn(Opcodes.DSTORE, 13);
-        emitArrayAccumulateFromTemp(mv, 13, 10);
-
-        mv.visitIincInsn(9, -1);
-        mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
-        mv.visitLabel(yLoopExit);
-
-        mv.visitIincInsn(8, 1);
-        mv.visitJumpInsn(Opcodes.GOTO, zLoopHead);
-        mv.visitLabel(zLoopExit);
-
-        mv.visitIincInsn(7, 1);
-        mv.visitJumpInsn(Opcodes.GOTO, xLoopHead);
-        mv.visitLabel(xLoopExit);
-
-        mv.visitVarInsn(Opcodes.ALOAD, 3);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "arrayIndex", "I");
-    }
-
-    private static void emitDirectExternCompute(MethodVisitor mv, String classInternalName,
-                                                ConstantPool pool, DirectExternResidual residual,
-                                                int contextLocal) {
-        if (residual.marker()) {
-            emitMarkerSlotCompute(mv, classInternalName, pool, residual.externIndex(), contextLocal);
-            return;
-        }
+    private static void emitCellFillExternAccessToLocal(MethodVisitor mv, String classInternalName,
+                                                        int externIndex, int local, Label fallback) {
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         if (!COMPILED_BASE_INTERNAL.equals(classInternalName)) {
             mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
         }
-        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(residual.externIndex()), DENSITY_FUNCTION_DESC);
-        mv.visitVarInsn(Opcodes.ALOAD, contextLocal);
-        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
-                "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
-    }
-
-    private static void emitArrayAccumulateFromTemp(MethodVisitor mv, int tempLocal, int indexLocal) {
-        mv.visitVarInsn(Opcodes.ALOAD, 1);
-        mv.visitVarInsn(Opcodes.ILOAD, indexLocal);
-        mv.visitVarInsn(Opcodes.ALOAD, 1);
-        mv.visitVarInsn(Opcodes.ILOAD, indexLocal);
-        mv.visitInsn(Opcodes.DALOAD);
-        mv.visitVarInsn(Opcodes.DLOAD, tempLocal);
-        mv.visitInsn(Opcodes.DADD);
-        mv.visitInsn(Opcodes.DASTORE);
+        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, cellFillAccessFieldName(externIndex),
+                "L" + DFC_CELL_FILL_ACCESS_INTERNAL + ";");
+        mv.visitInsn(Opcodes.DUP);
+        Label hasAccess = new Label();
+        mv.visitJumpInsn(Opcodes.IFNONNULL, hasAccess);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitJumpInsn(Opcodes.GOTO, fallback);
+        mv.visitLabel(hasAccess);
+        mv.visitVarInsn(Opcodes.ASTORE, local);
     }
 
     private record CellFillAddLatticePlan(IRNode latticeRoot, IRNode residualRoot,
                                           CellLatticeOption.LatticePlan latticePlan) {
-    }
-
-    private record CellFillAddExternPlan(int externIndex, IRNode residualRoot,
-                                         int residualExternIndex, DirectExternResidual residualDirectExtern,
-                                         String residualHelperName) {
-    }
-
-    private record DirectExternResidual(int externIndex, boolean marker) {
     }
 
     private static Optional<CellFillAddLatticePlan> analyzeCellFillAddLattice(IRNode root) {
@@ -2229,25 +1949,6 @@ public final class Codegen {
         return Optional.of(new CellFillAddLatticePlan(latticeRoot, residualRoot, plan));
     }
 
-    private static Optional<CellFillAddExternPlan> analyzeCellFillAddExternSide(IRNode externRoot,
-                                                                                IRNode residualRoot,
-                                                                                String residualHelperName) {
-        int externIndex = cellFillExternIndex(externRoot);
-        if (externIndex < 0) {
-            return Optional.empty();
-        }
-        int residualExternIndex = cellFillExternIndex(residualRoot);
-        DirectExternResidual residualDirectExtern = CELL_FILL_DIRECT_EXTERN_RESIDUAL_ENABLED
-                ? directExternResidual(residualRoot)
-                : null;
-        return Optional.of(new CellFillAddExternPlan(
-                externIndex,
-                residualRoot,
-                residualExternIndex,
-                residualDirectExtern,
-                residualHelperName));
-    }
-
     private static int cellFillExternIndex(IRNode node) {
         return switch (node) {
             case IRNode.Invoke iv -> iv.externIndex();
@@ -2255,16 +1956,6 @@ public final class Codegen {
             case IRNode.Beardifier b -> b.externIndex();
             case IRNode.EndIslands e -> e.externIndex();
             default -> -1;
-        };
-    }
-
-    private static DirectExternResidual directExternResidual(IRNode node) {
-        return switch (node) {
-            case IRNode.Invoke iv -> new DirectExternResidual(iv.externIndex(), false);
-            case IRNode.Marker m -> new DirectExternResidual(m.externIndex(), true);
-            case IRNode.Beardifier b -> new DirectExternResidual(b.externIndex(), false);
-            case IRNode.EndIslands e -> new DirectExternResidual(e.externIndex(), false);
-            default -> null;
         };
     }
 
@@ -2396,6 +2087,7 @@ public final class Codegen {
      * Locals: 3=nc,4=cellW,5=cellH,7=xi,8=zi,6=yi,10=idx,11=xzPre (double uses locals 11-12),1=values,0=self.
      */
     private static void emitLatticeFillArrayScalarXZHoistLoops(MethodVisitor mv, String innerIndyName) {
+        emitStoreCellAreaLocal9(mv);
         mv.visitInsn(Opcodes.ICONST_0);
         mv.visitVarInsn(Opcodes.ISTORE, 7);
         Label xLoopHead = new Label();
@@ -2422,6 +2114,8 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ILOAD, 8);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
 
+        emitStoreColumnBaseIndexLocal10(mv);
+
         mv.visitVarInsn(Opcodes.ALOAD, 0);
         mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitInvokeDynamicInsn(LATTICE_XZ_NAME, HELPER_DESC, HELPER_BSM);
@@ -2441,23 +2135,6 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ILOAD, 6);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
 
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
-
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ILOAD, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -2465,6 +2142,7 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 11);
         mv.visitInvokeDynamicInsn(innerIndyName, LATTICE_INNER_DESC, HELPER_BSM);
         mv.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(mv);
 
         mv.visitIincInsn(6, -1);
         mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
@@ -3417,6 +3095,8 @@ public final class Codegen {
     }
 
     private static void emitLatticeFillArrayInnerScalarColumnXz(MethodVisitor mv, String innerIndyName) {
+        emitStoreCellAreaLocal9(mv);
+        emitStoreColumnBaseIndexLocal10(mv);
         mv.visitVarInsn(Opcodes.ILOAD, 5);
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitInsn(Opcodes.ISUB);
@@ -3429,22 +3109,6 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitVarInsn(Opcodes.ILOAD, 6);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ILOAD, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -3452,12 +3116,15 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 11);
         mv.visitInvokeDynamicInsn(innerIndyName, LATTICE_INNER_DESC, HELPER_BSM);
         mv.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(mv);
         mv.visitIincInsn(6, -1);
         mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
         mv.visitLabel(yLoopExit);
     }
 
     private static void emitLatticeFillArrayInnerBatchedColumnXz(MethodVisitor mv, String batchedIndyName) {
+        emitStoreCellAreaLocal9(mv);
+        emitStoreColumnBaseIndexLocal10(mv);
         mv.visitVarInsn(Opcodes.ILOAD, 5);
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitInsn(Opcodes.ISUB);
@@ -3470,22 +3137,6 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ALOAD, 3);
         mv.visitVarInsn(Opcodes.ILOAD, 6);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellY", "I");
-        mv.visitVarInsn(Opcodes.ILOAD, 5);
-        mv.visitInsn(Opcodes.ICONST_1);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 6);
-        mv.visitInsn(Opcodes.ISUB);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitVarInsn(Opcodes.ILOAD, 7);
-        mv.visitVarInsn(Opcodes.ILOAD, 4);
-        mv.visitInsn(Opcodes.IMUL);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ILOAD, 8);
-        mv.visitInsn(Opcodes.IADD);
-        mv.visitVarInsn(Opcodes.ISTORE, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 1);
         mv.visitVarInsn(Opcodes.ILOAD, 10);
         mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -3494,9 +3145,33 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.ALOAD, 32);
         mv.visitInvokeDynamicInsn(batchedIndyName, LATTICE_INNER_BATCHED_DESC, HELPER_BSM);
         mv.visitInsn(Opcodes.DASTORE);
+        emitAdvanceColumnIndexLocal10(mv);
         mv.visitIincInsn(6, -1);
         mv.visitJumpInsn(Opcodes.GOTO, yLoopHead);
         mv.visitLabel(yLoopExit);
+    }
+
+    private static void emitStoreCellAreaLocal9(MethodVisitor mv) {
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitVarInsn(Opcodes.ISTORE, 9);
+    }
+
+    private static void emitStoreColumnBaseIndexLocal10(MethodVisitor mv) {
+        mv.visitVarInsn(Opcodes.ILOAD, 7);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitVarInsn(Opcodes.ILOAD, 8);
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitVarInsn(Opcodes.ISTORE, 10);
+    }
+
+    private static void emitAdvanceColumnIndexLocal10(MethodVisitor mv) {
+        mv.visitVarInsn(Opcodes.ILOAD, 10);
+        mv.visitVarInsn(Opcodes.ILOAD, 9);
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitVarInsn(Opcodes.ISTORE, 10);
     }
 
     private static void emitNativeSlabInnerAfterBatchXz(MethodVisitor mv, Label colAfterInner, Label batchedJavaInner,
@@ -3837,6 +3512,14 @@ public final class Codegen {
 
         EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
                   boolean castSelfForSubclassNoiseFields,
+                  CoordinateReusePlan coordinateReuse,
+                  int nextLocal) {
+            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
+                    coordinateReuse, null, -1, SLAB_INDEX_XZ, nextLocal);
+        }
+
+        EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
+                  boolean castSelfForSubclassNoiseFields,
                   IdentityHashMap<IRNode, Integer> slabBatchSlots,
                   int slabOutLocal) {
             this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
@@ -3858,6 +3541,17 @@ public final class Codegen {
                   IdentityHashMap<IRNode, Integer> slabBatchSlots,
                   int slabOutLocal,
                   int slabIndexMode) {
+            this(mv, classInternalName, helpers, castSelfForSubclassNoiseFields,
+                    coordinateReuse, slabBatchSlots, slabOutLocal, slabIndexMode, 5);
+        }
+
+        EmitState(MethodVisitor mv, String classInternalName, HelperRegistry helpers,
+                  boolean castSelfForSubclassNoiseFields,
+                  CoordinateReusePlan coordinateReuse,
+                  IdentityHashMap<IRNode, Integer> slabBatchSlots,
+                  int slabOutLocal,
+                  int slabIndexMode,
+                  int nextLocal) {
             this.mv = mv;
             this.classInternalName = classInternalName;
             this.helpers = helpers;
@@ -3867,6 +3561,7 @@ public final class Codegen {
             this.slabBatchSlots = slabBatchSlots;
             this.slabOutLocal = slabOutLocal;
             this.slabIndexMode = slabIndexMode;
+            this.nextLocal = nextLocal;
         }
 
         private void emitSlabNoiseSampleLoad(int batchSlotIndex) {
@@ -4122,9 +3817,12 @@ public final class Codegen {
                 case MUL -> { emit(bin.left()); emit(bin.right()); mv.visitInsn(Opcodes.DMUL); }
                 case DIV -> { emit(bin.left()); emit(bin.right()); mv.visitInsn(Opcodes.DDIV); }
                 case MIN -> {
+                    if (emitMinWithRightRangeChoiceConstArm(bin.left(), bin.right())) {
+                        return;
+                    }
                     emit(bin.left());
                     emit(bin.right());
-                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+                    emitMathMin();
                 }
                 case MAX -> {
                     emit(bin.left());
@@ -4132,6 +3830,79 @@ public final class Codegen {
                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
                 }
             }
+        }
+
+        private boolean emitMinWithRightRangeChoiceConstArm(IRNode left, IRNode right) {
+            if (!(right instanceof IRNode.RangeChoice rc)) {
+                return false;
+            }
+            boolean inRangeIsLeft = rc.whenInRange() instanceof IRNode.Const c
+                    && minLeftDominatesConst(left, c.value());
+            boolean outOfRangeIsLeft = rc.whenOutOfRange() instanceof IRNode.Const c
+                    && minLeftDominatesConst(left, c.value());
+            if (!inRangeIsLeft && !outOfRangeIsLeft) {
+                return false;
+            }
+
+            emit(left);
+            int leftSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DSTORE, leftSlot);
+
+            emit(rc.input());
+            int inputSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DSTORE, inputSlot);
+
+            Label outOfRange = new Label();
+            Label end = new Label();
+            mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+            mv.visitLdcInsn(rc.min());
+            mv.visitInsn(Opcodes.DCMPG);
+            mv.visitJumpInsn(Opcodes.IFLT, outOfRange);
+
+            mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+            mv.visitLdcInsn(rc.max());
+            mv.visitInsn(Opcodes.DCMPL);
+            mv.visitJumpInsn(Opcodes.IFGE, outOfRange);
+
+            BranchScope snap = snapshotBranch();
+            if (inRangeIsLeft) {
+                mv.visitVarInsn(Opcodes.DLOAD, leftSlot);
+            } else {
+                mv.visitVarInsn(Opcodes.DLOAD, leftSlot);
+                emit(rc.whenInRange());
+                emitMathMin();
+            }
+            restoreBranch(snap);
+            mv.visitJumpInsn(Opcodes.GOTO, end);
+
+            mv.visitLabel(outOfRange);
+            if (outOfRangeIsLeft) {
+                mv.visitVarInsn(Opcodes.DLOAD, leftSlot);
+            } else {
+                mv.visitVarInsn(Opcodes.DLOAD, leftSlot);
+                emit(rc.whenOutOfRange());
+                emitMathMin();
+            }
+            restoreBranch(snap);
+
+            mv.visitLabel(end);
+            return true;
+        }
+
+        private boolean minLeftDominatesConst(IRNode left, double c) {
+            if (Double.isNaN(c) || Double.doubleToRawLongBits(c) == Double.doubleToRawLongBits(-0.0D)) {
+                return false;
+            }
+            try {
+                double[] iv = Bounds.interval(left, pool);
+                return Double.isFinite(iv[1]) && iv[1] <= c;
+            } catch (RuntimeException ignored) {
+                return false;
+            }
+        }
+
+        private void emitMathMin() {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
         }
 
         private void emitUnary(IRNode.Unary u) {
@@ -4151,7 +3922,7 @@ public final class Codegen {
                 }
                 case HALF_NEGATIVE -> emitConditionalScale(0.5);
                 case QUARTER_NEGATIVE -> emitConditionalScale(0.25);
-                case SQUEEZE -> emitSqueeze();
+                case SQUEEZE -> emitSqueeze(u.input());
             }
         }
 
@@ -4170,10 +3941,64 @@ public final class Codegen {
             mv.visitLabel(end);
         }
 
-        private void emitSqueeze() {
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC,
-                    "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime",
-                    "squeeze", "(D)D", false);
+        private void emitSqueeze(IRNode input) {
+            if (INLINE_SMALL_RUNTIME_HELPERS && squeezeInputWithinUnit(input)) {
+                int xSlot = allocDoubleSlot();
+                mv.visitVarInsn(Opcodes.DSTORE, xSlot);
+                emitSqueezePolynomialFromSlot(xSlot);
+                return;
+            }
+
+            int xSlot = allocDoubleSlot();
+            Label aboveLower = new Label();
+            Label belowUpper = new Label();
+            Label clamped = new Label();
+
+            mv.visitVarInsn(Opcodes.DSTORE, xSlot);
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitLdcInsn(-1.0D);
+            mv.visitInsn(Opcodes.DCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, aboveLower);
+            mv.visitLdcInsn(-1.0D);
+            mv.visitVarInsn(Opcodes.DSTORE, xSlot);
+            mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+            mv.visitLabel(aboveLower);
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitInsn(Opcodes.DCONST_1);
+            mv.visitInsn(Opcodes.DCMPL);
+            mv.visitJumpInsn(Opcodes.IFLE, belowUpper);
+            mv.visitInsn(Opcodes.DCONST_1);
+            mv.visitVarInsn(Opcodes.DSTORE, xSlot);
+            mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+            mv.visitLabel(belowUpper);
+            mv.visitLabel(clamped);
+            emitSqueezePolynomialFromSlot(xSlot);
+        }
+
+        private boolean squeezeInputWithinUnit(IRNode input) {
+            try {
+                double[] iv = Bounds.interval(input, pool);
+                return Double.isFinite(iv[0]) && Double.isFinite(iv[1])
+                        && iv[0] >= -1.0D && iv[1] <= 1.0D;
+            } catch (RuntimeException ignored) {
+                return false;
+            }
+        }
+
+        private void emitSqueezePolynomialFromSlot(int xSlot) {
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitLdcInsn(0.5D);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitVarInsn(Opcodes.DLOAD, xSlot);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitLdcInsn(1.0D / 24.0D);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitInsn(Opcodes.DSUB);
         }
 
         private void emitClamp(IRNode.Clamp c) {
@@ -4233,14 +4058,94 @@ public final class Codegen {
         }
 
         private void emitYClampedGradient(IRNode.YClampedGradient g) {
+            if (g.fromY() < g.toY()) {
+                emitMonotoneYClampedGradient(g);
+                return;
+            }
+
+            Label lower = new Label();
+            Label upper = new Label();
+            Label done = new Label();
+            int ySlot = allocDoubleSlot();
+
             mv.visitVarInsn(Opcodes.ILOAD, 3);
             mv.visitInsn(Opcodes.I2D);
+            mv.visitVarInsn(Opcodes.DSTORE, ySlot);
+
+            mv.visitVarInsn(Opcodes.DLOAD, ySlot);
             mv.visitLdcInsn((double) g.fromY());
+            mv.visitInsn(Opcodes.DCMPG);
+            mv.visitJumpInsn(Opcodes.IFLE, lower);
+
+            mv.visitVarInsn(Opcodes.DLOAD, ySlot);
             mv.visitLdcInsn((double) g.toY());
+            mv.visitInsn(Opcodes.DCMPL);
+            mv.visitJumpInsn(Opcodes.IFGE, upper);
+
             mv.visitLdcInsn(g.fromValue());
+            mv.visitLdcInsn(g.toValue() - g.fromValue());
+            mv.visitVarInsn(Opcodes.DLOAD, ySlot);
+            mv.visitLdcInsn((double) g.fromY());
+            mv.visitInsn(Opcodes.DSUB);
+            mv.visitLdcInsn(1.0D / ((double) g.toY() - (double) g.fromY()));
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitInsn(Opcodes.DADD);
+            mv.visitJumpInsn(Opcodes.GOTO, done);
+
+            mv.visitLabel(lower);
+            mv.visitLdcInsn(g.fromValue());
+            mv.visitJumpInsn(Opcodes.GOTO, done);
+
+            mv.visitLabel(upper);
             mv.visitLdcInsn(g.toValue());
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "net/minecraft/util/Mth", "clampedMap",
-                    "(DDDDD)D", false);
+
+            mv.visitLabel(done);
+        }
+
+        private void emitMonotoneYClampedGradient(IRNode.YClampedGradient g) {
+            Label lower = new Label();
+            Label upper = new Label();
+            Label done = new Label();
+
+            mv.visitVarInsn(Opcodes.ILOAD, 3);
+            ldcInt(g.fromY());
+            mv.visitJumpInsn(Opcodes.IF_ICMPLE, lower);
+
+            mv.visitVarInsn(Opcodes.ILOAD, 3);
+            ldcInt(g.toY());
+            mv.visitJumpInsn(Opcodes.IF_ICMPGE, upper);
+
+            double delta = g.toValue() - g.fromValue();
+            if (Double.compare(g.fromValue(), 0.0D) == 0 && Double.compare(delta, 1.0D) == 0) {
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                mv.visitInsn(Opcodes.I2D);
+                mv.visitLdcInsn((double) g.fromY());
+                mv.visitInsn(Opcodes.DSUB);
+                mv.visitLdcInsn(1.0D / ((double) g.toY() - (double) g.fromY()));
+                mv.visitInsn(Opcodes.DMUL);
+            } else {
+                mv.visitLdcInsn(g.fromValue());
+                mv.visitLdcInsn(delta);
+                mv.visitVarInsn(Opcodes.ILOAD, 3);
+                mv.visitInsn(Opcodes.I2D);
+                mv.visitLdcInsn((double) g.fromY());
+                mv.visitInsn(Opcodes.DSUB);
+                mv.visitLdcInsn(1.0D / ((double) g.toY() - (double) g.fromY()));
+                mv.visitInsn(Opcodes.DMUL);
+                mv.visitInsn(Opcodes.DMUL);
+                mv.visitInsn(Opcodes.DADD);
+            }
+            mv.visitJumpInsn(Opcodes.GOTO, done);
+
+            mv.visitLabel(lower);
+            mv.visitLdcInsn(g.fromValue());
+            mv.visitJumpInsn(Opcodes.GOTO, done);
+
+            mv.visitLabel(upper);
+            mv.visitLdcInsn(g.toValue());
+
+            mv.visitLabel(done);
         }
 
         /* ---------------- noise samples ---------------- */
@@ -4450,8 +4355,10 @@ public final class Codegen {
                         sCx, sCy, sCz);
                 mv.visitInsn(Opcodes.DADD);
             }
-            mv.visitLdcInsn(spec.valueFactor());
-            mv.visitInsn(Opcodes.DMUL);
+            if (Double.compare(spec.valueFactor(), 1.0D) != 0) {
+                mv.visitLdcInsn(spec.valueFactor());
+                mv.visitInsn(Opcodes.DMUL);
+            }
         }
 
         /**
@@ -4488,7 +4395,10 @@ public final class Codegen {
         private void emitOctaveContribution(int specIdx, int branchIdx, int activeOctaveIdx,
                                             double inputFactor, double ampValueFactor,
                                             int cxSlot, int cySlot, int czSlot) {
-            mv.visitLdcInsn(ampValueFactor);
+            boolean multiplyOutput = Double.compare(ampValueFactor, 1.0D) != 0;
+            if (multiplyOutput) {
+                mv.visitLdcInsn(ampValueFactor);
+            }
             mv.visitVarInsn(Opcodes.ALOAD, 0);
             if (castSelfForSubclassNoiseFields) {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
@@ -4496,27 +4406,29 @@ public final class Codegen {
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
                     noiseFieldName(specIdx, branchIdx, activeOctaveIdx), IMPROVED_NOISE_DESC);
 
-            mv.visitVarInsn(Opcodes.DLOAD, cxSlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
-
-            mv.visitVarInsn(Opcodes.DLOAD, cySlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
-
-            mv.visitVarInsn(Opcodes.DLOAD, czSlot);
-            mv.visitLdcInsn(inputFactor);
-            mv.visitInsn(Opcodes.DMUL);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "wrapAxis", "(D)D", false);
+            emitScaledWrappedCoord(cxSlot, inputFactor);
+            emitScaledWrappedCoord(cySlot, inputFactor);
+            emitScaledWrappedCoord(czSlot, inputFactor);
 
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IMPROVED_NOISE_INTERNAL,
                     "noise", "(DDD)D", false);
-            mv.visitInsn(Opcodes.DMUL);
+            if (multiplyOutput) {
+                mv.visitInsn(Opcodes.DMUL);
+            }
+        }
+
+        private void emitScaledWrappedCoord(int coordSlot, double inputFactor) {
+            mv.visitVarInsn(Opcodes.DLOAD, coordSlot);
+            if (Double.compare(inputFactor, 1.0D) != 0) {
+                mv.visitLdcInsn(inputFactor);
+                mv.visitInsn(Opcodes.DMUL);
+            }
+            emitWrapAxis();
+        }
+
+        private void emitWrapAxis() {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
+                    "wrapAxis", "(D)D", false);
         }
 
         /**
@@ -4528,17 +4440,12 @@ public final class Codegen {
          */
         private void emitWeirdRarity(IRNode.WeirdRarity wr) {
             emit(wr.input());
-            ldcInt(wr.rarityValueMapperOrdinal());
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
-                    "weirdRarity", "(DI)D", false);
+            emitWeirdRarityValue(wr.rarityValueMapperOrdinal());
         }
 
         private void emitWeirdScaled(IRNode.WeirdScaled w) {
             emit(w.input());
-            ldcInt(w.rarityValueMapperOrdinal());
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC,
-                    "dev/sixik/generator_accelerator/common/density/compiler/compiler/runtime/Runtime",
-                    "weirdRarity", "(DI)D", false);
+            emitWeirdRarityValue(w.rarityValueMapperOrdinal());
             int dSlot = allocDoubleSlot();
             mv.visitInsn(Opcodes.DUP2);
             mv.visitVarInsn(Opcodes.DSTORE, dSlot);
@@ -4559,6 +4466,43 @@ public final class Codegen {
                     "(DDD)D", false);
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
             mv.visitInsn(Opcodes.DMUL);
+        }
+
+        private void emitWeirdRarityValue(int ordinal) {
+            if (!INLINE_SMALL_RUNTIME_HELPERS) {
+                ldcInt(ordinal);
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, RUNTIME_INTERNAL,
+                        "weirdRarity", "(DI)D", false);
+                return;
+            }
+
+            int valueSlot = allocDoubleSlot();
+            mv.visitVarInsn(Opcodes.DSTORE, valueSlot);
+            Label done = new Label();
+            if (ordinal == 0) {
+                emitDoubleLessConstReturn(valueSlot, -0.5D, 0.75D, done);
+                emitDoubleLessConstReturn(valueSlot, 0.0D, 1.0D, done);
+                emitDoubleLessConstReturn(valueSlot, 0.5D, 1.5D, done);
+                mv.visitLdcInsn(2.0D);
+            } else {
+                emitDoubleLessConstReturn(valueSlot, -0.75D, 0.5D, done);
+                emitDoubleLessConstReturn(valueSlot, -0.5D, 0.75D, done);
+                emitDoubleLessConstReturn(valueSlot, 0.5D, 1.0D, done);
+                emitDoubleLessConstReturn(valueSlot, 0.75D, 2.0D, done);
+                mv.visitLdcInsn(3.0D);
+            }
+            mv.visitLabel(done);
+        }
+
+        private void emitDoubleLessConstReturn(int valueSlot, double threshold, double result, Label done) {
+            Label next = new Label();
+            mv.visitVarInsn(Opcodes.DLOAD, valueSlot);
+            mv.visitLdcInsn(threshold);
+            mv.visitInsn(Opcodes.DCMPG);
+            mv.visitJumpInsn(Opcodes.IFGE, next);
+            mv.visitLdcInsn(result);
+            mv.visitJumpInsn(Opcodes.GOTO, done);
+            mv.visitLabel(next);
         }
 
         /* ---------------- spline ---------------- */
@@ -5074,30 +5018,133 @@ public final class Codegen {
          * can target only known wrapper slots at compile time.
          */
         private void emitInvoke(int idx) {
+            if (pool.extern(idx) instanceof CompiledDensityFunction) {
+                Label genericExtern = new Label();
+                Label afterExtern = new Label();
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, compiledExternFieldName(idx), COMPILED_BASE_DESC);
+                mv.visitInsn(Opcodes.DUP);
+                mv.visitJumpInsn(Opcodes.IFNULL, genericExtern);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, COMPILED_BASE_INTERNAL,
+                        "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", false);
+                mv.visitJumpInsn(Opcodes.GOTO, afterExtern);
+                mv.visitLabel(genericExtern);
+                mv.visitInsn(Opcodes.POP);
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                emitGenericExternCompute();
+                mv.visitLabel(afterExtern);
+                return;
+            }
             mv.visitVarInsn(Opcodes.ALOAD, 0);
             if (castSelfForSubclassNoiseFields) {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
             }
             mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
             mv.visitVarInsn(Opcodes.ALOAD, 1);
-            mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
-                    "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+            emitGenericExternCompute();
         }
 
-        /** Marker sites flagged as cell-cache wrappers may use {@link DfcCacheFastPath}. */
-        private void emitMarkerInvoke(int idx) {
-            mv.visitVarInsn(Opcodes.ALOAD, 0);
-            if (castSelfForSubclassNoiseFields) {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
-            }
-            mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
-            mv.visitVarInsn(Opcodes.ALOAD, 1);
-            if (pool.externHasCacheWrapperFastPath(idx)) {
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+        private void emitGenericExternCompute() {
+            if (DfcRuntimeTelemetry.enabled()) {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeExtern",
                         CACHE_FAST_READ_DESC, false);
             } else {
                 mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
                         "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+            }
+        }
+
+        /** Marker sites flagged as cell-cache wrappers may use {@link DfcCacheFastPath}. */
+        private void emitMarkerInvoke(int idx) {
+            if (pool.externHasCacheWrapperFastPath(idx)) {
+                Label genericFastPath = new Label();
+                Label optionalNoiseFastPath = new Label();
+                Label afterFastPath = new Label();
+
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitTypeInsn(Opcodes.INSTANCEOF, NOISE_CHUNK_INTERNAL);
+                mv.visitJumpInsn(Opcodes.IFEQ, genericFastPath);
+
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, cacheAccessFieldName(idx),
+                        DFC_CELL_CACHE_ACCESS_DESC);
+                mv.visitInsn(Opcodes.DUP);
+                mv.visitJumpInsn(Opcodes.IFNULL, optionalNoiseFastPath);
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_CHUNK_INTERNAL);
+                if (DfcRuntimeTelemetry.enabled()) {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL,
+                            "computeMarkerTrustedFastPath", CACHE_TRUSTED_READ_NOISE_CHUNK_DESC, false);
+                } else {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL,
+                            "computeTrustedDirectRead", CACHE_TRUSTED_READ_NOISE_CHUNK_DESC, false);
+                }
+                mv.visitJumpInsn(Opcodes.GOTO, afterFastPath);
+
+                mv.visitLabel(optionalNoiseFastPath);
+                mv.visitInsn(Opcodes.POP);
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitTypeInsn(Opcodes.CHECKCAST, NOISE_CHUNK_INTERNAL);
+                if (DfcRuntimeTelemetry.enabled()) {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
+                            CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
+                } else {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                            CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
+                }
+                mv.visitJumpInsn(Opcodes.GOTO, afterFastPath);
+
+                mv.visitLabel(genericFastPath);
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                if (DfcRuntimeTelemetry.enabled()) {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
+                            CACHE_FAST_READ_DESC, false);
+                } else {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                            CACHE_FAST_READ_DESC, false);
+                }
+                mv.visitLabel(afterFastPath);
+            } else {
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                if (castSelfForSubclassNoiseFields) {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, classInternalName);
+                }
+                mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName, externFieldName(idx), DENSITY_FUNCTION_DESC);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                if (DfcRuntimeTelemetry.enabled()) {
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerExtern",
+                            CACHE_FAST_READ_DESC, false);
+                } else {
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, DENSITY_FUNCTION_INTERNAL,
+                            "compute", "(L" + FUNCTION_CONTEXT_INTERNAL + ";)D", true);
+                }
             }
         }
 

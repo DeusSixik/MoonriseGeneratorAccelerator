@@ -38,9 +38,10 @@ import java.util.Optional;
  *       the maximal Y-only ancestor on its branch.</li>
  *   <li>If no Y-only candidate of meaningful size is found, repeat for
  *       XZ-only.</li>
- *   <li>Reject if the candidate is the {@code root} itself (degenerate;
- *       the whole DF would just be a constant per Y, which a smarter
- *       caching layer would already collapse).</li>
+ *   <li>When {@code dfc.cell_lattice.rootHoist=true}, allow the candidate to be
+ *       the {@code root} itself. This lets whole-root Y-only/XZ-only fields use the
+ *       same batched fill path instead of recomputing a coordinate-only expression
+ *       for every point in a cell.</li>
  *   <li>Reject if the candidate's size is below {@link #MIN_HOIST_SIZE} —
  *       below that, the helper-call overhead outweighs the savings.</li>
  * </ol>
@@ -54,6 +55,9 @@ import java.util.Optional;
  * value.
  */
 public final class CellLatticeOption {
+
+    public static final boolean ROOT_HOIST_ENABLED =
+            Boolean.parseBoolean(System.getProperty("dfc.cell_lattice.rootHoist", "true"));
 
     /**
      * Minimum number of distinct IR nodes a hoist candidate must contain
@@ -163,11 +167,11 @@ public final class CellLatticeOption {
             if (visited.put(n, Boolean.TRUE) != null) continue;
             CoordDep.Flags f = dep.get(n);
             if (f != null && matchesAxisOnly(f, yOnly)) {
-                // Reject the root itself — the whole DF being axis-only means
-                // the lattice would replace the entire compute with a single
-                // table lookup, which is strictly the job of an outer cache
-                // marker (CacheOnce / FlatCache) the user already wrote.
-                if (n != root) {
+                // Whole-root axis-only expressions are safe to batch too: the
+                // generated inner helper simply returns the precomputed value for
+                // every orthogonal point, preserving vanilla iteration state while
+                // skipping redundant arithmetic/noise-free tree walks.
+                if (n != root || ROOT_HOIST_ENABLED) {
                     int sz = sizes.getOrDefault(n, 0);
                     if (sz >= MIN_HOIST_SIZE && sz > bestSize) {
                         best = n;

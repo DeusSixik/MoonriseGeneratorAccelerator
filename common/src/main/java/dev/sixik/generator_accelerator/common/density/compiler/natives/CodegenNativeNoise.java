@@ -1,17 +1,14 @@
 package dev.sixik.generator_accelerator.common.density.compiler.natives;
 
-/**
- * Codegen always emits JNI fast paths where applicable. If {@code dfc-natives} failed to load,
- * handles stay zero and bytecode falls back to Java at runtime.
- */
+/** Java-only density compiler gate. Native/JNI density fast paths stay disabled. */
 public final class CodegenNativeNoise {
 
     public static boolean enabled() {
-        return true;
+        return false;
     }
 
     public static boolean emitNativeOps() {
-        return true;
+        return false;
     }
 
     private CodegenNativeNoise() {}

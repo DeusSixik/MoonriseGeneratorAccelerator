@@ -45,7 +45,7 @@ public class MixinDensityFunctionsNoise {
                         ds,
                         x, z, startY, ds.length,
                         xzScale, yScale, xzScale,
-                        0.0
+                        1.0
                 );
                 return;
             }
@@ -66,7 +66,7 @@ public class MixinDensityFunctionsNoise {
                         ds,
                         x, z, startY, ds.length,
                         xzScale, yScale, xzScale,
-                        0.0
+                        1.0
                 );
                 return;
             }
