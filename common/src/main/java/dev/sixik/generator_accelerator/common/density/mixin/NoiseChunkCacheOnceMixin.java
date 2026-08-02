@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.mixin;
 
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheOnceWrappedAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
@@ -13,11 +14,15 @@ import org.spongepowered.asm.mixin.Shadow;
  * {@code NoiseChunk.CacheOnce#compute}.
  */
 @Mixin(targets = "net.minecraft.world.level.levelgen.NoiseChunk$CacheOnce")
-public class NoiseChunkCacheOnceMixin implements DfcCellCacheAccess {
+public class NoiseChunkCacheOnceMixin implements DfcCellCacheAccess, DfcCacheOnceWrappedAccess {
 
     @Shadow
     @Final
     private NoiseChunk field_36605;
+
+    @Shadow
+    @Final
+    private DensityFunction function;
 
     @Shadow
     private long lastCounter;
@@ -48,5 +53,15 @@ public class NoiseChunkCacheOnceMixin implements DfcCellCacheAccess {
             return this.lastValue;
         }
         return DfcCacheFastPath.CACHE_MISS;
+    }
+
+    @Override
+    public double dfc$computeWrapped(DensityFunction.FunctionContext context) {
+        return this.function.compute(context);
+    }
+
+    @Override
+    public DensityFunction dfc$wrappedFunction() {
+        return this.function;
     }
 }

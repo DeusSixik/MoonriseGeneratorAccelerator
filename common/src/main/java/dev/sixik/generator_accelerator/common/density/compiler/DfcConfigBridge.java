@@ -77,6 +77,8 @@ public final class DfcConfigBridge {
             setBoolean("dfc.codegen.cellFillAddExternOverride", dfc.cellFillAddExternOverride);
             setBoolean("dfc.codegen.cellFillAddBeardifierOverride", dfc.cellFillAddBeardifierOverride);
             setBoolean("dfc.codegen.cellFillScalarMarkerOverride", dfc.cellFillScalarMarkerOverride);
+            setBoolean("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ", dfc.cellFillScalarMarkerLazyRangeChoiceZ);
+            setBoolean("ga.dfc.cellCacheFastFillers", dfc.cellCacheFastFillers);
             setBoolean("dfc.warmer.noiseSettings", dfc.warmerNoiseSettings);
             setBoolean("dfc.warmer.rawDensityFunctions", dfc.warmerRawDensityFunctions);
             setBudget("dfc.warmer.maxSettings", dfc.warmerMaxSettings);

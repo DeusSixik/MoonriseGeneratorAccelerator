@@ -36,6 +36,10 @@ dfc:
   # Enables direct-read cache fast-path statistics.
   # Mirrors old VM arg: -Dga.dfc.cacheFastPath.stats=true
   cache-fast-path-stats: false
+  # Allows NoiseChunk CacheAllInCell entries to call DfcCellFillAccess fast fillers directly.
+  # Disable for vanilla fillArray A/B baselines when compiled cell fillers are unstable.
+  # Mirrors old VM arg: -Dga.dfc.cellCacheFastFillers=true
+  cell-cache-fast-fillers: true
   # Enables the narrow ADD(Beardifier, residual) cell-fill override experiment.
   # Unlike cellFillAddExternOverride, this does not specialize generic ADD(extern, residual) roots.
   # Mirrors old VM arg: -Ddfc.codegen.cellFillAddBeardifierOverride=true
@@ -58,6 +62,9 @@ dfc:
   # Enables extra residual class debug for cell-fill stats.
   # Mirrors old VM arg: -Ddfc.cellfill.stats.residualClassDebug=true
   cell-fill-residual-class-debug: false
+  # Allows scalar marker cell-fill override to defer RangeChoice out-branch Z interpolation until the branch is used.
+  # Mirrors old VM arg: -Ddfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ=true
+  cell-fill-scalar-marker-lazy-range-choice-z: false
   # Enables the direct-interpolator scalar marker cell-fill override for compact marker-only roots.
   # Disabled by default until the specialized path proves stable across worldgen runs.
   # Mirrors old VM arg: -Ddfc.codegen.cellFillScalarMarkerOverride=true
@@ -75,11 +82,12 @@ dfc:
   # This is a correctness experiment; failed, skipped, or parity-failing launches fall back to the existing CPU path.
   # Mirrors old VM arg: -Dga.dfc.gpu.fillSlicePrototype=true
   fill-slice-gpu-prototype: false
-  # Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by fillSlice.
-  # Only active together with fillSliceGpuPrototype; CPU-only slice filling is faster without it.
+  # Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by the legacy fillSliceGpuPrototype path.
+  # fillSliceMegaBatch can collect independently and uses ga.dfc.gpu.fillSliceMegaBatch.compileMax.
   # Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile=true
   fill-slice-lazy-compile: true
-  # Maximum per-lifecycle lazy fillSlice root compiles when fillSliceLazyCompile is enabled.
+  # Maximum per-lifecycle lazy fillSlice root compiles for the legacy fillSliceGpuPrototype path.
+  # fillSliceMegaBatch uses ga.dfc.gpu.fillSliceMegaBatch.compileMax instead.
   # Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile.max=16
   fill-slice-lazy-compile-max: 16
   # Allows compiled cell-fill roots to try the GPU payload runtime before falling back to CPU.
@@ -157,7 +165,7 @@ dfc:
   # noiseChunkTimingStats=true. Disable for lower-overhead selectCellYZ
   # benchmarking while keeping outer selectCellYZ totals.
   # Mirrors old VM arg: -Dga.noiseChunk.stageTimingStats=true
-  noise-chunk-stage-timing-stats: true
+  noise-chunk-stage-timing-stats: false
   # Enables NoiseChunk fillSlice/selectCellYZ timing statistics.
   # Keep false for normal world loading; this is diagnostic-only.
   # Mirrors old VM arg: -Dga.noiseChunk.timingStats=true

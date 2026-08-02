@@ -2,20 +2,44 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu;
 
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRBuilder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IROptimizer;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.NoiseExpander;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.mixin.noise.ImprovedNoiseAccessor;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /** Builds {@link GpuIrPayload} for the first JavaToGpu target subset. */
 public final class GpuPayloadCompiler {
+    private static final String INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES_PROPERTY =
+            "ga.dfc.gpu.inlineCacheOnceAp2MarkerExternIndices";
+    private static final String INLINE_CACHE_ONCE_AP2_ALLOW_NESTED_EXTERN_INPUTS_PROPERTY =
+            "ga.dfc.gpu.inlineCacheOnceAp2AllowNestedExternInputs";
+    private static final AtomicLong INLINE_CACHE_ONCE_AP2_MARKERS_SEEN = new AtomicLong();
+    private static final AtomicLong INLINE_CACHE_ONCE_AP2_MARKER_MATCHES = new AtomicLong();
+    private static final AtomicLong INLINE_CACHE_ONCE_AP2_MARKER_INLINE_SUCCESSES = new AtomicLong();
+    private static final AtomicLong INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURES = new AtomicLong();
+    private static final ConcurrentHashMap<String, LongAdder> INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> INLINE_CACHE_ONCE_AP2_MARKER_MATCHED_EXTERN_INDICES =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURE_REASONS =
+            new ConcurrentHashMap<>();
 
     private GpuPayloadCompiler() {
     }
@@ -26,6 +50,21 @@ public final class GpuPayloadCompiler {
             String firstUnsupportedNode,
             String firstUnsupportedDetail,
             int nodesVisited) {
+    }
+
+    public record InlineDiagnostics(
+            String inlineCacheOnceAp2MarkerExternIndices,
+            boolean inlineCacheOnceAp2AllowNestedExternInputs,
+            long cacheOnceAp2MarkersSeen,
+            long cacheOnceAp2MarkerMatches,
+            long cacheOnceAp2MarkerInlineSuccesses,
+            long cacheOnceAp2MarkerInlineFailures,
+            List<String> cacheOnceAp2MarkerExternIndices,
+            List<String> cacheOnceAp2MarkerMatchedExternIndices,
+            List<String> cacheOnceAp2MarkerInlineFailureReasons) {
+        public long cacheOnceAp2MarkerMisses() {
+            return Math.max(0L, cacheOnceAp2MarkersSeen - cacheOnceAp2MarkerMatches);
+        }
     }
 
     public static Result compile(IRNode root) {
@@ -42,10 +81,65 @@ public final class GpuPayloadCompiler {
         return new Result(true, builder.toPayload(rootIndex), "none", "none", builder.nodes.size());
     }
 
+    public static InlineDiagnostics snapshotInlineDiagnostics() {
+        return new InlineDiagnostics(
+                System.getProperty(INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES_PROPERTY, ""),
+                Boolean.getBoolean(INLINE_CACHE_ONCE_AP2_ALLOW_NESTED_EXTERN_INPUTS_PROPERTY),
+                INLINE_CACHE_ONCE_AP2_MARKERS_SEEN.get(),
+                INLINE_CACHE_ONCE_AP2_MARKER_MATCHES.get(),
+                INLINE_CACHE_ONCE_AP2_MARKER_INLINE_SUCCESSES.get(),
+                INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURES.get(),
+                topCounts(INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES, 8),
+                topCounts(INLINE_CACHE_ONCE_AP2_MARKER_MATCHED_EXTERN_INDICES, 8),
+                topCounts(INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURE_REASONS, 8));
+    }
+
+    public static void resetInlineDiagnostics() {
+        INLINE_CACHE_ONCE_AP2_MARKERS_SEEN.set(0L);
+        INLINE_CACHE_ONCE_AP2_MARKER_MATCHES.set(0L);
+        INLINE_CACHE_ONCE_AP2_MARKER_INLINE_SUCCESSES.set(0L);
+        INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURES.set(0L);
+        INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES.clear();
+        INLINE_CACHE_ONCE_AP2_MARKER_MATCHED_EXTERN_INDICES.clear();
+        INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURE_REASONS.clear();
+    }
+
+    static Result compileStandalone(DensityFunction function) {
+        return compileStandalone(function, new ConstantPool());
+    }
+
+    private static Result compileStandalone(DensityFunction function, ConstantPool pool) {
+        if (function == null) {
+            return new Result(false, null, "DensityFunction", "DensityFunction:null", 0);
+        }
+        try {
+            ConstantPool childPool = pool == null ? new ConstantPool() : pool;
+            IRBuilder builder = new IRBuilder(childPool, CompilingVisitor.global());
+            IRNode root = builder.build(function);
+
+            IROptimizer.Result optResult = IROptimizer.optimize(root, builder, childPool);
+            root = optResult.root();
+
+            NoiseExpander.Result noiseResult = NoiseExpander.expand(root, builder, childPool);
+            root = noiseResult.root();
+            if (noiseResult.noisesSpecialized() > 0) {
+                IROptimizer.Result postNoise = IROptimizer.optimize(root, builder, childPool);
+                root = postNoise.root();
+            }
+
+            return compile(root, childPool);
+        } catch (Throwable t) {
+            return new Result(false, null, "DensityFunction",
+                    "DensityFunction:" + function.getClass().getName() + ':' + t.getClass().getSimpleName(), 0);
+        }
+    }
+
     private static final class Builder implements DensityFunctionGpuPayloadBuilder.Context {
         private final ConstantPool pool;
         private final IdentityHashMap<IRNode, Integer> ids = new IdentityHashMap<>();
         private final IdentityHashMap<CompiledDensityFunction, Integer> inlinedCompiledRoots = new IdentityHashMap<>();
+        private final IdentityHashMap<DensityFunction, GpuIrPayload> pureWrappedPayloads = new IdentityHashMap<>();
+        private final IdentityHashMap<DensityFunction, GpuIrPayload> samePoolWrappedPayloads = new IdentityHashMap<>();
         private final IdentityHashMap<NoiseSpec, NoiseRange> noiseRanges = new IdentityHashMap<>();
         private final IdentityHashMap<BlendedNoiseSpec, NoiseRange> blendedNoiseRanges = new IdentityHashMap<>();
         private final ArrayList<ExternInput> externInputs = new ArrayList<>();
@@ -76,6 +170,17 @@ public final class GpuPayloadCompiler {
                     ids.put(node, inlinedRoot);
                 }
                 return inlinedRoot;
+            }
+
+            if (node instanceof IRNode.Marker marker
+                    && (inlineRecomputableMarkersEnabled()
+                    || inlineCacheOnceMulOrAddMarkersEnabled()
+                    || inlineCacheOnceAp2MarkerExternIndicesConfigured())) {
+                int inlinedRoot = inlineRecomputableMarker(marker);
+                if (inlinedRoot >= 0) {
+                    ids.put(node, inlinedRoot);
+                    return inlinedRoot;
+                }
             }
 
             Node encoded = encode(node);
@@ -240,6 +345,186 @@ public final class GpuPayloadCompiler {
             return copiedRoot;
         }
 
+        private int inlineRecomputableMarker(IRNode.Marker marker) {
+            if (pool == null) {
+                return -1;
+            }
+            int externIndex = marker.externIndex();
+            if (externIndex < 0 || externIndex >= pool.externCount()) {
+                return -1;
+            }
+            DensityFunction extern = pool.extern(externIndex);
+            if (!(extern instanceof DensityFunctions.MarkerOrMarked marked)
+                    || !isRecomputableMarker(marked.type())) {
+                return -1;
+            }
+            boolean selectiveInlineCacheOnceAp2 = isSelectiveInlineCacheOnceAp2ExternIndex(marked, externIndex);
+            if (!inlineRecomputableMarkersEnabled()
+                    && !isSelectiveInlineCacheOnceMulOrAdd(marked)
+                    && !selectiveInlineCacheOnceAp2) {
+                return -1;
+            }
+
+            DensityFunction wrapped = marked.wrapped();
+            if (wrapped == null) {
+                if (selectiveInlineCacheOnceAp2) {
+                    recordInlineCacheOnceAp2MarkerInlineFailure("wrapped-null");
+                }
+                return -1;
+            }
+            GpuIrPayload payload;
+            if (selectiveInlineCacheOnceAp2) {
+                payload = inlineCacheOnceAp2AllowNestedExternInputsEnabled()
+                        ? samePoolGpuPayload(wrapped)
+                        : cachedPureGpuPayload(wrapped);
+                if (payload == null) {
+                    recordInlineCacheOnceAp2MarkerInlineFailure("payload-null");
+                    return -1;
+                }
+            } else {
+                payload = pureWrappedPayloads.get(wrapped);
+                if (payload == null) {
+                    payload = pureGpuPayload(wrapped);
+                    if (payload == null) {
+                        return -1;
+                    }
+                    pureWrappedPayloads.put(wrapped, payload);
+                }
+            }
+            int root = appendPayload(payload, -1);
+            if (selectiveInlineCacheOnceAp2) {
+                recordInlineCacheOnceAp2MarkerInlineSuccess();
+            }
+            return root;
+        }
+
+        private GpuIrPayload pureGpuPayload(DensityFunction function) {
+            GpuIrPayload payload = null;
+            if (function instanceof CompiledDensityFunction compiled) {
+                payload = GpuPayloadRuntimeRegistry.lookup(compiled);
+            }
+            if (payload == null) {
+                Result result = compileStandalone(function);
+                if (result.supported()) {
+                    payload = result.payload();
+                }
+            }
+            if (payload == null || payload.hasExternInputs()) {
+                return null;
+            }
+            return payload;
+        }
+
+        private GpuIrPayload cachedPureGpuPayload(DensityFunction function) {
+            GpuIrPayload payload = pureWrappedPayloads.get(function);
+            if (payload == null) {
+                payload = pureGpuPayload(function);
+                if (payload != null) {
+                    pureWrappedPayloads.put(function, payload);
+                }
+            }
+            return payload;
+        }
+
+        private GpuIrPayload samePoolGpuPayload(DensityFunction function) {
+            if (pool == null || function == null) {
+                return null;
+            }
+            GpuIrPayload cached = samePoolWrappedPayloads.get(function);
+            if (cached != null) {
+                return cached;
+            }
+            Result result = compileStandalone(function, pool);
+            if (!result.supported() || result.payload() == null) {
+                recordInlineCacheOnceAp2MarkerInlineFailure(result.firstUnsupportedDetail());
+                return null;
+            }
+            GpuIrPayload payload = result.payload();
+            samePoolWrappedPayloads.put(function, payload);
+            return payload;
+        }
+
+        private static boolean isRecomputableMarker(DensityFunctions.Marker.Type type) {
+            return type == DensityFunctions.Marker.Type.CacheOnce
+                    || type == DensityFunctions.Marker.Type.CacheAllInCell;
+        }
+
+        private static boolean inlineRecomputableMarkersEnabled() {
+            return Boolean.getBoolean("ga.dfc.gpu.inlineRecomputableMarkers");
+        }
+
+        private static boolean inlineCacheOnceMulOrAddMarkersEnabled() {
+            return Boolean.parseBoolean(System.getProperty(
+                    "ga.dfc.gpu.inlineCacheOnceMulOrAddMarkers",
+                    "true"));
+        }
+
+        private static boolean isSelectiveInlineCacheOnceMulOrAdd(DensityFunctions.MarkerOrMarked marked) {
+            return inlineCacheOnceMulOrAddMarkersEnabled()
+                    && marked.type() == DensityFunctions.Marker.Type.CacheOnce
+                    && marked.wrapped() instanceof DensityFunctions.MulOrAdd;
+        }
+
+        private static boolean inlineCacheOnceAp2MarkerExternIndicesConfigured() {
+            String value = System.getProperty(INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES_PROPERTY, "");
+            return value != null && !value.isBlank();
+        }
+
+        private static boolean inlineCacheOnceAp2AllowNestedExternInputsEnabled() {
+            return Boolean.getBoolean(INLINE_CACHE_ONCE_AP2_ALLOW_NESTED_EXTERN_INPUTS_PROPERTY);
+        }
+
+        private static boolean isSelectiveInlineCacheOnceAp2ExternIndex(
+                DensityFunctions.MarkerOrMarked marked,
+                int externIndex) {
+            if (marked.type() != DensityFunctions.Marker.Type.CacheOnce
+                    || !(marked.wrapped() instanceof DensityFunctions.TwoArgumentSimpleFunction)
+                    || marked.wrapped() instanceof DensityFunctions.MulOrAdd) {
+                return false;
+            }
+            boolean selected = inlineCacheOnceAp2MarkerExternIndex(externIndex);
+            recordInlineCacheOnceAp2MarkerExternIndex(externIndex, selected);
+            return selected;
+        }
+
+        private static boolean inlineCacheOnceAp2MarkerExternIndex(int externIndex) {
+            String value = System.getProperty(INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES_PROPERTY, "");
+            if (value == null || value.isBlank()) {
+                return false;
+            }
+            String[] parts = value.split(",");
+            for (String part : parts) {
+                try {
+                    if (Integer.parseInt(part.trim()) == externIndex) {
+                        return true;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Ignore malformed entries so a typo disables only that token.
+                }
+            }
+            return false;
+        }
+
+        private static void recordInlineCacheOnceAp2MarkerExternIndex(int externIndex, boolean selected) {
+            INLINE_CACHE_ONCE_AP2_MARKERS_SEEN.incrementAndGet();
+            addCount(INLINE_CACHE_ONCE_AP2_MARKER_EXTERN_INDICES, Integer.toString(externIndex), 1L);
+            if (selected) {
+                INLINE_CACHE_ONCE_AP2_MARKER_MATCHES.incrementAndGet();
+                addCount(INLINE_CACHE_ONCE_AP2_MARKER_MATCHED_EXTERN_INDICES, Integer.toString(externIndex), 1L);
+            }
+        }
+
+        private static void recordInlineCacheOnceAp2MarkerInlineSuccess() {
+            INLINE_CACHE_ONCE_AP2_MARKER_INLINE_SUCCESSES.incrementAndGet();
+        }
+
+        private static void recordInlineCacheOnceAp2MarkerInlineFailure(String reason) {
+            INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURES.incrementAndGet();
+            addCount(INLINE_CACHE_ONCE_AP2_MARKER_INLINE_FAILURE_REASONS,
+                    reason == null || reason.isBlank() ? "unknown" : reason,
+                    1L);
+        }
+
         private int appendPayload(GpuIrPayload payload, int ownerExternIndex) {
             int offset = nodes.size();
             int[] externInputSlotMap = remapExternInputs(payload, ownerExternIndex);
@@ -277,10 +562,13 @@ public final class GpuPayloadCompiler {
             for (int slot = 0; slot < inputCount; slot++) {
                 int pathOffset = payload.externInputPathOffsets()[slot];
                 int pathLength = payload.externInputPathLengths()[slot];
-                int[] ownerPath = new int[pathLength + 1];
-                ownerPath[0] = ownerExternIndex;
+                int prepend = ownerExternIndex >= 0 ? 1 : 0;
+                int[] ownerPath = new int[pathLength + prepend];
+                if (ownerExternIndex >= 0) {
+                    ownerPath[0] = ownerExternIndex;
+                }
                 if (pathLength > 0) {
-                    System.arraycopy(payload.externInputOwnerPath(), pathOffset, ownerPath, 1, pathLength);
+                    System.arraycopy(payload.externInputOwnerPath(), pathOffset, ownerPath, prepend, pathLength);
                 }
                 slotMap[slot] = registerExternInput(new ExternInput(
                         ownerPath,
@@ -758,6 +1046,28 @@ public final class GpuPayloadCompiler {
     }
 
     private record NoiseRange(int offset, int length) {
+    }
+
+    private static void addCount(ConcurrentHashMap<String, LongAdder> counts, String key, long amount) {
+        if (key == null || key.isBlank() || amount <= 0L) {
+            return;
+        }
+        counts.computeIfAbsent(key, ignored -> new LongAdder()).add(amount);
+    }
+
+    private static List<String> topCounts(ConcurrentHashMap<String, LongAdder> counts, int limit) {
+        ArrayList<String> out = new ArrayList<>();
+        counts.entrySet().stream()
+                .map(entry -> new CountEntry(entry.getKey(), entry.getValue().sum()))
+                .filter(entry -> entry.count() > 0L)
+                .sorted(Comparator.comparingLong(CountEntry::count).reversed()
+                        .thenComparing(CountEntry::key))
+                .limit(limit)
+                .forEach(entry -> out.add(entry.key() + "=" + entry.count()));
+        return out;
+    }
+
+    private record CountEntry(String key, long count) {
     }
 
     private static final class ExternInput {

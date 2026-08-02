@@ -282,8 +282,8 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
-                        Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by fillSlice.
-                        Only active together with fillSliceGpuPrototype; CPU-only slice filling is faster without it.
+                        Allows a small lifecycle budget of lazy compilation for NoiseInterpolator roots used by the legacy fillSliceGpuPrototype path.
+                        fillSliceMegaBatch can collect independently and uses ga.dfc.gpu.fillSliceMegaBatch.compileMax.
                         Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile=true
                         """
         )
@@ -291,7 +291,8 @@ public final class GAConfig {
 
         @Serializable(
                 comment = """
-                        Maximum per-lifecycle lazy fillSlice root compiles when fillSliceLazyCompile is enabled.
+                        Maximum per-lifecycle lazy fillSlice root compiles for the legacy fillSliceGpuPrototype path.
+                        fillSliceMegaBatch uses ga.dfc.gpu.fillSliceMegaBatch.compileMax instead.
                         Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile.max=16
                         """
         )
@@ -493,6 +494,23 @@ public final class GAConfig {
                         """
         )
         public boolean cellFillScalarMarkerOverride = false;
+
+        @Serializable(
+                comment = """
+                        Allows scalar marker cell-fill override to defer RangeChoice out-branch Z interpolation until the branch is used.
+                        Mirrors old VM arg: -Ddfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ=true
+                        """
+        )
+        public boolean cellFillScalarMarkerLazyRangeChoiceZ = false;
+
+        @Serializable(
+                comment = """
+                        Allows NoiseChunk CacheAllInCell entries to call DfcCellFillAccess fast fillers directly.
+                        Disable for vanilla fillArray A/B baselines when compiled cell fillers are unstable.
+                        Mirrors old VM arg: -Dga.dfc.cellCacheFastFillers=true
+                        """
+        )
+        public boolean cellCacheFastFillers = true;
 
         @Serializable(
                 comment = """

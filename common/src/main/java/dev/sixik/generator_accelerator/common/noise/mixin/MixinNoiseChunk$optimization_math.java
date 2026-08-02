@@ -2,7 +2,10 @@ package dev.sixik.generator_accelerator.common.noise.mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$InterpolatorSoAPath;
 import dev.sixik.generator_accelerator.api.patches.GA$NoiseChunk$NoiseInterpolatorPatch;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheOnceWrappedAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheCompiledFillerAccess;
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellCacheAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
@@ -16,6 +19,7 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline
 import dev.sixik.generator_accelerator.common.density.path.NoiseChunk$FlatCache$FlatArray;
 import dev.sixik.generator_accelerator.common.noise.FillSliceLazyCompileBudget;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
+import dev.sixik.generator_accelerator.common.noise.gpu.GpuFillSliceMegaBatchDispatcher;
 import dev.sixik.generator_accelerator.common.noise.utils.CachedPointContext;
 import dev.sixik.generator_accelerator.common.noise.utils.NoiseChunkSliceProvider;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
@@ -34,9 +38,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
+import java.util.WeakHashMap;
 
 @Mixin(NoiseChunk.class)
 public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk$InterpolatorSoAPath {
@@ -140,6 +147,8 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     @Unique
     private static final String FILL_SLICE_GPU_SLOW_WARM_STREAK_PROPERTY = "ga.dfc.gpu.fillSliceSlowWarmStreak";
     @Unique
+    private static final String CELL_CACHE_FAST_FILLERS_PROPERTY = "ga.dfc.cellCacheFastFillers";
+    @Unique
     private static final java.util.concurrent.atomic.AtomicInteger bts$fillSliceGpuSlowWarmStreak =
             new java.util.concurrent.atomic.AtomicInteger();
     @Unique
@@ -150,6 +159,10 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     private CompiledDensityFunction[] bts$fillSliceCompiledRoots;
     @Unique
     private GpuIrPayload[] bts$fillSliceGpuPayloads;
+    @Unique
+    private GpuFillSliceMegaBatchDispatcher.Job bts$pendingFillSliceMegaBatchJob;
+    @Unique
+    private Map<bts$FillSliceMegaBatchPrefetchKey, bts$FillSliceMegaBatchPrefetch> bts$prefetchedFillSliceMegaBatches;
     @Unique
     private NoiseChunk.CacheAllInCell[] bts$cellCachesArray;
     @Unique
@@ -281,6 +294,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
     @Unique
     private void bts$initCellCacheArrays() {
+        final boolean cellCacheFastFillers = Boolean.getBoolean(CELL_CACHE_FAST_FILLERS_PROPERTY);
         final NoiseChunk.CacheAllInCell[] caches = this.bts$cellCachesArray;
         final int length = caches.length;
         this.bts$cellCacheFillers = new DensityFunction[length];
@@ -296,17 +310,20 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             final DensityFunction filler = cache.noiseFiller;
             this.bts$cellCacheFillers[i] = filler;
             this.bts$cellCacheValues[i] = cache.values;
-            DfcCellFillAccess access = DfcCellFillFastPath.asFastPath(filler);
-            if (access != null) {
-                this.bts$cellCacheFastFillers[i] = access;
+            if (cellCacheFastFillers) {
+                DfcCellFillAccess access = DfcCellFillFastPath.asFastPath(filler);
+                if (access != null) {
+                    this.bts$cellCacheFastFillers[i] = access;
+                }
             }
         }
     }
 
     @Unique
     private void bts$compileFillSliceInterpolatorRoots() {
-        if (!Boolean.getBoolean(FILL_SLICE_LAZY_COMPILE_PROPERTY)
-                || !bts$fillSliceGpuPrototypeAvailable()) {
+        boolean megaBatchEnabled = GpuFillSliceMegaBatchDispatcher.enabled();
+        if ((!Boolean.getBoolean(FILL_SLICE_LAZY_COMPILE_PROPERTY) && !megaBatchEnabled)
+                || !bts$fillSliceGpuCollectionAvailable()) {
             return;
         }
         this.bts$fillSliceCompiledRoots = new CompiledDensityFunction[this.bts$interpolatorsArray.length];
@@ -346,7 +363,9 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
     @Unique
     private static boolean bts$claimFillSliceLazyCompile() {
-        int maxCompiles = Math.max(0, Integer.getInteger(FILL_SLICE_LAZY_COMPILE_MAX_PROPERTY, 16));
+        int maxCompiles = GpuFillSliceMegaBatchDispatcher.enabled()
+                ? GpuFillSliceMegaBatchDispatcher.compileMax()
+                : Math.max(0, Integer.getInteger(FILL_SLICE_LAZY_COMPILE_MAX_PROPERTY, 16));
         return FillSliceLazyCompileBudget.tryClaim(maxCompiles);
     }
 
@@ -424,12 +443,15 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         final boolean timingStages = NoiseChunkTimingStats.stageTimingEnabled();
         final boolean cellFillStats = DfcCellFillStats.ENABLED;
         final boolean parityEnabled = DfcCellFillParity.ENABLED;
+        final boolean cellCacheFastFillers = Boolean.getBoolean(CELL_CACHE_FAST_FILLERS_PROPERTY);
         if (!timingStages && !cellFillStats && !parityEnabled) {
+            final boolean reportFastClasses = NoiseChunkTimingStats.ENABLED && !this.bts$cellCacheFastClassReportComplete;
             for (int i = 0; i < fillers.length; i++) {
                 final DensityFunction filler = fillers[i];
                 DfcCellFillAccess fast = fastFillers[i];
 
-                if (fast == null
+                if (cellCacheFastFillers
+                        && fast == null
                         && !this.bts$cellCacheRejectedFastFillers[i]
                         && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
                     fast = access.dfc$getOrCompileCellFiller();
@@ -443,10 +465,19 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
                 final double[] values = valuesArray[i];
                 if (fast != null) {
+                    if (reportFastClasses && !this.bts$cellCacheFastClassReported[i]) {
+                        this.bts$recordFastFillerClass(i, filler, fast);
+                    }
                     fast.dfc$fillCell(values, self);
                 } else {
+                    if (reportFastClasses && !this.bts$cellCacheFallbackClassReported[i]) {
+                        this.bts$recordFallbackFillerClass(i, filler);
+                    }
                     filler.fillArray(values, self);
                 }
+            }
+            if (reportFastClasses) {
+                this.bts$cellCacheFastClassReportComplete = true;
             }
 
             ++this.arrayInterpolationCounter;
@@ -460,7 +491,8 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             final DensityFunction filler = fillers[i];
             DfcCellFillAccess fast = fastFillers[i];
 
-            if (fast == null
+            if (cellCacheFastFillers
+                    && fast == null
                     && !this.bts$cellCacheRejectedFastFillers[i]
                     && caches[i] instanceof DfcCellCacheCompiledFillerAccess access) {
                 long lazyResolveTimingStart = timingStages ? NoiseChunkTimingStats.startStage() : 0L;
@@ -477,7 +509,7 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             final double[] values = valuesArray[i];
             if (fast != null) {
                 if (reportFastClasses && !this.bts$cellCacheFastClassReported[i]) {
-                    this.bts$recordFastFillerClass(i, filler);
+                    this.bts$recordFastFillerClass(i, filler, fast);
                 }
                 if (cellFillStats) {
                     DfcCellFillStats.recordCellFill(fast, filler);
@@ -522,12 +554,13 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     }
 
     @Unique
-    private void bts$recordFastFillerClass(int index, DensityFunction filler) {
+    private void bts$recordFastFillerClass(int index, DensityFunction filler, DfcCellFillAccess fast) {
         if (this.bts$cellCacheFastClassReported[index]) {
             return;
         }
         this.bts$cellCacheFastClassReported[index] = true;
         NoiseChunkTimingStats.recordFastFillerClass(filler);
+        NoiseChunkTimingStats.recordFastFillerDetail(bts$fillerDetail(filler, fast));
     }
 
     @Unique
@@ -537,6 +570,35 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
         this.bts$cellCacheFallbackClassReported[index] = true;
         NoiseChunkTimingStats.recordFallbackFillerClass(filler);
+        NoiseChunkTimingStats.recordFallbackFillerDetail(bts$fillerDetail(filler, null));
+    }
+
+    @Unique
+    private static String bts$fillerDetail(DensityFunction filler, DfcCellFillAccess fast) {
+        if (filler == null) {
+            return "null";
+        }
+        StringBuilder detail = new StringBuilder(filler.getClass().getName());
+        if (fast != null && fast != filler) {
+            detail.append("{fast=").append(fast.getClass().getName()).append('}');
+        }
+        if (filler instanceof DensityFunctions.TwoArgumentSimpleFunction fn) {
+            detail.append("{type=").append(fn.type())
+                    .append(",left=").append(bts$simpleDensityClassName(fn.argument1()))
+                    .append(",right=").append(bts$simpleDensityClassName(fn.argument2()))
+                    .append('}');
+        }
+        return detail.toString();
+    }
+
+    @Unique
+    private static String bts$simpleDensityClassName(DensityFunction function) {
+        if (function == null) {
+            return "null";
+        }
+        String name = function.getClass().getName();
+        int index = name.lastIndexOf('.');
+        return index >= 0 ? name.substring(index + 1) : name;
     }
 
     /**
@@ -616,9 +678,11 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
      */
     @Overwrite
     public void swapSlices() {
+        GpuFillSliceMegaBatchDispatcher.recordLifecycleSwapSlices(this.cellStartBlockX);
         double[] tmp = this.bts$interpolatorSlice0Flat;
         this.bts$interpolatorSlice0Flat = this.bts$interpolatorSlice1Flat;
         this.bts$interpolatorSlice1Flat = tmp;
+        bts$tryPrefetchNextFillSliceMegaBatch();
     }
 
     @Override
@@ -948,11 +1012,19 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         final int columns = this.cellCountXZ + 1;
         final NoiseChunk.NoiseInterpolator[] interpolatorsArray = this.bts$interpolatorsArray;
         final double[] target = pIsSlice0 ? this.bts$interpolatorSlice0Flat : this.bts$interpolatorSlice1Flat;
+        GpuFillSliceMegaBatchDispatcher.recordLifecycleFillSlice(pIsSlice0, pStart, target);
         final int planeSize = this.bts$interpolatorPlaneSize;
         final boolean[] gpuFilledRoots;
-        if (bts$fillSliceGpuPrototypeAvailable()) {
+        this.bts$pendingFillSliceMegaBatchJob = null;
+        if (bts$fillSliceGpuCollectionAvailable()) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionAttempt();
             bts$recordFillSlicePayloadSurface(columns, sizeY, interpolatorsArray);
-            gpuFilledRoots = bts$tryFillSliceGpuPrototype(columns, sizeY, interpolatorsArray, target, planeSize);
+            bts$FillSliceMegaBatchUse prefetchUse = GpuFillSliceMegaBatchDispatcher.prefetchNextEnabled()
+                    ? bts$tryUsePrefetchedFillSliceMegaBatch(pIsSlice0, pStart, target, interpolatorsArray.length)
+                    : new bts$FillSliceMegaBatchUse(false, null);
+            gpuFilledRoots = prefetchUse.used()
+                    ? prefetchUse.filledRoots()
+                    : bts$tryFillSliceGpuPrototype(columns, sizeY, interpolatorsArray, target, planeSize);
         } else {
             gpuFilledRoots = null;
         }
@@ -982,8 +1054,221 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             }
         }
 
+        GpuFillSliceMegaBatchDispatcher.Job megaBatchJob = this.bts$pendingFillSliceMegaBatchJob;
+        if (megaBatchJob != null) {
+            megaBatchJob.markCompleted();
+            this.bts$pendingFillSliceMegaBatchJob = null;
+            if (GpuFillSliceMegaBatchDispatcher.asyncProbeEnabled()) {
+                bts$tryFillSliceMegaBatchDeferredJobParity(megaBatchJob);
+            } else if (GpuFillSliceMegaBatchDispatcher.dispatchEnabled()
+                    && !GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+                GpuFillSliceMegaBatchDispatcher.Batch batch = GpuFillSliceMegaBatchDispatcher.drainReadyBatch();
+                if (batch.ready()) {
+                    bts$dispatchFillSliceMegaBatch(batch, false);
+                }
+            }
+        }
+
         this.arrayInterpolationCounter++;
         NoiseChunkTimingStats.finishFillSlice(timingStart);
+    }
+
+    @Unique
+    private bts$FillSliceMegaBatchUse bts$tryUsePrefetchedFillSliceMegaBatch(
+            boolean isSlice0,
+            int start,
+            double[] target,
+            int interpolatorCount) {
+        GpuFillSliceMegaBatchDispatcher.recordPrefetchConsumeAttempt();
+        if (isSlice0) {
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss("slice0");
+            return new bts$FillSliceMegaBatchUse(false, null);
+        }
+        if (this.bts$prefetchedFillSliceMegaBatches == null
+                || this.bts$prefetchedFillSliceMegaBatches.isEmpty()) {
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss("map-empty");
+            return new bts$FillSliceMegaBatchUse(false, null);
+        }
+        bts$FillSliceMegaBatchPrefetch prefetch = this.bts$prefetchedFillSliceMegaBatches.remove(
+                new bts$FillSliceMegaBatchPrefetchKey(target, start));
+        if (prefetch == null) {
+            boolean targetMatch = false;
+            int minDelta = Integer.MAX_VALUE;
+            for (bts$FillSliceMegaBatchPrefetchKey key : this.bts$prefetchedFillSliceMegaBatches.keySet()) {
+                if (key.target() == target) {
+                    targetMatch = true;
+                    int delta = key.start() - start;
+                    if (Math.abs(delta) < Math.abs(minDelta)) {
+                        minDelta = delta;
+                    }
+                }
+            }
+            if (targetMatch) {
+                String direction = minDelta < 0 ? "start-before" : "start-after";
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss(direction);
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss(
+                        direction + "-delta-" + Math.abs(minDelta));
+            } else {
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss("target-miss");
+            }
+            return new bts$FillSliceMegaBatchUse(false, null);
+        }
+        GpuFillSliceMegaBatchDispatcher.recordPrefetchHit();
+        GpuFillSliceMegaBatchDispatcher.Job job = prefetch.job();
+        this.bts$pendingFillSliceMegaBatchJob = job;
+        boolean writebackAllowed = bts$fillSliceMegaBatchWritebackAllowed(job);
+        if (GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                && !job.gpuDispatchStarted()
+                && GpuFillSliceMegaBatchDispatcher.dispatchEnabled()
+                && GpuFillSliceMegaBatchDispatcher.asyncProbeEnabled()
+                && !GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+            GpuFillSliceMegaBatchDispatcher.Batch batch =
+                    GpuFillSliceMegaBatchDispatcher.drainReadyBatchIncluding(job, false);
+            if (batch.ready()) {
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchDispatch();
+                bts$dispatchFillSliceMegaBatch(batch, true);
+            }
+        }
+        if (bts$tryFillSliceMegaBatchWriteback(job)) {
+            boolean[] filled = new boolean[interpolatorCount];
+            for (int groupIndex : prefetch.groupIndices()) {
+                filled[groupIndex] = true;
+            }
+            GpuFillSliceMegaBatchDispatcher.recordWriteback(job.combinedPointCount());
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchWriteback();
+            return new bts$FillSliceMegaBatchUse(true, filled);
+        }
+        GpuFillSliceMegaBatchDispatcher.recordWritebackMiss(
+                !bts$fillSliceMegaBatchWritebackAllowed(job)
+                        ? "prefetch-hit-" + bts$fillSliceMegaBatchWritebackBlockedReason(job)
+                        : (job.gpuDispatchStarted()
+                        ? "prefetch-hit-gpu-not-ready"
+                        : "prefetch-hit-gpu-not-dispatched"),
+                job.combinedPointCount());
+        return new bts$FillSliceMegaBatchUse(true, null);
+    }
+
+    @Unique
+    private void bts$tryPrefetchNextFillSliceMegaBatch() {
+        if (!GpuFillSliceMegaBatchDispatcher.enabled()
+                || !GpuFillSliceMegaBatchDispatcher.dispatchEnabled()
+                || !GpuFillSliceMegaBatchDispatcher.asyncProbeEnabled()
+                || !GpuFillSliceMegaBatchDispatcher.prefetchNextEnabled()
+                || !GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                || !bts$fillSliceGpuCollectionAvailable()
+                || GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+            return;
+        }
+        if (this.bts$fillSliceCompiledRoots == null || this.bts$fillSliceGpuPayloads == null
+                || this.bts$interpolatorsArray == null || this.bts$interpolatorsArray.length == 0) {
+            return;
+        }
+        GpuFillSliceMegaBatchDispatcher.recordPrefetchAttempt();
+
+        int columns = this.cellCountXZ + 1;
+        int yCount = this.cellCountY + 1;
+        int pointCount;
+        try {
+            pointCount = Math.multiplyExact(columns, yCount);
+        } catch (ArithmeticException ignored) {
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss("prefetch-point-overflow");
+            return;
+        }
+        ArrayList<Integer> candidateIndices = new ArrayList<>();
+        ArrayList<CompiledDensityFunction> candidateRoots = new ArrayList<>();
+        ArrayList<GpuIrPayload> candidatePayloads = new ArrayList<>();
+        for (int k = 0; k < this.bts$interpolatorsArray.length; k++) {
+            CompiledDensityFunction compiled = this.bts$fillSliceCompiledRoots[k];
+            GpuIrPayload payload = this.bts$fillSliceGpuPayloads[k];
+            if (compiled == null || payload == null) {
+                continue;
+            }
+            if (GpuFillSliceMegaBatchDispatcher.enabled()
+                    && !GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                    && !GpuFillSliceMegaBatchDispatcher.probePurePayloads()
+                    && !payload.hasExternInputs()) {
+                continue;
+            }
+            candidateIndices.add(k);
+            candidateRoots.add(compiled);
+            candidatePayloads.add(payload);
+        }
+        if (candidatePayloads.isEmpty()) {
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss("prefetch-candidates-empty");
+            return;
+        }
+
+        int groupCount = candidatePayloads.size();
+        int[] groupIndices = new int[groupCount];
+        CompiledDensityFunction[] groupRoots = new CompiledDensityFunction[groupCount];
+        GpuIrPayload[] groupPayloads = new GpuIrPayload[groupCount];
+        GpuFillSliceMegaBatchDispatcher.CandidateRoot[] roots =
+                new GpuFillSliceMegaBatchDispatcher.CandidateRoot[groupCount];
+        int maxExternInputCount = 0;
+        for (int i = 0; i < groupCount; i++) {
+            groupIndices[i] = candidateIndices.get(i);
+            groupRoots[i] = candidateRoots.get(i);
+            groupPayloads[i] = candidatePayloads.get(i);
+            roots[i] = new GpuFillSliceMegaBatchDispatcher.CandidateRoot(
+                    groupIndices[i], groupRoots[i], groupPayloads[i]);
+            maxExternInputCount = Math.max(maxExternInputCount, groupPayloads[i].externInputCount());
+        }
+
+        int previousCellStartBlockX = this.cellStartBlockX;
+        int previousCellStartBlockZ = this.cellStartBlockZ;
+        int previousInCellX = this.inCellX;
+        int previousInCellZ = this.inCellZ;
+        int nextStart = Math.floorDiv(previousCellStartBlockX, this.cellWidth)
+                + GpuFillSliceMegaBatchDispatcher.prefetchLeadCells();
+        double[] target = this.bts$interpolatorSlice1Flat;
+        try {
+            this.cellStartBlockX = nextStart * this.cellWidth;
+            this.inCellX = 0;
+            double[] externValuesSnapshot = bts$snapshotFillSliceExternValues(
+                    groupRoots, groupPayloads, columns, yCount, pointCount,
+                    maxExternInputCount, this.arrayInterpolationCounter);
+            GpuFillSliceMegaBatchDispatcher.Job job = new GpuFillSliceMegaBatchDispatcher.Job(
+                    columns,
+                    yCount,
+                    pointCount,
+                    this.bts$interpolatorPlaneSize,
+                    this.arrayInterpolationCounter,
+                    this.cellStartBlockX,
+                    this.firstCellZ,
+                    this.cellWidth,
+                    this.cellNoiseMinY,
+                    this.cellHeight,
+                    maxExternInputCount,
+                    externValuesSnapshot,
+                    target,
+                    roots);
+            GpuFillSliceMegaBatchDispatcher.EnqueueResult enqueueResult =
+                    GpuFillSliceMegaBatchDispatcher.enqueue(job);
+            if (enqueueResult != GpuFillSliceMegaBatchDispatcher.EnqueueResult.QUEUED) {
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchMiss(
+                        "prefetch-enqueue-" + enqueueResult.name());
+                return;
+            }
+            GpuFillSliceMegaBatchDispatcher.recordPrefetchQueued();
+            if (this.bts$prefetchedFillSliceMegaBatches == null) {
+                this.bts$prefetchedFillSliceMegaBatches = new HashMap<>();
+            }
+            this.bts$prefetchedFillSliceMegaBatches.put(
+                    new bts$FillSliceMegaBatchPrefetchKey(target, nextStart),
+                    new bts$FillSliceMegaBatchPrefetch(job, nextStart, target, groupIndices));
+            GpuFillSliceMegaBatchDispatcher.recordLifecyclePrefetchStored(nextStart, target);
+            GpuFillSliceMegaBatchDispatcher.Batch batch =
+                    GpuFillSliceMegaBatchDispatcher.drainReadyBatchIncluding(job, false);
+            if (batch.ready()) {
+                GpuFillSliceMegaBatchDispatcher.recordPrefetchDispatch();
+                bts$dispatchFillSliceMegaBatch(batch, true);
+            }
+        } finally {
+            this.cellStartBlockX = previousCellStartBlockX;
+            this.cellStartBlockZ = previousCellStartBlockZ;
+            this.inCellX = previousInCellX;
+            this.inCellZ = previousInCellZ;
+        }
     }
 
     @Unique
@@ -993,12 +1278,20 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             NoiseChunk.NoiseInterpolator[] interpolators,
             double[] target,
             int planeSize) {
-        if (!bts$fillSliceGpuPrototypeEnabled()
-                || columns <= 0
-                || yCount <= 0
-                || interpolators.length == 0
-                || this.bts$fillSliceCompiledRoots == null
-                || this.bts$fillSliceGpuPayloads == null) {
+        if (!bts$fillSliceGpuCollectionAvailable()) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("collection-unavailable");
+            return null;
+        }
+        if (columns <= 0 || yCount <= 0 || interpolators.length == 0) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("invalid-shape");
+            return null;
+        }
+        if (this.bts$fillSliceCompiledRoots == null) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("compiled-roots-null");
+            return null;
+        }
+        if (this.bts$fillSliceGpuPayloads == null) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("payload-array-null");
             return null;
         }
         if (!"none".equals(bts$fillSliceGpuDisabledReason)) {
@@ -1021,11 +1314,18 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             if (compiled == null || payload == null) {
                 continue;
             }
+            if (GpuFillSliceMegaBatchDispatcher.enabled()
+                    && !GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                    && !GpuFillSliceMegaBatchDispatcher.probePurePayloads()
+                    && !payload.hasExternInputs()) {
+                continue;
+            }
             candidateIndices.add(k);
             candidateRoots.add(compiled);
             candidatePayloads.add(payload);
         }
         if (candidatePayloads.isEmpty()) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("payload-candidates-empty");
             return null;
         }
 
@@ -1038,6 +1338,93 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
         NoiseChunkTimingStats.recordFillSliceGpuGroupCandidate(
                 candidatePayloads.size(), groupCount, combinedPointCount);
+
+        int[] groupIndices = new int[groupCount];
+        CompiledDensityFunction[] groupRoots = new CompiledDensityFunction[groupCount];
+        GpuIrPayload[] groupPayloads = new GpuIrPayload[groupCount];
+        for (int i = 0; i < groupCount; i++) {
+            groupIndices[i] = candidateIndices.get(i);
+            groupRoots[i] = candidateRoots.get(i);
+            groupPayloads[i] = candidatePayloads.get(i);
+        }
+
+        if (GpuFillSliceMegaBatchDispatcher.enabled()) {
+            if (!GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                    && !GpuFillSliceMegaBatchDispatcher.probeDispatchEnabled()) {
+                return null;
+            }
+            GpuFillSliceMegaBatchDispatcher.CandidateRoot[] roots =
+                    new GpuFillSliceMegaBatchDispatcher.CandidateRoot[groupCount];
+            for (int i = 0; i < groupCount; i++) {
+                roots[i] = new GpuFillSliceMegaBatchDispatcher.CandidateRoot(
+                        groupIndices[i], groupRoots[i], groupPayloads[i]);
+            }
+            int maxExternInputCount = 0;
+            for (GpuIrPayload payload : groupPayloads) {
+                maxExternInputCount = Math.max(maxExternInputCount, payload.externInputCount());
+            }
+            double[] externValuesSnapshot = bts$snapshotFillSliceExternValues(
+                    groupRoots, groupPayloads, columns, yCount, pointCount,
+                    maxExternInputCount, this.arrayInterpolationCounter);
+            GpuFillSliceMegaBatchDispatcher.Job job = new GpuFillSliceMegaBatchDispatcher.Job(
+                    columns,
+                    yCount,
+                    pointCount,
+                    planeSize,
+                    this.arrayInterpolationCounter,
+                    this.cellStartBlockX,
+                    this.firstCellZ,
+                    this.cellWidth,
+                    this.cellNoiseMinY,
+                    this.cellHeight,
+                    maxExternInputCount,
+                    externValuesSnapshot,
+                    target,
+                    roots);
+            GpuFillSliceMegaBatchDispatcher.EnqueueResult enqueueResult =
+                    GpuFillSliceMegaBatchDispatcher.enqueue(job);
+            boolean queued = enqueueResult == GpuFillSliceMegaBatchDispatcher.EnqueueResult.QUEUED;
+            if (enqueueResult != GpuFillSliceMegaBatchDispatcher.EnqueueResult.QUEUED) {
+                NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip(
+                        "mega-batch-enqueue-" + enqueueResult.name());
+            } else {
+                this.bts$pendingFillSliceMegaBatchJob = job;
+            }
+            boolean directWriteback = queued
+                    && GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                    && GpuFillSliceMegaBatchDispatcher.writebackWaitNanos() > 0L
+                    && !GpuFillSliceMegaBatchDispatcher.prefetchNextEnabled();
+            if (GpuFillSliceMegaBatchDispatcher.dispatchEnabled()
+                    && GpuFillSliceMegaBatchDispatcher.asyncProbeEnabled()
+                    && !GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+                GpuFillSliceMegaBatchDispatcher.Batch batch = null;
+                if (directWriteback) {
+                    batch = GpuFillSliceMegaBatchDispatcher.drainReadyBatchIncluding(job, false);
+                }
+                if (batch == null || !batch.ready()) {
+                    batch = GpuFillSliceMegaBatchDispatcher.drainReadyBatch(false);
+                }
+                if (batch.ready()) {
+                    bts$dispatchFillSliceMegaBatch(batch, true);
+                }
+            }
+            if (directWriteback) {
+                if (bts$tryFillSliceMegaBatchWriteback(job)) {
+                    boolean[] filled = new boolean[interpolators.length];
+                    for (int groupIndex : groupIndices) {
+                        filled[groupIndex] = true;
+                    }
+                    GpuFillSliceMegaBatchDispatcher.recordWriteback(job.combinedPointCount());
+                    return filled;
+                } else {
+                    GpuFillSliceMegaBatchDispatcher.recordWritebackMiss(
+                            bts$fillSliceMegaBatchWritebackMissReason(job),
+                            job.combinedPointCount());
+                }
+            }
+            return null;
+        }
+
         if (combinedPointCount < GpuPayloadBatchExecutor.runtimeMinPoints()) {
             RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_group_below_min");
             return null;
@@ -1048,15 +1435,6 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         }
         if (!GpuPayloadBatchExecutor.shouldAttemptRuntimeBatchAllowingSmallPrototype(combinedPointCount)) {
             return null;
-        }
-
-        int[] groupIndices = new int[groupCount];
-        CompiledDensityFunction[] groupRoots = new CompiledDensityFunction[groupCount];
-        GpuIrPayload[] groupPayloads = new GpuIrPayload[groupCount];
-        for (int i = 0; i < groupCount; i++) {
-            groupIndices[i] = candidateIndices.get(i);
-            groupRoots[i] = candidateRoots.get(i);
-            groupPayloads[i] = candidatePayloads.get(i);
         }
 
         long arrayCounterBase = this.arrayInterpolationCounter;
@@ -1078,6 +1456,351 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             return filled;
         }
         return null;
+    }
+
+    @Unique
+    private static boolean bts$fillSliceMegaBatchWritebackAllowed(
+            GpuFillSliceMegaBatchDispatcher.Job job) {
+        return GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                && (GpuPayloadBatchExecutor.runtimeParityRemaining() <= 0
+                || job.runtimeParityPassed());
+    }
+
+    @Unique
+    private static String bts$fillSliceMegaBatchWritebackBlockedReason(
+            GpuFillSliceMegaBatchDispatcher.Job job) {
+        if (job.runtimeParityChecked() && !job.runtimeParityPassed()) {
+            return "job-parity-failed";
+        }
+        return "job-parity-pending";
+    }
+
+    @Unique
+    private boolean bts$tryFillSliceMegaBatchWriteback(GpuFillSliceMegaBatchDispatcher.Job job) {
+        if (bts$fillSliceMegaBatchWritebackAllowed(job) && job.writeGpuValuesToTarget()) {
+            return true;
+        }
+        long waitNanos = GpuFillSliceMegaBatchDispatcher.writebackWaitNanos();
+        if (waitNanos <= 0L || !bts$shouldWaitForFillSliceMegaBatchWriteback(job)) {
+            return false;
+        }
+
+        long start = System.nanoTime();
+        boolean success = false;
+        do {
+            if (bts$fillSliceMegaBatchWritebackAllowed(job) && job.writeGpuValuesToTarget()) {
+                success = true;
+                break;
+            }
+            if (!bts$shouldWaitForFillSliceMegaBatchWriteback(job)) {
+                break;
+            }
+            Thread.onSpinWait();
+        } while (System.nanoTime() - start < waitNanos);
+
+        if (!success) {
+            success = bts$fillSliceMegaBatchWritebackAllowed(job) && job.writeGpuValuesToTarget();
+        }
+        GpuFillSliceMegaBatchDispatcher.recordWritebackWait(System.nanoTime() - start, success);
+        return success;
+    }
+
+    @Unique
+    private static boolean bts$shouldWaitForFillSliceMegaBatchWriteback(
+            GpuFillSliceMegaBatchDispatcher.Job job) {
+        return job.gpuDispatchInFlight()
+                || (job.backgroundDispatchSubmitted() && !job.gpuDispatchStarted());
+    }
+
+    @Unique
+    private static String bts$fillSliceMegaBatchWritebackMissReason(
+            GpuFillSliceMegaBatchDispatcher.Job job) {
+        if (job.gpuValuesSnapshot() != null && !bts$fillSliceMegaBatchWritebackAllowed(job)) {
+            return bts$fillSliceMegaBatchWritebackBlockedReason(job);
+        }
+        if (!job.gpuDispatchStarted()) {
+            return job.backgroundDispatchSubmitted() ? "background-not-started" : "gpu-not-dispatched";
+        }
+        if (job.gpuDispatchInFlight()) {
+            return job.backgroundDispatchSubmitted() ? "background-in-flight" : "gpu-in-flight";
+        }
+        if (job.gpuValuesSnapshot() == null) {
+            return job.backgroundDispatchSubmitted() ? "background-completed-not-ready" : "gpu-not-ready";
+        }
+        return "gpu-writeback-failed";
+    }
+
+    @Unique
+    private double[] bts$snapshotFillSliceExternValues(
+            CompiledDensityFunction[] roots,
+            GpuIrPayload[] payloads,
+            int columns,
+            int yCount,
+            int pointCount,
+            int maxExternInputCount,
+            long arrayCounterBase) {
+        if (maxExternInputCount <= 0) {
+            return null;
+        }
+        final int combinedPointCount;
+        try {
+            combinedPointCount = Math.multiplyExact(pointCount, roots.length);
+        } catch (ArithmeticException ignored) {
+            return null;
+        }
+        final double[] externValues;
+        try {
+            externValues = new double[Math.multiplyExact(combinedPointCount, maxExternInputCount)];
+        } catch (ArithmeticException | OutOfMemoryError ignored) {
+            return null;
+        }
+        for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+            if (!bts$fillSliceExternInputValues(
+                    payloads[rootIndex], roots[rootIndex], columns, yCount, externValues,
+                    rootIndex * pointCount, maxExternInputCount, arrayCounterBase)) {
+                return null;
+            }
+        }
+        return externValues;
+    }
+
+    @Unique
+    private void bts$dispatchFillSliceMegaBatch(
+            GpuFillSliceMegaBatchDispatcher.Batch batch,
+            boolean deferParity) {
+        if (!GpuFillSliceMegaBatchDispatcher.submitBackgroundDispatch(
+                batch,
+                scheduledBatch -> bts$tryFillSliceMegaBatchDispatchProbe(scheduledBatch, deferParity))) {
+            bts$tryFillSliceMegaBatchDispatchProbe(batch, deferParity);
+        }
+    }
+
+    @Unique
+    private void bts$tryFillSliceMegaBatchDispatchProbe(
+            GpuFillSliceMegaBatchDispatcher.Batch batch,
+            boolean deferParity) {
+        long totalStart = System.nanoTime();
+        long invokeNanos = 0L;
+        long parityNanos = 0L;
+        long points = batch.combinedPointCount();
+        List<GpuFillSliceMegaBatchDispatcher.Job> dispatchJobs = List.of();
+        boolean dispatchInFlightMarked = false;
+        try {
+            int pointCount = batch.shapeKey().pointCount();
+            int combinedPointCount = Math.toIntExact(points);
+            int payloadCount = Math.toIntExact(points / pointCount);
+            int maxExternInputCount = batch.shapeKey().maxExternInputs();
+            if (GpuPayloadBatchExecutor.runtimeLaunchWouldSkipForBusyLock()) {
+                RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_mega_batch_runtime_lock_busy_precheck");
+                GpuFillSliceMegaBatchDispatcher.recordDispatchSkip(points);
+                return;
+            }
+            if (maxExternInputCount > 0) {
+                for (GpuFillSliceMegaBatchDispatcher.Job job : batch.jobs()) {
+                    if (!job.hasExternValuesSnapshot()) {
+                        RouterPipeline.recordGpuPayloadBatchRuntimeGate("fill_slice_mega_batch_missing_extern_snapshot");
+                        GpuFillSliceMegaBatchDispatcher.recordDispatchSkip(points);
+                        return;
+                    }
+                }
+            }
+            GpuFillSliceMegaBatchDispatcher.recordDispatchAttempt(points);
+
+            GpuIrPayload[] payloads = new GpuIrPayload[payloadCount];
+            int payloadIndex = 0;
+            for (GpuFillSliceMegaBatchDispatcher.Job job : batch.jobs()) {
+                for (GpuFillSliceMegaBatchDispatcher.CandidateRoot root : job.roots()) {
+                    payloads[payloadIndex++] = root.payload();
+                }
+            }
+            bts$FillSliceMultiPayload packed = bts$packFillSlicePayloads(payloads);
+            GpuPayloadBatchExecutor.BatchBuffers buffers = GpuPayloadBatchExecutor.localBuffers(
+                    combinedPointCount, packed.scratchStride(), Math.max(1, packed.maxExternInputCount()));
+            int[] blockX = buffers.blockX();
+            int[] blockY = buffers.blockY();
+            int[] blockZ = buffers.blockZ();
+            double[] externValues = buffers.externValues();
+            if (packed.maxExternInputCount() > 0) {
+                Arrays.fill(externValues, 0, combinedPointCount * packed.maxExternInputCount(), 0.0D);
+            }
+
+            payloadIndex = 0;
+            for (GpuFillSliceMegaBatchDispatcher.Job job : batch.jobs()) {
+                GpuFillSliceMegaBatchDispatcher.CandidateRoot[] roots = job.roots();
+                for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                    int pointOffset = payloadIndex * pointCount;
+                    job.fillCoordinates(blockX, blockY, blockZ, pointOffset);
+                    if (packed.maxExternInputCount() > 0) {
+                        System.arraycopy(
+                                job.externValuesSnapshot(),
+                                (rootIndex * pointCount) * packed.maxExternInputCount(),
+                                externValues,
+                                pointOffset * packed.maxExternInputCount(),
+                                pointCount * packed.maxExternInputCount());
+                    }
+                    payloadIndex++;
+                }
+            }
+
+            double[] gpuOutput = buffers.output();
+            RouterPipeline.recordGpuPayloadBatchAttempt(combinedPointCount);
+            dispatchJobs = batch.jobs();
+            for (GpuFillSliceMegaBatchDispatcher.Job job : dispatchJobs) {
+                job.markGpuDispatchStarted();
+            }
+            dispatchInFlightMarked = true;
+            long invokeStart = System.nanoTime();
+            GpuPayloadBatchExecutor.GpuAttempt attempt = GpuPayloadBatchExecutor.tryComputeGpuRuntimeMultiPayloadBatch(
+                    payloadCount,
+                    pointCount,
+                    packed.maxExternInputCount(),
+                    packed.scratchStride(),
+                    packed.payloadNodeOffsets(),
+                    packed.payloadNodeCounts(),
+                    packed.payloadRootIndices(),
+                    blockX,
+                    blockY,
+                    blockZ,
+                    packed.opcodes(),
+                    packed.arg0(),
+                    packed.arg1(),
+                    packed.arg2(),
+                    packed.int0(),
+                    packed.int1(),
+                    packed.value0(),
+                    packed.value1(),
+                    packed.noisePermutations(),
+                    packed.noiseOctaveData(),
+                    externValues,
+                    gpuOutput,
+                    buffers.scratch());
+            invokeNanos = System.nanoTime() - invokeStart;
+            RouterPipeline.recordGpuPayloadBatchArgumentLayout(
+                    GpuPayloadBatchExecutor.preparedLauncherStaticArguments(),
+                    GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+            if (!attempt.success()) {
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        0L, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                if (!attempt.preparedLauncherInvoked() && !attempt.disablesGpu()) {
+                    GpuFillSliceMegaBatchDispatcher.recordDispatchSkip(points);
+                    return;
+                }
+                if (attempt.disablesGpu()) {
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(attempt.failureReason());
+                }
+                RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, attempt.failureReason());
+                GpuFillSliceMegaBatchDispatcher.recordDispatchFailure(points);
+                return;
+            }
+
+            if (deferParity) {
+                payloadIndex = 0;
+                for (GpuFillSliceMegaBatchDispatcher.Job job : batch.jobs()) {
+                    job.markGpuCompleted(gpuOutput, payloadIndex);
+                    if (job.completed()) {
+                        bts$tryFillSliceMegaBatchDeferredJobParity(job);
+                    }
+                    payloadIndex += job.rootCount();
+                }
+                RouterPipeline.recordGpuPayloadBatchGpuSuccess(combinedPointCount);
+                GpuFillSliceMegaBatchDispatcher.recordDispatchGpuSuccess(points);
+            } else {
+                long parityStart = System.nanoTime();
+                GpuPayloadBatchExecutor.RuntimeParityReport parity = bts$fillSliceMegaBatchTargetParity(
+                        batch, pointCount, gpuOutput, buffers.parityExpected(), combinedPointCount);
+                parityNanos = System.nanoTime() - parityStart;
+                RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                        parity.checked(), parity.passed(), parity.pointsChecked(),
+                        parity.maxAbsError(), parity.failureReason());
+                if (parity.checked() && !parity.passed()) {
+                    RouterPipeline.recordGpuPayloadBatchTimings(
+                            0L, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                            attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                    RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+                    RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, parity.failureReason());
+                    GpuFillSliceMegaBatchDispatcher.recordDispatchFailure(points);
+                    return;
+                }
+                RouterPipeline.recordGpuPayloadBatchGpuSuccess(combinedPointCount);
+                GpuFillSliceMegaBatchDispatcher.recordDispatchGpuSuccess(points);
+            }
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    0L, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                    attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+            RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+        } catch (RuntimeException | LinkageError exception) {
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    0L, invokeNanos, parityNanos, System.nanoTime() - totalStart);
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(exception.toString());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(
+                    points > Integer.MAX_VALUE ? Integer.MAX_VALUE : Math.max(0, (int) points),
+                    exception.toString());
+            GpuFillSliceMegaBatchDispatcher.recordDispatchFailure(points);
+        } finally {
+            if (dispatchInFlightMarked) {
+                for (GpuFillSliceMegaBatchDispatcher.Job job : dispatchJobs) {
+                    job.markGpuDispatchFinished();
+                }
+            }
+        }
+    }
+
+    @Unique
+    private void bts$tryFillSliceMegaBatchDeferredJobParity(GpuFillSliceMegaBatchDispatcher.Job job) {
+        double[] gpuSnapshot = job.gpuValuesSnapshot();
+        double[] targetSnapshot = job.targetValuesSnapshot();
+        if (gpuSnapshot == null || targetSnapshot == null) {
+            return;
+        }
+        int combinedPointCount = Math.multiplyExact(job.pointCount(), job.rootCount());
+        GpuPayloadBatchExecutor.RuntimeParityReport parity =
+                GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(
+                        gpuSnapshot, targetSnapshot, combinedPointCount);
+        RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                parity.checked(), parity.passed(), parity.pointsChecked(),
+                parity.maxAbsError(), parity.failureReason());
+        if (parity.checked()) {
+            job.markRuntimeParity(parity.passed());
+        }
+        if (parity.checked() && !parity.passed()) {
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(combinedPointCount, parity.failureReason());
+            GpuFillSliceMegaBatchDispatcher.recordDispatchFailure(combinedPointCount);
+        }
+    }
+
+    @Unique
+    private static GpuPayloadBatchExecutor.RuntimeParityReport bts$fillSliceMegaBatchTargetParity(
+            GpuFillSliceMegaBatchDispatcher.Batch batch,
+            int pointCount,
+            double[] gpuOutput,
+            double[] expected,
+            int combinedPointCount) {
+        if (GpuPayloadBatchExecutor.runtimeParityRemaining() <= 0) {
+            return GpuPayloadBatchExecutor.RuntimeParityReport.skipped();
+        }
+        int payloadIndex = 0;
+        for (GpuFillSliceMegaBatchDispatcher.Job job : batch.jobs()) {
+            double[] targetSnapshot = job.targetValuesSnapshot();
+            if (targetSnapshot == null || targetSnapshot.length < job.pointCount() * job.rootCount()) {
+                return GpuPayloadBatchExecutor.RuntimeParityReport.failed(
+                        combinedPointCount, 0.0D, "fill-slice mega-batch target snapshot missing");
+            }
+            GpuFillSliceMegaBatchDispatcher.CandidateRoot[] roots = job.roots();
+            for (int rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+                System.arraycopy(
+                        targetSnapshot,
+                        rootIndex * pointCount,
+                        expected,
+                        payloadIndex * pointCount,
+                        pointCount);
+                payloadIndex++;
+            }
+        }
+        return GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(gpuOutput, expected, combinedPointCount);
     }
 
     @Unique
@@ -1277,6 +2000,26 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
     }
 
     @Unique
+    private static boolean bts$fillSliceGpuCollectionAvailable() {
+        return (bts$fillSliceLegacyGpuPrototypeAvailable()
+                || bts$fillSliceMegaBatchCollectionAvailable())
+                && "none".equals(bts$fillSliceGpuDisabledReason);
+    }
+
+    @Unique
+    private static boolean bts$fillSliceLegacyGpuPrototypeAvailable() {
+        return bts$fillSliceGpuPrototypeEnabled()
+                && !GpuFillSliceMegaBatchDispatcher.enabled();
+    }
+
+    @Unique
+    private static boolean bts$fillSliceMegaBatchCollectionAvailable() {
+        return GpuFillSliceMegaBatchDispatcher.enabled()
+                && (GpuFillSliceMegaBatchDispatcher.writebackEnabled()
+                || GpuFillSliceMegaBatchDispatcher.probeDispatchEnabled());
+    }
+
+    @Unique
     private static long bts$fillSliceGpuWarmInvokeMaxNanos() {
         return Math.max(1L, Long.getLong(FILL_SLICE_GPU_WARM_INVOKE_MAX_NANOS_PROPERTY, 1_000_000L));
     }
@@ -1390,6 +2133,22 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
                 value1,
                 noisePermutations,
                 noiseOctaveData);
+    }
+
+    @Unique
+    private record bts$FillSliceMegaBatchPrefetchKey(double[] target, int start) {
+    }
+
+    @Unique
+    private record bts$FillSliceMegaBatchPrefetch(
+            GpuFillSliceMegaBatchDispatcher.Job job,
+            int start,
+            double[] target,
+            int[] groupIndices) {
+    }
+
+    @Unique
+    private record bts$FillSliceMegaBatchUse(boolean used, boolean[] filledRoots) {
     }
 
     private record bts$FillSliceMultiPayload(
@@ -1617,27 +2376,336 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
         if (inputFunctions == null) {
             return false;
         }
+        int[] duplicateExternSlots = bts$duplicateFillSliceExternSlots(inputFunctions);
         int idx = 0;
         NoiseChunk self = (NoiseChunk) (Object) this;
         long restoreArrayCounter = this.arrayInterpolationCounter;
+        long externInputStart = NoiseChunkTimingStats.ENABLED ? System.nanoTime() : 0L;
+        boolean reuseYInvariantDirectReads = bts$fillSliceExternYInvariantReuseEnabled();
+        boolean[] yInvariantDirectRead = reuseYInvariantDirectReads ? new boolean[externInputCount] : null;
+        double[] yInvariantValues = reuseYInvariantDirectReads ? new double[externInputCount] : null;
+        boolean trackExternInputStats = NoiseChunkTimingStats.ENABLED;
+        String[] externInputLabels = bts$fillSliceExternInputLabels(inputFunctions);
+        String[] externInputDetails = trackExternInputStats
+                ? bts$fillSliceExternInputDetails(payload, root)
+                : null;
+        long[] directHitsBySlot = trackExternInputStats ? new long[externInputCount] : null;
+        long[] directMissesBySlot = trackExternInputStats ? new long[externInputCount] : null;
+        long[] computesBySlot = trackExternInputStats ? new long[externInputCount] : null;
+        boolean[] directReadProbeBySlot = bts$fillSliceDirectReadProbeFlags(inputFunctions, externInputLabels);
+        int directReadMissDisableThreshold = bts$fillSliceDirectReadMissDisableThreshold();
+        int[] directReadMissStreakBySlot = directReadMissDisableThreshold > 0
+                ? new int[externInputCount]
+                : null;
+        long directAttempts = 0L;
+        long directHits = 0L;
+        long directMisses = 0L;
+        long computes = 0L;
+        long wrappedComputes = 0L;
         try {
             for (int column = 0; column < columns; column++) {
                 this.arrayInterpolationCounter = arrayCounterBase + column + 1L;
                 this.cellStartBlockZ = (this.firstCellZ + column) * this.cellWidth;
                 this.inCellZ = 0;
+                if (reuseYInvariantDirectReads) {
+                    Arrays.fill(yInvariantDirectRead, false);
+                }
                 for (int y = 0; y < yCount; y++) {
                     bts$setFillSliceProviderPoint(y);
                     int base = (pointOffset + idx) * externStride;
                     for (int slot = 0; slot < externInputCount; slot++) {
-                        externValues[base + slot] = inputFunctions[slot].compute(self);
+                        int duplicateOf = duplicateExternSlots[slot];
+                        if (duplicateOf >= 0) {
+                            externValues[base + slot] = externValues[base + duplicateOf];
+                            continue;
+                        }
+                        if (reuseYInvariantDirectReads && yInvariantDirectRead[slot]) {
+                            externValues[base + slot] = yInvariantValues[slot];
+                            continue;
+                        }
+                        DensityFunction input = inputFunctions[slot];
+                        if (reuseYInvariantDirectReads
+                                && y == 0
+                                && bts$isFillSliceExternYInvariantCache(input)) {
+                            double direct = bts$tryFillSliceDirectRead(input, self);
+                            directAttempts++;
+                            if (Double.doubleToRawLongBits(direct) != DfcCacheFastPath.MISS_BITS) {
+                                directHits++;
+                                if (directHitsBySlot != null) {
+                                    directHitsBySlot[slot]++;
+                                }
+                                if (directReadMissStreakBySlot != null) {
+                                    directReadMissStreakBySlot[slot] = 0;
+                                }
+                                yInvariantDirectRead[slot] = true;
+                                yInvariantValues[slot] = direct;
+                                externValues[base + slot] = direct;
+                                continue;
+                            }
+                            directMisses++;
+                            if (directMissesBySlot != null) {
+                                directMissesBySlot[slot]++;
+                            }
+                        }
+                        if (directReadProbeBySlot[slot]
+                                && input instanceof DfcCellCacheAccess access) {
+                            double direct = access.dfc$tryDirectRead(self);
+                            directAttempts++;
+                            if (Double.doubleToRawLongBits(direct) != DfcCacheFastPath.MISS_BITS) {
+                                directHits++;
+                                if (directHitsBySlot != null) {
+                                    directHitsBySlot[slot]++;
+                                }
+                                if (directReadMissStreakBySlot != null) {
+                                    directReadMissStreakBySlot[slot] = 0;
+                                }
+                                externValues[base + slot] = direct;
+                                continue;
+                            }
+                            directMisses++;
+                            if (directMissesBySlot != null) {
+                                directMissesBySlot[slot]++;
+                            }
+                            bts$recordFillSliceDirectReadMiss(
+                                    directReadProbeBySlot,
+                                    directReadMissStreakBySlot,
+                                    externInputLabels,
+                                    slot,
+                                    directReadMissDisableThreshold);
+                        }
+                        computes++;
+                        if (computesBySlot != null) {
+                            computesBySlot[slot]++;
+                        }
+                        if (bts$fillSliceCacheOnceWrappedComputeEnabled()
+                                && !directReadProbeBySlot[slot]
+                                && input instanceof DfcCacheOnceWrappedAccess wrappedAccess) {
+                            wrappedComputes++;
+                            externValues[base + slot] = wrappedAccess.dfc$computeWrapped(self);
+                        } else {
+                            externValues[base + slot] = input.compute(self);
+                        }
                     }
                     idx++;
                 }
             }
         } finally {
             this.arrayInterpolationCounter = restoreArrayCounter;
+            if (externInputStart != 0L) {
+                NoiseChunkTimingStats.recordFillSliceExternInputNanos(System.nanoTime() - externInputStart);
+                NoiseChunkTimingStats.recordFillSliceExternInputStats(
+                        directAttempts, directHits, directMisses, computes, wrappedComputes);
+                if (trackExternInputStats) {
+                    for (int slot = 0; slot < externInputLabels.length; slot++) {
+                        NoiseChunkTimingStats.recordFillSliceExternInputClassStats(
+                                externInputLabels[slot],
+                                externInputDetails == null ? null : externInputDetails[slot],
+                                directHitsBySlot[slot],
+                                directMissesBySlot[slot],
+                                computesBySlot[slot]);
+                    }
+                }
+            }
         }
         return true;
+    }
+
+    @Unique
+    private static boolean[] bts$fillSliceDirectReadProbeFlags(
+            DensityFunction[] inputFunctions,
+            String[] externInputLabels) {
+        boolean[] flags = new boolean[inputFunctions.length];
+        for (int i = 0; i < inputFunctions.length; i++) {
+            flags[i] = bts$shouldProbeFillSliceDirectRead(
+                    inputFunctions[i],
+                    externInputLabels == null ? null : externInputLabels[i]);
+        }
+        return flags;
+    }
+
+    @Unique
+    private static boolean bts$shouldProbeFillSliceDirectRead(DensityFunction input, String label) {
+        if (input instanceof DensityFunctions.MarkerOrMarked marked
+                && marked.type() == DensityFunctions.Marker.Type.CacheOnce
+                && marked.wrapped() instanceof DensityFunctions.MulOrAdd) {
+            return false;
+        }
+        if (label != null
+                && label.contains("Marker:CacheOnce->net.minecraft.world.level.levelgen.DensityFunctions$MulOrAdd")) {
+            return false;
+        }
+        return true;
+    }
+
+    @Unique
+    private static int bts$fillSliceDirectReadMissDisableThreshold() {
+        return Math.max(0, Integer.getInteger(
+                "ga.dfc.gpu.fillSliceDirectReadMissDisableThreshold",
+                1));
+    }
+
+    @Unique
+    private static boolean bts$fillSliceCacheOnceWrappedComputeEnabled() {
+        return Boolean.parseBoolean(System.getProperty(
+                "ga.dfc.gpu.fillSliceCacheOnceWrappedCompute",
+                "true"));
+    }
+
+    @Unique
+    private static void bts$recordFillSliceDirectReadMiss(
+            boolean[] directReadProbeBySlot,
+            int[] directReadMissStreakBySlot,
+            String[] externInputLabels,
+            int slot,
+            int threshold) {
+        if (threshold <= 0
+                || directReadMissStreakBySlot == null
+                || !bts$canDisableFillSliceDirectReadAfterMisses(externInputLabels[slot])) {
+            return;
+        }
+        int misses = ++directReadMissStreakBySlot[slot];
+        if (misses >= threshold) {
+            directReadProbeBySlot[slot] = false;
+        }
+    }
+
+    @Unique
+    private static boolean bts$canDisableFillSliceDirectReadAfterMisses(String label) {
+        return label != null && label.startsWith("Marker:CacheOnce->");
+    }
+
+    @Unique
+    private static int[] bts$duplicateFillSliceExternSlots(DensityFunction[] inputFunctions) {
+        int[] duplicateOf = new int[inputFunctions.length];
+        Arrays.fill(duplicateOf, -1);
+        for (int slot = 0; slot < inputFunctions.length; slot++) {
+            DensityFunction input = inputFunctions[slot];
+            for (int prior = 0; prior < slot; prior++) {
+                if (inputFunctions[prior] == input) {
+                    duplicateOf[slot] = prior;
+                    break;
+                }
+            }
+        }
+        return duplicateOf;
+    }
+
+    @Unique
+    private static String[] bts$fillSliceExternInputLabels(DensityFunction[] inputFunctions) {
+        String[] labels = new String[inputFunctions.length];
+        for (int i = 0; i < inputFunctions.length; i++) {
+            labels[i] = bts$describeFillSlicePayloadExternFunction(inputFunctions[i]);
+        }
+        return labels;
+    }
+
+    @Unique
+    private static String[] bts$fillSliceExternInputDetails(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner) {
+        int count = payload.externInputCount();
+        String[] details = new String[count];
+        for (int slot = 0; slot < count; slot++) {
+            details[slot] = bts$describeFillSlicePayloadExternSlot(payload, rootOwner, slot);
+        }
+        return details;
+    }
+
+    @Unique
+    private static boolean bts$fillSliceExternYInvariantReuseEnabled() {
+        return Boolean.parseBoolean(System.getProperty(
+                "ga.dfc.gpu.fillSliceExternYInvariantReuse",
+                "true"));
+    }
+
+    @Unique
+    private static boolean bts$isFillSliceExternYInvariantCache(DensityFunction input) {
+        if (!(input instanceof DensityFunctions.MarkerOrMarked marked)) {
+            return bts$isFillSliceExternYInvariantWrapped(input);
+        }
+        return marked.type() == DensityFunctions.Marker.Type.FlatCache
+                || marked.type() == DensityFunctions.Marker.Type.Cache2D;
+    }
+
+    @Unique
+    private static final Map<DensityFunction, Boolean> bts$fillSliceExternYInvariantWrappedCache =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
+    @Unique
+    private static boolean bts$isFillSliceExternYInvariantWrapped(DensityFunction input) {
+        if (!(input instanceof DfcCacheOnceWrappedAccess wrappedAccess)) {
+            return false;
+        }
+        return bts$fillSliceExternYInvariantWrappedCache.computeIfAbsent(input, ignored -> {
+            DensityFunction wrapped = wrappedAccess.dfc$wrappedFunction();
+            if (wrapped == null) {
+                return false;
+            }
+            try {
+                return bts$isFillSliceExternYInvariantFunction(wrapped, new IdentityHashMap<>());
+            } catch (RuntimeException | LinkageError ignoredException) {
+                return false;
+            }
+        });
+    }
+
+    @Unique
+    private static boolean bts$isFillSliceExternYInvariantFunction(
+            DensityFunction input,
+            IdentityHashMap<DensityFunction, Boolean> visiting) {
+        if (input == null) {
+            return false;
+        }
+        if (visiting.put(input, Boolean.TRUE) != null) {
+            return false;
+        }
+        if (input instanceof DensityFunctions.Constant) {
+            return true;
+        }
+        if (input instanceof DensityFunctions.MarkerOrMarked marked) {
+            if (marked.type() == DensityFunctions.Marker.Type.FlatCache
+                    || marked.type() == DensityFunctions.Marker.Type.Cache2D) {
+                return true;
+            }
+            if (marked.type() == DensityFunctions.Marker.Type.CacheOnce
+                    && input instanceof DfcCacheOnceWrappedAccess wrappedAccess) {
+                return bts$isFillSliceExternYInvariantFunction(
+                        wrappedAccess.dfc$wrappedFunction(), visiting);
+            }
+            return false;
+        }
+        if (input instanceof DensityFunctions.MulOrAdd ma) {
+            return bts$isFillSliceExternYInvariantFunction(ma.input(), visiting);
+        }
+        if (input instanceof DensityFunctions.TwoArgumentSimpleFunction fn) {
+            return bts$isFillSliceExternYInvariantFunction(fn.argument1(), visiting)
+                    && bts$isFillSliceExternYInvariantFunction(fn.argument2(), visiting);
+        }
+        if (input instanceof DensityFunctions.Mapped mapped) {
+            return bts$isFillSliceExternYInvariantFunction(mapped.input(), visiting);
+        }
+        if (input instanceof DensityFunctions.Clamp clamp) {
+            return bts$isFillSliceExternYInvariantFunction(clamp.input(), visiting);
+        }
+        if (input instanceof DensityFunctions.RangeChoice rangeChoice) {
+            return bts$isFillSliceExternYInvariantFunction(rangeChoice.input(), visiting)
+                    && bts$isFillSliceExternYInvariantFunction(rangeChoice.whenInRange(), visiting)
+                    && bts$isFillSliceExternYInvariantFunction(rangeChoice.whenOutOfRange(), visiting);
+        }
+        if (input instanceof DensityFunctions.HolderHolder holder) {
+            return bts$isFillSliceExternYInvariantFunction(holder.function().value(), visiting);
+        }
+        return false;
+    }
+
+    @Unique
+    private static double bts$tryFillSliceDirectRead(
+            DensityFunction input,
+            DensityFunction.FunctionContext context) {
+        if (input instanceof DfcCellCacheAccess access) {
+            return access.dfc$tryDirectRead(context);
+        }
+        return DfcCacheFastPath.CACHE_MISS;
     }
 
     @Unique
@@ -1725,12 +2793,18 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             int yCount,
             NoiseChunk.NoiseInterpolator[] interpolators) {
         if (!NoiseChunkTimingStats.ENABLED
-                || !bts$fillSliceGpuPrototypeAvailable()
+                || !bts$fillSliceGpuCollectionAvailable()
                 || columns <= 0
                 || yCount <= 0
-                || interpolators.length == 0
-                || this.bts$fillSliceCompiledRoots == null
-                || this.bts$fillSliceGpuPayloads == null) {
+                || interpolators.length == 0) {
+            return;
+        }
+        if (this.bts$fillSliceCompiledRoots == null) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("payload-surface-compiled-roots-null");
+            return;
+        }
+        if (this.bts$fillSliceGpuPayloads == null) {
+            NoiseChunkTimingStats.recordFillSliceGpuCollectionSkip("payload-surface-payload-array-null");
             return;
         }
         long pointsPerRoot;
@@ -1754,7 +2828,87 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
                     pointsPerRoot,
                     root,
                     bts$describeFillSlicePayloadBlocker(root, payload, diagnostics));
+            if (payload != null && payload.hasExternInputs() && compiledRoot != null) {
+                bts$recordFillSlicePayloadExternLeaves(payload, compiledRoot);
+            }
         }
+    }
+
+    @Unique
+    private static void bts$recordFillSlicePayloadExternLeaves(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner) {
+        int count = payload.externInputCount();
+        for (int slot = 0; slot < count; slot++) {
+            NoiseChunkTimingStats.recordFillSlicePayloadExternLeaf(
+                    bts$describeFillSlicePayloadExternLeaf(payload, rootOwner, slot));
+        }
+    }
+
+    @Unique
+    private static String bts$describeFillSlicePayloadExternLeaf(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner,
+            int slot) {
+        CompiledDensityFunction owner = rootOwner;
+        int pathOffset = payload.externInputPathOffsets()[slot];
+        int pathLength = payload.externInputPathLengths()[slot];
+        for (int i = 0; i < pathLength; i++) {
+            DensityFunction next = owner.dfc$extern(payload.externInputOwnerPath()[pathOffset + i]);
+            if (!(next instanceof CompiledDensityFunction compiled)) {
+                return "path:" + bts$describeFillSlicePayloadExternFunction(next);
+            }
+            owner = compiled;
+        }
+        return bts$describeFillSlicePayloadExternFunction(
+                owner.dfc$extern(payload.externInputLeafExternIndices()[slot]));
+    }
+
+    @Unique
+    private static String bts$describeFillSlicePayloadExternSlot(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner,
+            int slot) {
+        StringBuilder path = new StringBuilder();
+        int pathOffset = payload.externInputPathOffsets()[slot];
+        int pathLength = payload.externInputPathLengths()[slot];
+        for (int i = 0; i < pathLength; i++) {
+            if (i > 0) {
+                path.append('/');
+            }
+            path.append(payload.externInputOwnerPath()[pathOffset + i]);
+        }
+        return "slot=" + slot
+                + ",path=" + path
+                + ",leaf=" + payload.externInputLeafExternIndices()[slot]
+                + ",fn=" + bts$describeFillSlicePayloadExternLeaf(payload, rootOwner, slot);
+    }
+
+    @Unique
+    private static String bts$describeFillSlicePayloadExternFunction(DensityFunction function) {
+        return bts$describeFillSlicePayloadExternFunction(function, new IdentityHashMap<>(), 0);
+    }
+
+    @Unique
+    private static String bts$describeFillSlicePayloadExternFunction(
+            DensityFunction function,
+            IdentityHashMap<DensityFunction, Boolean> seen,
+            int depth) {
+        if (function == null) {
+            return "null";
+        }
+        if (depth >= 8) {
+            return function.getClass().getName() + "->...";
+        }
+        if (seen.put(function, Boolean.TRUE) != null) {
+            return function.getClass().getName() + "->cycle";
+        }
+        if (function instanceof DensityFunctions.MarkerOrMarked marked) {
+            DensityFunction wrapped = marked.wrapped();
+            return "Marker:" + marked.type() + "->"
+                    + bts$describeFillSlicePayloadExternFunction(wrapped, seen, depth + 1);
+        }
+        return function.getClass().getName();
     }
 
     @Unique

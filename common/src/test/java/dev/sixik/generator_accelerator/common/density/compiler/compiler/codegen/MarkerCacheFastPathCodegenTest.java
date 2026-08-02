@@ -75,6 +75,157 @@ class MarkerCacheFastPathCodegenTest {
         }
     }
 
+    @Test
+    void scalarMarkerCellFillOverrideSpecializesSqueezeMulMarker() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+
+        String previous = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", "true");
+        try {
+            DensityFunction marker = DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(4.0));
+            DensityFunction root = DensityFunctions.map(
+                    DensityFunctions.mul(DensityFunctions.constant(0.64), marker),
+                    DensityFunctions.Mapped.Type.SQUEEZE);
+            DensityFunction compiled = Compiler.compile(root);
+            assertInstanceOf(CompiledDensityFunction.class, compiled);
+
+            DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(compiled.getClass().getName());
+            assertNotNull(entry);
+            assertTrue(entry.cellScalarMarkerSpecialized(), entry.cellScalarMarkerReason());
+            assertEquals("emitted:squeeze-mul", entry.cellScalarMarkerReason());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerOverride");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", previous);
+            }
+        }
+    }
+
+    @Test
+    void scalarMarkerCellFillOverrideSpecializesMinWithSqueezeMulMarkerBranch() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+
+        String previous = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", "true");
+        try {
+            DensityFunction marker = DensityFunctions.cacheAllInCell(DensityFunctions.constant(4.0));
+            DensityFunction squeezeMul = DensityFunctions.map(
+                    DensityFunctions.mul(DensityFunctions.constant(0.64), marker),
+                    DensityFunctions.Mapped.Type.SQUEEZE);
+            DensityFunction rangeChoice = DensityFunctions.rangeChoice(
+                    DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(0.0)),
+                    -3.333333333333333,
+                    0.0,
+                    DensityFunctions.constant(64.0),
+                    DensityFunctions.constant(-2.0));
+            DensityFunction root = DensityFunctions.min(squeezeMul, rangeChoice);
+            DensityFunction compiled = Compiler.compile(root);
+            assertInstanceOf(CompiledDensityFunction.class, compiled);
+
+            DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(compiled.getClass().getName());
+            assertNotNull(entry);
+            assertTrue(entry.cellScalarMarkerSpecialized(), entry.cellScalarMarkerReason());
+            assertEquals("emitted:min-squeeze-mul", entry.cellScalarMarkerReason());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerOverride");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", previous);
+            }
+        }
+    }
+
+    @Test
+    void scalarMarkerCellFillOverrideDefersRangeChoiceOutBranchZInterpolation() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+
+        String previous = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        String previousLazyZ = System.getProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", "true");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ", "true");
+        try {
+            DensityFunction marker = DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(4.0));
+            DensityFunction squeezeMul = DensityFunctions.map(
+                    DensityFunctions.mul(DensityFunctions.constant(0.64), marker),
+                    DensityFunctions.Mapped.Type.SQUEEZE);
+            DensityFunction rangeChoice = DensityFunctions.rangeChoice(
+                    DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(0.0)),
+                    -3.333333333333333,
+                    0.0,
+                    DensityFunctions.constant(64.0),
+                    DensityFunctions.add(
+                            DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(1.0)),
+                            DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(2.0))));
+            DensityFunction root = DensityFunctions.min(squeezeMul, rangeChoice);
+            DensityFunction compiled = Compiler.compile(root);
+            assertInstanceOf(CompiledDensityFunction.class, compiled);
+
+            DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(compiled.getClass().getName());
+            assertNotNull(entry);
+            assertTrue(entry.cellScalarMarkerSpecialized(), entry.cellScalarMarkerReason());
+            assertEquals("emitted:min-squeeze-mul-lazy-z", entry.cellScalarMarkerReason());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerOverride");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", previous);
+            }
+            if (previousLazyZ == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ", previousLazyZ);
+            }
+        }
+    }
+
+    @Test
+    void scalarMarkerCellFillOverrideKeepsLazyRangeChoiceZOptIn() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+
+        String previous = System.getProperty("dfc.codegen.cellFillScalarMarkerOverride");
+        String previousLazyZ = System.getProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", "true");
+        System.setProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ", "false");
+        try {
+            DensityFunction marker = DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(4.0));
+            DensityFunction squeezeMul = DensityFunctions.map(
+                    DensityFunctions.mul(DensityFunctions.constant(0.64), marker),
+                    DensityFunctions.Mapped.Type.SQUEEZE);
+            DensityFunction rangeChoice = DensityFunctions.rangeChoice(
+                    DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(0.0)),
+                    -3.333333333333333,
+                    0.0,
+                    DensityFunctions.constant(64.0),
+                    DensityFunctions.add(
+                            DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(1.0)),
+                            DensityFunctions.cacheAllInCell(new TestArrayIndexCacheExtern(2.0))));
+            DensityFunction root = DensityFunctions.min(squeezeMul, rangeChoice);
+            DensityFunction compiled = Compiler.compile(root);
+            assertInstanceOf(CompiledDensityFunction.class, compiled);
+
+            DfcCompiledClassRegistry.Entry entry = DfcCompiledClassRegistry.lookup(compiled.getClass().getName());
+            assertNotNull(entry);
+            assertTrue(entry.cellScalarMarkerSpecialized(), entry.cellScalarMarkerReason());
+            assertEquals("emitted:min-squeeze-mul", entry.cellScalarMarkerReason());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerOverride");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerOverride", previous);
+            }
+            if (previousLazyZ == null) {
+                System.clearProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ");
+            } else {
+                System.setProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ", previousLazyZ);
+            }
+        }
+    }
+
     private static final class TestArrayIndexCacheExtern implements DensityFunction, DfcCellCacheArrayIndexAccess {
         private final double value;
         private int arrayIndexReads;

@@ -10,9 +10,19 @@ architectury {
 loom {
     runs {
         client {
-            vmArgs  "-Dga.dfc.gpu=true",
-                    "-Dga.dfc.lazyCellCacheCompile=false",
-                    "-Dga.dfc.gpu.runtimeInfoLog=true"
+            def gaVmArgs = [
+                    "-Dga.dfc.gpu=true",
+                    "-Dga.dfc.gpu.fillSlicePrototype=true",
+                    "-Dga.dfc.fillSliceLazyCompile=true",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch=true",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.dispatch=true",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.asyncProbe=true",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.backgroundDispatch=true",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.compileMax=4096",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.targetPoints=262144",
+                    "-Dga.dfc.gpu.fillSliceMegaBatch.maxQueuedJobs=2048"
+            ]
+            vmArgs gaVmArgs
         }
     }
 }

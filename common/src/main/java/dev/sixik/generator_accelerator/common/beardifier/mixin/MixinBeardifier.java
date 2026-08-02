@@ -566,9 +566,15 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
     }
 
     @Override
+    public boolean dfc$isAlwaysCellZero() {
+        this.ga$ensureArraysReady();
+        return !this.ga$hasInfluence;
+    }
+
+    @Override
     public boolean dfc$isCellZero(NoiseChunk chunk) {
         this.ga$ensureArraysReady();
-        return this.ga$cellOutsideInfluenceBounds(chunk, chunk.cellWidth, chunk.cellHeight);
+        return this.ga$cellOutsideInfluenceFast(chunk, chunk.cellWidth, chunk.cellHeight);
     }
 
     @Unique

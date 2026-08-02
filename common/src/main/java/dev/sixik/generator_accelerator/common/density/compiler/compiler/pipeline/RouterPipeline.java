@@ -1258,6 +1258,7 @@ public final class RouterPipeline {
         GPU_PAYLOAD_BATCH_RUNTIME_PARITY_POINTS.set(0L);
         GPU_PAYLOAD_BATCH_RUNTIME_PARITY_MAX_ABS_ERROR_BITS.set(Double.doubleToRawLongBits(0.0D));
         GPU_PAYLOAD_BATCH_RUNTIME_PARITY_FIRST_FAILURE.set("none");
+        GpuPayloadCompiler.resetInlineDiagnostics();
         OnDemandCompilingDensityFunction.resetLazyStats();
     }
 

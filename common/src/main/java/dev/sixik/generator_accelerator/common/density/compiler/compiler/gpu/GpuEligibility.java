@@ -16,9 +16,9 @@ import java.util.Map;
  * <p>This is intentionally diagnostic only. JavaToGpu kernels must be static,
  * array/scalar-oriented, and free of allocation, exceptions, virtual dispatch,
  * object graphs, and general object arrays. DFC's IR is already close to that for
- * pure arithmetic, but several current node families still rely on JVM object
- * payloads or virtual vanilla calls. Those are reported as blockers instead of
- * pretending a GPU backend exists.
+ * pure arithmetic. Nodes that have already been lowered into primitive GPU payload
+ * buffers, such as {@link IRNode.InlinedNoise}, are considered eligible even though
+ * the original generated CPU class still carries vanilla object fields.
  */
 public final class GpuEligibility {
 
@@ -77,9 +77,6 @@ public final class GpuEligibility {
         if (pool != null) {
             if (pool.splineCount() > 0) {
                 add(blockers, Blocker.SPLINE_OBJECT_PAYLOAD, pool.splineCount());
-            }
-            if (pool.noiseCount() > 0) {
-                add(blockers, Blocker.VANILLA_NOISE_OBJECT, pool.noiseCount());
             }
         }
 

@@ -261,6 +261,14 @@ public final class Codegen {
         return GAConfigHolder.getConfig().dfc.cellFillScalarMarkerOverride;
     }
 
+    private static boolean cellFillScalarMarkerLazyRangeChoiceZEnabled() {
+        String override = System.getProperty("dfc.codegen.cellFillScalarMarkerLazyRangeChoiceZ");
+        if (override != null) {
+            return Boolean.parseBoolean(override);
+        }
+        return GAConfigHolder.getConfig().dfc.cellFillScalarMarkerLazyRangeChoiceZ;
+    }
+
     private static SplineSearchMode parseSplineSearchMode(String raw) {
         if (raw == null) {
             return SplineSearchMode.AUTO;
@@ -453,7 +461,7 @@ public final class Codegen {
                 if (decision.enabled()) {
                     emitScalarMarkerCellFillOverride(cw, classInternalName, root, helpers);
                     cellScalarMarkerSpecialized = true;
-                    cellScalarMarkerReason = "emitted";
+                    cellScalarMarkerReason = scalarMarkerSpecializationReason(root);
                 }
             }
         }
@@ -1231,6 +1239,13 @@ public final class Codegen {
     }
 
     private record ScalarMarkerCellFillDecision(boolean enabled, String reason) {}
+    private record ScalarMarkerSqueezeMulPlan(int markerExternIndex, double scale) {}
+    private record ScalarMarkerLazyRangeChoiceZPlan(IRNode.BinOp op,
+                                                    ScalarMarkerSqueezeMulPlan squeezePlan,
+                                                    IRNode.RangeChoice rangeChoice,
+                                                    boolean squeezeOnLeft,
+                                                    int[] eagerZMarkerIndexes,
+                                                    int[] lazyOutZMarkerIndexes) {}
 
     private static ScalarMarkerCellFillDecision scalarMarkerCellFillDecision(IRNode root, HelperRegistry helpers) {
         if (!cellFillScalarMarkerOverrideEnabled()) {
@@ -1329,6 +1344,102 @@ public final class Codegen {
         return out;
     }
 
+    private static int[] toIntArray(TreeSet<Integer> indexes) {
+        int[] out = new int[indexes.size()];
+        int i = 0;
+        for (int index : indexes) {
+            out[i++] = index;
+        }
+        return out;
+    }
+
+    private static ScalarMarkerSqueezeMulPlan scalarMarkerSqueezeMulPlan(IRNode root) {
+        if (!(root instanceof IRNode.Unary unary) || unary.op() != IRNode.UnaryOp.SQUEEZE) {
+            return null;
+        }
+        if (!(unary.input() instanceof IRNode.Bin bin) || bin.op() != IRNode.BinOp.MUL) {
+            return null;
+        }
+        return scalarMarkerMulPlan(bin.left(), bin.right());
+    }
+
+    private static ScalarMarkerSqueezeMulPlan scalarMarkerMulPlan(IRNode left, IRNode right) {
+        if (left instanceof IRNode.Const constant && right instanceof IRNode.Marker marker) {
+            return scalarMarkerSqueezeMulPlan(marker, constant.value());
+        }
+        if (left instanceof IRNode.Marker marker && right instanceof IRNode.Const constant) {
+            return scalarMarkerSqueezeMulPlan(marker, constant.value());
+        }
+        return null;
+    }
+
+    private static ScalarMarkerSqueezeMulPlan scalarMarkerSqueezeMulPlan(IRNode.Marker marker, double scale) {
+        if (!Double.isFinite(scale)) {
+            return null;
+        }
+        return new ScalarMarkerSqueezeMulPlan(marker.externIndex(), scale);
+    }
+
+    private static ScalarMarkerLazyRangeChoiceZPlan scalarMarkerLazyRangeChoiceZPlan(IRNode root) {
+        if (!cellFillScalarMarkerLazyRangeChoiceZEnabled()) {
+            return null;
+        }
+        if (!(root instanceof IRNode.Bin bin) || (bin.op() != IRNode.BinOp.MIN && bin.op() != IRNode.BinOp.MAX)) {
+            return null;
+        }
+        ScalarMarkerSqueezeMulPlan leftPlan = scalarMarkerSqueezeMulPlan(bin.left());
+        ScalarMarkerSqueezeMulPlan rightPlan = scalarMarkerSqueezeMulPlan(bin.right());
+        if (leftPlan != null && bin.right() instanceof IRNode.RangeChoice rangeChoice) {
+            return scalarMarkerLazyRangeChoiceZPlan(bin.op(), leftPlan, rangeChoice, true);
+        }
+        if (rightPlan != null && bin.left() instanceof IRNode.RangeChoice rangeChoice) {
+            return scalarMarkerLazyRangeChoiceZPlan(bin.op(), rightPlan, rangeChoice, false);
+        }
+        return null;
+    }
+
+    private static ScalarMarkerLazyRangeChoiceZPlan scalarMarkerLazyRangeChoiceZPlan(IRNode.BinOp op,
+                                                                                     ScalarMarkerSqueezeMulPlan squeezePlan,
+                                                                                     IRNode.RangeChoice rangeChoice,
+                                                                                     boolean squeezeOnLeft) {
+        if (!(rangeChoice.whenInRange() instanceof IRNode.Const)) {
+            return null;
+        }
+        int[] outMarkers = scalarMarkerIndexes(rangeChoice.whenOutOfRange());
+        if (outMarkers.length == 0) {
+            return null;
+        }
+        TreeSet<Integer> eager = new TreeSet<>();
+        eager.add(squeezePlan.markerExternIndex());
+        for (int markerIndex : scalarMarkerIndexes(rangeChoice.input())) {
+            eager.add(markerIndex);
+        }
+        for (int markerIndex : scalarMarkerIndexes(rangeChoice.whenInRange())) {
+            eager.add(markerIndex);
+        }
+        return new ScalarMarkerLazyRangeChoiceZPlan(op, squeezePlan, rangeChoice, squeezeOnLeft,
+                toIntArray(eager), outMarkers);
+    }
+
+    private static String scalarMarkerSpecializationReason(IRNode root) {
+        ScalarMarkerLazyRangeChoiceZPlan lazyRangeChoiceZPlan = scalarMarkerLazyRangeChoiceZPlan(root);
+        if (lazyRangeChoiceZPlan != null) {
+            String opName = lazyRangeChoiceZPlan.op().name().toLowerCase(Locale.ROOT);
+            return "emitted:" + opName + "-squeeze-mul-lazy-z";
+        }
+        if (scalarMarkerSqueezeMulPlan(root) != null) {
+            return "emitted:squeeze-mul";
+        }
+        if (root instanceof IRNode.Bin bin
+                && (bin.op() == IRNode.BinOp.MIN || bin.op() == IRNode.BinOp.MAX)) {
+            if (scalarMarkerSqueezeMulPlan(bin.left()) != null
+                    || scalarMarkerSqueezeMulPlan(bin.right()) != null) {
+                return "emitted:" + bin.op().name().toLowerCase(Locale.ROOT) + "-squeeze-mul";
+            }
+        }
+        return "emitted";
+    }
+
     private static void emitScalarMarkerCellFillOverride(ClassWriter cw, String classInternalName,
                                                          IRNode root, HelperRegistry helpers) {
         MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "dfc$fillCell", CELL_FILL_DESC, null, null);
@@ -1387,6 +1498,9 @@ public final class Codegen {
                                                                  IRNode root, HelperRegistry helpers,
                                                                  boolean accumulate, int soaLocal) {
         int[] markerIndexes = scalarMarkerIndexes(root);
+        ScalarMarkerLazyRangeChoiceZPlan lazyRangeChoiceZPlan = scalarMarkerLazyRangeChoiceZPlan(root);
+        int[] eagerZMarkerIndexes = lazyRangeChoiceZPlan == null
+                ? markerIndexes : lazyRangeChoiceZPlan.eagerZMarkerIndexes();
         // Locals: 0=this, 1=out, 2=chunk, 3=idx, 4=cellW, 5=cellH,
         // 6=inCellY, 7=inCellX, 8=inCellZ, 9=SoA path,
         // 10/12=inverse cell W/H, 14/16/18=delta X/Y/Z,
@@ -1493,7 +1607,7 @@ public final class Codegen {
         mv.visitVarInsn(Opcodes.DLOAD, 10);
         mv.visitInsn(Opcodes.DMUL);
         mv.visitVarInsn(Opcodes.DSTORE, 18);
-        emitScalarMarkerUpdateZSubset(mv, markerIndexes, 18, lerpLowTempSlot,
+        emitScalarMarkerUpdateZSubset(mv, eagerZMarkerIndexes, 18, lerpLowTempSlot,
                 valueZ0Slot, valueZ1Slot, directInterpolatorValueArraySlot);
 
         if (accumulate) {
@@ -1506,11 +1620,15 @@ public final class Codegen {
             mv.visitVarInsn(Opcodes.ALOAD, 1);
             mv.visitVarInsn(Opcodes.ILOAD, 3);
         }
-        EmitState st = new EmitState(mv, classInternalName, helpers, false,
-                CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18,
-                directInterpolatorValueArraySlot);
-        st.reserveLocalsFrom(arraySlot);
-        st.emit(root);
+        if (lazyRangeChoiceZPlan != null) {
+            emitScalarMarkerLazyRangeChoiceZExpression(mv, classInternalName, lazyRangeChoiceZPlan, helpers,
+                    soaLocal, directInterpolatorValueArraySlot, valueZ0Slot, valueZ1Slot,
+                    18, lerpLowTempSlot, arraySlot);
+        } else if (!emitScalarMarkerSpecializedExpression(mv, classInternalName, root, helpers,
+                soaLocal, directInterpolatorValueArraySlot, arraySlot)) {
+            emitScalarMarkerGenericExpression(mv, classInternalName, root, helpers,
+                    soaLocal, directInterpolatorValueArraySlot, arraySlot);
+        }
         if (accumulate) {
             mv.visitInsn(Opcodes.DADD);
         }
@@ -1549,6 +1667,183 @@ public final class Codegen {
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitInsn(Opcodes.ISUB);
         mv.visitFieldInsn(Opcodes.PUTFIELD, NOISE_CHUNK_INTERNAL, "inCellZ", "I");
+    }
+
+    private static boolean emitScalarMarkerSpecializedExpression(MethodVisitor mv, String classInternalName,
+                                                                 IRNode root, HelperRegistry helpers,
+                                                                 int soaLocal, int valueArraySlot,
+                                                                 int localFloor) {
+        ScalarMarkerSqueezeMulPlan directPlan = scalarMarkerSqueezeMulPlan(root);
+        if (directPlan != null) {
+            emitScalarMarkerSqueezeMul(mv, classInternalName, directPlan, valueArraySlot, localFloor);
+            return true;
+        }
+        if (!(root instanceof IRNode.Bin bin)
+                || (bin.op() != IRNode.BinOp.MIN && bin.op() != IRNode.BinOp.MAX)) {
+            return false;
+        }
+
+        ScalarMarkerSqueezeMulPlan leftPlan = scalarMarkerSqueezeMulPlan(bin.left());
+        ScalarMarkerSqueezeMulPlan rightPlan = scalarMarkerSqueezeMulPlan(bin.right());
+        int genericLocalFloor = localFloor + 4;
+        if (leftPlan != null) {
+            emitScalarMarkerSqueezeMul(mv, classInternalName, leftPlan, valueArraySlot, localFloor);
+            emitScalarMarkerGenericExpression(mv, classInternalName, bin.right(), helpers,
+                    soaLocal, valueArraySlot, genericLocalFloor);
+        } else if (rightPlan != null) {
+            emitScalarMarkerGenericExpression(mv, classInternalName, bin.left(), helpers,
+                    soaLocal, valueArraySlot, genericLocalFloor);
+            emitScalarMarkerSqueezeMul(mv, classInternalName, rightPlan, valueArraySlot, localFloor);
+        } else {
+            return false;
+        }
+
+        String methodName = bin.op() == IRNode.BinOp.MIN ? "min" : "max";
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", methodName, "(DD)D", false);
+        return true;
+    }
+
+    private static void emitScalarMarkerLazyRangeChoiceZExpression(MethodVisitor mv, String classInternalName,
+                                                                   ScalarMarkerLazyRangeChoiceZPlan plan,
+                                                                   HelperRegistry helpers,
+                                                                   int soaLocal, int valueArraySlot,
+                                                                   int valueZ0Slot, int valueZ1Slot,
+                                                                   int deltaZSlot, int lerpLowTempSlot,
+                                                                   int localFloor) {
+        if (plan.squeezeOnLeft()) {
+            emitScalarMarkerSqueezeMul(mv, classInternalName, plan.squeezePlan(), valueArraySlot, localFloor);
+            emitScalarMarkerLazyRangeChoiceZValue(mv, classInternalName, plan.rangeChoice(), helpers,
+                    soaLocal, valueArraySlot, valueZ0Slot, valueZ1Slot, deltaZSlot,
+                    lerpLowTempSlot, localFloor, plan.lazyOutZMarkerIndexes());
+        } else {
+            emitScalarMarkerLazyRangeChoiceZValue(mv, classInternalName, plan.rangeChoice(), helpers,
+                    soaLocal, valueArraySlot, valueZ0Slot, valueZ1Slot, deltaZSlot,
+                    lerpLowTempSlot, localFloor, plan.lazyOutZMarkerIndexes());
+            emitScalarMarkerSqueezeMul(mv, classInternalName, plan.squeezePlan(), valueArraySlot, localFloor);
+        }
+        String methodName = plan.op() == IRNode.BinOp.MIN ? "min" : "max";
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", methodName, "(DD)D", false);
+    }
+
+    private static void emitScalarMarkerLazyRangeChoiceZValue(MethodVisitor mv, String classInternalName,
+                                                              IRNode.RangeChoice rangeChoice,
+                                                              HelperRegistry helpers,
+                                                              int soaLocal, int valueArraySlot,
+                                                              int valueZ0Slot, int valueZ1Slot,
+                                                              int deltaZSlot, int lerpLowTempSlot,
+                                                              int localFloor, int[] lazyOutZMarkerIndexes) {
+        int compareSlot = localFloor + 4;
+        int branchLocalFloor = localFloor + 6;
+        emitScalarMarkerGenericExpression(mv, classInternalName, rangeChoice.input(), helpers,
+                soaLocal, valueArraySlot, branchLocalFloor);
+        mv.visitVarInsn(Opcodes.DSTORE, compareSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, compareSlot);
+        mv.visitLdcInsn(rangeChoice.min());
+        mv.visitInsn(Opcodes.DCMPG);
+        Label outOfRange = new Label();
+        Label end = new Label();
+        mv.visitJumpInsn(Opcodes.IFLT, outOfRange);
+
+        mv.visitVarInsn(Opcodes.DLOAD, compareSlot);
+        mv.visitLdcInsn(rangeChoice.max());
+        mv.visitInsn(Opcodes.DCMPL);
+        mv.visitJumpInsn(Opcodes.IFGE, outOfRange);
+
+        emitScalarMarkerGenericExpression(mv, classInternalName, rangeChoice.whenInRange(), helpers,
+                soaLocal, valueArraySlot, branchLocalFloor);
+        mv.visitJumpInsn(Opcodes.GOTO, end);
+
+        mv.visitLabel(outOfRange);
+        emitScalarMarkerLazyRangeChoiceOutValue(mv, classInternalName, rangeChoice, helpers,
+                soaLocal, valueArraySlot, valueZ0Slot, valueZ1Slot, deltaZSlot,
+                lerpLowTempSlot, branchLocalFloor, lazyOutZMarkerIndexes);
+
+        mv.visitLabel(end);
+    }
+
+    private static void emitScalarMarkerLazyRangeChoiceOutValue(MethodVisitor mv, String classInternalName,
+                                                                IRNode.RangeChoice rangeChoice,
+                                                                HelperRegistry helpers,
+                                                                int soaLocal, int valueArraySlot,
+                                                                int valueZ0Slot, int valueZ1Slot,
+                                                                int deltaZSlot, int lerpLowTempSlot,
+                                                                int localFloor, int[] lazyOutZMarkerIndexes) {
+        emitScalarMarkerUpdateZSubset(mv, lazyOutZMarkerIndexes, deltaZSlot, lerpLowTempSlot,
+                valueZ0Slot, valueZ1Slot, valueArraySlot);
+        emitScalarMarkerGenericExpression(mv, classInternalName, rangeChoice.whenOutOfRange(), helpers,
+                soaLocal, valueArraySlot, localFloor);
+    }
+
+    private static void emitScalarMarkerValueLoad(MethodVisitor mv, String classInternalName,
+                                                  int markerExternIndex, int valueArraySlot) {
+        mv.visitVarInsn(Opcodes.ALOAD, valueArraySlot);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitFieldInsn(Opcodes.GETFIELD, classInternalName,
+                externInterpolatorIndexFieldName(markerExternIndex), "I");
+        mv.visitInsn(Opcodes.DALOAD);
+    }
+
+    private static void emitScalarMarkerGenericExpression(MethodVisitor mv, String classInternalName,
+                                                          IRNode root, HelperRegistry helpers,
+                                                          int soaLocal, int valueArraySlot,
+                                                          int localFloor) {
+        EmitState st = new EmitState(mv, classInternalName, helpers, false,
+                CoordinateReusePlan.EMPTY, 2, true, soaLocal, 14, 16, 18, valueArraySlot);
+        st.reserveLocalsFrom(localFloor);
+        st.emit(root);
+    }
+
+    private static void emitScalarMarkerSqueezeMul(MethodVisitor mv, String classInternalName,
+                                                   ScalarMarkerSqueezeMulPlan plan,
+                                                   int valueArraySlot, int tempSlot) {
+        emitScalarMarkerValueLoad(mv, classInternalName, plan.markerExternIndex(), valueArraySlot);
+        if (plan.scale() != 1.0D) {
+            mv.visitLdcInsn(plan.scale());
+            mv.visitInsn(Opcodes.DMUL);
+        }
+        emitSqueezeFromStack(mv, tempSlot, tempSlot + 2);
+    }
+
+    private static void emitSqueezeFromStack(MethodVisitor mv, int inputSlot, int clampedSlot) {
+        mv.visitVarInsn(Opcodes.DSTORE, inputSlot);
+
+        Label notBelowMin = new Label();
+        Label notAboveMax = new Label();
+        Label clamped = new Label();
+
+        mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+        mv.visitLdcInsn(-1.0D);
+        mv.visitInsn(Opcodes.DCMPG);
+        mv.visitJumpInsn(Opcodes.IFGE, notBelowMin);
+        mv.visitLdcInsn(-1.0D);
+        mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+        mv.visitLabel(notBelowMin);
+        mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+        mv.visitInsn(Opcodes.DCONST_1);
+        mv.visitInsn(Opcodes.DCMPL);
+        mv.visitJumpInsn(Opcodes.IFLE, notAboveMax);
+        mv.visitInsn(Opcodes.DCONST_1);
+        mv.visitJumpInsn(Opcodes.GOTO, clamped);
+
+        mv.visitLabel(notAboveMax);
+        mv.visitVarInsn(Opcodes.DLOAD, inputSlot);
+
+        mv.visitLabel(clamped);
+        mv.visitVarInsn(Opcodes.DSTORE, clampedSlot);
+
+        mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+        mv.visitLdcInsn(2.0D);
+        mv.visitInsn(Opcodes.DDIV);
+        mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+        mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitVarInsn(Opcodes.DLOAD, clampedSlot);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitLdcInsn(24.0D);
+        mv.visitInsn(Opcodes.DDIV);
+        mv.visitInsn(Opcodes.DSUB);
     }
 
     private static int emitSoAArrayLocal(MethodVisitor mv, int soaLocal, String methodName, int local) {

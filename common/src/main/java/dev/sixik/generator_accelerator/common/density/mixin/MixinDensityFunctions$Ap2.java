@@ -159,9 +159,11 @@ public abstract class MixinDensityFunctions$Ap2 implements DfcCellFillAccess, Df
             if (left != null && right != null) {
                 this.ga$leftCellFill = left;
                 this.ga$rightCellFill = right;
-                this.ga$leftCellFillZero = left instanceof DfcZeroCellFillAccess;
-                this.ga$rightCellFillZero = right instanceof DfcZeroCellFillAccess;
+                this.ga$leftCellFillZero = left instanceof DfcZeroCellFillAccess
+                        || (left instanceof DfcCellZeroCheck check && check.dfc$isAlwaysCellZero());
                 this.ga$rightCellZeroCheck = right instanceof DfcCellZeroCheck check ? check : null;
+                this.ga$rightCellFillZero = right instanceof DfcZeroCellFillAccess
+                        || (this.ga$rightCellZeroCheck != null && this.ga$rightCellZeroCheck.dfc$isAlwaysCellZero());
                 this.ga$hasFastCellFillPath = true;
             }
         }

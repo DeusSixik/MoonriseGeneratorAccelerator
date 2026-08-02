@@ -15,11 +15,13 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.DensityFunctionGpuKernelOpRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.DensityFunctionGpuPayloadBuilderRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadBatchExecutor;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.DensityFunctionIrBuilderRegistry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
 import dev.sixik.generator_accelerator.common.noise.NoiseChunkTimingStats;
+import dev.sixik.generator_accelerator.common.noise.gpu.GpuFillSliceMegaBatchDispatcher;
 import imgui.ImGui;
 import imgui.type.ImBoolean;
 import imgui.flag.ImGuiCond;
@@ -330,6 +332,8 @@ public final class GADebugOverlay {
         CompiledDensityFunction.MapAllStats mapAllStats = CompiledDensityFunction.snapshotMapAllStats();
         MapAllSession.Stats sessionStats = MapAllSession.snapshotStats();
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
+        GpuPayloadCompiler.InlineDiagnostics payloadInlineDiagnostics =
+                GpuPayloadCompiler.snapshotInlineDiagnostics();
 
         ImGui.text("RandomState compile acquired/skipped/max: " + randomStateBudgetStats.acquired()
                 + "/" + randomStateBudgetStats.skipped() + "/" + randomStateBudgetStats.max());
@@ -379,6 +383,26 @@ public final class GADebugOverlay {
         ImGui.text("GPU payload ready / blocked roots: " + stats.gpuPayloadReadyRoots()
                 + "/" + stats.gpuPayloadBlockedRoots());
         ImGui.text("GPU payload nodes total: " + stats.gpuPayloadNodesTotal());
+        ImGui.text("GPU payload CacheOnce AP2 inline seen/matched/missed: "
+                + payloadInlineDiagnostics.cacheOnceAp2MarkersSeen()
+                + "/"
+                + payloadInlineDiagnostics.cacheOnceAp2MarkerMatches()
+                + "/"
+                + payloadInlineDiagnostics.cacheOnceAp2MarkerMisses());
+        ImGui.text("GPU payload CacheOnce AP2 inline success/fail: "
+                + payloadInlineDiagnostics.cacheOnceAp2MarkerInlineSuccesses()
+                + "/"
+                + payloadInlineDiagnostics.cacheOnceAp2MarkerInlineFailures());
+        ImGui.textWrapped("GPU payload CacheOnce AP2 inline indices: "
+                + payloadInlineDiagnostics.inlineCacheOnceAp2MarkerExternIndices());
+        ImGui.text("GPU payload CacheOnce AP2 nested extern inline: "
+                + payloadInlineDiagnostics.inlineCacheOnceAp2AllowNestedExternInputs());
+        drawStringList("GPU payload CacheOnce AP2 observed extern indices",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerExternIndices());
+        drawStringList("GPU payload CacheOnce AP2 matched extern indices",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerMatchedExternIndices());
+        drawStringList("GPU payload CacheOnce AP2 inline failures",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerInlineFailureReasons());
         drawStringList("GPU payload unsupported", stats.gpuPayloadUnsupportedCounts());
         ImGui.text("GPU payload parity checks/pass/fail: " + stats.gpuPayloadParityChecks()
                 + "/" + stats.gpuPayloadParityPasses() + "/" + stats.gpuPayloadParityFailures());
@@ -403,6 +427,101 @@ public final class GADebugOverlay {
                 + "/" + GpuPayloadBatchExecutor.runtimeBatchBudgetMax());
         ImGui.text("GPU runtime min points: " + GpuPayloadBatchExecutor.runtimeMinPoints());
         ImGui.text("GPU runtime lock wait nanos: " + GpuPayloadBatchExecutor.runtimeLockWaitNanos());
+        GpuFillSliceMegaBatchDispatcher.Stats megaBatchStats =
+                GpuFillSliceMegaBatchDispatcher.snapshotStats();
+        ImGui.text("GPU fill-slice mega-batch enabled/target/pressureTarget/compileMax/queued: "
+                + megaBatchStats.enabled()
+                + "/" + megaBatchStats.targetPoints()
+                + "/" + megaBatchStats.pressureTargetPoints()
+                + "/" + megaBatchStats.compileMax()
+                + "/" + megaBatchStats.queuedJobs());
+        ImGui.text("GPU fill-slice mega-batch shape buckets/maxJobs/maxPoints: "
+                + megaBatchStats.shapeBuckets()
+                + "/" + megaBatchStats.maxBucketJobs()
+                + "/" + megaBatchStats.maxBucketPoints());
+        ImGui.text("GPU fill-slice mega-batch jobs accepted/rejected/drained: "
+                + megaBatchStats.jobsAccepted()
+                + "/" + megaBatchStats.jobsRejected()
+                + "/" + megaBatchStats.drainedJobs());
+        ImGui.text("GPU fill-slice mega-batch batches drained/maxJobs/maxPoints: "
+                + megaBatchStats.drainedBatches()
+                + "/" + megaBatchStats.drainedBatchMaxJobs()
+                + "/" + megaBatchStats.drainedBatchMaxPoints());
+        ImGui.text("GPU fill-slice mega-batch points accepted/drained: "
+                + megaBatchStats.pointsAccepted()
+                + "/" + megaBatchStats.drainedPoints());
+        ImGui.text("GPU fill-slice mega-batch pure/extern drained points: "
+                + megaBatchStats.drainedPurePayloadPoints()
+                + "/" + megaBatchStats.drainedExternPayloadPoints());
+        ImGui.text("GPU fill-slice mega-batch extern snapshots jobs/points/missingJobs/missingPoints: "
+                + megaBatchStats.externSnapshotJobs()
+                + "/" + megaBatchStats.externSnapshotPoints()
+                + "/" + megaBatchStats.externSnapshotMissingJobs()
+                + "/" + megaBatchStats.externSnapshotMissingPoints());
+        ImGui.text("GPU fill-slice mega-batch dispatch enabled/async/prefetch/writeback/attempts/gpu/fail/skip: "
+                + megaBatchStats.dispatchEnabled()
+                + "/" + megaBatchStats.asyncProbeEnabled()
+                + "/" + megaBatchStats.prefetchNextEnabled()
+                + "/" + megaBatchStats.writebackEnabled()
+                + "/" + megaBatchStats.dispatchAttempts()
+                + "/" + megaBatchStats.dispatchGpuSuccesses()
+                + "/" + megaBatchStats.dispatchFailures()
+                + "/" + megaBatchStats.dispatchSkips());
+        ImGui.text("GPU fill-slice mega-batch dispatch points attempt/gpu/fail/skip: "
+                + megaBatchStats.dispatchAttemptPoints()
+                + "/" + megaBatchStats.dispatchGpuSuccessPoints()
+                + "/" + megaBatchStats.dispatchFailurePoints()
+                + "/" + megaBatchStats.dispatchSkipPoints());
+        ImGui.text("GPU fill-slice mega-batch pressure drain attempts/successes/points: "
+                + megaBatchStats.pressureDrainAttempts()
+                + "/" + megaBatchStats.pressureDrainSuccesses()
+                + "/" + megaBatchStats.pressureDrainPoints());
+        ImGui.text("GPU fill-slice mega-batch prefetch attempts/queued/dispatches/consume/hits/writebacks: "
+                + megaBatchStats.prefetchAttempts()
+                + "/" + megaBatchStats.prefetchQueued()
+                + "/" + megaBatchStats.prefetchDispatches()
+                + "/" + megaBatchStats.prefetchConsumeAttempts()
+                + "/" + megaBatchStats.prefetchHits()
+                + "/" + megaBatchStats.prefetchWritebacks());
+        if (!megaBatchStats.prefetchMissReasons().isEmpty()) {
+            ImGui.textWrapped("GPU fill-slice mega-batch prefetch miss reasons: "
+                    + megaBatchStats.prefetchMissReasons());
+        }
+        ImGui.text("GPU fill-slice lifecycle swap/slice0/slice1: "
+                + megaBatchStats.lifecycleSwapSlices()
+                + "/" + megaBatchStats.lifecycleFillSlice0()
+                + "/" + megaBatchStats.lifecycleFillSlice1());
+        ImGui.text("GPU fill-slice lifecycle last starts swap/s0/s1/prefetch: "
+                + megaBatchStats.lifecycleLastSwapCellStart()
+                + "/" + megaBatchStats.lifecycleLastFillSlice0Start()
+                + "/" + megaBatchStats.lifecycleLastFillSlice1Start()
+                + "/" + megaBatchStats.lifecycleLastPrefetchStart());
+        ImGui.text("GPU fill-slice lifecycle targets s0/s1/prefetch: "
+                + megaBatchStats.lifecycleLastFillSlice0Target()
+                + "/" + megaBatchStats.lifecycleLastFillSlice1Target()
+                + "/" + megaBatchStats.lifecycleLastPrefetchTarget());
+        if (!megaBatchStats.pressureDrainMissReasons().isEmpty()) {
+            ImGui.textWrapped("GPU fill-slice mega-batch pressure drain miss reasons: "
+                    + megaBatchStats.pressureDrainMissReasons());
+        }
+        ImGui.text("GPU fill-slice mega-batch writeback jobs/points: "
+                + megaBatchStats.writebackJobs()
+                + "/" + megaBatchStats.writebackPoints());
+        ImGui.text("GPU fill-slice mega-batch writeback miss jobs/points: "
+                + megaBatchStats.writebackMissJobs()
+                + "/" + megaBatchStats.writebackMissPoints());
+        ImGui.text("GPU fill-slice mega-batch writeback wait nanos/attempts/success/total: "
+                + megaBatchStats.writebackWaitNanos()
+                + "/" + megaBatchStats.writebackWaitAttempts()
+                + "/" + megaBatchStats.writebackWaitSuccesses()
+                + "/" + megaBatchStats.writebackWaitNanosTotal());
+        if (!megaBatchStats.writebackMissReasons().isEmpty()) {
+            ImGui.textWrapped("GPU fill-slice mega-batch writeback miss reasons: "
+                    + megaBatchStats.writebackMissReasons());
+        }
+        ImGui.text("GPU fill-slice mega-batch deferred/undersized drains: "
+                + megaBatchStats.drainDeferredJobs()
+                + "/" + megaBatchStats.drainUndersizedBatches());
         if (!stats.gpuPayloadBatchRuntimeGateCounts().isEmpty()) {
             ImGui.textWrapped("GPU runtime gates: " + stats.gpuPayloadBatchRuntimeGateCounts());
         }
@@ -808,6 +927,8 @@ public final class GADebugOverlay {
         CompiledDensityFunction.MapAllStats mapAllStats = CompiledDensityFunction.snapshotMapAllStats();
         MapAllSession.Stats sessionStats = MapAllSession.snapshotStats();
         DfcCacheFastPath.Stats cacheFastPathStats = DfcCacheFastPath.snapshotStats();
+        GpuPayloadCompiler.InlineDiagnostics payloadInlineDiagnostics =
+                GpuPayloadCompiler.snapshotInlineDiagnostics();
         DfcCellFillStats.Stats cellFillStats = DfcCellFillStats.snapshot();
         DfcCellFillParity.Stats parityStats = DfcCellFillParity.snapshotStats();
         NoiseChunkTimingStats.Stats noiseChunkTimingStats = NoiseChunkTimingStats.snapshotStats();
@@ -886,6 +1007,26 @@ public final class GADebugOverlay {
         appendLine(dump, "gpuPayloadReadyRoots", routerStats.gpuPayloadReadyRoots());
         appendLine(dump, "gpuPayloadBlockedRoots", routerStats.gpuPayloadBlockedRoots());
         appendLine(dump, "gpuPayloadNodesTotal", routerStats.gpuPayloadNodesTotal());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkerExternIndices",
+                payloadInlineDiagnostics.inlineCacheOnceAp2MarkerExternIndices());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2AllowNestedExternInputs",
+                payloadInlineDiagnostics.inlineCacheOnceAp2AllowNestedExternInputs());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkersSeen",
+                payloadInlineDiagnostics.cacheOnceAp2MarkersSeen());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkerMatches",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerMatches());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkerMisses",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerMisses());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkerInlineSuccesses",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerInlineSuccesses());
+        appendLine(dump, "gpuPayloadInlineCacheOnceAp2MarkerInlineFailures",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerInlineFailures());
+        appendList(dump, "gpuPayloadInlineCacheOnceAp2MarkerExternIndexCounts",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerExternIndices());
+        appendList(dump, "gpuPayloadInlineCacheOnceAp2MarkerMatchedExternIndexCounts",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerMatchedExternIndices());
+        appendList(dump, "gpuPayloadInlineCacheOnceAp2MarkerInlineFailureReasons",
+                payloadInlineDiagnostics.cacheOnceAp2MarkerInlineFailureReasons());
         appendLine(dump, "gpuPayloadParityChecks", routerStats.gpuPayloadParityChecks());
         appendLine(dump, "gpuPayloadParityPasses", routerStats.gpuPayloadParityPasses());
         appendLine(dump, "gpuPayloadParityFailures", routerStats.gpuPayloadParityFailures());
@@ -918,6 +1059,85 @@ public final class GADebugOverlay {
         appendLine(dump, "gpuRuntimeMicroBatchBackoffSingleStreak", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffSingleStreak());
         appendLine(dump, "gpuRuntimeMicroBatchBackoffBusyStreak", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffBusyStreak());
         appendLine(dump, "gpuRuntimeMicroBatchBackoffBatches", GpuPayloadBatchExecutor.runtimeMicroBatchBackoffBatches());
+        GpuFillSliceMegaBatchDispatcher.Stats megaBatchStats =
+                GpuFillSliceMegaBatchDispatcher.snapshotStats();
+        appendLine(dump, "gpuFillSliceMegaBatchEnabled", megaBatchStats.enabled());
+        appendLine(dump, "gpuFillSliceMegaBatchTargetPoints", megaBatchStats.targetPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchPressureTargetPoints", megaBatchStats.pressureTargetPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchMaxQueuedJobs", megaBatchStats.maxQueuedJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchCompileMax", megaBatchStats.compileMax());
+        appendLine(dump, "gpuFillSliceMegaBatchQueuedJobs", megaBatchStats.queuedJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchShapeBuckets", megaBatchStats.shapeBuckets());
+        appendLine(dump, "gpuFillSliceMegaBatchMaxBucketJobs", megaBatchStats.maxBucketJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchMaxBucketPoints", megaBatchStats.maxBucketPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchJobsAccepted", megaBatchStats.jobsAccepted());
+        appendLine(dump, "gpuFillSliceMegaBatchJobsRejected", megaBatchStats.jobsRejected());
+        appendLine(dump, "gpuFillSliceMegaBatchPointsAccepted", megaBatchStats.pointsAccepted());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedBatches", megaBatchStats.drainedBatches());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedJobs", megaBatchStats.drainedJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedPoints", megaBatchStats.drainedPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedBatchMaxJobs", megaBatchStats.drainedBatchMaxJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedBatchMaxPoints", megaBatchStats.drainedBatchMaxPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainDeferredJobs", megaBatchStats.drainDeferredJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainUndersizedBatches", megaBatchStats.drainUndersizedBatches());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedPurePayloadJobs", megaBatchStats.drainedPurePayloadJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedPurePayloadPoints", megaBatchStats.drainedPurePayloadPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedExternPayloadJobs", megaBatchStats.drainedExternPayloadJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchDrainedExternPayloadPoints", megaBatchStats.drainedExternPayloadPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchExternSnapshotJobs", megaBatchStats.externSnapshotJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchExternSnapshotPoints", megaBatchStats.externSnapshotPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchExternSnapshotMissingJobs", megaBatchStats.externSnapshotMissingJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchExternSnapshotMissingPoints", megaBatchStats.externSnapshotMissingPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchEnabled", megaBatchStats.dispatchEnabled());
+        appendLine(dump, "gpuFillSliceMegaBatchAsyncProbeEnabled", megaBatchStats.asyncProbeEnabled());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchNextEnabled", megaBatchStats.prefetchNextEnabled());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchLeadCells", megaBatchStats.prefetchLeadCells());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackEnabled", megaBatchStats.writebackEnabled());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackWaitNanos", megaBatchStats.writebackWaitNanos());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchAttempts", megaBatchStats.dispatchAttempts());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchAttemptPoints", megaBatchStats.dispatchAttemptPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchGpuSuccesses", megaBatchStats.dispatchGpuSuccesses());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchGpuSuccessPoints", megaBatchStats.dispatchGpuSuccessPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchFailures", megaBatchStats.dispatchFailures());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchFailurePoints", megaBatchStats.dispatchFailurePoints());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchSkips", megaBatchStats.dispatchSkips());
+        appendLine(dump, "gpuFillSliceMegaBatchDispatchSkipPoints", megaBatchStats.dispatchSkipPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchEnabled", megaBatchStats.backgroundDispatchEnabled());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchSubmits", megaBatchStats.backgroundDispatchSubmits());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchAccepted", megaBatchStats.backgroundDispatchAccepted());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchStarted", megaBatchStats.backgroundDispatchStarted());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchCompleted", megaBatchStats.backgroundDispatchCompleted());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchRejected", megaBatchStats.backgroundDispatchRejected());
+        appendLine(dump, "gpuFillSliceMegaBatchBackgroundDispatchFailures", megaBatchStats.backgroundDispatchFailures());
+        appendLine(dump, "gpuFillSliceMegaBatchPressureDrainAttempts", megaBatchStats.pressureDrainAttempts());
+        appendLine(dump, "gpuFillSliceMegaBatchPressureDrainSuccesses", megaBatchStats.pressureDrainSuccesses());
+        appendLine(dump, "gpuFillSliceMegaBatchPressureDrainPoints", megaBatchStats.pressureDrainPoints());
+        appendList(dump, "gpuFillSliceMegaBatchPressureDrainMissReasons", megaBatchStats.pressureDrainMissReasons());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchAttempts", megaBatchStats.prefetchAttempts());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchQueued", megaBatchStats.prefetchQueued());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchDispatches", megaBatchStats.prefetchDispatches());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchConsumeAttempts", megaBatchStats.prefetchConsumeAttempts());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchHits", megaBatchStats.prefetchHits());
+        appendLine(dump, "gpuFillSliceMegaBatchPrefetchWritebacks", megaBatchStats.prefetchWritebacks());
+        appendList(dump, "gpuFillSliceMegaBatchPrefetchMissReasons", megaBatchStats.prefetchMissReasons());
+        appendLine(dump, "gpuFillSliceLifecycleSwapSlices", megaBatchStats.lifecycleSwapSlices());
+        appendLine(dump, "gpuFillSliceLifecycleFillSlice0", megaBatchStats.lifecycleFillSlice0());
+        appendLine(dump, "gpuFillSliceLifecycleFillSlice1", megaBatchStats.lifecycleFillSlice1());
+        appendLine(dump, "gpuFillSliceLifecycleLastSwapCellStart", megaBatchStats.lifecycleLastSwapCellStart());
+        appendLine(dump, "gpuFillSliceLifecycleLastFillSlice0Start", megaBatchStats.lifecycleLastFillSlice0Start());
+        appendLine(dump, "gpuFillSliceLifecycleLastFillSlice1Start", megaBatchStats.lifecycleLastFillSlice1Start());
+        appendLine(dump, "gpuFillSliceLifecycleLastFillSlice0Target", megaBatchStats.lifecycleLastFillSlice0Target());
+        appendLine(dump, "gpuFillSliceLifecycleLastFillSlice1Target", megaBatchStats.lifecycleLastFillSlice1Target());
+        appendLine(dump, "gpuFillSliceLifecycleLastPrefetchStart", megaBatchStats.lifecycleLastPrefetchStart());
+        appendLine(dump, "gpuFillSliceLifecycleLastPrefetchTarget", megaBatchStats.lifecycleLastPrefetchTarget());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackJobs", megaBatchStats.writebackJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackPoints", megaBatchStats.writebackPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackMissJobs", megaBatchStats.writebackMissJobs());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackMissPoints", megaBatchStats.writebackMissPoints());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackWaitAttempts", megaBatchStats.writebackWaitAttempts());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackWaitSuccesses", megaBatchStats.writebackWaitSuccesses());
+        appendLine(dump, "gpuFillSliceMegaBatchWritebackWaitNanosTotal", megaBatchStats.writebackWaitNanosTotal());
+        appendList(dump, "gpuFillSliceMegaBatchWritebackMissReasons", megaBatchStats.writebackMissReasons());
         appendList(dump, "gpuPayloadBatchRuntimeGateCounts", routerStats.gpuPayloadBatchRuntimeGateCounts());
         appendLine(dump, "gpuDebugProbeLastStatus", lastGpuProbeStatus);
         appendLine(dump, "gpuLargeBatchProbeLastStatus", lastGpuLargeBatchProbeStatus);
@@ -1069,10 +1289,40 @@ public final class GADebugOverlay {
         appendLine(dump, "fillSlicePayloadPoints", noiseChunkTimingStats.fillSlicePayloadPoints());
         appendLine(dump, "fillSlicePayloadReadyPoints", noiseChunkTimingStats.fillSlicePayloadReadyPoints());
         appendLine(dump, "fillSlicePayloadExternPoints", noiseChunkTimingStats.fillSlicePayloadExternPoints());
+        appendList(dump, "fillSlicePayloadExternClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSlicePayloadExternClasses()));
+        appendList(dump, "fillSlicePayloadExternLeafClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSlicePayloadExternLeafClasses()));
+        appendLine(dump, "fillSliceExternInputNanos", noiseChunkTimingStats.fillSliceExternInputNanos());
+        appendLine(dump, "fillSliceExternInputDirectAttempts",
+                noiseChunkTimingStats.fillSliceExternInputDirectAttempts());
+        appendLine(dump, "fillSliceExternInputDirectHits",
+                noiseChunkTimingStats.fillSliceExternInputDirectHits());
+        appendLine(dump, "fillSliceExternInputDirectMisses",
+                noiseChunkTimingStats.fillSliceExternInputDirectMisses());
+        appendLine(dump, "fillSliceExternInputComputes",
+                noiseChunkTimingStats.fillSliceExternInputComputes());
+        appendLine(dump, "fillSliceExternInputWrappedComputes",
+                noiseChunkTimingStats.fillSliceExternInputWrappedComputes());
+        appendList(dump, "fillSliceExternInputDirectHitClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputDirectHitClasses()));
+        appendList(dump, "fillSliceExternInputDirectMissClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputDirectMissClasses()));
+        appendList(dump, "fillSliceExternInputComputeClasses",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputComputeClasses()));
+        appendList(dump, "fillSliceExternInputDirectHitDetails",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputDirectHitDetails()));
+        appendList(dump, "fillSliceExternInputDirectMissDetails",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputDirectMissDetails()));
+        appendList(dump, "fillSliceExternInputComputeDetails",
+                compactGeneratedClassCounts(noiseChunkTimingStats.fillSliceExternInputComputeDetails()));
         appendLine(dump, "fillSliceLazyCompileAttempts", noiseChunkTimingStats.fillSliceLazyCompileAttempts());
         appendLine(dump, "fillSliceLazyCompileSuccesses", noiseChunkTimingStats.fillSliceLazyCompileSuccesses());
         appendLine(dump, "fillSliceLazyCompileFailures", noiseChunkTimingStats.fillSliceLazyCompileFailures());
         appendLine(dump, "fillSliceLazyCompileBudgetSkips", noiseChunkTimingStats.fillSliceLazyCompileBudgetSkips());
+        appendLine(dump, "fillSliceGpuCollectionAttempts", noiseChunkTimingStats.fillSliceGpuCollectionAttempts());
+        appendList(dump, "fillSliceGpuCollectionSkips",
+                noiseChunkTimingStats.fillSliceGpuCollectionSkips());
         appendLine(dump, "fillSliceGpuCandidateRoots", noiseChunkTimingStats.fillSliceGpuCandidateRoots());
         appendLine(dump, "fillSliceGpuBestGroupMaxRoots", noiseChunkTimingStats.fillSliceGpuBestGroupMaxRoots());
         appendLine(dump, "fillSliceGpuBestGroupMaxPoints", noiseChunkTimingStats.fillSliceGpuBestGroupMaxPoints());
