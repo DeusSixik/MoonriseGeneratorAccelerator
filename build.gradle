@@ -392,7 +392,7 @@ tasks.register("runGAChunkgenBenchmark") {
         def benchServerPort = findProperty("chunkgenServerPort")
         def startupWatchdogSeconds = findProperty("chunkgenStartupWatchdogSeconds") ?: "120"
         def tickWatchdogSeconds = findProperty("chunkgenTickWatchdogSeconds") ?: "45"
-        def chunkgenDfcTelemetry = findProperty("chunkgenDfcTelemetry") ?: "true"
+        def chunkgenDfcTelemetry = findProperty("chunkgenDfcTelemetry") ?: "false"
         def chunkgenDfcTelemetrySampleShift = findProperty("chunkgenDfcTelemetrySampleShift") ?: "7"
         def chunkgenDfcRuntimeChecks = findProperty("chunkgenDfcRuntimeChecks") ?: "false"
         def chunkgenDfcBatchedFill = findProperty("chunkgenDfcBatchedFill") ?: "true"

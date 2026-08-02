@@ -165,6 +165,9 @@ public final class Codegen {
     /** {@link DfcCacheFastPath#computeWithOptionalDirectRead}. */
     private static final String CACHE_FAST_READ_DESC =
             "(" + DENSITY_FUNCTION_DESC + "L" + FUNCTION_CONTEXT_INTERNAL + ";)D";
+    private static final String CACHE_FAST_READ_METHOD = DfcCacheFastPath.statsEnabled()
+            ? "computeWithOptionalDirectRead"
+            : "computeWithOptionalDirectReadNoStats";
     private static final String DFC_TELEMETRY_RECORD_CLASS_LONG_DESC = "(Ljava/lang/Class;J)V";
     private static final String CONTEXT_PROVIDER_INTERNAL =
             "net/minecraft/world/level/levelgen/DensityFunction$ContextProvider";
@@ -1332,7 +1335,7 @@ public final class Codegen {
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
                         CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
             } else {
-                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, CACHE_FAST_READ_METHOD,
                         CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
             }
             mv.visitLabel(afterTrustedFastPath);
@@ -5111,7 +5114,7 @@ public final class Codegen {
                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
                             CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
                 } else {
-                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, CACHE_FAST_READ_METHOD,
                             CACHE_FAST_READ_NOISE_CHUNK_DESC, false);
                 }
                 mv.visitJumpInsn(Opcodes.GOTO, afterFastPath);
@@ -5127,7 +5130,7 @@ public final class Codegen {
                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, DFC_RUNTIME_TELEMETRY_INTERNAL, "computeMarkerFastPath",
                             CACHE_FAST_READ_DESC, false);
                 } else {
-                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, "computeWithOptionalDirectRead",
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, CACHE_FAST_PATH_INTERNAL, CACHE_FAST_READ_METHOD,
                             CACHE_FAST_READ_DESC, false);
                 }
                 mv.visitLabel(afterFastPath);

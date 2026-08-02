@@ -43,6 +43,10 @@ public final class DfcCacheFastPath {
         NON_ACCESS_FALLBACKS.reset();
     }
 
+    public static boolean statsEnabled() {
+        return STATS_ENABLED;
+    }
+
     public static void setStatsEnabled(boolean enabled) {
         STATS_ENABLED = enabled;
     }
@@ -86,6 +90,28 @@ public final class DfcCacheFastPath {
             NON_ACCESS_FALLBACKS.increment();
         }
         return CACHE_MISS;
+    }
+
+    public static double computeWithOptionalDirectReadNoStats(
+            DensityFunction extern, DensityFunction.FunctionContext context) {
+        if (extern instanceof DfcCellCacheAccess acc) {
+            double value = acc.dfc$tryDirectRead(context);
+            if (Double.doubleToRawLongBits(value) != MISS_BITS) {
+                return value;
+            }
+        }
+        return extern.compute(context);
+    }
+
+    public static double computeWithOptionalDirectReadNoStats(
+            DensityFunction extern, NoiseChunk chunk) {
+        if (extern instanceof DfcCellCacheAccess acc) {
+            double value = acc.dfc$tryDirectRead(chunk);
+            if (Double.doubleToRawLongBits(value) != MISS_BITS) {
+                return value;
+            }
+        }
+        return extern.compute(chunk);
     }
 
     /**

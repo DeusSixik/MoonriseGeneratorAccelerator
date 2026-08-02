@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.cache;
 
+import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
+
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.vector.DfcVectorSupport;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
@@ -101,6 +103,7 @@ public final class CompilationFingerprint {
         d.update((byte) (Codegen.INLINE_SMALL_RUNTIME_HELPERS ? 1 : 0));
         d.update((byte) (CodegenNativeNoise.enabled() ? 1 : 0));
         d.update((byte) (CodegenNativeNoise.emitNativeOps() ? 1 : 0));
+        d.update((byte) (DfcCacheFastPath.statsEnabled() ? 1 : 0));
     }
 
     public static String stableClassSuffix(byte[] sha256) {
