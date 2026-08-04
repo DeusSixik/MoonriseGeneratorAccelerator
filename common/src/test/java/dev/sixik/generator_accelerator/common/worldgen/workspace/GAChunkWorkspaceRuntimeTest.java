@@ -7,12 +7,16 @@ import dev.sixik.generator_accelerator.common.worldgen.commit.GACommitMetrics;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
+import it.unimi.dsi.fastutil.shorts.ShortList;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,6 +105,33 @@ class GAChunkWorkspaceRuntimeTest {
     }
 
     @Test
+    void closeReplaysWorkspaceOnlySideEffectsAfterSuccessfulRepack() {
+        int[] raw = new int[GAChunkWorkspace.BLOCKS_PER_SECTION];
+        LevelChunkSection section = flatSection(raw);
+        ChunkAccess chunk = chunk(section);
+        Heightmap heightmap = mock(Heightmap.class);
+        ShortList[] postProcessing = new ShortList[1];
+        when(chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG)).thenReturn(heightmap);
+        when(chunk.getPostProcessing()).thenReturn(postProcessing);
+        int dirtId = Block.getId(Blocks.DIRT.defaultBlockState());
+
+        GAChunkWorkspaceRuntime.Session session = GAChunkWorkspaceRuntime.acquireImported(chunk);
+        GAChunkWorkspace workspace = session.workspace();
+        workspace.setBlockIdWorkspaceOnlyIfChanged(1, 2, 3, dirtId);
+        workspace.recordHeightmapUpdate(Heightmap.Types.WORLD_SURFACE_WG, 1, 2, 3, dirtId);
+        workspace.recordPostprocessMark(1, 2, 3);
+        session.close();
+
+        assertEquals(dirtId, raw[(2 << 8) | (3 << 4) | 1]);
+        verify(heightmap).update(eq(1), eq(2), eq(3), eq(Blocks.DIRT.defaultBlockState()));
+        assertNotNull(postProcessing[0]);
+        assertEquals(1, postProcessing[0].size());
+        assertEquals(ProtoChunk.packOffsetCoordinates(new BlockPos(1, 2, 3)), postProcessing[0].getShort(0));
+        assertEquals(1L, metric("heightmapSideEffectUpdates"));
+        assertEquals(1L, metric("postprocessSideEffectMarks"));
+    }
+
+    @Test
     void asyncWorkspaceFutureKeepsContextUntilInnerFutureCompletes() throws Exception {
         LevelChunkSection section = flatSection(new int[GAChunkWorkspace.BLOCKS_PER_SECTION]);
         ChunkAccess chunk = chunk(section);
@@ -127,7 +158,7 @@ class GAChunkWorkspaceRuntimeTest {
     }
 
     @Test
-    void terrainWorkspaceFutureSkipsWhenWorkspaceOnlyWritesAreDisabled() {
+    void terrainWorkspaceFutureBindsWhenWorkspaceOnlyWritesAreEnabledByDefault() {
         LevelChunkSection section = mock(LevelChunkSection.class);
         when(section.hasOnlyAir()).thenReturn(true);
         ChunkAccess chunk = chunk(section);
@@ -138,8 +169,8 @@ class GAChunkWorkspaceRuntimeTest {
             return CompletableFuture.completedFuture(chunk);
         }).join();
 
-        assertNull(captured.get());
-        assertEquals(0L, metric("terrainAirImports"));
+        assertNotNull(captured.get());
+        assertEquals(1L, metric("terrainAirImports"));
         verify(section, never()).getBlockState(anyInt(), anyInt(), anyInt());
     }
 

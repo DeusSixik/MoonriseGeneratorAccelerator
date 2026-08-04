@@ -1,7 +1,9 @@
 package dev.sixik.generator_accelerator.common.surface_compiler.cow;
 
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.surface_compiler.backend.bytecode.DirectWriteSupport;
 import dev.sixik.generator_accelerator.common.surface_compiler.runtime.SurfaceSectionWriter;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -49,6 +51,10 @@ public final class CowSectionWriter implements SurfaceSectionWriter {
         if (!this.dirty) {
             return;
         }
+        if (tryWorkspaceOnly(chunk, minBuildY, chunkMinX, chunkMinZ)) {
+            return;
+        }
+
         if (this.rawCopy != null && this.section instanceof LevelChunkSection$FlatBlockArray flatBlockArray) {
             if (!flatBlockArray.bts$copyRawBlockDataForGeneration(this.rawCopy)) {
                 throw new IllegalStateException("failed to commit raw CoW section");
@@ -66,6 +72,36 @@ public final class CowSectionWriter implements SurfaceSectionWriter {
             BlockPos pos = SectionCowManager.sectionBlockPos(minBuildY, chunkMinX, chunkMinZ, this.sectionIndex, localX, localY, localZ);
             SectionCowManager.publishWrite(chunk, pos, state);
         }
+    }
+
+    private boolean tryWorkspaceOnly(ChunkAccess chunk, int minBuildY, int chunkMinX, int chunkMinZ) {
+        for (int i = 0; i < this.changedCount; i++) {
+            int localIndex = this.changedLocalIndices[i];
+            int localX = localIndex & 15;
+            int localZ = (localIndex >>> 4) & 15;
+            int localY = (localIndex >>> 8) & 15;
+            int x = chunkMinX + localX;
+            int y = minBuildY + (this.sectionIndex << 4) + localY;
+            int z = chunkMinZ + localZ;
+            if (!GAWorkspaceWriteBridge.canWriteCurrentWorkspaceOnly(chunk, x, y, z)) {
+                return false;
+            }
+        }
+        for (int i = 0; i < this.changedCount; i++) {
+            int localIndex = this.changedLocalIndices[i];
+            int localX = localIndex & 15;
+            int localZ = (localIndex >>> 4) & 15;
+            int localY = (localIndex >>> 8) & 15;
+            BlockState state = this.changedStates[i];
+            int stateId = SectionCowManager.id(state);
+            int x = chunkMinX + localX;
+            int y = minBuildY + (this.sectionIndex << 4) + localY;
+            int z = chunkMinZ + localZ;
+            if (!DirectWriteSupport.writeSurfaceWorkspaceOnly(chunk, x, y, z, state, stateId, true, true)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void recordChange(int localX, int localY, int localZ, BlockState state) {

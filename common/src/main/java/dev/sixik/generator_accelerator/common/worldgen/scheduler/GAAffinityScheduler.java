@@ -4,6 +4,8 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$StaticCache2DExtern;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GAChunkStatusPipeline;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 import dev.sixik.generator_accelerator.mixins.common_mixin.accessor.MixinChunkGenerationTaskAccessor;
@@ -102,6 +104,14 @@ public final class GAAffinityScheduler {
         return true;
     }
 
+    public static boolean shouldAttempt(ChunkGenerationTask task) {
+        if (task == null) {
+            return false;
+        }
+        GASchedulerRuntime runtime = GAScheduler.v2Runtime();
+        return runtime != null && classify(task.targetStatus, runtime.config()).admitted();
+    }
+
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
         if (!canInterceptGenerationTasks(chunkMap)) {
             return false;
@@ -158,11 +168,14 @@ public final class GAAffinityScheduler {
         if (name.contains("biome")) {
             return GAAdmissionDecision.full(GATaskClass.CPU_WORKSPACE, "BIOMES admitted only as pure/read-only status");
         }
-        if (name.contains("surface") || name.contains("carver")) {
-            if (booleanProperty("ga.scheduler.v2.admitWorkspaceWriters", false)) {
-                return GAAdmissionDecision.workspace("workspace-local writer status explicitly admitted");
+        if (status == ChunkStatus.SURFACE || status == ChunkStatus.CARVERS) {
+            if (GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
+                    && GAChunkWorkspaceRuntime.finalRepackEnabled()
+                    && !GAWorkspaceWriteBridge.workspaceOnlyWritesRuntimeDisabled()) {
+                return GAAdmissionDecision.workspace("workspace writer status certified: " + name);
             }
-            return GAAdmissionDecision.legacy(GAMetrics.FallbackReason.UNSAFE_STATUS, "workspace writer status not explicitly certified: " + name);
+            return GAAdmissionDecision.legacy(GAMetrics.FallbackReason.UNSAFE_STATUS,
+                    "workspace writer status missing workspace-only/final-repack gates: " + name);
         }
         if (status == ChunkStatus.FEATURES || status == ChunkStatus.SPAWN) {
             return GAAdmissionDecision.legacy(GAMetrics.FallbackReason.UNSAFE_STATUS, "FEATURES/SPAWN remain guarded legacy writer path");

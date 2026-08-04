@@ -1,8 +1,11 @@
 package dev.sixik.generator_accelerator.common.worldgen.workspace;
 
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.Arrays;
 
@@ -84,6 +87,11 @@ public final class GAChunkWorkspace {
     private long mirroredWrites;
     private long workspaceOnlyWrites;
     private long terrainWorkspaceOnlyWrites;
+    private int[] heightmapUpdatePacked;
+    private int[] heightmapUpdateStateIds;
+    private int heightmapUpdateCount;
+    private int[] postprocessMarkPacked;
+    private int postprocessMarkCount;
 
     public GAChunkWorkspace() {
         this(DEFAULT_MAX_RETAINED_BLOCK_INTS, DEFAULT_MAX_RETAINED_HEIGHT_INTS, DEFAULT_MAX_RETAINED_DIRTY_WORDS);
@@ -388,6 +396,7 @@ public final class GAChunkWorkspace {
         }
         return true;
     }
+
 
     public boolean commitPreparedTerrainSectionOnlyWrites(
             int sectionIndex,
@@ -716,6 +725,80 @@ public final class GAChunkWorkspace {
         metrics.addHeightUpdates(1L);
     }
 
+    public void recordHeightmapUpdate(Heightmap.Types type, int localX, int y, int localZ, int stateId) {
+        requireImported();
+        checkLocalColumn(localX, localZ);
+        int localY = y - minBuildHeight;
+        if (localY < 0 || localY >= buildHeight) {
+            return;
+        }
+        ensureHeightmapUpdateCapacity(heightmapUpdateCount + 1);
+        heightmapUpdatePacked[heightmapUpdateCount] = (type.ordinal() << 24)
+                | (localY << 8)
+                | ((localZ & 15) << 4)
+                | (localX & 15);
+        heightmapUpdateStateIds[heightmapUpdateCount] = stateId;
+        heightmapUpdateCount++;
+    }
+
+    public void recordPostprocessMark(int x, int y, int z) {
+        requireImported();
+        int localY = y - minBuildHeight;
+        if (localY < 0 || localY >= buildHeight) {
+            return;
+        }
+        int localX = x - minBlockX;
+        int localZ = z - minBlockZ;
+        checkLocalColumn(localX, localZ);
+        int sectionIndex = localY >> 4;
+        ensurePostprocessMarkCapacity(postprocessMarkCount + 1);
+        postprocessMarkPacked[postprocessMarkCount++] = (sectionIndex << 12)
+                | ((localY & 15) << 8)
+                | ((localZ & 15) << 4)
+                | (localX & 15);
+    }
+
+    public long heightmapUpdateCount() {
+        return heightmapUpdateCount;
+    }
+
+    public long postprocessMarkCount() {
+        return postprocessMarkCount;
+    }
+
+    public void replaySideEffectsTo(ChunkAccess chunk) {
+        Heightmap.Types[] types = Heightmap.Types.values();
+        for (int i = 0; i < heightmapUpdateCount; i++) {
+            int packed = heightmapUpdatePacked[i];
+            int typeOrdinal = (packed >>> 24) & 0xFF;
+            if (typeOrdinal >= types.length) {
+                continue;
+            }
+            int localY = (packed >>> 8) & 0xFFFF;
+            int localZ = (packed >>> 4) & 15;
+            int localX = packed & 15;
+            chunk.getOrCreateHeightmapUnprimed(types[typeOrdinal])
+                    .update(localX, minBuildHeight + localY, localZ,
+                            FastBlockStateCache.getBlockState(heightmapUpdateStateIds[i]));
+        }
+        if (postprocessMarkCount == 0) {
+            return;
+        }
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int i = 0; i < postprocessMarkCount; i++) {
+            int packed = postprocessMarkPacked[i];
+            int sectionIndex = packed >>> 12;
+            int localY = (packed >>> 8) & 15;
+            int localZ = (packed >>> 4) & 15;
+            int localX = packed & 15;
+            int y = minBuildHeight + (sectionIndex << 4) + localY;
+            pos.set(minBlockX + localX, y, minBlockZ + localZ);
+            ChunkAccess.getOrCreateOffsetList(chunk.getPostProcessing(), sectionIndex)
+                    .add(ProtoChunk.packOffsetCoordinates(pos));
+        }
+    }
+
+
     public int heightCandidate(int localX, int localZ) {
         return heightCandidates[columnIndex(localX, localZ)];
     }
@@ -938,6 +1021,9 @@ public final class GAChunkWorkspace {
         bytes += retainedLongBytes(dirtyHeightColumnWords);
         bytes += retainedLongBytes(dirtySurfaceColumnWords);
         bytes += retainedLongBytes(dirtyLightColumnWords);
+        bytes += retainedIntBytes(heightmapUpdatePacked);
+        bytes += retainedIntBytes(heightmapUpdateStateIds);
+        bytes += retainedIntBytes(postprocessMarkPacked);
         return bytes;
     }
 
@@ -1272,6 +1358,8 @@ public final class GAChunkWorkspace {
         mirroredWrites = 0L;
         workspaceOnlyWrites = 0L;
         terrainWorkspaceOnlyWrites = 0L;
+        heightmapUpdateCount = 0;
+        postprocessMarkCount = 0;
         imported = false;
     }
 
@@ -1348,6 +1436,36 @@ public final class GAChunkWorkspace {
         if ((localX | localZ) < 0 || localX >= CHUNK_WIDTH || localZ >= CHUNK_WIDTH) {
             throw new IndexOutOfBoundsException("local column outside chunk: " + localX + "," + localZ);
         }
+    }
+
+    private void ensureHeightmapUpdateCapacity(int required) {
+        if (heightmapUpdatePacked == null) {
+            heightmapUpdatePacked = new int[Math.max(64, required)];
+            heightmapUpdateStateIds = new int[heightmapUpdatePacked.length];
+            metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+            return;
+        }
+        if (heightmapUpdatePacked.length >= required) {
+            return;
+        }
+        int newCapacity = Math.max(required, heightmapUpdatePacked.length << 1);
+        heightmapUpdatePacked = Arrays.copyOf(heightmapUpdatePacked, newCapacity);
+        heightmapUpdateStateIds = Arrays.copyOf(heightmapUpdateStateIds, newCapacity);
+        metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+    }
+
+    private void ensurePostprocessMarkCapacity(int required) {
+        if (postprocessMarkPacked == null) {
+            postprocessMarkPacked = new int[Math.max(64, required)];
+            metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
+            return;
+        }
+        if (postprocessMarkPacked.length >= required) {
+            return;
+        }
+        postprocessMarkPacked = Arrays.copyOf(postprocessMarkPacked,
+                Math.max(required, postprocessMarkPacked.length << 1));
+        metrics.setEstimatedRetainedBytes(estimatedRetainedBytes());
     }
 
     private void ensureDirtySectionWordCapacity(int requiredWords) {

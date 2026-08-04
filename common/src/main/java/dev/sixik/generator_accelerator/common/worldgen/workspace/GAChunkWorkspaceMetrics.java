@@ -31,6 +31,8 @@ public final class GAChunkWorkspaceMetrics {
     private static final AtomicLong GLOBAL_FINAL_REPACK_REPAIRS = new AtomicLong();
     private static final AtomicLong GLOBAL_EMERGENCY_REPACKS = new AtomicLong();
     private static final AtomicLong GLOBAL_EMERGENCY_REPACK_FAILURES = new AtomicLong();
+    private static final AtomicLong GLOBAL_HEIGHTMAP_SIDE_EFFECT_UPDATES = new AtomicLong();
+    private static final AtomicLong GLOBAL_POSTPROCESS_SIDE_EFFECT_MARKS = new AtomicLong();
 
     private long importNanos;
     private long computeNanos;
@@ -138,6 +140,14 @@ public final class GAChunkWorkspaceMetrics {
 
     public static void addWorkspaceOnlyBlockWrites(long writes) {
         GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.addAndGet(Math.max(0L, writes));
+    }
+
+    public static void addHeightmapSideEffectUpdates(long updates) {
+        GLOBAL_HEIGHTMAP_SIDE_EFFECT_UPDATES.addAndGet(Math.max(0L, updates));
+    }
+
+    public static void addPostprocessSideEffectMarks(long marks) {
+        GLOBAL_POSTPROCESS_SIDE_EFFECT_MARKS.addAndGet(Math.max(0L, marks));
     }
 
     public static void incrementTerrainAirImports() {
@@ -254,6 +264,8 @@ public final class GAChunkWorkspaceMetrics {
         out.put("contextBoundSessions", GLOBAL_CONTEXT_BOUND_SESSIONS.get());
         out.put("mirroredBlockWrites", GLOBAL_MIRRORED_BLOCK_WRITES.get());
         out.put("workspaceOnlyBlockWrites", GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.get());
+        out.put("heightmapSideEffectUpdates", GLOBAL_HEIGHTMAP_SIDE_EFFECT_UPDATES.get());
+        out.put("postprocessSideEffectMarks", GLOBAL_POSTPROCESS_SIDE_EFFECT_MARKS.get());
         out.put("terrainAirImports", GLOBAL_TERRAIN_AIR_IMPORTS.get());
         out.put("terrainLazyAirImports", GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.get());
         out.put("terrainLazyAirSectionClears", GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.get());
@@ -284,6 +296,8 @@ public final class GAChunkWorkspaceMetrics {
         GLOBAL_CONTEXT_BOUND_SESSIONS.set(0L);
         GLOBAL_MIRRORED_BLOCK_WRITES.set(0L);
         GLOBAL_WORKSPACE_ONLY_BLOCK_WRITES.set(0L);
+        GLOBAL_HEIGHTMAP_SIDE_EFFECT_UPDATES.set(0L);
+        GLOBAL_POSTPROCESS_SIDE_EFFECT_MARKS.set(0L);
         GLOBAL_TERRAIN_AIR_IMPORTS.set(0L);
         GLOBAL_TERRAIN_LAZY_AIR_IMPORTS.set(0L);
         GLOBAL_TERRAIN_LAZY_AIR_SECTION_CLEARS.set(0L);

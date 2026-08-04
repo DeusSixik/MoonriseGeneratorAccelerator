@@ -82,7 +82,10 @@ public final class GAWorldgenPipelineStatus {
         boolean finalized = number(workspaceMetrics, "finalizeNanos") > 0L;
         boolean mirroredWrites = number(workspaceMetrics, "mirroredBlockWrites") > 0L;
         boolean workspaceOnlyWrites = number(workspaceMetrics, "workspaceOnlyBlockWrites") > 0L;
-        boolean terrainWorkspace = workspaceOnlyWrites && number(workspaceMetrics, "terrainBlockWrites") > 0L;
+        boolean terrainWorkspace = workspaceOnlyWrites && (number(workspaceMetrics, "terrainBlockWrites") > 0L
+                || number(workspaceMetrics, "terrainAirImports") > 0L
+                || number(workspaceMetrics, "finalRepackDenseSectionCopies") > 0L
+                || number(workspaceMetrics, "finalRepackTerrainSectionCopies") > 0L);
         boolean commitApplied = number(commitMetrics, "accepted") > 0L && number(commitMetrics, "failures") == 0L;
         boolean mailboxEnabled = booleanValue(mailboxSnapshot, "enabled");
         boolean mailboxDrained = number(mailboxSnapshot, "drainExecutions") > 0L

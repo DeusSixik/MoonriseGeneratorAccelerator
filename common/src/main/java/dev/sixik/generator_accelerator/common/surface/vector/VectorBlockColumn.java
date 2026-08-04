@@ -2,9 +2,12 @@ package dev.sixik.generator_accelerator.common.surface.vector;
 
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.BlockColumn;
@@ -57,8 +60,17 @@ public class VectorBlockColumn implements BlockColumn {
     public void setBlock(int y, BlockState state) {
         LevelHeightAccessor levelheightaccessor = this.pChunk.getHeightAccessorForGeneration();
         if (y >= levelheightaccessor.getMinBuildHeight() && y < levelheightaccessor.getMaxBuildHeight()) {
-            this.pChunk.setBlockState(this.columnPos.setY(y), state, false);
-            GAWorkspaceWriteBridge.mirrorCurrent(this.pChunk, this.columnPos, state);
+            this.columnPos.setY(y);
+            int stateId = Block.getId(state);
+            if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(this.pChunk, this.columnPos, stateId)) {
+                GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
+                if (workspace != null && !state.getFluidState().isEmpty()) {
+                    workspace.recordPostprocessMark(this.columnPos.getX(), y, this.columnPos.getZ());
+                }
+                return;
+            }
+            this.pChunk.setBlockState(this.columnPos, state, false);
+            GAWorkspaceWriteBridge.mirrorCurrent(this.pChunk, this.columnPos, stateId);
             if (!state.getFluidState().isEmpty()) {
                 this.pChunk.markPosForPostprocessing(this.columnPos);
             }

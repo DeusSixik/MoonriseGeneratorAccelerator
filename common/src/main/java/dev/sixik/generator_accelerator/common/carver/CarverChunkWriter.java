@@ -3,6 +3,8 @@ package dev.sixik.generator_accelerator.common.carver;
 import dev.sixik.generator_accelerator.api.patches.GA$BlockStateExtension;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
 import dev.sixik.generator_accelerator.common.flat_block_structure.LevelChunkSection$FlatBlockArray;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
@@ -24,6 +26,7 @@ public final class CarverChunkWriter {
     private static final int AIR_ID = GA$BlockStateExtension.get(AIR).bts$getFastId();
 
     private final Heightmap[] heightmaps = new Heightmap[Heightmap.Types.values().length];
+    private final Heightmap.Types[] heightmapTypes = new Heightmap.Types[Heightmap.Types.values().length];
     private final int[][] rawSections = new int[32][];
     private ChunkAccess chunk;
     private ProtoChunk protoChunk;
@@ -60,6 +63,7 @@ public final class CarverChunkWriter {
         this.cachedSectionIndex = Integer.MIN_VALUE;
         this.cachedSection = null;
         Arrays.fill(this.heightmaps, null);
+        Arrays.fill(this.heightmapTypes, null);
         Arrays.fill(this.rawSections, null);
     }
 
@@ -120,6 +124,9 @@ public final class CarverChunkWriter {
 
     public void setStateId(BlockPos blockPos, int stateId) {
         if (!this.fastPath) {
+            if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(this.chunk, blockPos, stateId)) {
+                return;
+            }
             BlockState state = FastBlockStateCache.getBlockState(stateId);
             this.chunk.setBlockState(blockPos, state, false);
             GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, stateId);
@@ -139,6 +146,17 @@ public final class CarverChunkWriter {
         int localX = blockPos.getX() & 15;
         int localY = y & 15;
         int localZ = blockPos.getZ() & 15;
+        if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(this.chunk, blockPos, stateId)) {
+            GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
+            if (workspace != null) {
+                for (int i = 0; i < this.heightmapCount; i++) {
+                    if (shouldRecordHeightmapUpdate(this.heightmaps[i], this.heightmapTypes[i], localX, y, localZ, state)) {
+                        workspace.recordHeightmapUpdate(this.heightmapTypes[i], localX, y, localZ, stateId);
+                    }
+                }
+            }
+            return;
+        }
         section.setBlockState(localX, localY, localZ, state, false);
         GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, blockPos, stateId);
         for (int i = 0; i < this.heightmapCount; i++) {
@@ -147,6 +165,17 @@ public final class CarverChunkWriter {
     }
 
     public void markPosForPostprocessing(BlockPos blockPos) {
+        if (GAWorkspaceWriteBridge.workspaceOnlyWritesEnabled()
+                && GAChunkWorkspaceContext.current() != null
+                && GAWorkspaceWriteBridge.canWriteCurrentWorkspaceOnly(
+                this.chunk,
+                blockPos.getX(),
+                blockPos.getY(),
+                blockPos.getZ()
+        )) {
+            GAChunkWorkspaceContext.current().recordPostprocessMark(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+            return;
+        }
         if (!this.fastPath) {
             this.chunk.markPosForPostprocessing(blockPos);
             return;
@@ -159,6 +188,11 @@ public final class CarverChunkWriter {
 
         ChunkAccess.getOrCreateOffsetList(this.chunk.getPostProcessing(), this.sectionIndex(y))
                 .add(ProtoChunk.packOffsetCoordinates(blockPos));
+    }
+
+    private static boolean shouldRecordHeightmapUpdate(Heightmap heightmap, Heightmap.Types type, int localX, int y, int localZ, BlockState state) {
+        int firstAvailable = heightmap.getFirstAvailable(localX, localZ);
+        return type.isOpaque().test(state) ? y >= firstAvailable : y == firstAvailable - 1;
     }
 
     private void prepareChunk(ChunkAccess chunk) {
@@ -202,6 +236,7 @@ public final class CarverChunkWriter {
         }
 
         for (Heightmap.Types type : heightmapTypes) {
+            this.heightmapTypes[this.heightmapCount] = type;
             this.heightmaps[this.heightmapCount++] = chunk.getOrCreateHeightmapUnprimed(type);
         }
 

@@ -123,7 +123,7 @@ public final class GACustomChunkGraphScheduler {
     }
 
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
-        if (GAAffinityScheduler.schedule(chunkMap, task)) {
+        if (GAAffinityScheduler.shouldAttempt(task) && GAAffinityScheduler.schedule(chunkMap, task)) {
             return true;
         }
         if (!ENABLED || !canInterceptGenerationTasks(chunkMap)) {

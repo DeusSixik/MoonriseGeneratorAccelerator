@@ -387,6 +387,10 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
             if (!canCommit()) {
                 return false;
             }
+            if (tryWorkspaceOnly(chunk)) {
+                return true;
+            }
+
             LevelChunkSection$FlatBlockArray flatBlockArray = (LevelChunkSection$FlatBlockArray) this.section;
             if (!flatBlockArray.bts$copyRawBlockDataForGeneration(this.working)) {
                 return false;
@@ -399,6 +403,30 @@ public final class VectorSurfaceKernel implements GeneratedKernel {
                 BlockState state = FastBlockStateCache.getBlockState(this.changedStateIds[i]);
                 BlockPos pos = new BlockPos(this.minBlockX + localX, this.sectionStartY + localY, this.minBlockZ + localZ);
                 publishWrite(chunk, pos, state);
+            }
+            return true;
+        }
+
+        private boolean tryWorkspaceOnly(ChunkAccess chunk) {
+            for (int i = 0; i < this.changedCount; i++) {
+                int index = this.changedIndices[i];
+                int x = this.minBlockX + (index & 15);
+                int y = this.sectionStartY + ((index >>> 8) & 15);
+                int z = this.minBlockZ + ((index >>> 4) & 15);
+                if (!GAWorkspaceWriteBridge.canWriteCurrentWorkspaceOnly(chunk, x, y, z)) {
+                    return false;
+                }
+            }
+            for (int i = 0; i < this.changedCount; i++) {
+                int index = this.changedIndices[i];
+                int stateId = this.changedStateIds[i];
+                BlockState state = FastBlockStateCache.getBlockState(stateId);
+                int x = this.minBlockX + (index & 15);
+                int y = this.sectionStartY + ((index >>> 8) & 15);
+                int z = this.minBlockZ + ((index >>> 4) & 15);
+                if (!DirectWriteSupport.writeSurfaceWorkspaceOnly(chunk, x, y, z, state, stateId, true, true)) {
+                    return false;
+                }
             }
             return true;
         }

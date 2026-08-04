@@ -157,6 +157,34 @@ public final class GAWorkspaceWriteBridge {
         return writeWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z, state);
     }
 
+    public static boolean canWriteCurrentWorkspaceOnly(ChunkAccess chunk, int x, int y, int z) {
+        return canWriteWorkspaceOnly(GAChunkWorkspaceContext.current(), chunk, x, y, z);
+    }
+
+    public static boolean canWriteWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z) {
+        if (WORKSPACE_ONLY_RUNTIME_DISABLED.get() || !WORKSPACE_ONLY_WRITES_ENABLED) {
+            return false;
+        }
+        if (workspace == null || !workspace.blockBufferEnabled()) {
+            return false;
+        }
+        if (chunk != null && (chunk.getPos().x != workspace.chunkX() || chunk.getPos().z != workspace.chunkZ())) {
+            return false;
+        }
+        if ((x >> 4) != workspace.chunkX() || (z >> 4) != workspace.chunkZ()) {
+            return false;
+        }
+        if (y < workspace.minBuildHeight() || y >= workspace.minBuildHeight() + workspace.buildHeight()) {
+            return false;
+        }
+        int localX = x - workspace.minBlockX();
+        int localZ = z - workspace.minBlockZ();
+        return (localX | localZ) >= 0
+                && localX < GAChunkWorkspace.CHUNK_WIDTH
+                && localZ < GAChunkWorkspace.CHUNK_WIDTH;
+    }
+
+
     public static boolean writeWorkspaceOnly(GAChunkWorkspace workspace, ChunkAccess chunk, int x, int y, int z, int state) {
         return write(workspace, chunk, x, y, z, state, true, false);
     }

@@ -175,13 +175,17 @@ class GASchedulerV2CoreTest {
     }
 
     @Test
-    void classifierAdmitsNoiseButKeepsWriterAndCommitStatusesLegacy() {
+    void classifierAdmitsNoiseAndCertifiedWorkspaceStatusesOnly() {
+        dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge.resetWorkspaceOnlyCircuitBreakerForTests();
         GAWorkerConfig config = config(2);
 
-        assertTrue(GAAffinityScheduler.classify(ChunkStatus.NOISE, config).admitted());
+        assertEquals(GAAdmissionDecision.Kind.ADMIT_FULL, GAAffinityScheduler.classify(ChunkStatus.NOISE, config).kind());
+        assertEquals(GAAdmissionDecision.Kind.ADMIT_WORKSPACE, GAAffinityScheduler.classify(ChunkStatus.SURFACE, config).kind());
+        assertEquals(GAAdmissionDecision.Kind.ADMIT_WORKSPACE, GAAffinityScheduler.classify(ChunkStatus.CARVERS, config).kind());
         assertFalse(GAAffinityScheduler.classify(ChunkStatus.FEATURES, config).admitted());
         assertFalse(GAAffinityScheduler.classify(ChunkStatus.SPAWN, config).admitted());
         assertFalse(GAAffinityScheduler.classify(ChunkStatus.FULL, config).admitted());
+        assertFalse(GAAffinityScheduler.classify(ChunkStatus.INITIALIZE_LIGHT, config).admitted());
     }
 
     @Test
@@ -192,6 +196,8 @@ class GASchedulerV2CoreTest {
         assertTrue(workerConfig.chunkSchedulerEnabled());
         assertEquals(GAWorkerConfig.Mode.PREGEN_THROUGHPUT, workerConfig.mode());
         assertEquals(15, workerConfig.workers());
+        assertTrue(config.enableWorkspaceOnlyBlockWrites);
+        assertTrue(config.enableWorkspaceOnlyCircuitBreaker);
     }
 
     @Test

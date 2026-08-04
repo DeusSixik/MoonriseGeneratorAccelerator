@@ -1,7 +1,10 @@
 package dev.sixik.generator_accelerator.common.surface;
 
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
+import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAWorkspaceWriteBridge;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.BlockColumn;
@@ -76,8 +79,25 @@ public class FastBlockColumn implements BlockColumn {
         final int pY = y & 15;
         final int pZ = pos.getZ() & 15;
 
+        int stateId = Block.getId(blockState);
+        if (GAWorkspaceWriteBridge.writeCurrentWorkspaceOnly(this.chunk, this.pos, stateId)) {
+            GAChunkWorkspace workspace = GAChunkWorkspaceContext.current();
+            if (workspace != null) {
+                for (int i = 0; i < DEFAULT_MAPS.length; i++) {
+                    if (shouldRecordHeightmapUpdate(this.heightmaps[i], DEFAULT_MAPS[i], pX, y, pZ, blockState)) {
+                        workspace.recordHeightmapUpdate(DEFAULT_MAPS[i], pX, y, pZ, stateId);
+                    }
+                }
+                if (!blockState.getFluidState().isEmpty()) {
+                    workspace.recordPostprocessMark(this.pos.getX(), y, this.pos.getZ());
+                }
+            }
+
+            return;
+        }
+
         section.setBlockState(pX, pY, pZ, blockState, false);
-        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, this.pos, blockState);
+        GAWorkspaceWriteBridge.mirrorCurrent(this.chunk, this.pos, stateId);
 
         final Heightmap[] heightmaps1 = this.heightmaps;
         for (int i = 0; i < heightmaps1.length; i++) {
@@ -87,5 +107,10 @@ public class FastBlockColumn implements BlockColumn {
         if (!blockState.getFluidState().isEmpty()) {
             this.chunk.markPosForPostprocessing(this.pos);
         }
+    }
+
+    private static boolean shouldRecordHeightmapUpdate(Heightmap heightmap, Heightmap.Types type, int localX, int y, int localZ, BlockState state) {
+        int firstAvailable = heightmap.getFirstAvailable(localX, localZ);
+        return type.isOpaque().test(state) ? y >= firstAvailable : y == firstAvailable - 1;
     }
 }

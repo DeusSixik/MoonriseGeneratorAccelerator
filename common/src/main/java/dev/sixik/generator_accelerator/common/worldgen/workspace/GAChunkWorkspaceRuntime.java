@@ -290,6 +290,7 @@ public final class GAChunkWorkspaceRuntime {
             }
             if (canFinalizeTerrainLocally(workspace)) {
                 replayLocalTerrainFinalRepack(chunk, workspace);
+                replayWorkspaceSideEffects(chunk, workspace);
                 drainCrossChunkMailboxIfQueued(chunk);
                 return;
             }
@@ -298,6 +299,7 @@ public final class GAChunkWorkspaceRuntime {
                         if (workspace.hasDirtySections()) {
                             replayFinalRepackPlan(chunk, workspace);
                         }
+                        replayWorkspaceSideEffects(chunk, workspace);
                         drainCrossChunkMailbox(chunk);
                     });
         } catch (InterruptedException interrupted) {
@@ -326,6 +328,17 @@ public final class GAChunkWorkspaceRuntime {
         if (dirtySections.length > 0) {
             GAChunkBlockIo.repackLocalTerrainDirtySections(chunk, workspace, dirtySections);
             GAChunkWorkspaceMetrics.addFinalRepackLocalTerrainSections(dirtySections.length);
+        }
+    }
+
+
+    private static void replayWorkspaceSideEffects(ChunkAccess chunk, GAChunkWorkspace workspace) {
+        long heightmapUpdates = workspace.heightmapUpdateCount();
+        long postprocessMarks = workspace.postprocessMarkCount();
+        if (heightmapUpdates > 0L || postprocessMarks > 0L) {
+            workspace.replaySideEffectsTo(chunk);
+            GAChunkWorkspaceMetrics.addHeightmapSideEffectUpdates(heightmapUpdates);
+            GAChunkWorkspaceMetrics.addPostprocessSideEffectMarks(postprocessMarks);
         }
     }
 

@@ -52,7 +52,7 @@ public final class GACommitEngine {
                 failureCount
         );
         GACommitMetrics.record(metrics);
-        return new GACommitExecution<>(resolved, metrics, failures);
+        return new GACommitExecution<>(resolved, metrics, failures == null ? List.of() : failures);
     }
 
     public static <T> GACommitPlan<T> plan(
@@ -103,7 +103,7 @@ public final class GACommitEngine {
                 failureCount
         );
         GACommitMetrics.record(metrics);
-        return new GACommitExecution<>(finalizePlan.plan().resolved(), metrics, failures);
+        return new GACommitExecution<>(finalizePlan.plan().resolved(), metrics, failures == null ? List.of() : failures);
     }
 
     public static <T> GACommitReplayPlan<T> replayByChunk(

@@ -441,6 +441,10 @@ public final class DirectTemplateSurfaceKernel implements GeneratedKernel {
             if (!canCommit()) {
                 return false;
             }
+            if (tryWorkspaceOnly(chunk)) {
+                return true;
+            }
+
             LevelChunkSection$FlatBlockArray flatBlockArray = (LevelChunkSection$FlatBlockArray) this.section;
             SectionCounters counters = SectionCounters.compute(this.working);
             if (!flatBlockArray.bts$copyRawBlockDataForGeneration(
@@ -474,6 +478,42 @@ public final class DirectTemplateSurfaceKernel implements GeneratedKernel {
                         this.updateHeightmaps,
                         this.mirrorWorkspace
                 );
+            }
+            return true;
+        }
+
+        private boolean tryWorkspaceOnly(ChunkAccess chunk) {
+            if (!this.mirrorWorkspace) {
+                return false;
+            }
+            for (int i = 0; i < this.changedCount; i++) {
+                int index = this.changedIndices[i];
+                int x = this.minBlockX + (index & 15);
+                int y = this.sectionStartY + ((index >>> 8) & 15);
+                int z = this.minBlockZ + ((index >>> 4) & 15);
+                if (!GAWorkspaceWriteBridge.canWriteCurrentWorkspaceOnly(chunk, x, y, z)) {
+                    return false;
+                }
+            }
+            for (int i = 0; i < this.changedCount; i++) {
+                int index = this.changedIndices[i];
+                int stateId = this.changedStateIds[i];
+                BlockState state = FastBlockStateCache.getBlockState(stateId);
+                int x = this.minBlockX + (index & 15);
+                int y = this.sectionStartY + ((index >>> 8) & 15);
+                int z = this.minBlockZ + ((index >>> 4) & 15);
+                if (!DirectWriteSupport.writeSurfaceWorkspaceOnly(
+                        chunk,
+                        x,
+                        y,
+                        z,
+                        state,
+                        stateId,
+                        this.updateHeightmaps,
+                        this.hasFluidChanges
+                )) {
+                    return false;
+                }
             }
             return true;
         }

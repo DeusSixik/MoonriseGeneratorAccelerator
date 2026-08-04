@@ -173,6 +173,7 @@ public final class GAWorldgenDiagnosticsFeedback {
         return gates.entrySet().stream()
                 .filter(entry -> Boolean.FALSE.equals(entry.getValue()))
                 .map(Map.Entry::getKey)
+                .filter(key -> !"workspaceOnlyWritesRuntimeDisabled".equals(key))
                 .sorted()
                 .toList();
     }
