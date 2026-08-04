@@ -12,19 +12,6 @@ public record GACommitPlan<T>(
         List<GACommitMailbox.GACommitMailboxDrain<T>> mailboxOutputs,
         GACommitPlanStats stats
 ) {
-    public GACommitPlan {
-        if (resolved == null) {
-            throw new NullPointerException("resolved");
-        }
-        if (conflictGroups == null) {
-            throw new NullPointerException("conflictGroups");
-        }
-        mailboxOutputs = mailboxOutputs == null ? List.of() : List.copyOf(mailboxOutputs);
-        if (stats == null) {
-            throw new NullPointerException("stats");
-        }
-    }
-
     public static <T> GACommitPlan<T> of(
             GACommitBatch<T> batch,
             GACommitCollisionPolicy policy,
@@ -89,18 +76,6 @@ public record GACommitPlan<T>(
             GACommitConflictGroups.GACommitConflictStats conflictStats,
             int mailboxTargetCount
     ) {
-        public GACommitPlanStats {
-            if (batchStats == null) {
-                throw new NullPointerException("batchStats");
-            }
-            if (conflictStats == null) {
-                throw new NullPointerException("conflictStats");
-            }
-            if (mailboxTargetCount < 0) {
-                throw new IllegalArgumentException("mailboxTargetCount must be non-negative");
-            }
-        }
-
         private static <T> GACommitPlanStats from(
                 GACommitBatch.GAResolvedCommitBatch<T> resolved,
                 GACommitConflictGroups<T> groups,

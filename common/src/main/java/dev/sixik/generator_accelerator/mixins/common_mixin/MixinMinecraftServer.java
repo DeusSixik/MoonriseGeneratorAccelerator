@@ -2,6 +2,8 @@ package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.structures.FastBlockStateCache;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
+import dev.sixik.generator_accelerator.common.noise.FillSliceLazyCompileBudget;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.common.worldgen.parallel.GACustomChunkGraphScheduler;
 import net.minecraft.server.MinecraftServer;
@@ -18,6 +20,8 @@ public class MixinMinecraftServer {
     @Inject(method = "runServer", at = @At("HEAD"))
     public void ga$resetCustomGraphShutdown(CallbackInfo ci) {
         GACustomChunkGraphScheduler.resetShutdownRequest();
+        RandomStateCompileBudget.reset();
+        FillSliceLazyCompileBudget.reset();
     }
 
     @Inject(method = "tickServer", at = @At("HEAD"))

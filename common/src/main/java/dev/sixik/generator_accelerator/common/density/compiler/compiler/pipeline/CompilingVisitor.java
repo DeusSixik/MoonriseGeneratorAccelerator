@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipelin
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
@@ -28,9 +29,10 @@ import net.minecraft.world.level.levelgen.DensityFunctions;
  * {@code NoiseChunk} can swap it with a cell cache).
  *
  * <p>The cache is identity-keyed by source DF: same source instance ↔ same compiled
- * output. Weak keys let the source GC out across {@code /reload};
- * weak values let the hidden class drop out of metaspace once
- * nothing references the compiled instance. We cache markers by source-marker identity
+ * output. Weak keys let the source GC out across {@code /reload}; weak values only
+ * cover this per-source compiled wrapper. Hidden-class ownership is handled by
+ * {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache},
+ * which keeps the class bundle strongly until lifecycle reset. We cache markers by source-marker identity
  * too so that repeated visits hand back the <em>same</em> repackaged Marker — that's
  * what {@link net.minecraft.world.level.levelgen.NoiseChunk}'s
  * {@code wrapped} HashMap dedup relies on (it uses Marker record equality, which is
@@ -41,12 +43,13 @@ public final class CompilingVisitor implements DensityFunction.Visitor {
 
     private static final CompilingVisitor INSTANCE = new CompilingVisitor();
     private static final boolean COMPILE_MARKER_INNERS =
-            Boolean.getBoolean("dfc.compileMarkerInners");
+            GAConfigHolder.getConfig().dfc.compileMarkerInners;
 
     /**
      * Identity-keyed compile cache. Use weak keys so the source
-     * DensityFunction can be GC'd; weak values so the compiled hidden
-     * class can drop out of metaspace once nobody references it.
+     * DensityFunction can be GC'd. Values are weak because this cache is only a
+     * memo for per-source compiled wrappers; the global fingerprint cache owns
+     * reusable hidden-class bundles for the current server lifecycle.
      */
     private final Cache<DensityFunction, DensityFunction> cache = Caffeine.newBuilder()
             .initialCapacity(256)

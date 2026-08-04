@@ -10,7 +10,4 @@ public record GABlockMutation(
         int flags,
         long sequence
 ) {
-    public GABlockMutation {
-        Objects.requireNonNull(state, "state");
-    }
 }

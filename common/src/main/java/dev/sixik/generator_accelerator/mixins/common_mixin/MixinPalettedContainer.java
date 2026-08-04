@@ -1,6 +1,7 @@
 package dev.sixik.generator_accelerator.mixins.common_mixin;
 
 import dev.sixik.generator_accelerator.api.patches.GA$PalettedContainerExtern;
+import dev.sixik.generator_accelerator.api.patches.GA$PaletteDataExtern;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -19,6 +20,14 @@ public class MixinPalettedContainer<T> implements GA$PalettedContainerExtern {
 
     @Override
     public int ga$getRawData(int x, int y, int z) {
-        return data.storage().get(strategy.getIndex(x, y, z));
+        PalettedContainer.Data<T> currentData = this.data;
+        int index = strategy.getIndex(x, y, z);
+        if ((Object) currentData instanceof GA$PaletteDataExtern<?> extern) {
+            int[] rawStorage = extern.bts$getRawStorage();
+            if (rawStorage != null) {
+                return rawStorage[index];
+            }
+        }
+        return currentData.storage().get(index);
     }
 }

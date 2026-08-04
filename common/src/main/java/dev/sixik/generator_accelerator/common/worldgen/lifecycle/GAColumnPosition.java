@@ -4,15 +4,6 @@ package dev.sixik.generator_accelerator.common.worldgen.lifecycle;
  * Owner-local 16x16 chunk column coordinate used by lifecycle handoff plans.
  */
 public record GAColumnPosition(int localX, int localZ) implements Comparable<GAColumnPosition> {
-    public GAColumnPosition {
-        if (localX < 0 || localX > 15) {
-            throw new IllegalArgumentException("localX must be in [0, 15]");
-        }
-        if (localZ < 0 || localZ > 15) {
-            throw new IllegalArgumentException("localZ must be in [0, 15]");
-        }
-    }
-
     public int packedIndex() {
         return (localZ << 4) | localX;
     }

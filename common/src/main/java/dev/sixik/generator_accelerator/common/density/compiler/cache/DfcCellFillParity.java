@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RandomStateCompileBudget;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 
@@ -15,11 +17,10 @@ import java.util.concurrent.atomic.LongAdder;
  * Optional runtime parity check for generated {@link DfcCellFillAccess#dfc$fillCell}.
  */
 public final class DfcCellFillParity {
-    public static final boolean ENABLED = Boolean.getBoolean("dfc.cellfill.parity")
-            || Boolean.getBoolean("dfc.parity.runtimeChecks");
+    public static final boolean ENABLED = GAConfigHolder.getConfig().dfc.cellFillParity;
 
-    private static final int MAX_CHECKS = Integer.getInteger("dfc.cellfill.parity.maxChecks", 1024);
-    private static final double EPSILON = Double.parseDouble(System.getProperty("dfc.cellfill.parity.epsilon", "1.0E-9"));
+    private static final int MAX_CHECKS = Math.max(0, GAConfigHolder.getConfig().dfc.cellFillParityMaxChecks);
+    private static final double EPSILON = GAConfigHolder.getConfig().dfc.cellFillParityEpsilon;
     private static volatile boolean ACTIVE = ENABLED && MAX_CHECKS > 0;
 
     private static final AtomicInteger REMAINING = new AtomicInteger(MAX_CHECKS);
@@ -49,7 +50,7 @@ public final class DfcCellFillParity {
     }
 
     public static boolean isActive() {
-        return ENABLED && ACTIVE;
+        return ACTIVE && RandomStateCompileBudget.hasAdmittedCompiles();
     }
 
     public static void recordCandidate(DensityFunction filler, boolean fastEligible) {
@@ -71,12 +72,12 @@ public final class DfcCellFillParity {
         }
     }
 
-    public static void check(DensityFunction filler, double[] fastValues, NoiseChunk chunk) {
+    public static boolean check(DensityFunction filler, double[] fastValues, NoiseChunk chunk) {
         if (!ACTIVE) {
-            return;
+            return true;
         }
         if (!claimCheck()) {
-            return;
+            return true;
         }
 
         CHECKS.increment();
@@ -87,7 +88,7 @@ public final class DfcCellFillParity {
             FAILURES.increment();
             warnOnce("DFC cell-fill parity check failed while running fallback fillArray for "
                     + filler.getClass().getName(), t);
-            return;
+            return false;
         }
 
         int badIndex = -1;
@@ -117,8 +118,10 @@ public final class DfcCellFillParity {
             final double diff = maxDiff;
             warnOnce("DFC cell-fill parity mismatch in " + filler.getClass().getName()
                     + " at index " + idx + ": fast=" + fast + ", fillArray=" + slow + ", diff=" + diff, null);
+            return false;
         } else {
             PASSES.increment();
+            return true;
         }
     }
 

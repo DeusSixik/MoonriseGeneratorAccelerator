@@ -11,14 +11,6 @@ public record GACommitCollisionResult<T>(
         this(accepted, rejected, 0);
     }
 
-    public GACommitCollisionResult {
-        accepted = accepted == null ? List.of() : List.copyOf(accepted);
-        rejected = rejected == null ? List.of() : List.copyOf(rejected);
-        if (collisionCount < 0) {
-            throw new IllegalArgumentException("collisionCount must be non-negative");
-        }
-    }
-
     public boolean hasRejected() {
         return !rejected.isEmpty();
     }

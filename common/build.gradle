@@ -4,6 +4,7 @@ architectury {
 
 configurations {
     c2meDownload
+    javaToGpuTool
 }
 
 test {
@@ -120,6 +121,7 @@ tasks.register("surfaceExecuteQuickBenchmark") {
 }
 
 dependencies {
+    def javaToGpuLocalCoordinate = "io.github.deussixik:processor:${rootProject.java_to_gpu_version}"
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
@@ -170,8 +172,31 @@ dependencies {
 
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
+
+    compileOnly javaToGpuLocalCoordinate
+    compileOnly "io.github.deussixik:packager:1.0.0-alpha.1"
+    compileOnly "org.lwjgl:lwjgl:3.3.3"
+    compileOnly "org.lwjgl:lwjgl-opencl:3.3.3"
+    runtimeOnly javaToGpuLocalCoordinate
+    runtimeOnly "io.github.deussixik:packager:1.0.0-alpha.1"
+    runtimeOnly "org.lwjgl:lwjgl:3.3.3"
+    runtimeOnly "org.lwjgl:lwjgl-opencl:3.3.3"
+    annotationProcessor javaToGpuLocalCoordinate
+    annotationProcessor "com.github.javaparser:javaparser-core:3.28.1"
+    annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
 }
 
+tasks.register('rewriteGpuMethods', JavaExec) {
+    dependsOn tasks.named('compileJava')
+    dependsOn tasks.named('processResources')
+    classpath = files(layout.buildDirectory.dir('classes/java/main')) + configurations.javaToGpuTool + configurations.compileClasspath
+    mainClass = 'net.sixik.ga_utils.javatogpu.runtime.GpuMethodBodyRewriter'
+    args layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+}
+
+tasks.named('classes') {
+    dependsOn tasks.named('rewriteGpuMethods')
+}
 def dfcNativeRootDir = file("natives")
 def dfcNativeArtifactsDir = layout.buildDirectory.dir("dfcNative/nativeArtifacts").get().asFile
 def dfcNativeModulesBuildRootDir = layout.buildDirectory.dir("dfcNative/modules").get().asFile
@@ -598,9 +623,9 @@ tasks.named("assemble") {
 def extractDir = file("$buildDir/extracted-c2me")
 
 if (!extractDir.exists() || extractDir.listFiles()?.length == 0) {
-    println "Извлекаем C2ME Jars..."
+    println "РР·РІР»РµРєР°РµРј C2ME Jars..."
 
-    // .resolve() заставляет Gradle принудительно скачать файл прямо сейчас
+    // .resolve() Р·Р°СЃС‚Р°РІР»СЏРµС‚ Gradle РїСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ СЃРєР°С‡Р°С‚СЊ С„Р°Р№Р» РїСЂСЏРјРѕ СЃРµР№С‡Р°СЃ
     def c2meJarFile = configurations.c2meDownload.resolve().iterator().next()
 
     copy {
@@ -624,8 +649,8 @@ tasks.named("compileJava") {
     dependsOn "extractC2meJars"
 }
 
-// Магия для среды разработки: заставляем её распаковывать файлы
-// во время настройки и синхронизации проекта (Reload Gradle)
+// РњР°РіРёСЏ РґР»СЏ СЃСЂРµРґС‹ СЂР°Р·СЂР°Р±РѕС‚РєРё: Р·Р°СЃС‚Р°РІР»СЏРµРј РµС‘ СЂР°СЃРїР°РєРѕРІС‹РІР°С‚СЊ С„Р°Р№Р»С‹
+// РІРѕ РІСЂРµРјСЏ РЅР°СЃС‚СЂРѕР№РєРё Рё СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё РїСЂРѕРµРєС‚Р° (Reload Gradle)
 tasks.matching { it.name in ["prepareWorkspace", "genSources", "idea", "eclipse"] }.configureEach {
     dependsOn "extractC2meJars"
 }

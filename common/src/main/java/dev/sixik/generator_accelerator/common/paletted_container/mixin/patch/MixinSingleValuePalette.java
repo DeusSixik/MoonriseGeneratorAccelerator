@@ -27,6 +27,10 @@ public abstract class MixinSingleValuePalette<T> implements Palette<T>, GA$Palet
     private T[] generatorAccelerator$rawPalette;
 
     public final T[] bts$getRawPalette(GA$PaletteDataExtern<T> container) {
+        if (this.generatorAccelerator$rawPalette == null) {
+            this.generatorAccelerator$rawPalette = (T[]) new Object[1];
+        }
+        this.generatorAccelerator$rawPalette[0] = this.value;
         return this.generatorAccelerator$rawPalette;
     }
 

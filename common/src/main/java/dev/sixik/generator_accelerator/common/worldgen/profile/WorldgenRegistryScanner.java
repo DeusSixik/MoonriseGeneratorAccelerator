@@ -255,11 +255,6 @@ public final class WorldgenRegistryScanner {
     }
 
     public record RegistrySource(WorldgenUnitKind kind, String registryName, Object contents) {
-        public RegistrySource {
-            kind = kind == null ? WorldgenUnitKind.UNKNOWN : kind;
-            registryName = registryName == null ? "" : registryName;
-        }
-
         public static RegistrySource map(WorldgenUnitKind kind, String registryName, Map<?, ?> contents) {
             return new RegistrySource(kind, registryName, contents);
         }

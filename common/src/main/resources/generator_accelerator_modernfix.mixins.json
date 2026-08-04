@@ -7,8 +7,7 @@
   "mixins": [
     "compats.modernfix.ModernFixChunkMapReleaseProtoChunksMixin",
     "compats.modernfix.ModernFix$ChunkStatusTasksMixin",
-    "compats.modernfix.ModernFix$GenerationChunkHolderAccessor",
-    "compats.modernfix.ModernFix$ChunkHolderReleaseProtoChunksMixin"
+    "compats.modernfix.ModernFix$GenerationChunkHolderAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -4,6 +4,10 @@ import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.common.worldgen.commit.GACrossChunkMailboxRuntime;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspace;
 import dev.sixik.generator_accelerator.common.worldgen.workspace.GAChunkWorkspaceContext;
+import dev.sixik.generator_accelerator.common.worldgen.scheduler.GAAffinityScheduler;
+import dev.sixik.generator_accelerator.common.worldgen.scheduler.GASchedulerRuntime;
+import dev.sixik.generator_accelerator.common.worldgen.scheduler.GATaskClass;
+import dev.sixik.generator_accelerator.common.worldgen.scheduler.GAWorkerConfig;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
 
@@ -59,6 +63,8 @@ public final class GAScheduler {
     private static volatile ForkJoinPool transactionalPool;
     private static volatile ForkJoinPool serialPool;
     private static volatile ForkJoinPool commitPool;
+    private static volatile GASchedulerRuntime v2Runtime;
+    private static volatile boolean v2Enabled;
     private static volatile ConfigSnapshot configSnapshot = ConfigSnapshot.defaults();
     private static volatile boolean shutdownRequested;
 
@@ -81,11 +87,31 @@ public final class GAScheduler {
             GAConfig config = GAConfigManager.getConfigOrLoad().orElseGet(GAConfig::new);
             int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
             ConfigSnapshot snapshot = ConfigSnapshot.from(config, processors, isDev);
+            GAWorkerConfig v2Config = GAWorkerConfig.from(config, processors, isDev);
 
             configSnapshot = snapshot;
             shutdownRequested = false;
+            v2Enabled = v2Config.chunkSchedulerEnabled();
+            if (v2Enabled) {
+                GASchedulerRuntime runtime = new GASchedulerRuntime(v2Config);
+                v2Runtime = runtime;
+                runtime.start();
+                GAAffinityScheduler.init(v2Config);
+            } else {
+                v2Runtime = null;
+            }
             initialized = true;
         }
+    }
+
+    public static boolean v2Enabled() {
+        ensureInitialized();
+        return v2Enabled && v2Runtime != null;
+    }
+
+    public static GASchedulerRuntime v2Runtime() {
+        ensureInitialized();
+        return v2Runtime;
     }
 
     public static ForkJoinPool noisePool() {
@@ -132,6 +158,9 @@ public final class GAScheduler {
         ensureInitialized();
         if (shutdownRequested) {
             return failedFuture(new RejectedExecutionException("GA scheduler is shutting down"));
+        }
+        if (v2Active(lane)) {
+            return supplyV2(lane, supplier, false);
         }
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
@@ -184,7 +213,8 @@ public final class GAScheduler {
                 if (future.isCancelled()) {
                     return;
                 }
-                completeFromSupplier(future, () -> runGoverned(lane, task));
+                Supplier<T> governedTask = () -> runGoverned(lane, task);
+                completeFromSupplier(future, governedTask);
             });
             return future;
         } catch (RejectedExecutionException rejected) {
@@ -214,6 +244,9 @@ public final class GAScheduler {
         if (shutdownRequested) {
             return failedFuture(new RejectedExecutionException("GA scheduler is shutting down"));
         }
+        if (v2Active(lane)) {
+            return supplyV2(lane, supplier, true);
+        }
         Supplier<T> task = wrapWorkspaceContext(supplier);
         int index = lane.ordinal();
         SUBMITTED.incrementAndGet(index);
@@ -240,7 +273,10 @@ public final class GAScheduler {
         updateMax(MAX_QUEUED, index, queuedTaskEstimate(lane, pool));
         try {
             CompletableFuture<T> future = new CompletableFuture<>();
-            pool.execute(() -> completeFromSupplier(future, () -> runMeasured(lane, task)));
+            pool.execute(() -> {
+                Supplier<T> measuredTask = () -> runMeasured(lane, task);
+                completeFromSupplier(future, measuredTask);
+            });
             return future;
         } catch (RejectedExecutionException rejected) {
             ADMISSION_REJECTED.incrementAndGet(index);
@@ -257,6 +293,10 @@ public final class GAScheduler {
         ensureInitialized();
         if (shutdownRequested) {
             notifyFailure(failureHandler, new RejectedExecutionException("GA scheduler is shutting down"));
+            return;
+        }
+        if (v2Active(lane)) {
+            executeV2(lane, runnable, failureHandler, false);
             return;
         }
         Supplier<Void> task = wrapWorkspaceContext(() -> {
@@ -341,6 +381,10 @@ public final class GAScheduler {
             notifyFailure(failureHandler, new RejectedExecutionException("GA scheduler is shutting down"));
             return;
         }
+        if (v2Active(lane)) {
+            executeV2(lane, runnable, failureHandler, true);
+            return;
+        }
         Supplier<Void> task = wrapWorkspaceContext(() -> {
             runnable.run();
             return null;
@@ -390,6 +434,10 @@ public final class GAScheduler {
         if (shutdownRequested) {
             throw new ExecutionException(new RejectedExecutionException("GA scheduler is shutting down"));
         }
+        if (v2Active(lane)) {
+            invokeBlockingV2(lane, runnable);
+            return;
+        }
         if (isCurrentLaneWorker(lane)) {
             int index = lane.ordinal();
             SUBMITTED.incrementAndGet(index);
@@ -437,6 +485,8 @@ public final class GAScheduler {
         }
         out.put("lanes", lanes);
         out.put("governor", governorSnapshot());
+        GASchedulerRuntime runtime = v2Runtime;
+        out.put("gaSchedulerV2", runtime == null ? Map.of("enabled", false) : runtime.snapshot());
         return out;
     }
 
@@ -457,6 +507,12 @@ public final class GAScheduler {
                     .append(", queued=").append(queuedTaskEstimate(lane, pool))
                     .append(", submitted=").append(SUBMITTED.get(index))
                     .append(", completed=").append(COMPLETED.get(index))
+                    .append(')');
+        }
+        GASchedulerRuntime runtime = v2Runtime;
+        if (runtime != null) {
+            builder.append("; v2(workers=").append(runtime.workerCount())
+                    .append(", admission=").append(runtime.admissionState())
                     .append(')');
         }
         return builder.toString();
@@ -480,6 +536,11 @@ public final class GAScheduler {
         MAX_COMMIT_BACKLOG.set(0L);
         MAX_MAILBOX_BACKLOG.set(0L);
         BOTTLENECK_THROTTLES.set(0L);
+        GASchedulerRuntime runtime = v2Runtime;
+        GAAffinityScheduler.resetMetrics();
+        if (runtime != null) {
+            runtime.resetMetrics();
+        }
     }
 
     public static void shutdown() {
@@ -497,6 +558,7 @@ public final class GAScheduler {
         ForkJoinPool oldTransactionalPool;
         ForkJoinPool oldSerialPool;
         ForkJoinPool oldCommitPool;
+        GASchedulerRuntime oldV2Runtime;
 
         synchronized (INIT_LOCK) {
             shutdownRequested = true;
@@ -506,6 +568,7 @@ public final class GAScheduler {
             oldTransactionalPool = transactionalPool;
             oldSerialPool = serialPool;
             oldCommitPool = commitPool;
+            oldV2Runtime = v2Runtime;
 
             noisePool = null;
             compilePool = null;
@@ -513,6 +576,8 @@ public final class GAScheduler {
             transactionalPool = null;
             serialPool = null;
             commitPool = null;
+            v2Runtime = null;
+            v2Enabled = false;
             configSnapshot = ConfigSnapshot.defaults();
             resetMetrics();
             if (resetLiveCounters) {
@@ -522,6 +587,10 @@ public final class GAScheduler {
             initialized = false;
         }
 
+        if (oldV2Runtime != null) {
+            oldV2Runtime.shutdown(true);
+            GAAffinityScheduler.shutdownForTests();
+        }
         shutdownPool(oldNoisePool);
         shutdownPool(oldCompilePool);
         shutdownPool(oldWorkspacePool);
@@ -596,6 +665,102 @@ public final class GAScheduler {
         out.put("bottleneckThrottleActive", bottleneckThrottleActive(config, commitBacklog, mailboxBacklog, heapUsedRatio));
         out.put("bottleneckThrottles", BOTTLENECK_THROTTLES.get());
         return out;
+    }
+
+    private static boolean v2Active(Lane lane) {
+        GASchedulerRuntime runtime = v2Runtime;
+        return v2Enabled && runtime != null && runtime.admissionOpen() && lane.v2FacadeSafe();
+    }
+
+    private static <T> CompletableFuture<T> supplyV2(Lane lane, Supplier<T> supplier, boolean nested) {
+        Supplier<T> task = wrapWorkspaceContext(supplier);
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        GASchedulerRuntime runtime = v2Runtime;
+        if (runtime == null || !runtime.admissionOpen()) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            return failedFuture(new RejectedExecutionException("GA scheduler v2 admission is closed"));
+        }
+        if (runtime.isCurrentWorker() || isCurrentLaneWorker(lane) || (nested && isCurrentGaWorker())) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                return CompletableFuture.completedFuture(runMeasured(lane, task));
+            } catch (Throwable throwable) {
+                return failedFuture(throwable);
+            }
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        return runtime.submit(taskClassForLane(lane), null, () -> runMeasured(lane, task), false);
+    }
+
+    private static void executeV2(Lane lane, Runnable runnable, Consumer<Throwable> failureHandler, boolean nested) {
+        Supplier<Void> task = wrapWorkspaceContext(() -> {
+            runnable.run();
+            return null;
+        });
+        int index = lane.ordinal();
+        SUBMITTED.incrementAndGet(index);
+        GASchedulerRuntime runtime = v2Runtime;
+        if (runtime == null || !runtime.admissionOpen()) {
+            ADMISSION_REJECTED.incrementAndGet(index);
+            FAILED.incrementAndGet(index);
+            notifyFailure(failureHandler, new RejectedExecutionException("GA scheduler v2 admission is closed"));
+            return;
+        }
+        if (runtime.isCurrentWorker() || isCurrentLaneWorker(lane) || (nested && isCurrentGaWorker())) {
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            try {
+                runMeasured(lane, task);
+            } catch (Throwable throwable) {
+                notifyFailure(failureHandler, throwable);
+            }
+            return;
+        }
+        ADMISSION_ACCEPTED.incrementAndGet(index);
+        runtime.execute(taskClassForLane(lane), null, () -> runMeasured(lane, task), failureHandler, false);
+    }
+
+    private static void invokeBlockingV2(Lane lane, Runnable runnable) throws InterruptedException, ExecutionException {
+        GASchedulerRuntime runtime = v2Runtime;
+        int index = lane.ordinal();
+        if (runtime != null && runtime.isCurrentWorker()) {
+            SUBMITTED.incrementAndGet(index);
+            INLINE_RUNS.incrementAndGet(index);
+            ADMISSION_ACCEPTED.incrementAndGet(index);
+            runMeasured(lane, () -> {
+                runnable.run();
+                return null;
+            });
+            return;
+        }
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        executeV2(lane, () -> {
+            runnable.run();
+            done.countDown();
+        }, throwable -> {
+            failure.compareAndSet(null, throwable);
+            done.countDown();
+        }, false);
+        done.await();
+        Throwable throwable = failure.get();
+        if (throwable != null) {
+            throw new ExecutionException(throwable);
+        }
+    }
+
+    private static GATaskClass taskClassForLane(Lane lane) {
+        return switch (lane) {
+            case NOISE -> GATaskClass.CPU_NOISE;
+            case COMPILE -> GATaskClass.BG_COMPILE;
+            case WORKSPACE -> GATaskClass.CPU_WORKSPACE;
+            case TRANSACTIONAL -> GATaskClass.WRITE_GUARDED;
+            case SERIAL -> GATaskClass.SERIAL_LEGACY;
+            case COMMIT -> GATaskClass.COMMIT_BOUNDARY;
+        };
     }
 
     private static <T> T runGoverned(Lane lane, Supplier<T> supplier) {
@@ -981,6 +1146,10 @@ public final class GAScheduler {
 
         boolean canThrottleWorldgen() {
             return this == NOISE || this == WORKSPACE || this == TRANSACTIONAL;
+        }
+
+        boolean v2FacadeSafe() {
+            return this == NOISE || this == COMPILE;
         }
 
         static Lane[] worldgenPressureLanes() {

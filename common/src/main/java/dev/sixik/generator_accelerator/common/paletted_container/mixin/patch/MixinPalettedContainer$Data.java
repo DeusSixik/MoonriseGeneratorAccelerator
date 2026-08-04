@@ -15,7 +15,10 @@ import org.spongepowered.asm.mixin.Unique;
 public class MixinPalettedContainer$Data<T> implements GA$PaletteDataExtern<T> {
 
     @Unique
-    private T[] generatorAccelerator$palette;
+    private volatile T[] generatorAccelerator$palette;
+
+    @Unique
+    private volatile int[] generatorAccelerator$rawStorage;
 
     @Override
     public T[] bts$getPalette() {
@@ -25,5 +28,15 @@ public class MixinPalettedContainer$Data<T> implements GA$PaletteDataExtern<T> {
     @Override
     public void bts$setPalette(T[] var1) {
         this.generatorAccelerator$palette = var1;
+    }
+
+    @Override
+    public int[] bts$getRawStorage() {
+        return this.generatorAccelerator$rawStorage;
+    }
+
+    @Override
+    public void bts$setRawStorage(int[] var1) {
+        this.generatorAccelerator$rawStorage = var1;
     }
 }

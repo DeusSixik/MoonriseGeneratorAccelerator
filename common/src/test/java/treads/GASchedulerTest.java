@@ -33,6 +33,7 @@ class GASchedulerTest {
             "ga.config.schedulerMaxQueuedTasks",
             "ga.config.schedulerCommitBacklogThrottleThreshold",
             "ga.config.schedulerMailboxBacklogThrottleThreshold",
+            "ga.config.schedulerV2Enabled",
             "ga.config.schedulerHeapPressureTarget"
     };
 
@@ -40,6 +41,7 @@ class GASchedulerTest {
     void setUp() throws Exception {
         GAScheduler.shutdownForTests();
         clearTestConfigProperties();
+        System.setProperty("ga.config.schedulerV2Enabled", "false");
         resetCachedConfig();
     }
 

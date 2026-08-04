@@ -97,6 +97,9 @@ allprojects {
                 includeModule 'me.lucko', 'spark-api'
             }
         }
+        maven {
+            url = 'https://maven.ryanhcode.dev/releases/'
+        }
     }
 }
 
@@ -106,6 +109,10 @@ subprojects {
     apply plugin: 'dev.architectury.loom'
     apply plugin: 'architectury-plugin'
     apply plugin: 'maven-publish'
+
+    configurations.configureEach {
+        exclude group: 'io.github.deussixik', module: 'javatogpu'
+    }
 
     def dfcNativeMissingMarker = rootProject.layout.buildDirectory.file("dfcNative/status/no-natives.marker").get().asFile
     def dfcArchiveFileName = { AbstractArchiveTask archiveTask ->
@@ -132,6 +139,9 @@ subprojects {
     }
 
     repositories {
+        flatDir {
+            dirs rootProject.file('libs')
+        }
         // Add repositories to retrieve artifacts from in here.
         // You should only use this when depending on other mods because
         // Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
@@ -190,7 +200,7 @@ tasks.register("runBenchmarks") {
         def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
         def gradleCmd = isWindows ? file("gradlew.bat").absolutePath : "./gradlew"
 
-        // Берем путь к Java, на которой сейчас работает этот скрипт (например, из настроек IDE)
+        // Р‘РµСЂРµРј РїСѓС‚СЊ Рє Java, РЅР° РєРѕС‚РѕСЂРѕР№ СЃРµР№С‡Р°СЃ СЂР°Р±РѕС‚Р°РµС‚ СЌС‚РѕС‚ СЃРєСЂРёРїС‚ (РЅР°РїСЂРёРјРµСЂ, РёР· РЅР°СЃС‚СЂРѕРµРє IDE)
         def currentJavaHome = System.getProperty("java.home")
 
         def runTest = { String name, String extraArgs, int count ->
@@ -199,13 +209,13 @@ tasks.register("runBenchmarks") {
             println "======================================="
 
             for (int i = 1; i <= count; i++) {
-                println "\n---> [$name] Прогон $i из $count <---"
+                println "\n---> [$name] РџСЂРѕРіРѕРЅ $i РёР· $count <---"
 
                 exec {
-                    // Принудительно передаем правильный JAVA_HOME в консоль
+                    // РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ РїРµСЂРµРґР°РµРј РїСЂР°РІРёР»СЊРЅС‹Р№ JAVA_HOME РІ РєРѕРЅСЃРѕР»СЊ
                     environment "JAVA_HOME", currentJavaHome
 
-                    // --no-daemon нужен чтобы процессы не слипались и память очищалась
+                    // --no-daemon РЅСѓР¶РµРЅ С‡С‚РѕР±С‹ РїСЂРѕС†РµСЃСЃС‹ РЅРµ СЃР»РёРїР°Р»РёСЃСЊ Рё РїР°РјСЏС‚СЊ РѕС‡РёС‰Р°Р»Р°СЃСЊ
                     def fullCommand = "$gradleCmd :neoforge:runServer $extraArgs --no-daemon"
 
                     if (isWindows) {
@@ -215,7 +225,7 @@ tasks.register("runBenchmarks") {
                     }
                 }
 
-                // Ждем 2 секунды после того как сервер ПОЛНОСТЬЮ умер
+                // Р–РґРµРј 2 СЃРµРєСѓРЅРґС‹ РїРѕСЃР»Рµ С‚РѕРіРѕ РєР°Рє СЃРµСЂРІРµСЂ РџРћР›РќРћРЎРўР¬Р® СѓРјРµСЂ
                 sleep(2000)
             }
         }
@@ -400,6 +410,7 @@ tasks.register("runGAChunkgenBenchmark") {
         def chunkgenDfcCompileQueue = findProperty("chunkgenDfcCompileQueue") ?: "jdk"
         def chunkgenDfcCellFillAddExternOverride = findProperty("chunkgenDfcCellFillAddExternOverride") ?: "true"
         def chunkgenDfcInlineWrapAxis = findProperty("chunkgenDfcInlineWrapAxis") ?: "true"
+        def chunkgenExtraJvmArgs = findProperty("chunkgenExtraJvmArgs") ?: ""
         def chunkgenArgs = "-Dga.benchmark.useSpark=false " +
                 "-Dga.benchmark.directChunkLoad=true " +
                 "-Dga.benchmark.diagnostics=true " +
@@ -420,7 +431,8 @@ tasks.register("runGAChunkgenBenchmark") {
                 "-Dga.benchmark.renderDistance=$benchRenderDistance " +
                 "-Dga.benchmark.resetWorld=$benchResetWorld " +
                 "-Dga.benchmark.startupWatchdogSeconds=$startupWatchdogSeconds " +
-                "-Dga.benchmark.tickWatchdogSeconds=$tickWatchdogSeconds"
+                "-Dga.benchmark.tickWatchdogSeconds=$tickWatchdogSeconds" +
+                (chunkgenExtraJvmArgs.toString().isBlank() ? "" : " ${chunkgenExtraJvmArgs}")
         if (benchMaxBatches != null) {
             chunkgenArgs += " -Dga.benchmark.maxBatches=$benchMaxBatches"
         }

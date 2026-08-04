@@ -5,17 +5,14 @@
   "minVersion": "0.8",
   "plugin": "dev.sixik.generator_accelerator.common.noise.GANoiseMixinPlugin",
   "mixins": [
-    "MixinBlendedNoise$flat_data",
-    "MixinNoiseChunk",
-    "MixinNoiseChunk$Cache2D",
-    "MixinNoiseChunk$FlatCache$OptimizeFlatArray",
-    "MixinNoiseChunk$OptimizeFlatArray",
-    "MixinNoiseInterpolator",
-    "noises.MixinDensityFunctionsNoise",
-    "noises.MixinImprovedNoise",
-    "noises.MixinNormalNoise",
-    "noises.MixinPerlinNoise",
-    "noises.MixinShiftNoise"
+    "MixinNoiseChunk$optimization_math",
+    "MixinNoiseChunk$Cache2D$optimization_math",
+    "MixinNoiseChunk$FlatCache$optimization_math",
+    "MixinNoiseChunk$Interpolator$optimization_math",
+    "synth.MixinBlendedNoise$optimization_math",
+    "synth.MixinImprovedNoise$optimization_through_flat_math",
+    "synth.MixinPerlinNoise$optimize_octave_accumulation",
+    "synth.MixinSimplexNoise$optimization_through_flat_math"
   ],
   "injectors": {
     "defaultRequire": 1

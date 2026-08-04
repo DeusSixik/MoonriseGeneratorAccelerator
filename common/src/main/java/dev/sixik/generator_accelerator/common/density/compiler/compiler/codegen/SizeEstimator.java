@@ -3,12 +3,11 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
 
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Set;
 
 /**
  * Approximate JVM bytecode size for an {@link IRNode} subtree, mirroring
- * {@link Codegen#emit(String, IRNode, dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount.Result, java.util.Set, ConstantPool, double, double)}.
+ * {@link Codegen#emit(String, IRNode, dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount.Result, Set, ConstantPool, double, double)}.
  *
  * <p>The numbers don't need to be exact — they only need to track the relative
  * ordering of methods to drive {@link Splitter}'s extraction policy and to

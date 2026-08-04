@@ -2,6 +2,7 @@ package dev.sixik.generator_accelerator.common.worldgen.parallel;
 
 import dev.sixik.generator_accelerator.GeneratorAccelerator;
 import dev.sixik.generator_accelerator.api.patches.GA$StaticCache2DExtern;
+import dev.sixik.generator_accelerator.common.worldgen.scheduler.GAAffinityScheduler;
 import dev.sixik.generator_accelerator.common.treads.GAScheduler;
 import dev.sixik.generator_accelerator.config.GAConfig;
 import dev.sixik.generator_accelerator.config.GAConfigManager;
@@ -109,11 +110,11 @@ public final class GACustomChunkGraphScheduler {
     }
 
     public static boolean enabled() {
-        return ENABLED;
+        return ENABLED || GAAffinityScheduler.enabled();
     }
 
     public static boolean canInterceptGenerationTasks() {
-        return ENABLED && !shutdownRequested && (ALLOW_STARTUP_INTERCEPT || !startupPhase);
+        return enabled() && !shutdownRequested && (ALLOW_STARTUP_INTERCEPT || !startupPhase);
     }
 
     public static boolean canInterceptGenerationTasks(ChunkMap chunkMap) {
@@ -122,7 +123,10 @@ public final class GACustomChunkGraphScheduler {
     }
 
     public static boolean schedule(ChunkMap chunkMap, ChunkGenerationTask task) {
-        if (!canInterceptGenerationTasks(chunkMap)) {
+        if (GAAffinityScheduler.schedule(chunkMap, task)) {
+            return true;
+        }
+        if (!ENABLED || !canInterceptGenerationTasks(chunkMap)) {
             return false;
         }
         TASKS_SUBMITTED.incrementAndGet();
@@ -135,6 +139,7 @@ public final class GACustomChunkGraphScheduler {
     }
 
     public static void beginShutdown() {
+        GAAffinityScheduler.beginShutdown();
         shutdownRequested = true;
         long activeTasks = ACTIVE_TASKS.get();
         if (activeTasks > 0L) {
@@ -151,11 +156,13 @@ public final class GACustomChunkGraphScheduler {
 
     public static void resetShutdownRequest() {
         shutdownRequested = false;
+        GAAffinityScheduler.resetShutdownRequest();
         startupPhase = true;
     }
 
     public static void markServerTickStarted() {
         startupPhase = false;
+        GAAffinityScheduler.markServerTickStarted();
     }
 
     public static Map<String, Object> snapshot() {
@@ -196,6 +203,7 @@ public final class GACustomChunkGraphScheduler {
         out.put("activeTasks", ACTIVE_TASKS.get());
         out.put("activeNodes", ACTIVE_NODES.get());
         out.put("stalledPhases", STALLED_PHASES.get());
+        out.put("affinityScheduler", GAAffinityScheduler.snapshot());
         out.put("shutdownRequested", shutdownRequested);
         return out;
     }
@@ -224,6 +232,7 @@ public final class GACustomChunkGraphScheduler {
         GENERATION_GRAPHS.set(0L);
         LOADING_GRAPHS.set(0L);
         STALLED_PHASES.set(0L);
+        GAAffinityScheduler.resetMetrics();
     }
 
     private static GAScheduler.Lane laneFor(ChunkStatus status) {

@@ -10,12 +10,6 @@ public record GATransactionHandoffMetadata(
         String quarantineKey,
         String exceptionClass
 ) {
-    public GATransactionHandoffMetadata {
-        unitId = normalizeUnitId(unitId);
-        Objects.requireNonNull(state, "state");
-        Objects.requireNonNull(action, "action");
-    }
-
     public static GATransactionHandoffMetadata none(String unitId) {
         return new GATransactionHandoffMetadata(
                 unitId,

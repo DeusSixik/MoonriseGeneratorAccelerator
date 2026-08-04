@@ -10,12 +10,4 @@ public record SurfaceVectorInput(
         int length,
         SurfaceCalloutScratch scratch
 ) {
-    public SurfaceVectorInput {
-        Objects.requireNonNull(x, "x");
-        Objects.requireNonNull(y, "y");
-        Objects.requireNonNull(z, "z");
-        if (offset < 0 || length < 0 || offset + length > x.length || offset + length > y.length || offset + length > z.length) {
-            throw new IllegalArgumentException("invalid vector window");
-        }
-    }
 }

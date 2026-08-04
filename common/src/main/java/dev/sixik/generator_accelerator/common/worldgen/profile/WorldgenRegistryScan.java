@@ -15,14 +15,6 @@ public record WorldgenRegistryScan(
         long cacheHits,
         long cacheMisses
 ) {
-    public WorldgenRegistryScan {
-        profiles = profiles == null ? List.of() : List.copyOf(profiles);
-        countsByKind = immutableEnumCounts(WorldgenUnitKind.class, countsByKind);
-        countsByTier = immutableEnumCounts(WorldgenSafetyTier.class, countsByTier);
-        countsByNamespace = immutableStringCounts(countsByNamespace);
-        countsByFallbackReason = immutableStringCounts(countsByFallbackReason);
-    }
-
     public long totalUnits() {
         return this.profiles.size();
     }

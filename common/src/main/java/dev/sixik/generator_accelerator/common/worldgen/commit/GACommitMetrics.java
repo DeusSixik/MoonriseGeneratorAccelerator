@@ -24,30 +24,6 @@ public record GACommitMetrics(
     private static final AtomicLong GLOBAL_EXECUTION_NANOS = new AtomicLong();
     private static final AtomicLong GLOBAL_FAILURES = new AtomicLong();
 
-    public GACommitMetrics {
-        if (batchCount < 0) {
-            throw new IllegalArgumentException("batchCount must be non-negative");
-        }
-        if (inputCount < 0) {
-            throw new IllegalArgumentException("inputCount must be non-negative");
-        }
-        if (acceptedCount < 0) {
-            throw new IllegalArgumentException("acceptedCount must be non-negative");
-        }
-        if (rejectedCount < 0) {
-            throw new IllegalArgumentException("rejectedCount must be non-negative");
-        }
-        if (collisionCount < 0) {
-            throw new IllegalArgumentException("collisionCount must be non-negative");
-        }
-        if (executionNanos < 0L) {
-            throw new IllegalArgumentException("executionNanos must be non-negative");
-        }
-        if (failureCount < 0) {
-            throw new IllegalArgumentException("failureCount must be non-negative");
-        }
-    }
-
     public static GACommitMetrics empty() {
         return new GACommitMetrics(0, 0, 0, 0, 0, 0L, 0);
     }

@@ -2,7 +2,6 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,11 +64,9 @@ public final class CoordDep {
 
         @Override
         public int hashCode() {
-            return Integer.hashCode(
-                    (usesX ? 1 : 0) |
-                            ((usesY ? 1 : 0) << 1) |
-                            ((usesZ ? 1 : 0) << 2)
-            );
+            return Integer.hashCode((usesX ? 1 : 0)
+                    | ((usesY ? 1 : 0) << 1)
+                    | ((usesZ ? 1 : 0) << 2));
         }
 
         @Override

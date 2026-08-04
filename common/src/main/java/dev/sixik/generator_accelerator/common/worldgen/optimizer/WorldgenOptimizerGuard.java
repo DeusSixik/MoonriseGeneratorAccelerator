@@ -7,11 +7,6 @@ public record WorldgenOptimizerGuard(
         String expectedValue,
         boolean required
 ) {
-    public WorldgenOptimizerGuard {
-        name = name == null ? "" : name;
-        expectedValue = expectedValue == null ? "" : expectedValue;
-    }
-
     public boolean matches(String actualValue) {
         if (!required && expectedValue.isBlank()) {
             return true;

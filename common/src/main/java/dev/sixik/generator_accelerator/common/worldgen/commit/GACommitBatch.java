@@ -75,14 +75,6 @@ public final class GACommitBatch<T> {
             List<GACommitCommand<T>> rejected,
             GACommitBatchStats stats
     ) {
-        public GAResolvedCommitBatch {
-            accepted = accepted == null ? List.of() : List.copyOf(accepted);
-            rejected = rejected == null ? List.of() : List.copyOf(rejected);
-            if (stats == null) {
-                throw new NullPointerException("stats");
-            }
-        }
-
         public boolean hasRejected() {
             return !rejected.isEmpty();
         }

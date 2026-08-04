@@ -186,28 +186,11 @@ public final class GACommitEngine {
             GACommitMetrics metrics,
             List<GACommitFailure<T>> failures
     ) {
-        public GACommitExecution {
-            if (resolved == null) {
-                throw new NullPointerException("resolved");
-            }
-            if (metrics == null) {
-                throw new NullPointerException("metrics");
-            }
-            failures = failures == null ? List.of() : List.copyOf(failures);
-        }
     }
 
     public record GACommitFailure<T>(
             GACommitCommand<T> command,
             Exception exception
     ) {
-        public GACommitFailure {
-            if (command == null) {
-                throw new NullPointerException("command");
-            }
-            if (exception == null) {
-                throw new NullPointerException("exception");
-            }
-        }
     }
 }

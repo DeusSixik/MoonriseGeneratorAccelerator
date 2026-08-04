@@ -16,17 +16,4 @@ public record AdapterDescriptor(
         this(id, ownerClass, safetyClass, version, primitiveAbi, false, 0, "");
     }
 
-    public AdapterDescriptor {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(ownerClass, "ownerClass");
-        Objects.requireNonNull(safetyClass, "safetyClass");
-        Objects.requireNonNull(version, "version");
-        certificationId = certificationId == null ? "" : certificationId;
-        if (!vectorAbi) {
-            vectorWidth = 0;
-        }
-        if (vectorAbi && vectorWidth <= 0) {
-            throw new IllegalArgumentException("vectorWidth must be positive for vector adapters");
-        }
-    }
 }

@@ -6,10 +6,6 @@ public record WorldgenParitySample(
         long optimizedTraceHash,
         boolean matched
 ) {
-    public WorldgenParitySample {
-        unitId = unitId == null ? "" : unitId;
-    }
-
     public static WorldgenParitySample compare(String unitId, long originalTraceHash, long optimizedTraceHash) {
         return new WorldgenParitySample(unitId, originalTraceHash, optimizedTraceHash,
                 originalTraceHash == optimizedTraceHash);

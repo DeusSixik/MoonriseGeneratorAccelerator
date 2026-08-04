@@ -61,9 +61,6 @@ public final class SyntheticCoverageRunner {
             this(status, matrix, directTemplate, status == CoverageStatus.PASSED ? RejectionReason.NONE : RejectionReason.TOO_FEW_SYNTHETIC_SAMPLES);
         }
 
-        public CoverageReport {
-            rejectionReason = rejectionReason == null ? RejectionReason.NONE : rejectionReason;
-        }
     }
 
     private static RejectionReason rejectionReason(SurfaceProgramIr ir, CoverageMatrix matrix, int domains) {

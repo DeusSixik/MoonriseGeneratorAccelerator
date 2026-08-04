@@ -11,4 +11,8 @@ public interface GA$PaletteDataExtern<T> {
     T[] bts$getPalette();
 
     void bts$setPalette(T[] var1);
+
+    int[] bts$getRawStorage();
+
+    void bts$setRawStorage(int[] var1);
 }

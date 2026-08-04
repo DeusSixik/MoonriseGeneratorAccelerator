@@ -51,7 +51,6 @@ public class GAModernFixMixinPlugin extends GAMixinPlugin {
         if (parallelChunkRuntime) {
             create(MODERNFIX,
                     param("ModernFix$ChunkStatusTasksMixin", CHUNK_MAP_LOAD),
-                    param("ModernFix$ChunkHolderReleaseProtoChunksMixin", RELEASE_PROTOCHUNKS_CHUNK_HOLDER),
                     param("ModernFix$GenerationChunkHolderAccessor"),
                     param("ModernFixChunkMapReleaseProtoChunksMixin", RELEASE_PROTOCHUNKS_CHUNK_MAP)
             );

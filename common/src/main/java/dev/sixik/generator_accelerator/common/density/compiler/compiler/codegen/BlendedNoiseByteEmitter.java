@@ -45,6 +45,7 @@ public final class BlendedNoiseByteEmitter {
         int sD9 = d.next();
         int sD10 = d.next();
         int sD16 = d.next();
+
         // d0 = bx * xzMul
         mv.visitVarInsn(Opcodes.ILOAD, 2);
         mv.visitInsn(Opcodes.I2D);
@@ -107,21 +108,32 @@ public final class BlendedNoiseByteEmitter {
 
             // stack: in
             // wrap(d3 * d11)
-            loadScaled(mv, s6, d11);
-            wrapAxis(mv, d);
+            mv.visitVarInsn(Opcodes.DLOAD, s6);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
             // wrap(d4 * d11)
-            loadScaled(mv, s8, d11);
-            wrapAxis(mv, d);
+            mv.visitVarInsn(Opcodes.DLOAD, s8);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
             // wrap(d5 * d11)
-            loadScaled(mv, s10, d11);
-            wrapAxis(mv, d);
+            mv.visitVarInsn(Opcodes.DLOAD, s10);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
             // d7 * d11
-            loadScaled(mv, s14, d11);
+            mv.visitVarInsn(Opcodes.DLOAD, s14);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
             // d4 * d11  (4th/5th: yScale, yMax per vanilla d4 * d11)
-            loadScaled(mv, s8, d11);
+            mv.visitVarInsn(Opcodes.DLOAD, s8);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
 
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IN, "noise", N5, false);
-            divideBy(mv, d11);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DDIV);
             // += d10
             mv.visitVarInsn(Opcodes.DLOAD, sD10);
             mv.visitInsn(Opcodes.DADD);
@@ -166,14 +178,19 @@ public final class BlendedNoiseByteEmitter {
             Label sa = new Label();
             mv.visitJumpInsn(Opcodes.IFNULL, sskip);
 
-            wrap3(mv, s0, s2, s4, d11, d);
+            wrap3(mv, s0, s2, s4, d11);
             // d15 = d6 * d11
-            loadScaled(mv, s12, d11);
+            mv.visitVarInsn(Opcodes.DLOAD, s12);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
             // d1 * d11
-            loadScaled(mv, s2, d11);
+            mv.visitVarInsn(Opcodes.DLOAD, s2);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
 
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IN, "noise", N5, false);
-            divideBy(mv, d11);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DDIV);
             mv.visitVarInsn(Opcodes.DLOAD, sD8);
             mv.visitInsn(Opcodes.DADD);
             mv.visitVarInsn(Opcodes.DSTORE, sD8);
@@ -199,11 +216,16 @@ public final class BlendedNoiseByteEmitter {
             Label sskip = new Label();
             Label sa = new Label();
             mv.visitJumpInsn(Opcodes.IFNULL, sskip);
-            wrap3(mv, s0, s2, s4, d11, d);
-            loadScaled(mv, s12, d11);
-            loadScaled(mv, s2, d11);
+            wrap3(mv, s0, s2, s4, d11);
+            mv.visitVarInsn(Opcodes.DLOAD, s12);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
+            mv.visitVarInsn(Opcodes.DLOAD, s2);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DMUL);
             mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, IN, "noise", N5, false);
-            divideBy(mv, d11);
+            mv.visitLdcInsn(d11);
+            mv.visitInsn(Opcodes.DDIV);
             mv.visitVarInsn(Opcodes.DLOAD, sD9);
             mv.visitInsn(Opcodes.DADD);
             mv.visitVarInsn(Opcodes.DSTORE, sD9);
@@ -234,32 +256,18 @@ public final class BlendedNoiseByteEmitter {
         }
     }
 
-    private static void wrap3(MethodVisitor mv, int s0, int s2, int s4, double d11, DSlot d) {
-        loadScaled(mv, s0, d11);
-        wrapAxis(mv, d);
-        loadScaled(mv, s2, d11);
-        wrapAxis(mv, d);
-        loadScaled(mv, s4, d11);
-        wrapAxis(mv, d);
-    }
-
-    private static void loadScaled(MethodVisitor mv, int slot, double factor) {
-        mv.visitVarInsn(Opcodes.DLOAD, slot);
-        if (Double.compare(factor, 1.0D) != 0) {
-            mv.visitLdcInsn(factor);
-            mv.visitInsn(Opcodes.DMUL);
-        }
-    }
-
-    private static void divideBy(MethodVisitor mv, double divisor) {
-        if (Double.compare(divisor, 1.0D) != 0) {
-            mv.visitLdcInsn(divisor);
-            mv.visitInsn(Opcodes.DDIV);
-        }
-    }
-
-    private static void wrapAxis(MethodVisitor mv, DSlot d) {
+    private static void wrap3(MethodVisitor mv, int s0, int s2, int s4, double d11) {
+        mv.visitVarInsn(Opcodes.DLOAD, s0);
+        mv.visitLdcInsn(d11);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+        mv.visitVarInsn(Opcodes.DLOAD, s2);
+        mv.visitLdcInsn(d11);
+        mv.visitInsn(Opcodes.DMUL);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
+        mv.visitVarInsn(Opcodes.DLOAD, s4);
+        mv.visitLdcInsn(d11);
+        mv.visitInsn(Opcodes.DMUL);
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, RT, "wrapAxis", "(D)D", false);
     }
-
 }

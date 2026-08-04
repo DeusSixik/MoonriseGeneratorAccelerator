@@ -12,13 +12,4 @@ public record FingerprintCacheKey(
         String optimizationProfile,
         String safetyMode
 ) {
-    public FingerprintCacheKey {
-        Objects.requireNonNull(structuralRuleHash, "structuralRuleHash");
-        Objects.requireNonNull(minecraftVersion, "minecraftVersion");
-        Objects.requireNonNull(generatorAcceleratorVersion, "generatorAcceleratorVersion");
-        Objects.requireNonNull(adapterRegistryHash, "adapterRegistryHash");
-        Objects.requireNonNull(runtimeBindingVersion, "runtimeBindingVersion");
-        Objects.requireNonNull(optimizationProfile, "optimizationProfile");
-        Objects.requireNonNull(safetyMode, "safetyMode");
-    }
 }

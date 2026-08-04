@@ -7,13 +7,6 @@ import java.util.List;
  * Loader-facing promotion/publishing guard. It decides only whether optimization is allowed.
  */
 public record GAPublishingGuardDecision(GAPublishingGuardAction action, List<String> reasons) {
-    public GAPublishingGuardDecision {
-        if (action == null) {
-            throw new NullPointerException("action");
-        }
-        reasons = reasons == null ? List.of() : List.copyOf(reasons);
-    }
-
     public static GAPublishingGuardDecision evaluate(
             boolean loaderGuardPresent,
             boolean ticketSystemOwnedByVanilla,

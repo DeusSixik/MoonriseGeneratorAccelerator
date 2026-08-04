@@ -4,7 +4,6 @@ import dev.sixik.generator_accelerator.common.density.compiler.compiler.McDensit
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.spline.SplineInliner;
-import net.minecraft.util.CubicSpline;
 import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -39,6 +38,8 @@ public final class IRBuilder {
 
     /** Hash-cons table — interns equal IR nodes to the same instance. */
     private final Map<IRNode, IRNode> intern = new HashMap<>();
+
+    private final DensityFunctionIrBuilder.Context extensionContext = new ExtensionContext();
 
     private long internRequests; // number of times intern() was called (pre-dedup count)
 
@@ -239,11 +240,7 @@ public final class IRBuilder {
         }
 
         if (df instanceof DensityFunctions.Spline splineDf) {
-            try {
-                return new SplineInliner(this).inline(splineDf.spline());
-            } catch (SplineInliner.UnsupportedSplineException ignored) {
-                return invokeOpaque(df);
-            }
+            return new SplineInliner(this).inline(splineDf.spline());
         }
 
         if (df instanceof BlendedNoise blended && df.getClass() == BlendedNoise.class) {
@@ -265,6 +262,11 @@ public final class IRBuilder {
             return intern(new IRNode.Beardifier(idx));
         }
 
+        IRNode extensionLowered = DensityFunctionIrBuilderRegistry.tryBuild(df, extensionContext);
+        if (extensionLowered != null) {
+            return extensionLowered;
+        }
+
         // BlendAlpha/BlendOffset/Beardifier, unknown mod / datapack DFs, etc.
         int idx = pool.internExtern(df);
         return intern(new IRNode.Invoke(idx));
@@ -275,12 +277,33 @@ public final class IRBuilder {
         return walk(df);
     }
 
+    private final class ExtensionContext implements DensityFunctionIrBuilder.Context {
+        @Override
+        public IRNode walk(DensityFunction function) {
+            return IRBuilder.this.walk(function);
+        }
+
+        @Override
+        public IRNode intern(IRNode node) {
+            return IRBuilder.this.intern(node);
+        }
+
+        @Override
+        public ConstantPool pool() {
+            return IRBuilder.this.pool;
+        }
+
+        @Override
+        public IRNode invokeOpaque(DensityFunction function) {
+            return IRBuilder.this.invokeOpaque(function);
+        }
+    }
+
     private static boolean cacheWrapperMarkerSupportsDirectRead(DensityFunctions.Marker.Type type) {
         return type == DensityFunctions.Marker.Type.Cache2D
                 || type == DensityFunctions.Marker.Type.FlatCache
                 || type == DensityFunctions.Marker.Type.CacheOnce
-                || type == DensityFunctions.Marker.Type.CacheAllInCell
-                || type == DensityFunctions.Marker.Type.Interpolated;
+                || type == DensityFunctions.Marker.Type.CacheAllInCell;
     }
 
     private static IRNode canonicalizeCommutativeBin(IRNode node) {

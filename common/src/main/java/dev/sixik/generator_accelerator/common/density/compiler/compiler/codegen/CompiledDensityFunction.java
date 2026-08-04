@@ -1,30 +1,28 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen;
 
-import net.minecraft.util.KeyDispatchDataCodec;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillAccess;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.MarkerRewriter;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuIrPayload;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadBatchExecutor;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
+import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
 import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
-import java.lang.invoke.CallSite;
-import java.lang.invoke.ConstantCallSite;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
+import java.lang.invoke.*;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Abstract base for every runtime-compiled DensityFunction.
  *
  * <p>Subclasses are generated via ASM as <em>hidden classes</em> rooted at this class
- * (using {@link java.lang.invoke.MethodHandles.Lookup#defineHiddenClass}). They override
- * exactly {@link #compute(DensityFunction.FunctionContext)}, {@link #fillArray(double[],
- * DensityFunction.ContextProvider)} and the bounds methods using straight-line bytecode.
+ * (using {@link MethodHandles.Lookup#defineHiddenClass}). They override
+ * exactly {@link #compute(FunctionContext)}, {@link #fillArray(double[],
+ * ContextProvider)} and the bounds methods using straight-line bytecode.
  *
  * <p>The {@link #constants}, {@link #noises}, {@link #splines} and {@link #externs}
  * arrays are the generated class's "constant pool" — every reference to a non-trivial
@@ -33,15 +31,17 @@ import java.util.concurrent.atomic.LongAdder;
  * by the slot the {@link ConstantPool} assigned during compilation.
  *
  * <p>Keeping these as <em>instance</em> fields (rather than static finals) lets
- * {@link #mapAll(DensityFunction.Visitor)} produce a fresh instance with rebound externs
+ * {@link #mapAll(Visitor)} produce a fresh instance with rebound externs
  * without recompiling — the bytecode and IR live on the class, the bindings live on the
  * instance.
  */
 public abstract class CompiledDensityFunction implements DensityFunction, DfcCellFillAccess {
 
+    private static final String GPU_CELL_FILL_PROTOTYPE_PROPERTY = "ga.dfc.gpu.cellFillPrototype";
+    private static final boolean GPU_CELL_FILL_PROTOTYPE_ENABLED = Boolean.getBoolean(GPU_CELL_FILL_PROTOTYPE_PROPERTY);
+
     private static final LongAdder MAPALL_IDENTITY_NO_OPS = new LongAdder();
     private static final LongAdder MAPALL_REBINDS = new LongAdder();
-    private static final double[] EMPTY_DOUBLES = new double[0];
 
     public record MapAllStats(long identityNoOps, long rebinds) {}
 
@@ -69,7 +69,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     /**
      * Opaque DensityFunctions whose internals we do not (or cannot) inline:
-     * mod-provided implementations, {@link net.minecraft.world.level.levelgen.DensityFunctions.Marker}
+     * mod-provided implementations, {@link DensityFunctions.Marker}
      * wrappers (preserved for {@code NoiseChunk} to swap with cell caches), Beardifier
      * placeholders, etc.
      */
@@ -99,40 +99,24 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
     protected final MethodHandle[] helperHandles;
 
     /**
-     * Opaque JNI pointers ({@code dfc-natives}): indices {@code 0 .. noiseSpecCount-1} are
-     * NormalNoise stacks; following entries are blended specs. Zero means use the Java octave path.
-     */
-    protected final NativeNoiseRegistry.HandleSet nativeNoiseHandles;
-
-    /**
-     * Optional lattice-inner postfix program for native slab evaluation ({@code dfc-natives} VM);
-     * {@code null} when the subgraph is unsupported or slab batching is inactive.
-     */
-    protected final byte[] slabInnerProgram;
-
-    /** Constant pool for {@link #slabInnerProgram}; empty array when the program is {@code null}. */
-    protected final double[] slabInnerConsts;
-
-    /**
      * MethodHandle bound to the generated subclass's constructor, used by
      * {@link #rebind(NormalNoise[], DensityFunction[])} to allocate fresh
-     * instances when {@link #mapAll(DensityFunction.Visitor)} produces remapped
+     * instances when {@link #mapAll(Visitor)} produces remapped
      * externs (e.g. a {@code NoiseChunk} swapping an inner {@code Marker} with
      * its cell-cache wrapper).
      *
      * <p>Has the post-{@code asType} signature
      * {@code (double[], NormalNoise[], Object[], Object[], DensityFunction[],
-     * double, double, MethodHandle[], NativeNoiseRegistry.HandleSet, byte[], double[],
-     * MethodHandle)
+     * double, double, MethodHandle[], MethodHandle)
      * -> CompiledDensityFunction},
      * so {@code invokeExact} just works without further boxing or casting. The
      * trailing {@code MethodHandle} arg is the constructor MH itself, threaded
      * through so the new instance can rebind again later.
      *
      * <p>Storing the MH on the instance (rather than a static field on the
-     * generated class) preserves hidden-class GC: when no compiled instance
-     * survives, both the MH and the generated class become reclaimable, which
-     * is what we want across {@code /reload}.
+     * generated class) avoids self-pinning through generated static state. The
+     * class is reclaimable after no compiled instance and no lifecycle cache
+     * bundle still references its handles.
      */
     protected final MethodHandle constructorMH;
 
@@ -145,7 +129,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      * through {@link #constructorMH} when allocating a remapped instance.
      *
      * <p>The layout is determined by {@link
-     * dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool#finishNoiseOctaves()}:
+     * ConstantPool#finishNoiseOctaves()}:
      * for each interned NoiseSpec in pool order, the first branch's active
      * octaves are concatenated, then the second branch's. The codegen knows the
      * per-spec base offset and emits per-octave {@code AALOAD + CHECKCAST
@@ -164,9 +148,6 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             double minValue,
             double maxValue,
             MethodHandle[] helperHandles,
-            NativeNoiseRegistry.HandleSet nativeNoiseHandles,
-            byte[] slabInnerProgram,
-            double[] slabInnerConsts,
             MethodHandle constructorMH) {
         this.constants = constants;
         this.noises = noises;
@@ -176,14 +157,8 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         this.minValue = minValue;
         this.maxValue = maxValue;
         this.helperHandles = helperHandles;
-        this.nativeNoiseHandles = nativeNoiseHandles;
-        this.slabInnerProgram = slabInnerProgram;
-        this.slabInnerConsts = slabInnerConsts != null ? slabInnerConsts : EMPTY_DOUBLES;
         this.constructorMH = constructorMH;
     }
-
-    @Override
-    public abstract double compute(DensityFunction.FunctionContext context);
 
     @Override
     public final double minValue() {
@@ -196,7 +171,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
     }
 
     /**
-     * Delegate to {@link DensityFunction.ContextProvider#fillAllDirectly}, matching
+     * Delegate to {@link ContextProvider#fillAllDirectly}, matching
      * vanilla {@code SimpleFunction#fillArray} semantics. The provider knows the
      * iteration pattern (cell shape, prefetch strategy) and can issue {@code compute(...)}
      * in the most cache-friendly order it has — for {@code NoiseChunk} that's the
@@ -208,60 +183,268 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      * {@code compute} call HotSpot produces is already excellent.
      */
     @Override
-    public void fillArray(double[] out, DensityFunction.ContextProvider provider) {
-        if (!DfcRuntimeTelemetry.enabled()) {
-            provider.fillAllDirectly(out, this);
+    public void fillArray(double[] out, ContextProvider provider) {
+        if (GPU_CELL_FILL_PROTOTYPE_ENABLED && tryFillArrayWithGpuPayload(out, provider)) {
             return;
         }
-        long startedAt = DfcRuntimeTelemetry.sampleStart();
+        provider.fillAllDirectly(out, this);
+    }
+
+    private boolean tryFillArrayWithGpuPayload(double[] out, ContextProvider provider) {
+        if (!GPU_CELL_FILL_PROTOTYPE_ENABLED) {
+            return false;
+        }
+        if (!(provider instanceof NoiseChunk chunk)) {
+            return false;
+        }
+        GpuIrPayload payload = GpuPayloadRuntimeRegistry.lookup(this);
+        if (payload == null) {
+            return false;
+        }
+
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        if (cellW <= 0 || cellH <= 0) {
+            return false;
+        }
+
+        int pointCount;
         try {
-            provider.fillAllDirectly(out, this);
-        } finally {
-            DfcRuntimeTelemetry.recordFillArray(this.getClass(), startedAt);
+            pointCount = Math.multiplyExact(Math.multiplyExact(cellW, cellW), cellH);
+        } catch (ArithmeticException ignored) {
+            return false;
+        }
+        if (out.length != pointCount) {
+            return false;
+        }
+        if (!GpuPayloadBatchExecutor.shouldAttemptRuntimeBatch(pointCount)) {
+            return false;
+        }
+
+        long totalStart = System.nanoTime();
+        long externNanos = 0L;
+        long invokeNanos = 0L;
+        long parityNanos = 0L;
+        try {
+            GpuPayloadBatchExecutor.BatchBuffers buffers = GpuPayloadBatchExecutor.localBuffers(
+                    pointCount, payload.nodeCount(), payload.externInputCount());
+            int[] blockX = buffers.blockX();
+            int[] blockY = buffers.blockY();
+            int[] blockZ = buffers.blockZ();
+            fillCellCoordinates(chunk, cellW, cellH, blockX, blockY, blockZ);
+            double[] externValues = buffers.externValues();
+            long externStart = System.nanoTime();
+            if (!fillExternInputValues(payload, this, chunk, cellW, cellH, externValues)) {
+                return false;
+            }
+            externNanos = System.nanoTime() - externStart;
+
+            RouterPipeline.recordGpuPayloadBatchAttempt(pointCount);
+            long invokeStart = System.nanoTime();
+            GpuPayloadBatchExecutor.GpuAttempt attempt = GpuPayloadBatchExecutor.tryComputeGpuRuntimeBatch(
+                    payload, blockX, blockY, blockZ, externValues, out, buffers.scratch());
+            invokeNanos = System.nanoTime() - invokeStart;
+            RouterPipeline.recordGpuPayloadBatchArgumentLayout(
+                    GpuPayloadBatchExecutor.preparedLauncherStaticArguments(),
+                    GpuPayloadBatchExecutor.preparedLauncherDynamicArguments());
+            if (attempt.success()) {
+                long parityStart = System.nanoTime();
+                GpuPayloadBatchExecutor.RuntimeParityReport parity = runtimeParity(
+                        payload, chunk, cellW, cellH, blockX, blockY, blockZ, externValues, out, buffers.parityExpected());
+                parityNanos = System.nanoTime() - parityStart;
+                RouterPipeline.recordGpuPayloadBatchRuntimeParity(
+                        parity.checked(), parity.passed(), parity.pointsChecked(),
+                        parity.maxAbsError(), parity.failureReason());
+                if (parity.checked() && !parity.passed()) {
+                    RouterPipeline.recordGpuPayloadBatchTimings(
+                            externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                            attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                    RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                    GpuPayloadBatchExecutor.disableGpuForLifecycle(parity.failureReason());
+                    RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, parity.failureReason());
+                    return false;
+                }
+                chunk.inCellY = 0;
+                chunk.inCellX = cellW - 1;
+                chunk.inCellZ = cellW - 1;
+                chunk.arrayIndex = pointCount;
+                RouterPipeline.recordGpuPayloadBatchTimings(
+                        externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                        attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+                RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+                RouterPipeline.recordGpuPayloadBatchGpuSuccess(pointCount);
+                return true;
+            }
+
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart,
+                    attempt.preparedLauncherCacheHit(), attempt.preparedLauncherInvoked());
+            RouterPipeline.recordGpuPayloadBatchPreparedTimings(attempt.preparedInvocationTimings());
+            if (attempt.disablesGpu()) {
+                GpuPayloadBatchExecutor.disableGpuForLifecycle(attempt.failureReason());
+            }
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, attempt.failureReason());
+            return false;
+        } catch (RuntimeException | LinkageError exception) {
+            RouterPipeline.recordGpuPayloadBatchTimings(
+                    externNanos, invokeNanos, parityNanos, System.nanoTime() - totalStart);
+            GpuPayloadBatchExecutor.disableGpuForLifecycle(exception.toString());
+            RouterPipeline.recordGpuPayloadBatchCpuFallback(pointCount, exception.toString());
+            return false;
+        }
+    }
+
+    private GpuPayloadBatchExecutor.RuntimeParityReport runtimeParity(
+            GpuIrPayload payload,
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ,
+            double[] externValues,
+            double[] gpuOutput,
+            double[] expected) {
+        if ((payload.hasExternInputs() || payload.requiresRootParity())
+                && GpuPayloadBatchExecutor.runtimeParityRemaining() > 0) {
+            fillDirectCpuExpected(chunk, cellW, cellH, expected);
+            return GpuPayloadBatchExecutor.checkRuntimeParityAgainstExpected(gpuOutput, expected);
+        }
+        return GpuPayloadBatchExecutor.checkRuntimeParity(
+                payload, blockX, blockY, blockZ, externValues, gpuOutput, expected);
+    }
+
+    public final DensityFunction dfc$extern(int index) {
+        if (index < 0 || index >= this.externs.length) {
+            return null;
+        }
+        return this.externs[index];
+    }
+
+    private static boolean fillExternInputValues(
+            GpuIrPayload payload,
+            CompiledDensityFunction owner,
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            double[] externValues) {
+        int externInputCount = payload.externInputCount();
+        if (externInputCount == 0) {
+            return true;
+        }
+        DensityFunction[] inputFunctions = resolveExternInputFunctions(payload, owner);
+        if (inputFunctions == null) {
+            return false;
+        }
+
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    int base = idx * externInputCount;
+                    for (int slot = 0; slot < externInputCount; slot++) {
+                        externValues[base + slot] = inputFunctions[slot].compute(chunk);
+                    }
+                    idx++;
+                }
+            }
+        }
+        return true;
+    }
+
+    private void fillDirectCpuExpected(
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            double[] expected) {
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    expected[idx] = this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+    }
+
+    private static DensityFunction[] resolveExternInputFunctions(
+            GpuIrPayload payload,
+            CompiledDensityFunction rootOwner) {
+        int count = payload.externInputCount();
+        DensityFunction[] inputFunctions = new DensityFunction[count];
+        for (int slot = 0; slot < count; slot++) {
+            CompiledDensityFunction owner = rootOwner;
+            int pathOffset = payload.externInputPathOffsets()[slot];
+            int pathLength = payload.externInputPathLengths()[slot];
+            for (int i = 0; i < pathLength; i++) {
+                DensityFunction next = owner.dfc$extern(payload.externInputOwnerPath()[pathOffset + i]);
+                if (!(next instanceof CompiledDensityFunction compiled)) {
+                    return null;
+                }
+                owner = compiled;
+            }
+            DensityFunction input = owner.dfc$extern(payload.externInputLeafExternIndices()[slot]);
+            if (input == null) {
+                return null;
+            }
+            inputFunctions[slot] = input;
+        }
+        return inputFunctions;
+    }
+
+    private static void fillCellCoordinates(
+            NoiseChunk chunk,
+            int cellW,
+            int cellH,
+            int[] blockX,
+            int[] blockY,
+            int[] blockZ) {
+        int idx = 0;
+        int startX = chunk.cellStartBlockX;
+        int startY = chunk.cellStartBlockY;
+        int startZ = chunk.cellStartBlockZ;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            int y = startY + inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                int x = startX + inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    blockY[idx] = y;
+                    blockX[idx] = x;
+                    blockZ[idx] = startZ + inCellZ;
+                    idx++;
+                }
+            }
         }
     }
 
     @Override
     public void dfc$fillCell(double[] out, NoiseChunk chunk) {
-        if (!DfcRuntimeTelemetry.enabled()) {
-            fillArray(out, chunk);
+        if (GPU_CELL_FILL_PROTOTYPE_ENABLED && tryFillArrayWithGpuPayload(out, chunk)) {
             return;
         }
-        long startedAt = DfcRuntimeTelemetry.sampleStart();
-        try {
-            fillArray(out, chunk);
-        } finally {
-            DfcRuntimeTelemetry.recordFillCell(this.getClass(), startedAt);
-        }
-    }
-
-    @Override
-    public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
-        if (!DfcRuntimeTelemetry.enabled()) {
-            dfc$accumulateCellDirect(out, chunk);
-            return;
-        }
-        long startedAt = DfcRuntimeTelemetry.sampleStart();
-        try {
-            dfc$accumulateCellDirect(out, chunk);
-        } finally {
-            DfcRuntimeTelemetry.recordAccumulateCell(this.getClass(), startedAt);
-        }
-    }
-
-    private void dfc$accumulateCellDirect(double[] out, NoiseChunk chunk) {
         int cellW = chunk.cellWidth;
         int cellH = chunk.cellHeight;
         int idx = 0;
         chunk.arrayIndex = 0;
-        for (int inCellX = 0; inCellX < cellW; inCellX++) {
-            chunk.inCellX = inCellX;
-            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
-                chunk.inCellZ = inCellZ;
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
-                    chunk.inCellY = inCellY;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
                     chunk.arrayIndex = idx;
-                    out[idx] += this.compute(chunk);
+                    out[idx] = this.compute(chunk);
                     idx++;
                 }
             }
@@ -269,8 +452,25 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         chunk.arrayIndex = idx;
     }
 
-    public final boolean dfc$hasNativeSlabInnerProgram() {
-        return this.slabInnerProgram != null && this.slabInnerProgram.length > 0;
+    @Override
+    public void dfc$accumulateCell(double[] out, NoiseChunk chunk) {
+        int cellW = chunk.cellWidth;
+        int cellH = chunk.cellHeight;
+        int idx = 0;
+        chunk.arrayIndex = 0;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    chunk.arrayIndex = idx;
+                    out[idx] += this.compute(chunk);
+                    idx++;
+                }
+            }
+        }
+        chunk.arrayIndex = idx;
     }
 
     public final String dfc$debugState() {
@@ -282,15 +482,14 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
                 + ", noiseOctaves=" + length(this.noiseOctaves)
                 + ", externs=" + length(this.externs)
                 + ", helperHandles=" + length(this.helperHandles)
-                + ", slabInnerProgram=" + length(this.slabInnerProgram)
-                + ", slabInnerConsts=" + length(this.slabInnerConsts)
                 + "}"
                 + (entry != null
                 ? ", registry={source=" + entry.sourceRootClass()
                 + ", lattice=" + entry.latticeEmitted()
-                + ", slab=" + entry.slabInnerProgramPresent()
                 + ", cellAddLattice=" + entry.cellAddLatticeSpecialized()
+                + ", cellAddBeardifier=" + entry.cellAddBeardifierSpecialized()
                 + ", cellAddExtern=" + entry.cellAddExternSpecialized()
+                + ", cellScalarMarker=" + entry.cellScalarMarkerSpecialized()
                 + ", root=" + entry.rootDebug()
                 + "}"
                 : ", registry=<missing>");
@@ -298,7 +497,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
 
     public final ArrayIndexOutOfBoundsException dfc$wrapArrayIndexOutOfBounds(
             ArrayIndexOutOfBoundsException cause,
-            DensityFunction.FunctionContext context,
+            FunctionContext context,
             String phase) {
         ArrayIndexOutOfBoundsException enriched = new ArrayIndexOutOfBoundsException(
                 cause.getMessage()
@@ -309,7 +508,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         return enriched;
     }
 
-    private static String describeContext(DensityFunction.FunctionContext context) {
+    private static String describeContext(FunctionContext context) {
         if (context == null) {
             return "<null>";
         }
@@ -337,7 +536,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
     }
 
     /**
-     * Per-instance "rebind" hook called by {@link #mapAll(DensityFunction.Visitor)}
+     * Per-instance "rebind" hook called by {@link #mapAll(Visitor)}
      * when the visitor remapped at least one extern (e.g. a {@code NoiseChunk}
      * swapping an inner {@code Marker} with its cell-cache wrapper, or
      * {@code Beardifier}/{@code BlendAlpha}/{@code BlendOffset} placeholders
@@ -361,7 +560,7 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      * constructor right after {@code defineHiddenClass} returns, store it on
      * the instance (see {@link #constructorMH}), and call it via
      * {@code invokeExact} from this base-class method. The MH was
-     * {@link MethodHandle#asType(java.lang.invoke.MethodType) asType}'d to
+     * {@link MethodHandle#asType(MethodType) asType}'d to
      * return {@code CompiledDensityFunction}, so the call site has no
      * self-reference either.
      */
@@ -375,10 +574,11 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
             return this;
         }
         try {
-            return (CompiledDensityFunction) constructorMH.invokeExact(
+            CompiledDensityFunction rebound = (CompiledDensityFunction) constructorMH.invokeExact(
                     constants, visitedNoises, splines, noiseOctaves, visitedExterns,
-                    minValue, maxValue, helperHandles, nativeNoiseHandles,
-                    slabInnerProgram, slabInnerConsts, constructorMH);
+                    minValue, maxValue, helperHandles, constructorMH);
+            GpuPayloadRuntimeRegistry.inherit(this, rebound);
+            return rebound;
         } catch (Throwable t) {
             throw new RuntimeException(
                     "CompiledDensityFunction.rebind failed for "
@@ -419,14 +619,14 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *       {@code new DensityFunction[length]} produced.</li>
      * </ol>
      *
-     * <p>The noise array is not currently rebuilt through {@link DensityFunction.Visitor#visitNoise}
+     * <p>The noise array is not currently rebuilt through {@link Visitor#visitNoise}
      * — {@code CompilingVisitor} passes through {@code visitNoise} unchanged and
      * noise samplers are captured by identity at compile time. Mods that override
      * {@code visitNoise} should remap at the source DensityFunction layer, before
      * the compiler captures references.
      */
     @Override
-    public DensityFunction mapAll(DensityFunction.Visitor visitor) {
+    public DensityFunction mapAll(Visitor visitor) {
         MapAllSession session = (visitor instanceof MapAllSession s)
                 ? s
                 : new MapAllSession(visitor);
@@ -550,10 +750,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
      *   <li>{@link Codegen} for the {@code helper_<idx>} dispatch sites, with
      *       {@code invokedName = "helper_5"} etc. and
      *       {@code invokedType = (LCompiledDensityFunction;LFunctionContext;)D}.</li>
-     *   <li>The cell-lattice {@code lattice_y} / {@code lattice_inner} /
-     *       {@code lattice_inner_batched} helpers from the {@code fillArray} override.
-     *       {@code lattice_inner} adds a {@code double} Y-slab argument;
-     *       {@code lattice_inner_batched} adds {@code double[][]} native slab outputs.</li>
+     *   <li>The cell-lattice {@code lattice_y} / {@code lattice_inner} helpers
+     *       from the {@code fillArray} override. {@code lattice_inner} adds a
+     *       {@code double} Y-slab argument.</li>
      * </ul>
      *
      * <h2>Fallback path</h2>

@@ -582,16 +582,17 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int startY = chunk.cellStartBlockY;
         int startZ = chunk.cellStartBlockZ;
         chunk.arrayIndex = 0;
-        for (int inCellX = 0; inCellX < cellW; inCellX++) {
-            chunk.inCellX = inCellX;
-            int blockX = startX + inCellX;
-            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
-                chunk.inCellZ = inCellZ;
-                int blockZ = startZ + inCellZ;
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
-                    chunk.inCellY = inCellY;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            int blockY = startY + inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                int blockX = startX + inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    int blockZ = startZ + inCellZ;
                     chunk.arrayIndex = idx;
-                    out[idx] = this.ga$computeAtActive(blockX, startY + inCellY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
+                    out[idx] = this.ga$computeAtActive(blockX, blockY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
                     idx++;
                 }
             }
@@ -624,16 +625,17 @@ public abstract class MixinBeardifier implements DensityFunctions.BeardifierOrMa
         int startY = chunk.cellStartBlockY;
         int startZ = chunk.cellStartBlockZ;
         chunk.arrayIndex = 0;
-        for (int inCellX = 0; inCellX < cellW; inCellX++) {
-            chunk.inCellX = inCellX;
-            int blockX = startX + inCellX;
-            for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
-                chunk.inCellZ = inCellZ;
-                int blockZ = startZ + inCellZ;
-                for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
-                    chunk.inCellY = inCellY;
+        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
+            chunk.inCellY = inCellY;
+            int blockY = startY + inCellY;
+            for (int inCellX = 0; inCellX < cellW; inCellX++) {
+                chunk.inCellX = inCellX;
+                int blockX = startX + inCellX;
+                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
+                    chunk.inCellZ = inCellZ;
+                    int blockZ = startZ + inCellZ;
                     chunk.arrayIndex = idx;
-                    out[idx] += this.ga$computeAtActive(blockX, startY + inCellY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
+                    out[idx] += this.ga$computeAtActive(blockX, blockY, blockZ, activePieces, activePieceCount, activeJunctions, activeJunctionCount);
                     idx++;
                 }
             }

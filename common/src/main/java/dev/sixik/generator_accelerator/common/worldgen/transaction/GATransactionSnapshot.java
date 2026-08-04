@@ -10,11 +10,6 @@ public record GATransactionSnapshot(
         List<GAJournalEntry> entries,
         long nextSequence
 ) {
-    public GATransactionSnapshot {
-        Objects.requireNonNull(state, "state");
-        entries = List.copyOf(Objects.requireNonNull(entries, "entries"));
-    }
-
     public List<GABlockMutation> blockMutations() {
         if (entries.isEmpty()) {
             return List.of();

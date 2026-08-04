@@ -3,10 +3,12 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import java.lang.invoke.MethodHandles;
 
 /**
- * Thin wrapper around {@link java.lang.invoke.MethodHandles.Lookup#defineHiddenClass} that
+ * Thin wrapper around {@link MethodHandles.Lookup#defineHiddenClass} that
  * always defines hidden classes nested inside {@link CompiledDensityFunction}. Hidden
- * classes are GC-reclaimable when their last instance is unreachable, which keeps a
- * datapack {@code /reload} from leaking metaspace.
+ * classes are GC-reclaimable once no live instance, {@link java.lang.Class},
+ * {@link java.lang.invoke.MethodHandle}, or lookup object references them; DFC's
+ * global compile cache deliberately keeps those handles until the server lifecycle
+ * cache is reset.
  */
 public final class HiddenClassLoader {
 
@@ -36,9 +38,10 @@ public final class HiddenClassLoader {
      * Define a new hidden class with the given bytes inside the
      * {@link CompiledDensityFunction} nest. The class is {@link
      * MethodHandles.Lookup.ClassOption#NESTMATE} so it shares access with its host, and
-     * intentionally <em>not</em> {@link MethodHandles.Lookup.ClassOption#STRONG}: we want
-     * the GC to reclaim it once no compiled instance references it (e.g. across {@code
-     * /reload}).
+     * intentionally <em>not</em> {@link MethodHandles.Lookup.ClassOption#STRONG}: we keep
+     * lifetime under normal object reachability instead of pinning the class for the
+     * whole host class-loader lifetime. The global compile cache may still hold method
+     * handles strongly until an explicit lifecycle reset.
      */
     public static Class<? extends CompiledDensityFunction> define(byte[] bytecode) {
         return defineWithLookup(bytecode).cls();

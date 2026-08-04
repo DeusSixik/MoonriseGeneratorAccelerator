@@ -6,12 +6,6 @@ public record WorldgenOptimizerDecision(
         WorldgenDeoptReason deoptReason,
         String reason
 ) {
-    public WorldgenOptimizerDecision {
-        action = action == null ? WorldgenOptimizerAction.FALLBACK : action;
-        deoptReason = deoptReason == null ? WorldgenDeoptReason.NONE : deoptReason;
-        reason = reason == null ? "" : reason;
-    }
-
     public static WorldgenOptimizerDecision admit(WorldgenGeneratedPlan plan) {
         return new WorldgenOptimizerDecision(WorldgenOptimizerAction.ADMIT_FAST_PATH, plan, WorldgenDeoptReason.NONE,
                 plan == null ? "" : plan.reason());

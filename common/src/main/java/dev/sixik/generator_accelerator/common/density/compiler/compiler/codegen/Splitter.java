@@ -3,14 +3,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Consumer;
 
 /**

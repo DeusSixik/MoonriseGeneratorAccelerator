@@ -72,6 +72,54 @@ public class GAConfig {
     @ConfigComment("Throttle new worldgen compute tasks when heap usage ratio reaches this value. 0 = disabled.")
     public double schedulerHeapPressureTarget = 0.92D;
 
+    @ConfigComment("Enable GA Simple Affinity Scheduler v2 for certified safe CPU lanes. Writer/commit statuses stay conservative unless separately certified.")
+    public boolean schedulerV2Enabled = true;
+
+    @ConfigComment("GA scheduler v2 mode: LIVE_BALANCED or PREGEN_THROUGHPUT.")
+    public String schedulerV2Mode = "PREGEN_THROUGHPUT";
+
+    @ConfigComment("GA scheduler v2 fixed worker count. 0 = auto.")
+    public int schedulerV2Workers = 0;
+
+    @ConfigComment("GA scheduler v2 batch center cap. 0 = mode default.")
+    public int schedulerV2BatchMaxCenters = 0;
+
+    @ConfigComment("GA scheduler v2 batch node cap. 0 = mode default.")
+    public int schedulerV2BatchMaxNodes = 0;
+
+    @ConfigComment("GA scheduler v2 batch edge cap. 0 = mode default.")
+    public int schedulerV2BatchMaxEdges = 0;
+
+    @ConfigComment("GA scheduler v2 max arena bytes per batch. 0 = mode default.")
+    public long schedulerV2MaxArenaBytesPerBatch = 0L;
+
+    @ConfigComment("GA scheduler v2 active arena cap. 0 = mode default.")
+    public int schedulerV2MaxArenas = 0;
+
+    @ConfigComment("GA scheduler v2 max queued handles per worker. 0 = default.")
+    public int schedulerV2MaxQueuedHandlesPerWorker = 0;
+
+    @ConfigComment("GA scheduler v2 max external waiters. 0 = default.")
+    public int schedulerV2MaxExternalWaiters = 0;
+
+    @ConfigComment("GA scheduler v2 debug metrics. Always-on metrics remain allocation-free.")
+    public boolean schedulerV2DebugMetrics = false;
+
+    @ConfigComment("GA scheduler v2 worker max park nanos. 0 = mode default.")
+    public int schedulerV2MaxParkNanos = 0;
+
+    @ConfigComment("GA scheduler v2 rollback drain timeout in microseconds. 0 = mode default.")
+    public long schedulerV2RollbackDrainTimeoutMicros = 0L;
+
+    @ConfigComment("GA scheduler v2 memory budget in bytes. 0 = mode default.")
+    public long schedulerV2MaxMemoryBytes = 0L;
+
+    @ConfigComment("Force v2 to keep comma-separated status names on the legacy path.")
+    public String schedulerV2ForceLegacyStatuses = "";
+
+    @ConfigComment("Refuse v2 chunk-pipeline interception when another chunk scheduler may own ChunkMap semantics.")
+    public boolean schedulerV2CompatRefuseUnknownChunkScheduler = true;
+
     @ConfigComment("Enable GA async chunk-status dispatch. This moves synchronous vanilla generation stages onto GA scheduler lanes.")
     public boolean enableChunkStatusPipeline = true;
 

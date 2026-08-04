@@ -1,6 +1,8 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
 import java.util.ArrayList;
@@ -13,25 +15,25 @@ import java.util.concurrent.atomic.LongAdder;
  * Runtime counters for generated cell-fill execution modes.
  */
 public final class DfcCellFillStats {
-    public static volatile boolean ENABLED = Boolean.getBoolean("dfc.cellfill.stats");
+    public static volatile boolean ENABLED = GAConfigHolder.getConfig().dfc.cellFillStats;
     public static volatile boolean RESIDUAL_CLASS_DEBUG_ENABLED =
-            ENABLED && Boolean.getBoolean("dfc.cellfill.stats.residualClassDebug");
+            ENABLED && GAConfigHolder.getConfig().dfc.cellFillResidualClassDebug;
 
     private static final LongAdder CELL_SCALAR = new LongAdder();
     private static final LongAdder CELL_COMPILED = new LongAdder();
-    private static final LongAdder CELL_NATIVE_SLAB_INNER = new LongAdder();
     private static final LongAdder CELL_UNKNOWN = new LongAdder();
     private static final LongAdder CELL_XZ_SLAB = new LongAdder();
     private static final LongAdder CELL_EXTERN_ACCUMULATE = new LongAdder();
     private static final LongAdder CELL_EXTERN_SCALAR_RESIDUAL = new LongAdder();
+    private static final LongAdder CELL_GPU_PAYLOAD_READY = new LongAdder();
+    private static final LongAdder CELL_GPU_PAYLOAD_BLOCKED = new LongAdder();
     private static final LongAdder COLUMNS_SCALAR = new LongAdder();
     private static final LongAdder COLUMNS_JAVA_BATCHED = new LongAdder();
-    private static final LongAdder COLUMNS_NATIVE_INNER = new LongAdder();
     private static final ConcurrentHashMap<String, ClassStatsCounter> FAST_FILLER_CLASSES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> SOURCE_FILLER_CLASSES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, LongAdder> RESIDUAL_EXTERN_FALLBACK_CLASSES = new ConcurrentHashMap<>();
-    private static final int MAX_TRACKED_CLASSES = Math.max(1,
-            Integer.getInteger("dfc.cellfill.stats.maxTrackedClasses", 256));
+    private static final ConcurrentHashMap<String, LongAdder> CELL_GPU_FIRST_BLOCKERS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LongAdder> CELL_GPU_UNSUPPORTED_NODES = new ConcurrentHashMap<>();
 
     private DfcCellFillStats() {
     }
@@ -41,47 +43,55 @@ public final class DfcCellFillStats {
         RESIDUAL_CLASS_DEBUG_ENABLED = enabled && residualClassDebugEnabled;
     }
 
-    public record ClassStats(String className, long calls, long nativeSlabInnerCalls) {
+    public record ClassStats(String className, long calls) {
     }
 
-    public record ClassDebugStats(String className, long calls, long nativeSlabInnerCalls,
+    public record ClassDebugStats(String className, long calls,
                                   String sourceRootClass, boolean latticeEmitted,
-                                  boolean slabInnerProgramPresent,
                                   boolean cellAddLatticeSpecialized,
+                                  boolean cellAddBeardifierSpecialized,
                                   boolean cellAddExternSpecialized,
+                                  boolean cellScalarMarkerSpecialized,
                                   String rootDebug) {
     }
 
-    public record Stats(long cellScalar, long cellCompiled, long cellNativeSlabInner, long cellUnknown, long cellXzSlab, long columnsScalar,
+    public record Stats(long cellScalar, long cellCompiled, long cellUnknown, long cellXzSlab, long columnsScalar,
                         long cellExternAccumulate, long cellExternScalarResidual,
-                        long columnsJavaBatched, long columnsNativeInner, boolean enabled,
+                        long cellGpuPayloadReady, long cellGpuPayloadBlocked,
+                        long columnsJavaBatched, boolean enabled,
                         List<ClassStats> fastFillerClasses, List<ClassDebugStats> fastFillerDebugClasses,
                         List<String> sourceFillerClasses,
-                        List<String> residualExternFallbackClasses) {
+                        List<String> residualExternFallbackClasses,
+                        List<String> cellGpuFirstBlockers,
+                        List<String> cellGpuUnsupportedNodes) {
     }
 
     public static Stats snapshot() {
-        return new Stats(CELL_SCALAR.sum(), CELL_COMPILED.sum(), CELL_NATIVE_SLAB_INNER.sum(), CELL_UNKNOWN.sum(),
+        return new Stats(CELL_SCALAR.sum(), CELL_COMPILED.sum(), CELL_UNKNOWN.sum(),
                 CELL_XZ_SLAB.sum(), COLUMNS_SCALAR.sum(), CELL_EXTERN_ACCUMULATE.sum(), CELL_EXTERN_SCALAR_RESIDUAL.sum(),
-                COLUMNS_JAVA_BATCHED.sum(), COLUMNS_NATIVE_INNER.sum(), ENABLED,
+                CELL_GPU_PAYLOAD_READY.sum(), CELL_GPU_PAYLOAD_BLOCKED.sum(),
+                COLUMNS_JAVA_BATCHED.sum(), ENABLED,
                 snapshotFastFillerClasses(), snapshotFastFillerDebugClasses(), snapshotSourceFillerClasses(),
-                snapshotResidualExternFallbackClasses());
+                snapshotResidualExternFallbackClasses(), snapshotCounts(CELL_GPU_FIRST_BLOCKERS),
+                snapshotCounts(CELL_GPU_UNSUPPORTED_NODES));
     }
 
     public static void reset() {
         CELL_SCALAR.reset();
         CELL_COMPILED.reset();
-        CELL_NATIVE_SLAB_INNER.reset();
         CELL_UNKNOWN.reset();
         CELL_XZ_SLAB.reset();
         CELL_EXTERN_ACCUMULATE.reset();
         CELL_EXTERN_SCALAR_RESIDUAL.reset();
+        CELL_GPU_PAYLOAD_READY.reset();
+        CELL_GPU_PAYLOAD_BLOCKED.reset();
         COLUMNS_SCALAR.reset();
         COLUMNS_JAVA_BATCHED.reset();
-        COLUMNS_NATIVE_INNER.reset();
         FAST_FILLER_CLASSES.clear();
         SOURCE_FILLER_CLASSES.clear();
         RESIDUAL_EXTERN_FALLBACK_CLASSES.clear();
+        CELL_GPU_FIRST_BLOCKERS.clear();
+        CELL_GPU_UNSUPPORTED_NODES.clear();
     }
 
     public static void recordCellFill(DfcCellFillAccess filler, DensityFunction sourceFiller) {
@@ -94,20 +104,17 @@ public final class DfcCellFillStats {
                 sourceCounter.increment();
             }
         }
-        if (filler instanceof CompiledDensityFunction compiled) {
+        if (filler instanceof CompiledDensityFunction) {
             CELL_COMPILED.increment();
-            boolean nativeSlabInner = compiled.dfc$hasNativeSlabInnerProgram();
+            recordGpuDiagnostics((CompiledDensityFunction) filler);
             ClassStatsCounter fastCounter = trackedClassStatsCounter(filler.getClass().getName());
             if (fastCounter != null) {
-                fastCounter.record(nativeSlabInner);
-            }
-            if (nativeSlabInner) {
-                CELL_NATIVE_SLAB_INNER.increment();
+                fastCounter.record();
             }
         } else {
             ClassStatsCounter fastCounter = trackedClassStatsCounter(filler.getClass().getName());
             if (fastCounter != null) {
-                fastCounter.record(false);
+                fastCounter.record();
             }
             CELL_UNKNOWN.increment();
         }
@@ -116,7 +123,7 @@ public final class DfcCellFillStats {
     private static List<ClassStats> snapshotFastFillerClasses() {
         List<ClassStats> out = new ArrayList<>(FAST_FILLER_CLASSES.size());
         FAST_FILLER_CLASSES.forEach((name, counter) ->
-                out.add(new ClassStats(name, counter.calls.sum(), counter.nativeSlabInnerCalls.sum())));
+                out.add(new ClassStats(name, counter.calls.sum())));
         out.sort(Comparator.comparingLong(ClassStats::calls).reversed().thenComparing(ClassStats::className));
         if (out.size() > 8) {
             return new ArrayList<>(out.subList(0, 8));
@@ -131,12 +138,12 @@ public final class DfcCellFillStats {
             out.add(new ClassDebugStats(
                     name,
                     counter.calls.sum(),
-                    counter.nativeSlabInnerCalls.sum(),
                     entry != null ? entry.sourceRootClass() : "unknown",
                     entry != null && entry.latticeEmitted(),
-                    entry != null && entry.slabInnerProgramPresent(),
                     entry != null && entry.cellAddLatticeSpecialized(),
+                    entry != null && entry.cellAddBeardifierSpecialized(),
                     entry != null && entry.cellAddExternSpecialized(),
+                    entry != null && entry.cellScalarMarkerSpecialized(),
                     entry != null ? entry.rootDebug() : "unknown"
             ));
         });
@@ -162,8 +169,12 @@ public final class DfcCellFillStats {
     }
 
     private static List<String> snapshotResidualExternFallbackClasses() {
-        List<SourceClassStats> raw = new ArrayList<>(RESIDUAL_EXTERN_FALLBACK_CLASSES.size());
-        RESIDUAL_EXTERN_FALLBACK_CLASSES.forEach((name, counter) -> raw.add(new SourceClassStats(name, counter.sum())));
+        return snapshotCounts(RESIDUAL_EXTERN_FALLBACK_CLASSES);
+    }
+
+    private static List<String> snapshotCounts(ConcurrentHashMap<String, LongAdder> counts) {
+        List<SourceClassStats> raw = new ArrayList<>(counts.size());
+        counts.forEach((name, counter) -> raw.add(new SourceClassStats(name, counter.sum())));
         raw.sort(Comparator.comparingLong(SourceClassStats::calls).reversed().thenComparing(SourceClassStats::className));
         List<String> out = new ArrayList<>(raw.size());
         for (SourceClassStats stat : raw) {
@@ -173,6 +184,29 @@ public final class DfcCellFillStats {
             return new ArrayList<>(out.subList(0, 8));
         }
         return out;
+    }
+
+    private static void recordGpuDiagnostics(CompiledDensityFunction filler) {
+        GpuPayloadRuntimeRegistry.Diagnostics diagnostics = GpuPayloadRuntimeRegistry.diagnostics(filler);
+        if (diagnostics == null) {
+            increment(CELL_GPU_UNSUPPORTED_NODES, "missing-diagnostics");
+            CELL_GPU_PAYLOAD_BLOCKED.increment();
+            return;
+        }
+        if (diagnostics.payloadReady()) {
+            CELL_GPU_PAYLOAD_READY.increment();
+            return;
+        }
+        CELL_GPU_PAYLOAD_BLOCKED.increment();
+        increment(CELL_GPU_FIRST_BLOCKERS, diagnostics.firstEligibilityBlocker());
+        increment(CELL_GPU_UNSUPPORTED_NODES, diagnostics.firstUnsupportedDetail());
+    }
+
+    private static void increment(ConcurrentHashMap<String, LongAdder> counts, String key) {
+        if (key == null || key.isBlank() || "none".equals(key)) {
+            return;
+        }
+        counts.computeIfAbsent(key, ignored -> new LongAdder()).increment();
     }
 
     public static void recordCellScalar() {
@@ -227,22 +261,11 @@ public final class DfcCellFillStats {
         COLUMNS_JAVA_BATCHED.increment();
     }
 
-    public static void recordColumnNativeInner() {
-        if (!ENABLED) {
-            return;
-        }
-        COLUMNS_NATIVE_INNER.increment();
-    }
-
     private static final class ClassStatsCounter {
         private final LongAdder calls = new LongAdder();
-        private final LongAdder nativeSlabInnerCalls = new LongAdder();
 
-        private void record(boolean nativeSlabInner) {
+        private void record() {
             calls.increment();
-            if (nativeSlabInner) {
-                nativeSlabInnerCalls.increment();
-            }
         }
     }
 
@@ -254,18 +277,11 @@ public final class DfcCellFillStats {
         if (existing != null) {
             return existing;
         }
-        synchronized (FAST_FILLER_CLASSES) {
-            existing = FAST_FILLER_CLASSES.get(className);
-            if (existing != null) {
-                return existing;
-            }
-            if (FAST_FILLER_CLASSES.size() >= MAX_TRACKED_CLASSES) {
-                return null;
-            }
-            ClassStatsCounter created = new ClassStatsCounter();
-            FAST_FILLER_CLASSES.put(className, created);
-            return created;
+        int maxTrackedClasses = Math.max(1, GAConfigHolder.getConfig().dfc.cellFillStatsMaxTrackedClasses);
+        if (FAST_FILLER_CLASSES.size() >= maxTrackedClasses) {
+            return null;
         }
+        return FAST_FILLER_CLASSES.computeIfAbsent(className, ignored -> new ClassStatsCounter());
     }
 
     private static LongAdder trackedLongAdder(ConcurrentHashMap<String, LongAdder> map, String className) {
@@ -273,17 +289,10 @@ public final class DfcCellFillStats {
         if (existing != null) {
             return existing;
         }
-        synchronized (map) {
-            existing = map.get(className);
-            if (existing != null) {
-                return existing;
-            }
-            if (map.size() >= MAX_TRACKED_CLASSES) {
-                return null;
-            }
-            LongAdder created = new LongAdder();
-            map.put(className, created);
-            return created;
+        int maxTrackedClasses = Math.max(1, GAConfigHolder.getConfig().dfc.cellFillStatsMaxTrackedClasses);
+        if (map.size() >= maxTrackedClasses) {
+            return null;
         }
+        return map.computeIfAbsent(className, ignored -> new LongAdder());
     }
 }

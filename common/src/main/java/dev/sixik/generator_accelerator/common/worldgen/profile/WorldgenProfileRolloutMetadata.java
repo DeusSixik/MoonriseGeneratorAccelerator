@@ -14,13 +14,6 @@ public record WorldgenProfileRolloutMetadata(
         List<String> guards,
         String reason
 ) {
-    public WorldgenProfileRolloutMetadata {
-        effectiveTier = effectiveTier == null ? WorldgenSafetyTier.SERIAL_ISOLATED : effectiveTier;
-        lane = lane == null ? WorldgenRolloutLane.SERIAL : lane;
-        guards = guards == null ? List.of() : List.copyOf(guards);
-        reason = reason == null ? "" : reason;
-    }
-
     public static WorldgenProfileRolloutMetadata from(WorldgenUnitProfile profile) {
         if (profile == null) {
             return disabled("null profile");

@@ -1,49 +1,41 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler;
 
+import dev.sixik.generator_accelerator.GeneratorAccelerator;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCompiledClassRegistry;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.BytecodeCpuBackend;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.DfcBackend;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.backend.DfcBackendResult;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.CompilationFingerprint;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.cache.GlobalCompileCache;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Codegen;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.HiddenClassLoader;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.Splitter;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.Bounds;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRBuilder;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IRNode;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IROptimizer;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.NoiseExpander;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.CellLatticeOption;
-import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.RefCount;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.*;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuEligibility;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadCompiler;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadParity;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.gpu.GpuPayloadRuntimeRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.*;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.BlendedNoiseSpec;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.noise.NoiseSpec;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.CompilingVisitor;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RouterPipeline;
-import dev.sixik.generator_accelerator.common.density.compiler.natives.NativeNoiseRegistry;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.plan.CompilationPlan;
+import dev.sixik.generator_accelerator.common.density.compiler.compiler.plan.SplineSearchStats;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Public facade for the JIT compiler. {@link #compile(DensityFunction)} takes any
  * {@link DensityFunction} and returns a {@link CompiledDensityFunction} that's
  * behaviourally identical (within the usual {@code ULP} bounds for floating-point
- * arithmetic), or — if compilation fails for any reason — the original function.
+ * arithmetic), or, if compilation fails for any reason, the original function.
  *
  * <p>The compiler is intentionally fail-soft: a single broken DensityFunction (e.g. an
  * unrecognised mod-provided node we can't currently inline) must never break worldgen.
@@ -52,7 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class Compiler {
     private static final boolean LOG_SPLINE_SEARCH =
-            Boolean.getBoolean("dfc.codegen.logSplineSearch");
+            GAConfigHolder.getConfig().dfc.logSplineSearch;
     private static final AtomicInteger SPLINE_LOGGED_ROOTS = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_MULTIPOINTS = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BINARY_USED = new AtomicInteger();
@@ -62,6 +54,7 @@ public final class Compiler {
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_3_TO_4 = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_5_TO_8 = new AtomicInteger();
     private static final AtomicInteger SPLINE_LOGGED_BUCKET_GE_9 = new AtomicInteger();
+    private static final DfcBackend CPU_BACKEND = BytecodeCpuBackend.INSTANCE;
 
     private Compiler() {}
 
@@ -72,149 +65,23 @@ public final class Compiler {
     }
 
     /**
-     * Variant exposing the intermediate compilation state — used by the {@code /dfc dump}
+     * Variant exposing the intermediate compilation state, used by the {@code /dfc dump}
      * command to print IR / bytecode without recompiling. Returns {@code null} on failure
      * (caller should fall back to the original DensityFunction).
      */
     public static Result compileWithDetail(DensityFunction df) {
-        long compileStartedAt = DfcRuntimeTelemetry.compileStart();
         try {
-            ConstantPool pool = new ConstantPool();
-            IRBuilder builder = new IRBuilder(pool, CompilingVisitor.global());
-            IRNode root = builder.build(df);
-
-            // Peephole pass: constant folding, algebraic identities, RangeChoice
-            // short-circuiting, cost-aware strength reduction. Runs before Bounds /
-            // RefCount / Splitter so downstream stages see the post-rewrite DAG.
-            // Every rewritten node is re-interned through the same IRBuilder, so
-            // hash-consing / CSE stay consistent.
-            IROptimizer.Result optResult = IROptimizer.optimize(root, builder, pool);
-            root = optResult.root();
-            int optimizerRewrites = optResult.rewrites();
-
-            // Tier 3 — noise inlining pass. Rewrites every Noise / ShiftedNoise /
-            // ShiftA / ShiftB / Shift / WeirdScaled into InlinedNoise / WeirdRarity
-            // form so the codegen can unroll their per-octave loops with baked-in
-            // amplitudes / input factors (see NoiseExpander javadoc). The expander
-            // exposes coordinate sub-trees as first-class IR, so we re-run the
-            // optimizer to fold the newly visible (x*scale + shift)*INPUT_FACTOR
-            // chains and to CSE shared coordinates.
-            NoiseExpander.Result noiseResult = NoiseExpander.expand(root, builder, pool);
-            root = noiseResult.root();
-            int noisesSpecialized = noiseResult.noisesSpecialized();
-            int octavesUnrolled = noiseResult.octavesUnrolled();
-            if (noisesSpecialized > 0) {
-                IROptimizer.Result postNoise = IROptimizer.optimize(root, builder, pool);
-                root = postNoise.root();
-                optimizerRewrites += postNoise.rewrites();
-            }
-
-            SplineSearchStats splineStats = LOG_SPLINE_SEARCH ? collectSplineSearchStats(root) : null;
-
-            int uniqueNodes = builder.internedCount();
-            int cseSavings = builder.cseSavings();
-            RefCount.Result rc = RefCount.compute(root);
-
-            double minVal;
-            double maxVal;
-            try {
-                // One interval walk: min+max would each call interval() with a fresh memo.
-                double[] iv = Bounds.interval(root, pool);
-                minVal = iv[0];
-                maxVal = iv[1];
-            } catch (RuntimeException bx) {
-                minVal = df.minValue();
-                maxVal = df.maxValue();
-            }
-
-            Set<IRNode> extracted = Splitter.plan(root, rc, pool);
-
-            // Codegen uses constructor-supplied spline search tables. Materialize those
-            // bindings before fingerprinting so a shape-cache hit receives the exact
-            // same pool layout as the compile that originally emitted the class.
-            Codegen.prepareRuntimeBindings(root, pool);
-
-            byte[] exactFp = CompilationFingerprint.sha256(root, pool, minVal, maxVal);
-            byte[] shapeFp = CompilationFingerprint.shapeSha256(root, pool, minVal, maxVal);
-            // Use _ rather than $: hidden class bytecode with `$` in its own name
-            // confuses NeoForge's ModuleClassLoader (see previous comments).
-            String className = "dev/sixik/generator_accelerator/common/density/compiler/compiler/codegen/CompiledDF_"
-                    + CompilationFingerprint.stableClassSuffix(shapeFp);
-
-            // Lambdas can only close over effectively final locals — IR bounds/root must be
-            // bound after the last reassignment of `root` / min / max.
-            final IRNode irRoot = root;
-            final RefCount.Result fr = rc;
-            final Set<IRNode> fExtracted = extracted;
-            final ConstantPool fPool = pool;
-            final double fMin = minVal;
-            final double fMax = maxVal;
-            final String fClassName = className;
-            final String fRootDebug = describeRootForCellFillDebug(irRoot);
-
-            GlobalCompileCache g = GlobalCompileCache.INSTANCE;
-            GlobalCompileCache.LookupResult lo = g.getOrCompile(shapeFp, exactFp, () -> {
-                Codegen.Result emitResult = Codegen.emit(fClassName, irRoot, fr, fExtracted, fPool, fMin, fMax);
-                byte[] bytecode = emitResult.bytecode();
-                int helpersEmitted = emitResult.helpersEmitted();
-                boolean latticeEmitted = emitResult.latticeEmitted();
-                boolean slabInnerProgramPresent = emitResult.slabInnerProgram() != null
-                        && emitResult.slabInnerProgram().length > 0;
-                HiddenClassLoader.DefineResult dr = HiddenClassLoader.defineWithLookup(bytecode);
-                Class<? extends CompiledDensityFunction> cls = dr.cls();
-                MethodHandles.Lookup lookup = dr.lookup();
-
-                MethodHandle[] helperHandles;
-                try {
-                    helperHandles = new MethodHandle[helpersEmitted];
-                    MethodType helperType = MethodType.methodType(
-                            double.class,
-                            CompiledDensityFunction.class,
-                            DensityFunction.FunctionContext.class);
-                    for (int i = 0; i < helpersEmitted; i++) {
-                        helperHandles[i] = lookup.findStatic(cls, Codegen.helperName(i), helperType);
-                    }
-                } catch (NoSuchMethodException | IllegalAccessException e) {
-                    throw new RuntimeException("Failed to resolve helper MethodHandles for "
-                            + fClassName + " (" + helpersEmitted + " helpers expected)", e);
-                }
-
-                MethodHandle ctorMH;
-                try {
-                    MethodType ctorType = MethodType.methodType(void.class,
-                            double[].class, NormalNoise[].class, Object[].class, Object[].class,
-                            DensityFunction[].class,
-                            double.class, double.class,
-                            MethodHandle[].class, NativeNoiseRegistry.HandleSet.class,
-                            byte[].class, double[].class,
-                            MethodHandle.class);
-                    ctorMH = lookup.findConstructor(cls, ctorType)
-                            .asType(MethodType.methodType(CompiledDensityFunction.class,
-                                    double[].class, NormalNoise[].class, Object[].class, Object[].class,
-                                    DensityFunction[].class,
-                                    double.class, double.class,
-                                    MethodHandle[].class, NativeNoiseRegistry.HandleSet.class,
-                                    byte[].class, double[].class,
-                                    MethodHandle.class));
-                } catch (NoSuchMethodException | IllegalAccessException e) {
-                    throw new RuntimeException("Failed to resolve constructor MethodHandle for "
-                            + fClassName, e);
-                }
-
-                return new GlobalCompileCache.CopiedClassBundle(
-                        fClassName, df.getClass().getName(), fRootDebug, exactFp, cls, bytecode, ctorMH,
-                        helperHandles, helpersEmitted, latticeEmitted,
-                        emitResult.cellAddLatticeSpecialized(), emitResult.cellAddExternSpecialized(),
-                        emitResult.slabInnerProgram(), emitResult.slabInnerConsts());
-            });
-            Result result = linkAndRecord(lo.bundle(), lo.reused(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes,
-                    cseSavings, optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats);
-            DfcRuntimeTelemetry.recordCompileEnd(df.getClass(), result != null, compileStartedAt);
-            return result;
+            CompilationPlan plan = prepareCompilationPlan(df);
+            DfcBackendResult backendResult = CPU_BACKEND.compile(plan);
+            return linkAndRecord(
+                    backendResult.bundle(), backendResult.reusedClassFromCache(),
+                    plan.root(), plan.refs(), plan.pool(), plan.extracted(),
+                    plan.minValue(), plan.maxValue(), plan.uniqueNodes(), plan.cseSavings(),
+                    plan.optimizerRewrites(), plan.noisesSpecialized(), plan.octavesUnrolled(),
+                    plan.splineStats(), plan.gpuEligibility(), plan.gpuPayload());
         } catch (Throwable t) {
-            DfcRuntimeTelemetry.recordCompileEnd(df.getClass(), false, compileStartedAt);
             DensityFunctionCompiler.LOGGER.warn(
-                    "Compilation failed for {} ({}): {} — falling back to vanilla evaluator",
+                    "Compilation failed for {} ({}): {} - falling back to vanilla evaluator",
                     df.getClass().getSimpleName(),
                     System.identityHashCode(df),
                     t.toString(), t);
@@ -222,8 +89,82 @@ public final class Compiler {
         }
     }
 
+    private static CompilationPlan prepareCompilationPlan(DensityFunction df) {
+        ConstantPool pool = new ConstantPool();
+        IRBuilder builder = new IRBuilder(pool, CompilingVisitor.global());
+        IRNode root = builder.build(df);
+
+        // Peephole pass: constant folding, algebraic identities, RangeChoice
+        // short-circuiting, cost-aware strength reduction. Runs before Bounds /
+        // RefCount / Splitter so downstream stages see the post-rewrite DAG.
+        // Every rewritten node is re-interned through the same IRBuilder, so
+        // hash-consing / CSE stay consistent.
+        IROptimizer.Result optResult = IROptimizer.optimize(root, builder, pool);
+        root = optResult.root();
+        int optimizerRewrites = optResult.rewrites();
+
+        // Tier 3 noise inlining pass. Rewrites every Noise / ShiftedNoise /
+        // ShiftA / ShiftB / Shift / WeirdScaled into InlinedNoise / WeirdRarity
+        // form so the codegen can unroll their per-octave loops with baked-in
+        // amplitudes / input factors (see NoiseExpander javadoc). The expander
+        // exposes coordinate sub-trees as first-class IR, so we re-run the
+        // optimizer to fold the newly visible (x*scale + shift)*INPUT_FACTOR
+        // chains and to CSE shared coordinates.
+        NoiseExpander.Result noiseResult = NoiseExpander.expand(root, builder, pool);
+        root = noiseResult.root();
+        int noisesSpecialized = noiseResult.noisesSpecialized();
+        int octavesUnrolled = noiseResult.octavesUnrolled();
+        if (noisesSpecialized > 0) {
+            IROptimizer.Result postNoise = IROptimizer.optimize(root, builder, pool);
+            root = postNoise.root();
+            optimizerRewrites += postNoise.rewrites();
+        }
+
+        SplineSearchStats splineStats = LOG_SPLINE_SEARCH ? collectSplineSearchStats(root) : null;
+        int uniqueNodes = builder.internedCount();
+        int cseSavings = builder.cseSavings();
+        RefCount.Result rc = RefCount.compute(root);
+
+        double minVal;
+        double maxVal;
+        try {
+            // One interval walk: min+max would each call interval() with a fresh memo.
+            double[] iv = Bounds.interval(root, pool);
+            minVal = iv[0];
+            maxVal = iv[1];
+        } catch (RuntimeException bx) {
+            minVal = df.minValue();
+            maxVal = df.maxValue();
+        }
+
+        Set<IRNode> extracted = Splitter.plan(root, rc, pool);
+        byte[] exactFp = CompilationFingerprint.sha256(root, pool, minVal, maxVal);
+        // Use the exact, identity-bearing fingerprint for hidden-class reuse. The
+        // broader shape fingerprint can share bytecode across worlds, but it is only
+        // safe if every constructor payload slot stays layout-compatible. A mismatch
+        // there presents as generated bytecode reading e.g. constants[0] from a fresh
+        // instance whose payload has constants.length == 0.
+        byte[] cacheFp = exactFp;
+        // Use _ rather than $: hidden class bytecode with `$` in its own name
+        // confuses NeoForge's ModuleClassLoader (see previous comments).
+        String className = "dev/sixik/generator_accelerator/common/density/compiler/compiler/codegen/CompiledDF_"
+                + CompilationFingerprint.stableClassSuffix(cacheFp);
+        GpuEligibility.Report gpuEligibility = GpuEligibility.analyze(root, pool);
+        GpuPayloadCompiler.Result gpuPayload = GpuPayloadCompiler.compile(root, pool);
+
+        return new CompilationPlan(
+                df.getClass().getName(), root, rc, pool, extracted, minVal, maxVal, uniqueNodes, cseSavings,
+                optimizerRewrites, noisesSpecialized, octavesUnrolled, splineStats,
+                exactFp, cacheFp, className,
+                describeRootForCellFillDebug(root), describeDominantSpline(root, pool), gpuEligibility, gpuPayload);
+    }
+
     public static DumpResult dumpCompiledClasses() {
-        Path dumpRoot = Paths.get(System.getProperty("user.dir", "."))
+        Path base = GeneratorAccelerator.getGameFolder();
+        if (base == null) {
+            base = Paths.get(".");
+        }
+        Path dumpRoot = base
                 .resolve(".densitycompiler")
                 .toAbsolutePath()
                 .normalize();
@@ -291,13 +232,11 @@ public final class Compiler {
             int optimizerRewrites,
             int noisesSpecialized,
             int octavesUnrolled,
-            SplineSearchStats splineStats) {
+            SplineSearchStats splineStats,
+            GpuEligibility.Report gpuEligibility,
+            GpuPayloadCompiler.Result gpuPayload) {
         MethodHandle ctorMH = bundle.constructorHandle();
         MethodHandle[] helperHandles = bundle.helperHandles();
-        NativeNoiseRegistry.HandleSet nativeHandles =
-                NativeNoiseRegistry.buildHandleSet(pool.noiseSpecs(), pool.blendedNoiseSpecsList());
-        byte[] slabBc = bundle.slabNativeProgram();
-        double[] slabC = bundle.slabNativeConstants();
         CompiledDensityFunction compiled;
         try {
             compiled = (CompiledDensityFunction) ctorMH.invokeExact(
@@ -307,8 +246,7 @@ public final class Compiler {
                     pool.finishNoiseOctaves(),
                     pool.finishExterns(),
                     minVal, maxVal,
-                    helperHandles, nativeHandles,
-                    slabBc, slabC, ctorMH);
+                    helperHandles, ctorMH);
         } catch (Throwable t) {
             throw new RuntimeException("Failed to instantiate " + bundle.classInternalName(), t);
         }
@@ -316,10 +254,13 @@ public final class Compiler {
                 bundle.classInternalName(),
                 bundle.sourceRootClass(),
                 bundle.latticeEmitted(),
-                bundle.slabNativeProgram() != null && bundle.slabNativeProgram().length > 0,
                 bundle.cellAddLatticeSpecialized(),
+                bundle.cellAddBeardifierSpecialized(),
                 bundle.cellAddExternSpecialized(),
-                bundle.rootDebug());
+                bundle.cellScalarMarkerSpecialized(),
+                bundle.cellScalarMarkerReason(),
+                bundle.rootDebug(),
+                bundle.splineDebug());
         if (reusedClassFromCache) {
             RouterPipeline.recordRootFromGlobalClassCache(uniqueNodes, cseSavings);
         } else {
@@ -328,15 +269,42 @@ public final class Compiler {
             RouterPipeline.recordGlobalCacheCodegenMiss();
         }
         RouterPipeline.recordLatticePlan(bundle.latticeEmitted());
+        RouterPipeline.recordCellFillSpecializations(
+                bundle.cellAddLatticeSpecialized(),
+                bundle.cellAddBeardifierSpecialized(),
+                bundle.cellAddExternSpecialized(),
+                bundle.cellScalarMarkerSpecialized());
         RouterPipeline.recordOptimizerRewrites(optimizerRewrites);
         RouterPipeline.recordNoiseInline(noisesSpecialized, octavesUnrolled);
         RouterPipeline.recordBlendedInline(pool.blendedNoiseSpecCount(), countBlendedNonNullOctaves(pool));
+        RouterPipeline.recordGpuEligibility(gpuEligibility);
+        RouterPipeline.recordGpuPayload(gpuPayload);
+        GpuPayloadParity.Report gpuPayloadParity = GpuPayloadParity.check(compiled, gpuPayload);
+        RouterPipeline.recordGpuPayloadParity(gpuPayloadParity);
+        GpuPayloadCompiler.Result runtimeGpuPayload = runtimePayloadAfterParity(gpuPayload, gpuPayloadParity);
+        GpuPayloadRuntimeRegistry.register(
+                compiled, gpuEligibility, runtimeGpuPayload,
+                describeFirstGpuPayloadUnsupported(root, pool, runtimeGpuPayload));
         logSplineSearchIfInteresting(root, bundle, reusedClassFromCache, splineStats);
 
         return new Result(
                 compiled, root, rc, pool, bundle.bytecode(), bundle.classInternalName(),
                 uniqueNodes, cseSavings, bundle.helpersEmitted(), optimizerRewrites,
-                noisesSpecialized, octavesUnrolled, minVal, maxVal);
+                noisesSpecialized, octavesUnrolled, minVal, maxVal, gpuEligibility, gpuPayload, gpuPayloadParity);
+    }
+
+    private static GpuPayloadCompiler.Result runtimePayloadAfterParity(
+            GpuPayloadCompiler.Result payload,
+            GpuPayloadParity.Report parity) {
+        if (payload == null || parity == null || !parity.checked() || parity.passed()) {
+            return payload;
+        }
+        return new GpuPayloadCompiler.Result(
+                false,
+                null,
+                "PayloadParity",
+                "PayloadParity:" + parity.firstMismatch(),
+                payload.nodesVisited());
     }
 
     private static long countBlendedNonNullOctaves(ConstantPool pool) {
@@ -449,69 +417,297 @@ public final class Compiler {
     }
 
     private static String describeRootForCellFillDebug(IRNode root) {
+        String tree = describeIrTree(root, 6);
+        String beardifierPath = findFirstPath(root, "root", node -> node instanceof IRNode.Beardifier)
+                .orElse("none");
+        String beardifierAddPath = findFirstPath(root, "root", Compiler::isImmediateBeardifierAdd)
+                .orElse("none");
         if (root instanceof IRNode.Bin bin) {
+            String leftType = bin.left().getClass().getSimpleName();
+            String rightType = bin.right().getClass().getSimpleName();
             var leftPlan = CellLatticeOption.analyze(bin.left()).orElse(null);
             var rightPlan = CellLatticeOption.analyze(bin.right()).orElse(null);
             return "bin=" + bin.op()
-                    + ",left=" + describeIrShape(bin.left(), 2)
-                    + ",right=" + describeIrShape(bin.right(), 2)
+                    + ",left=" + leftType
+                    + ",right=" + rightType
                     + ",leftPlan=" + (leftPlan != null ? leftPlan.hoistAxis() + ":" + leftPlan.hoistedNodeCount() : "none")
-                    + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none");
+                    + ",rightPlan=" + (rightPlan != null ? rightPlan.hoistAxis() + ":" + rightPlan.hoistedNodeCount() : "none")
+                    + ",beardifierPath=" + beardifierPath
+                    + ",beardifierAddPath=" + beardifierAddPath
+                    + ",tree=" + tree;
         }
-        return describeIrShape(root, 3);
+        return root.getClass().getSimpleName()
+                + ",beardifierPath=" + beardifierPath
+                + ",beardifierAddPath=" + beardifierAddPath
+                + ",tree=" + tree;
     }
 
-    private static String describeIrShape(IRNode node, int depth) {
+    private static boolean isImmediateBeardifierAdd(IRNode node) {
+        if (!(node instanceof IRNode.Bin bin) || bin.op() != IRNode.BinOp.ADD) {
+            return false;
+        }
+        return bin.left() instanceof IRNode.Beardifier || bin.right() instanceof IRNode.Beardifier;
+    }
+
+    private static Optional<String> findFirstPath(IRNode node, String path, java.util.function.Predicate<IRNode> predicate) {
+        if (predicate.test(node)) {
+            return Optional.of(path);
+        }
+        for (ChildRef child : debugChildren(node)) {
+            Optional<String> found = findFirstPath(child.node(), path + "." + child.name(), predicate);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String describeIrTree(IRNode node, int depth) {
+        if (depth <= 0) {
+            return debugNodeName(node);
+        }
+        List<ChildRef> children = debugChildren(node);
+        if (children.isEmpty()) {
+            return debugNodeName(node);
+        }
+        StringBuilder out = new StringBuilder(debugNodeName(node)).append('(');
+        for (int i = 0; i < children.size(); i++) {
+            if (i > 0) {
+                out.append(',');
+            }
+            ChildRef child = children.get(i);
+            out.append(child.name()).append('=').append(describeIrTree(child.node(), depth - 1));
+        }
+        return out.append(')').toString();
+    }
+
+    private static String debugNodeName(IRNode node) {
+        return switch (node) {
+            case IRNode.Bin bin -> bin.op().name();
+            case IRNode.Unary unary -> unary.op().name();
+            case IRNode.Clamp clamp -> "Clamp[" + clamp.min() + "," + clamp.max() + "]";
+            case IRNode.RangeChoice rc -> "RangeChoice[" + rc.min() + "," + rc.max() + ")";
+            case IRNode.YClampedGradient g -> "YClampedGradient[y=" + g.fromY() + ".." + g.toY()
+                    + ",v=" + g.fromValue() + ".." + g.toValue() + "]";
+            case IRNode.Const c -> "Const(" + c.value() + ")";
+            case IRNode.Noise noise -> "Noise#" + noise.noiseIndex();
+            case IRNode.ShiftedNoise noise -> "ShiftedNoise#" + noise.noiseIndex();
+            case IRNode.InlinedNoise noise -> "InlinedNoise#" + noise.specPoolIndex();
+            case IRNode.InlinedBlendedNoise noise -> "InlinedBlendedNoise#" + noise.blendedSpecIndex();
+            case IRNode.Spline.Multipoint spline -> "Spline[" + spline.locations().length + "]";
+            case IRNode.Spline.Constant c -> "SplineConst(" + c.value() + ")";
+            case IRNode.Beardifier b -> "Beardifier#" + b.externIndex();
+            case IRNode.Invoke invoke -> "Invoke#" + invoke.externIndex();
+            case IRNode.Marker marker -> "Marker#" + marker.externIndex();
+            case IRNode.EndIslands end -> "EndIslands#" + end.externIndex();
+            default -> node.getClass().getSimpleName();
+        };
+    }
+
+    private static List<ChildRef> debugChildren(IRNode node) {
+        return switch (node) {
+            case IRNode.Bin bin -> List.of(new ChildRef("left", bin.left()), new ChildRef("right", bin.right()));
+            case IRNode.Unary unary -> List.of(new ChildRef("input", unary.input()));
+            case IRNode.Clamp clamp -> List.of(new ChildRef("input", clamp.input()));
+            case IRNode.RangeChoice rc -> List.of(
+                    new ChildRef("input", rc.input()),
+                    new ChildRef("in", rc.whenInRange()),
+                    new ChildRef("out", rc.whenOutOfRange()));
+            case IRNode.ShiftedNoise noise -> List.of(
+                    new ChildRef("shiftX", noise.shiftX()),
+                    new ChildRef("shiftY", noise.shiftY()),
+                    new ChildRef("shiftZ", noise.shiftZ()));
+            case IRNode.WeirdScaled weird -> List.of(new ChildRef("input", weird.input()));
+            case IRNode.InlinedNoise noise -> List.of(
+                    new ChildRef("x", noise.coordX()),
+                    new ChildRef("y", noise.coordY()),
+                    new ChildRef("z", noise.coordZ()));
+            case IRNode.WeirdRarity rarity -> List.of(new ChildRef("input", rarity.input()));
+            case IRNode.Spline.Multipoint spline -> {
+                ArrayList<ChildRef> out = new ArrayList<>(spline.values().size() + 1);
+                out.add(new ChildRef("coord", spline.coordinate()));
+                for (int i = 0; i < spline.values().size(); i++) {
+                    out.add(new ChildRef("v" + i, spline.values().get(i)));
+                }
+                yield out;
+            }
+            case IRNode.BlendDensity blend -> List.of(new ChildRef("input", blend.input()));
+            default -> List.of();
+        };
+    }
+
+    private record ChildRef(String name, IRNode node) {
+    }
+
+    private static String describeDominantSpline(IRNode root, ConstantPool pool) {
+        IdentityHashMap<IRNode, Boolean> seen = new IdentityHashMap<>();
+        Deque<IRNode> stack = new ArrayDeque<>();
+        stack.push(root);
+        IRNode.Spline.Multipoint best = null;
+        while (!stack.isEmpty()) {
+            IRNode node = stack.pop();
+            if (seen.put(node, Boolean.TRUE) != null) {
+                continue;
+            }
+            if (node instanceof IRNode.Spline.Multipoint mp) {
+                if (best == null || mp.locations().length > best.locations().length) {
+                    best = mp;
+                }
+            }
+            for (IRNode child : RefCount.children(node)) {
+                stack.push(child);
+            }
+        }
+        if (best == null) {
+            return "none";
+        }
+        float[] locs = best.locations();
+        float[] derivs = best.derivatives();
+        int n = locs.length;
+        return "points=" + n
+                + ",coord=" + describeSplineCoordinate(best.coordinate(), pool, 2)
+                + ",loc0=" + locs[0]
+                + ",loc1=" + (n > 1 ? locs[1] : locs[0])
+                + ",locLast=" + locs[n - 1]
+                + ",d0=" + derivs[0]
+                + ",dLast=" + derivs[n - 1]
+                + ",v0=" + best.values().get(0).getClass().getSimpleName()
+                + ",vLast=" + best.values().get(n - 1).getClass().getSimpleName();
+    }
+
+    private static String describeSplineCoordinate(IRNode node, ConstantPool pool, int depth) {
         if (node == null) {
             return "null";
         }
         if (depth <= 0) {
             return node.getClass().getSimpleName();
         }
-        if (node instanceof IRNode.Const c) {
-            return "Const(" + compactDouble(c.value()) + ")";
-        }
-        if (node instanceof IRNode.Bin b) {
-            return "Bin(" + b.op() + "," + describeIrShape(b.left(), depth - 1)
-                    + "," + describeIrShape(b.right(), depth - 1) + ")";
-        }
-        if (node instanceof IRNode.Unary u) {
-            return "Unary(" + u.op() + "," + describeIrShape(u.input(), depth - 1) + ")";
-        }
-        if (node instanceof IRNode.Clamp c) {
-            return "Clamp(" + compactDouble(c.min()) + ".." + compactDouble(c.max())
-                    + "," + describeIrShape(c.input(), depth - 1) + ")";
-        }
-        if (node instanceof IRNode.RangeChoice rc) {
-            return "RangeChoice(" + compactDouble(rc.min()) + ".." + compactDouble(rc.max())
-                    + ",in=" + describeIrShape(rc.input(), depth - 1)
-                    + ",yes=" + describeIrShape(rc.whenInRange(), depth - 1)
-                    + ",no=" + describeIrShape(rc.whenOutOfRange(), depth - 1) + ")";
-        }
-        if (node instanceof IRNode.YClampedGradient g) {
-            return "YClampedGradient(" + g.fromY() + ".." + g.toY()
-                    + "," + compactDouble(g.fromValue()) + ".." + compactDouble(g.toValue()) + ")";
-        }
-        if (node instanceof IRNode.Marker m) {
-            return "Marker#" + m.externIndex();
-        }
-        if (node instanceof IRNode.Invoke in) {
-            return "Invoke#" + in.externIndex();
-        }
-        if (node instanceof IRNode.Beardifier b) {
-            return "Beardifier#" + b.externIndex();
-        }
-        if (node instanceof IRNode.EndIslands e) {
-            return "EndIslands#" + e.externIndex();
-        }
-        return node.getClass().getSimpleName();
+        return switch (node) {
+            case IRNode.Const c -> "Const(" + c.value() + ")";
+            case IRNode.BlockX ignored -> "BlockX";
+            case IRNode.BlockY ignored -> "BlockY";
+            case IRNode.BlockZ ignored -> "BlockZ";
+            case IRNode.Bin bin -> "Bin(" + bin.op() + ","
+                    + describeSplineCoordinate(bin.left(), pool, depth - 1) + ","
+                    + describeSplineCoordinate(bin.right(), pool, depth - 1) + ")";
+            case IRNode.Unary unary -> "Unary(" + unary.op() + ","
+                    + describeSplineCoordinate(unary.input(), pool, depth - 1) + ")";
+            case IRNode.Clamp clamp -> "Clamp(" + describeSplineCoordinate(clamp.input(), pool, depth - 1) + ")";
+            case IRNode.RangeChoice rc -> "RangeChoice(" + describeSplineCoordinate(rc.input(), pool, depth - 1) + ")";
+            case IRNode.InlinedNoise in -> describeInlinedNoiseCoordinate(in, pool, depth - 1);
+            case IRNode.InlinedBlendedNoise ignored -> "InlinedBlendedNoise";
+            case IRNode.Noise ignored -> "Noise";
+            case IRNode.ShiftedNoise ignored -> "ShiftedNoise";
+            case IRNode.ShiftA ignored -> "ShiftA";
+            case IRNode.ShiftB ignored -> "ShiftB";
+            case IRNode.Shift ignored -> "Shift";
+            case IRNode.Marker marker -> describeMarkerCoordinate(marker, pool);
+            case IRNode.Invoke ignored -> "Invoke";
+            case IRNode.Spline.Constant ignored -> "SplineConst";
+            case IRNode.Spline.Multipoint ignored -> "SplineMultipoint";
+            default -> node.getClass().getSimpleName();
+        };
     }
 
-    private static String compactDouble(double value) {
-        if (value == (long) value) {
-            return Long.toString((long) value);
+    private static String describeInlinedNoiseCoordinate(IRNode.InlinedNoise in, ConstantPool pool, int depth) {
+        int coordDepth = Math.max(depth, 3);
+        String coords = "x=" + describeSplineCoordinate(in.coordX(), pool, coordDepth)
+                + ",y=" + describeSplineCoordinate(in.coordY(), pool, coordDepth)
+                + ",z=" + describeSplineCoordinate(in.coordZ(), pool, coordDepth);
+        if (pool == null || in.specPoolIndex() < 0 || in.specPoolIndex() >= pool.noiseSpecCount()) {
+            return "InlinedNoise(" + coords + ")";
         }
-        return Double.toString(value);
+        NoiseSpec spec = pool.noiseSpec(in.specPoolIndex());
+        return "InlinedNoise(octaves=" + spec.totalActiveOctaves()
+                + ",valueFactor=" + spec.valueFactor()
+                + ",secondScale=" + spec.second().inputCoordScale()
+                + "," + coords + ")";
+    }
+
+    private static String describeMarkerCoordinate(IRNode.Marker marker, ConstantPool pool) {
+        if (pool == null || marker.externIndex() < 0 || marker.externIndex() >= pool.externCount()) {
+            return "Marker";
+        }
+        DensityFunction extern = pool.extern(marker.externIndex());
+        if (extern == null) {
+            return "Marker(null)";
+        }
+        String type = extern.getClass().getSimpleName();
+        if (extern instanceof net.minecraft.world.level.levelgen.DensityFunctions.MarkerOrMarked mm) {
+            return "Marker(" + mm.type() + "," + type + ")";
+        }
+        return "Marker(" + type + ")";
+    }
+
+    private static String describeFirstGpuPayloadUnsupported(
+            IRNode root,
+            ConstantPool pool,
+            GpuPayloadCompiler.Result gpuPayload) {
+        if (gpuPayload == null || gpuPayload.supported()) {
+            return "none";
+        }
+        String first = gpuPayload.firstUnsupportedNode();
+        String detail = gpuPayload.firstUnsupportedDetail();
+        if (detail != null && !detail.isBlank() && !"none".equals(detail) && !detail.equals(first)) {
+            return detail;
+        }
+        if (first == null || first.isBlank() || root == null) {
+            return first == null || first.isBlank() ? "unknown" : first;
+        }
+        IRNode node = findFirstUnsupportedNode(root, first, new IdentityHashMap<>());
+        if (node == null) {
+            return first;
+        }
+        return switch (node) {
+            case IRNode.Invoke invoke -> "Invoke:" + describeExternClass(pool, invoke.externIndex());
+            case IRNode.Marker marker -> "Marker:" + describeExternClass(pool, marker.externIndex());
+            case IRNode.Beardifier beardifier -> "Beardifier:" + describeExternClass(pool, beardifier.externIndex());
+            case IRNode.EndIslands endIslands -> "EndIslands:" + describeExternClass(pool, endIslands.externIndex());
+            case IRNode.InlinedNoise noise -> "InlinedNoise:spec=" + noise.specPoolIndex();
+            case IRNode.InlinedBlendedNoise noise -> "InlinedBlendedNoise:spec=" + noise.blendedSpecIndex();
+            case IRNode.Spline.Multipoint spline -> "Spline.Multipoint:points=" + spline.locations().length;
+            case IRNode.Noise noise -> "Noise:index=" + noise.noiseIndex();
+            case IRNode.ShiftedNoise noise -> "ShiftedNoise:index=" + noise.noiseIndex();
+            case IRNode.ShiftA noise -> "ShiftA:index=" + noise.noiseIndex();
+            case IRNode.ShiftB noise -> "ShiftB:index=" + noise.noiseIndex();
+            case IRNode.Shift noise -> "Shift:index=" + noise.noiseIndex();
+            case IRNode.WeirdScaled noise -> "WeirdScaled:index=" + noise.noiseIndex();
+            default -> node.getClass().getSimpleName();
+        };
+    }
+
+    private static IRNode findFirstUnsupportedNode(
+            IRNode node,
+            String unsupportedName,
+            IdentityHashMap<IRNode, Boolean> seen) {
+        if (node == null || seen.put(node, Boolean.TRUE) != null) {
+            return null;
+        }
+        if (unsupportedName.equals(node.getClass().getSimpleName())) {
+            return node;
+        }
+        for (IRNode child : RefCount.children(node)) {
+            IRNode found = findFirstUnsupportedNode(child, unsupportedName, seen);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static String describeExternClass(ConstantPool pool, int externIndex) {
+        if (pool == null || externIndex < 0 || externIndex >= pool.externCount()) {
+            return "extern#" + externIndex;
+        }
+        DensityFunction extern = pool.extern(externIndex);
+        if (extern == null) {
+            return "extern#" + externIndex + ":null";
+        }
+        String className = extern.getClass().getName();
+        if (extern instanceof net.minecraft.world.level.levelgen.DensityFunctions.MarkerOrMarked marker) {
+            className += ":" + marker.type();
+        }
+        return className;
     }
 
     /** Diagnostic snapshot of one compile() call. */
@@ -529,17 +725,10 @@ public final class Compiler {
             int noisesSpecialized,
             int octavesUnrolled,
             double minValue,
-            double maxValue) {}
-
-    private record SplineSearchStats(
-            int multipoints,
-            int binaryUsed,
-            int autoEligible,
-            int maxPoints,
-            int bucketLe2,
-            int bucket3To4,
-            int bucket5To8,
-            int bucketGe9) {}
+            double maxValue,
+            GpuEligibility.Report gpuEligibility,
+            GpuPayloadCompiler.Result gpuPayload,
+            GpuPayloadParity.Report gpuPayloadParity) {}
 
     public record DumpResult(Path directory, int classesDumped, int skipped, int failed) {}
 }

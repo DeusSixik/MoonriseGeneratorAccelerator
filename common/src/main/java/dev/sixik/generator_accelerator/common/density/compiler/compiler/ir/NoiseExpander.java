@@ -26,7 +26,7 @@ import java.util.List;
  *       IRNode.ShiftedNoise} / {@link IRNode.ShiftA} / {@link IRNode.ShiftB} /
  *       {@link IRNode.Shift} / {@link IRNode.WeirdScaled} forms available as a
  *       fallback when {@link
- *       dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.ConstantPool#internNoiseSpec}
+ *       ConstantPool#internNoiseSpec}
  *       returns {@code -1} (mixin binding failure for the underlying
  *       NormalNoise).</li>
  *   <li>Surfacing the coordinate expressions through {@link IROptimizer} a
@@ -282,21 +282,22 @@ public final class NoiseExpander {
     private IRNode constant(double v) { return intern(new IRNode.Const(v)); }
 
     /**
-     * Multiply {@code coord} by {@code scale}; only {@code scale == 1.0} is an
-     * exact local identity for block coordinates. Do not collapse {@code * 0.0}:
-     * negative coordinates produce {@code -0.0}, and replacing that with a literal
-     * {@code +0.0} would no longer be bit-identical to vanilla evaluation.
+     * Multiply {@code coord} by {@code scale}; collapses {@code scale == 1.0} to the
+     * coordinate untouched and {@code scale == 0.0} to the constant {@code 0.0}.
+     * The post-expansion {@link IROptimizer} pass would do this anyway — folding
+     * here keeps the intermediate IR smaller and makes {@code RefCount} see fewer
+     * one-shot Bin nodes.
      */
     private IRNode scale(IRNode coord, double scale) {
         if (Double.compare(scale, 1.0) == 0) return coord;
+        if (Double.compare(scale, 0.0) == 0) return constant(0.0);
         return intern(new IRNode.Bin(IRNode.BinOp.MUL, coord, constant(scale)));
     }
 
     private IRNode add(IRNode left, IRNode right) {
-        // Intentionally do not fold +0.0 here: x + 0.0 canonicalizes -0.0 to
-        // +0.0 in Java, so returning x would preserve the wrong raw bits. The
-        // post-expansion IROptimizer can still remove additions when it proves the
-        // non-constant side cannot be zero/NaN/Infinity.
+        // Same shrink-on-identity trick as scale().
+        if (right instanceof IRNode.Const c && Double.compare(c.value(), 0.0) == 0) return left;
+        if (left instanceof IRNode.Const c && Double.compare(c.value(), 0.0) == 0) return right;
         return intern(new IRNode.Bin(IRNode.BinOp.ADD, left, right));
     }
 

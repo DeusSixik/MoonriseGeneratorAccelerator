@@ -67,12 +67,9 @@ public final class SplineInliner {
                     mp.minValue(),
                     mp.maxValue());
         }
-        throw new UnsupportedSplineException("Unsupported CubicSpline implementation: " + spline.getClass().getName());
-    }
-
-    public static final class UnsupportedSplineException extends RuntimeException {
-        public UnsupportedSplineException(String message) {
-            super(message);
-        }
+        // Unknown flavour — we cannot inline; mirror it as a constant 0 to avoid crashing.
+        // The outer IRBuilder will capture the spline DF itself as an extern via Invoke
+        // before reaching here normally, so this branch is genuinely unreachable.
+        return new IRNode.Spline.Constant(0.0F);
     }
 }

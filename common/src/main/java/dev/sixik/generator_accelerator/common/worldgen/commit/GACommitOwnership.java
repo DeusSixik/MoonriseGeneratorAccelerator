@@ -83,25 +83,6 @@ public final class GACommitOwnership {
             List<GACommitCommand<T>> owned,
             Map<GAChunkPosition, List<GACommitCommand<T>>> forwardedByTarget
     ) {
-        public GACommitOwnershipSplit {
-            if (ownerChunk == null) {
-                throw new NullPointerException("ownerChunk");
-            }
-            owned = owned == null ? List.of() : List.copyOf(owned);
-            if (forwardedByTarget == null) {
-                forwardedByTarget = Map.of();
-            } else {
-                Map<GAChunkPosition, List<GACommitCommand<T>>> copied = new TreeMap<>();
-                for (Map.Entry<GAChunkPosition, List<GACommitCommand<T>>> entry : forwardedByTarget.entrySet()) {
-                    if (entry.getKey() == null) {
-                        throw new NullPointerException("forwarded target");
-                    }
-                    copied.put(entry.getKey(), entry.getValue() == null ? List.of() : List.copyOf(entry.getValue()));
-                }
-                forwardedByTarget = Collections.unmodifiableMap(copied);
-            }
-        }
-
         public int forwardedCount() {
             int count = 0;
             for (List<GACommitCommand<T>> commands : forwardedByTarget.values()) {

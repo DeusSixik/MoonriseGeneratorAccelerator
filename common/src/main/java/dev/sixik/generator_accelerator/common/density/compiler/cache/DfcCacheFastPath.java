@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.cache;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import net.minecraft.world.level.levelgen.DensityFunction;
-import net.minecraft.world.level.levelgen.NoiseChunk;
 
 import java.util.concurrent.atomic.LongAdder;
 
@@ -18,12 +18,12 @@ public final class DfcCacheFastPath {
 
     public static final double CACHE_MISS = Double.longBitsToDouble(MISS_BITS);
 
-    private static final LongAdder ELIGIBLE_CALLS = new LongAdder();
     private static final LongAdder HITS = new LongAdder();
     private static final LongAdder MISSES = new LongAdder();
     private static final LongAdder DISABLED_FALLBACKS = new LongAdder();
     private static final LongAdder NON_ACCESS_FALLBACKS = new LongAdder();
-    private static volatile boolean STATS_ENABLED = Boolean.getBoolean("ga.dfc.cacheFastPath.stats");
+    private static volatile boolean statsEnabled = Boolean.getBoolean("ga.dfc.cacheFastPath.stats")
+            || GAConfigHolder.getConfig().dfc.cacheFastPathStats;
 
     private DfcCacheFastPath() {}
 
@@ -31,53 +31,27 @@ public final class DfcCacheFastPath {
                         long disabledFallbacks, long nonAccessFallbacks) {}
 
     public static Stats snapshotStats() {
-        return new Stats(ELIGIBLE_CALLS.sum(), HITS.sum(), MISSES.sum(),
+        long hits = HITS.sum();
+        long misses = MISSES.sum();
+        return new Stats(hits + misses, hits, misses,
                 DISABLED_FALLBACKS.sum(), NON_ACCESS_FALLBACKS.sum());
     }
 
+    public static void setStatsEnabled(boolean enabled) {
+        statsEnabled = enabled;
+    }
+
     public static void resetStats() {
-        ELIGIBLE_CALLS.reset();
         HITS.reset();
         MISSES.reset();
         DISABLED_FALLBACKS.reset();
         NON_ACCESS_FALLBACKS.reset();
     }
 
-    public static boolean statsEnabled() {
-        return STATS_ENABLED;
-    }
-
-    public static void setStatsEnabled(boolean enabled) {
-        STATS_ENABLED = enabled;
-    }
-
-    public static void recordCoordinateFallback() {
-        if (STATS_ENABLED) {
-            MISSES.increment();
-        }
-    }
-
-    public static void recordRaceFallback() {
-        if (STATS_ENABLED) {
-            MISSES.increment();
-        }
-    }
-
-    public static void recordUnsafeFallback() {
-        if (STATS_ENABLED) {
-            DISABLED_FALLBACKS.increment();
-        }
-    }
     public static double tryWrapperDirectRead(DensityFunction extern, DensityFunction.FunctionContext context) {
-        boolean stats = STATS_ENABLED;
         if (extern instanceof DfcCellCacheAccess acc) {
-            if (stats) {
-                ELIGIBLE_CALLS.increment();
-            }
-            double v = context instanceof NoiseChunk chunk
-                    ? acc.dfc$tryDirectRead(chunk)
-                    : acc.dfc$tryDirectRead(context);
-            if (stats) {
+            double v = acc.dfc$tryDirectRead(context);
+            if (statsEnabled()) {
                 if (Double.doubleToRawLongBits(v) != MISS_BITS) {
                     HITS.increment();
                 } else {
@@ -86,32 +60,57 @@ public final class DfcCacheFastPath {
             }
             return v;
         }
-        if (stats) {
+        if (statsEnabled()) {
             NON_ACCESS_FALLBACKS.increment();
         }
         return CACHE_MISS;
     }
 
-    public static double computeWithOptionalDirectReadNoStats(
-            DensityFunction extern, DensityFunction.FunctionContext context) {
-        if (extern instanceof DfcCellCacheAccess acc) {
-            double value = acc.dfc$tryDirectRead(context);
-            if (Double.doubleToRawLongBits(value) != MISS_BITS) {
-                return value;
+    /**
+     * Typed fast path for call sites that already proved {@code extern instanceof DfcCellCacheAccess}.
+     */
+    public static double computeKnownAccess(
+            DensityFunction extern, DfcCellCacheAccess access, DensityFunction.FunctionContext context) {
+        double v = access.dfc$tryDirectRead(context);
+        if (Double.doubleToRawLongBits(v) != MISS_BITS) {
+            if (statsEnabled()) {
+                HITS.increment();
             }
+            return v;
+        }
+        if (statsEnabled()) {
+            MISSES.increment();
         }
         return extern.compute(context);
     }
 
-    public static double computeWithOptionalDirectReadNoStats(
-            DensityFunction extern, NoiseChunk chunk) {
-        if (extern instanceof DfcCellCacheAccess acc) {
-            double value = acc.dfc$tryDirectRead(chunk);
-            if (Double.doubleToRawLongBits(value) != MISS_BITS) {
-                return value;
+    /**
+     * Typed path for cell caches whose buffer layout is keyed by NoiseChunk.arrayIndex.
+     */
+    public static double computeKnownArrayIndexAccess(
+            DensityFunction extern, DfcCellCacheArrayIndexAccess access, DensityFunction.FunctionContext context) {
+        double v = access.dfc$tryDirectReadByArrayIndex(context);
+        if (Double.doubleToRawLongBits(v) != MISS_BITS) {
+            if (statsEnabled()) {
+                HITS.increment();
             }
+            return v;
         }
-        return extern.compute(chunk);
+        if (statsEnabled()) {
+            MISSES.increment();
+        }
+        return extern.compute(context);
+    }
+
+    /**
+     * Slow path for marker sites that were flagged optimistically but don't expose direct-read access.
+     */
+    public static double computeKnownNonAccess(
+            DensityFunction extern, DensityFunction.FunctionContext context) {
+        if (statsEnabled()) {
+            NON_ACCESS_FALLBACKS.increment();
+        }
+        return extern.compute(context);
     }
 
     /**
@@ -120,84 +119,27 @@ public final class DfcCacheFastPath {
      */
     public static double computeWithOptionalDirectRead(
             DensityFunction extern, DensityFunction.FunctionContext context) {
-        boolean stats = STATS_ENABLED;
         if (extern instanceof DfcCellCacheAccess acc) {
-            if (stats) {
-                ELIGIBLE_CALLS.increment();
-            }
-            double v = context instanceof NoiseChunk chunk
-                    ? acc.dfc$tryDirectRead(chunk)
-                    : acc.dfc$tryDirectRead(context);
+            double v = acc.dfc$tryDirectRead(context);
             if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-                if (stats) {
+                if (statsEnabled()) {
                     HITS.increment();
                 }
                 return v;
             }
-            if (stats) {
+            if (statsEnabled()) {
                 MISSES.increment();
             }
         } else {
-            if (stats) {
+            if (statsEnabled()) {
                 NON_ACCESS_FALLBACKS.increment();
             }
         }
         return extern.compute(context);
     }
 
-    /**
-     * NoiseChunk-specialized marker path. Generated DFC code uses this for the
-     * overwhelmingly common chunk-local cache wrapper calls, avoiding the per-call
-     * context type check in {@link #computeWithOptionalDirectRead} while keeping the
-     * generated bytecode frame shape simple.
-     */
-    public static double computeWithOptionalDirectRead(
-            DensityFunction extern, NoiseChunk chunk) {
-        boolean stats = STATS_ENABLED;
-        if (extern instanceof DfcCellCacheAccess acc) {
-            if (stats) {
-                ELIGIBLE_CALLS.increment();
-            }
-            double v = acc.dfc$tryDirectRead(chunk);
-            if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-                if (stats) {
-                    HITS.increment();
-                }
-                return v;
-            }
-            if (stats) {
-                MISSES.increment();
-            }
-        } else {
-            if (stats) {
-                NON_ACCESS_FALLBACKS.increment();
-            }
-        }
-        return extern.compute(chunk);
-    }
 
-    /**
-     * Trusted fast path for marker call sites that were proven at compile time to
-     * be NoiseChunk cache wrappers. This avoids the extra instanceof in the hottest
-     * DFC marker path; incorrect use fails loudly instead of silently returning a
-     * wrong worldgen value.
-     */
-    public static double computeTrustedDirectRead(
-            DfcCellCacheAccess access, DensityFunction extern, NoiseChunk chunk) {
-        boolean stats = STATS_ENABLED;
-        if (stats) {
-            ELIGIBLE_CALLS.increment();
-        }
-        double v = access.dfc$tryDirectRead(chunk);
-        if (Double.doubleToRawLongBits(v) != MISS_BITS) {
-            if (stats) {
-                HITS.increment();
-            }
-            return v;
-        }
-        if (stats) {
-            MISSES.increment();
-        }
-        return extern.compute(chunk);
+    private static boolean statsEnabled() {
+        return statsEnabled;
     }
 }

@@ -1,12 +1,12 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "dev.sixik.generator_accelerator.common.density.compiler.mixin",
+  "package": "dev.sixik.generator_accelerator.common.density.mixin",
   "compatibilityLevel": "JAVA_21",
   "plugin": "dev.sixik.generator_accelerator.common.density.compiler.GADensityCompilerMixinPlugin",
   "mixins": [
-    "NoiseBasedChunkGeneratorMixin",
     "ClimateSamplerFabricDfcFapiSupportMixin",
+    "MixinDensityFunctions$Ap2",
     "NoiseChunkCache2dMixin",
     "NoiseChunkCacheAllInCellMixin",
     "NoiseChunkCacheOnceMixin",

@@ -1,10 +1,13 @@
 package dev.sixik.generator_accelerator.common.paletted_container.mixin.bitstorages;
 
+import dev.sixik.generator_accelerator.api.patches.GA$SimpleBitStorageExtern;
 import net.minecraft.util.SimpleBitStorage;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.function.IntConsumer;
 
 /**
  * @author Spottedleaf
@@ -12,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * All code provided in this class was taken from <a href="https://github.com/Tuinity/Moonrise">Moonrise</a>
  */
 @Mixin(SimpleBitStorage.class)
-public abstract class MixinSimpleBitStorage {
+public abstract class MixinSimpleBitStorage implements GA$SimpleBitStorageExtern {
 
 
     @Shadow
@@ -89,6 +92,78 @@ public abstract class MixinSimpleBitStorage {
         int divQ = full >>> 20;
         int divR = (full & 1048575) * this.mulBits >>> 20;
         return (int) (this.data[divQ] >>> divR & this.mask);
+    }
+
+    @Override
+    public long[] ga$getRaw() {
+        return this.data;
+    }
+
+    @Override
+    public int ga$getBits() {
+        return this.bits;
+    }
+
+    @Override
+    public long ga$getMask() {
+        return this.mask;
+    }
+
+    @Override
+    public int ga$getSize() {
+        return this.size;
+    }
+
+    @Override
+    public int ga$getValuesPerLong() {
+        return 64 / this.bits;
+    }
+
+    /**
+     * @author Sixik
+     * @reason Avoid validation and callback overhead when callers need the full section decoded.
+     */
+    @Overwrite
+    public void unpack(int[] output) {
+        final long[] dataArray = this.data;
+        final long mask = this.mask;
+        final int bits = this.bits;
+        final int valuesPerLong = 64 / bits;
+        final int size = this.size;
+        int outIndex = 0;
+
+        for (int cell = 0; cell < dataArray.length && outIndex < size; cell++) {
+            long packed = dataArray[cell];
+            int limit = Math.min(valuesPerLong, size - outIndex);
+            for (int offset = 0; offset < limit; offset++) {
+                output[outIndex++] = (int) (packed & mask);
+                packed >>>= bits;
+            }
+        }
+    }
+
+    /**
+     * @author Sixik
+     * @reason Keep iteration branch-local and allocation-free.
+     */
+    @Overwrite
+    public void getAll(IntConsumer consumer) {
+        final long[] dataArray = this.data;
+        final long mask = this.mask;
+        final int bits = this.bits;
+        final int valuesPerLong = 64 / bits;
+        final int size = this.size;
+        int emitted = 0;
+
+        for (int cell = 0; cell < dataArray.length && emitted < size; cell++) {
+            long packed = dataArray[cell];
+            int limit = Math.min(valuesPerLong, size - emitted);
+            for (int offset = 0; offset < limit; offset++) {
+                consumer.accept((int) (packed & mask));
+                packed >>>= bits;
+                emitted++;
+            }
+        }
     }
 
     static {

@@ -1,5 +1,6 @@
 package dev.sixik.generator_accelerator.common.paletted_container.mixin;
 
+import dev.sixik.generator_accelerator.api.patches.GA$PaletteDataExtern;
 import net.minecraft.util.BitStorage;
 import net.minecraft.world.level.chunk.Palette;
 import net.minecraft.world.level.chunk.PalettedContainer;
@@ -25,6 +26,9 @@ public class MixinPalettedContainer$flat_iterations<T> {
     @Unique
     private static final ThreadLocal<boolean[]> PRESENT_FLAGS_BUFFER = ThreadLocal.withInitial(() -> new boolean[4096]);
 
+    @Unique
+    private static final ThreadLocal<int[]> STORAGE_UNPACK_BUFFER = ThreadLocal.withInitial(() -> new int[4096]);
+
 
     /**
      * @author Sixik
@@ -33,12 +37,16 @@ public class MixinPalettedContainer$flat_iterations<T> {
     @Inject(method = "getAll", at = @At("HEAD"), cancellable = true)
     public void getAll(Consumer<T> consumer, CallbackInfo ci) {
         ci.cancel();
-        final Palette<T> palette = this.data.palette;
-        final BitStorage storage = this.data.storage();
+        final PalettedContainer.Data<T> data = this.data;
+        final Palette<T> palette = data.palette;
+        final GA$PaletteDataExtern<T> extern = (GA$PaletteDataExtern<T>) (Object) data;
+        final int storageSize = data.storage().getSize();
+        final int[] storageIndices = this.generatorAccelerator$getRawOrUnpackedStorage(data, extern, storageSize);
         final int paletteSize = palette.getSize();
+        final T[] rawPalette = extern.bts$getPalette();
 
         if (paletteSize == 1) {
-            consumer.accept(palette.valueFor(0));
+            consumer.accept(this.generatorAccelerator$readPalette(palette, rawPalette, 0));
             return;
         }
 
@@ -50,11 +58,10 @@ public class MixinPalettedContainer$flat_iterations<T> {
 
         Arrays.fill(presentFlags, 0, paletteSize, false);
 
-        final int storageSize = storage.getSize();
         int uniqueFound = 0;
 
         for (int i = 0; i < storageSize; i++) {
-            int paletteIndex = storage.get(i);
+            int paletteIndex = storageIndices[i];
 
             if (!presentFlags[paletteIndex]) {
                 presentFlags[paletteIndex] = true;
@@ -68,7 +75,7 @@ public class MixinPalettedContainer$flat_iterations<T> {
 
         for (int i = 0; i < paletteSize; i++) {
             if (presentFlags[i]) {
-                consumer.accept(palette.valueFor(i));
+                consumer.accept(this.generatorAccelerator$readPalette(palette, rawPalette, i));
             }
         }
     }
@@ -80,12 +87,16 @@ public class MixinPalettedContainer$flat_iterations<T> {
     @Inject(method = "count", at = @At("HEAD"), cancellable = true)
     public void count(PalettedContainer.CountConsumer<T> countConsumer, CallbackInfo ci) {
         ci.cancel();
-        final Palette<T> palette = this.data.palette;
-        final BitStorage storage = this.data.storage();
+        final PalettedContainer.Data<T> data = this.data;
+        final Palette<T> palette = data.palette;
+        final GA$PaletteDataExtern<T> extern = (GA$PaletteDataExtern<T>) (Object) data;
+        final int storageSize = data.storage().getSize();
+        final int[] storageIndices = this.generatorAccelerator$getRawOrUnpackedStorage(data, extern, storageSize);
         final int paletteSize = palette.getSize();
+        final T[] rawPalette = extern.bts$getPalette();
 
         if (paletteSize == 1) {
-            countConsumer.accept(palette.valueFor(0), storage.getSize());
+            countConsumer.accept(this.generatorAccelerator$readPalette(palette, rawPalette, 0), storageSize);
             return;
         }
 
@@ -98,9 +109,8 @@ public class MixinPalettedContainer$flat_iterations<T> {
 
         Arrays.fill(counters, 0, paletteSize, 0);
 
-        final int storageSize = storage.getSize();
         for (int i = 0; i < storageSize; i++) {
-            int paletteIndex = storage.get(i);
+            int paletteIndex = storageIndices[i];
 
             counters[paletteIndex]++;
         }
@@ -108,8 +118,39 @@ public class MixinPalettedContainer$flat_iterations<T> {
         for (int i = 0; i < paletteSize; i++) {
             int count = counters[i];
             if (count > 0) {
-                countConsumer.accept(palette.valueFor(i), count);
+                countConsumer.accept(this.generatorAccelerator$readPalette(palette, rawPalette, i), count);
             }
         }
+    }
+
+    @Unique
+    private int[] generatorAccelerator$getRawOrUnpackedStorage(PalettedContainer.Data<T> data, GA$PaletteDataExtern<T> extern, int storageSize) {
+        int[] rawStorage = extern.bts$getRawStorage();
+        if (rawStorage != null) {
+            return rawStorage;
+        }
+
+        int[] unpacked = STORAGE_UNPACK_BUFFER.get();
+        if (unpacked.length < storageSize) {
+            unpacked = new int[storageSize];
+            STORAGE_UNPACK_BUFFER.set(unpacked);
+        }
+        if (data.storage().getBits() == 0) {
+            Arrays.fill(unpacked, 0, storageSize, 0);
+        } else {
+            data.storage().unpack(unpacked);
+        }
+        return unpacked;
+    }
+
+    @Unique
+    private T generatorAccelerator$readPalette(Palette<T> palette, T[] rawPalette, int paletteIndex) {
+        if (rawPalette != null) {
+            T value = rawPalette[paletteIndex];
+            if (value != null) {
+                return value;
+            }
+        }
+        return palette.valueFor(paletteIndex);
     }
 }

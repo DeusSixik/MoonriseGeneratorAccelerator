@@ -1,7 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
-import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.PerlinNoiseAccessor;
+import dev.sixik.generator_accelerator.common.density.mixin.noise.PerlinNoiseAccessor;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;

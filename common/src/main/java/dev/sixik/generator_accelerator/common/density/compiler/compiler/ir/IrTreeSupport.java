@@ -1,11 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
 
 /**

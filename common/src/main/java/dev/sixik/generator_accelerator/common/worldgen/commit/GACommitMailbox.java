@@ -149,14 +149,6 @@ public final class GACommitMailbox<T> {
             GAChunkPosition targetChunk,
             GACommitBatch.GAResolvedCommitBatch<T> resolved
     ) {
-        public GACommitMailboxDrain {
-            if (targetChunk == null) {
-                throw new NullPointerException("targetChunk");
-            }
-            if (resolved == null) {
-                throw new NullPointerException("resolved");
-            }
-        }
     }
 
     public record GACommitMailboxExecution<T>(
@@ -164,12 +156,5 @@ public final class GACommitMailbox<T> {
             GACommitMetrics metrics,
             List<GACommitEngine.GACommitFailure<T>> failures
     ) {
-        public GACommitMailboxExecution {
-            drained = drained == null ? List.of() : List.copyOf(drained);
-            if (metrics == null) {
-                throw new NullPointerException("metrics");
-            }
-            failures = failures == null ? List.of() : List.copyOf(failures);
-        }
     }
 }

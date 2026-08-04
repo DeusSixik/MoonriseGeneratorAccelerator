@@ -1,12 +1,6 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Counts how many times each interned IR node is referenced from the root, then picks
@@ -40,7 +34,7 @@ public final class RefCount {
      * Fills {@code st.refs} in place, then returns a new {@link Result} whose
      * {@code refs()} view is the same map instance. Callers that retain the
      * {@code Result} must not reuse the same {@link Workspace} until the result is
-     * discarded; {@link dev.sixik.generator_accelerator.common.density.compiler.compiler.ir.IROptimizer} only holds one live result per iteration.
+     * discarded; {@link IROptimizer} only holds one live result per iteration.
      */
     public static Result compute(Workspace st, IRNode root) {
         st.refs.clear();

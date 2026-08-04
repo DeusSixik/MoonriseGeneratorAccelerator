@@ -3,7 +3,7 @@ package dev.sixik.generator_accelerator.common.density.compiler.compiler.noise;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
-import dev.sixik.generator_accelerator.common.density.compiler.mixin.noise.BlendedNoiseAccessor;
+import dev.sixik.generator_accelerator.common.density.mixin.noise.BlendedNoiseAccessor;
 import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.PerlinNoise;

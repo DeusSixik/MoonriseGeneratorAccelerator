@@ -9,11 +9,7 @@ import net.minecraft.world.level.levelgen.synth.BlendedNoise;
 import net.minecraft.world.level.levelgen.synth.ImprovedNoise;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Per-compilation collector that hands out stable indices for every "extern" reference
@@ -45,7 +41,6 @@ public final class ConstantPool {
     private final BitSet cacheWrapperFastPathExtern = new BitSet();
 
     private final List<Object> splines = new ArrayList<>();
-    private final Map<Object, Integer> generatedSplineIndex = new java.util.HashMap<>();
 
     /**
      * Per-noise specialization data keyed by {@link NormalNoise} identity. Each entry
@@ -100,60 +95,32 @@ public final class ConstantPool {
         return cacheWrapperFastPathExtern.get(externIndex);
     }
 
-    /** Append a spline blob (no deduplication; splines compare by structure not identity). */
+    /** Append a spline support blob, reusing structurally identical payloads prepared before emission. */
     public int internSpline(Object spline) {
+        for (int i = 0; i < splines.size(); i++) {
+            if (sameSplinePayload(splines.get(i), spline)) {
+                return i;
+            }
+        }
         int next = splines.size();
         splines.add(spline);
         return next;
     }
 
-    /**
-     * Interns the location array used by generated binary spline search.
-     * Content-based deduplication keeps the slot stable across the pre-fingerprint
-     * materialization pass and the later bytecode emission pass.
-     */
-    public int internSplineLocations(float[] locations) {
-        SplineLocationsKey key = new SplineLocationsKey(locations);
-        return internGeneratedSpline(key, locations.clone());
-    }
-
-    /**
-     * Interns the exact LUT used by generated spline segment selection.
-     */
-    public int internSplineSegmentLut(float[] locations, int bucketCount) {
-        SplineSegmentLutKey key = new SplineSegmentLutKey(new SplineLocationsKey(locations), bucketCount);
-        return internGeneratedSpline(key, DfcSplineSupport.buildSegmentLut(locations, bucketCount));
-    }
-
-    private int internGeneratedSpline(Object key, Object spline) {
-        Integer existing = generatedSplineIndex.get(key);
-        if (existing != null) {
-            return existing;
+    private static boolean sameSplinePayload(Object left, Object right) {
+        if (left == right) {
+            return true;
         }
-        int next = splines.size();
-        splines.add(spline);
-        generatedSplineIndex.put(key, next);
-        return next;
-    }
-
-    private record SplineLocationsKey(float[] locations) {
-        private SplineLocationsKey {
-            locations = locations.clone();
+        if (left instanceof float[] leftArray && right instanceof float[] rightArray) {
+            return java.util.Arrays.equals(leftArray, rightArray);
         }
-
-        @Override
-        public boolean equals(Object obj) {
-            return obj instanceof SplineLocationsKey other
-                    && java.util.Arrays.equals(locations, other.locations);
+        if (left instanceof DfcSplineSupport.SegmentLut leftLut && right instanceof DfcSplineSupport.SegmentLut rightLut) {
+            return Float.compare(leftLut.minLocation(), rightLut.minLocation()) == 0
+                    && Float.compare(leftLut.bucketScale(), rightLut.bucketScale()) == 0
+                    && java.util.Arrays.equals(leftLut.locations(), rightLut.locations())
+                    && java.util.Arrays.equals(leftLut.segments(), rightLut.segments());
         }
-
-        @Override
-        public int hashCode() {
-            return java.util.Arrays.hashCode(locations);
-        }
-    }
-
-    private record SplineSegmentLutKey(SplineLocationsKey locations, int bucketCount) {
+        return left != null && left.equals(right);
     }
 
     public double[] finishConstants() {
@@ -217,9 +184,9 @@ public final class ConstantPool {
     public BlendedNoiseSpec blendedNoiseSpec(int idx) { return blendedNoiseSpecs.get(idx); }
     public int blendedNoiseSpecCount() { return blendedNoiseSpecs.size(); }
 
-    /** Snapshot for native handle layout (indices follow {@link #noiseSpecs()}). */
-    public java.util.List<BlendedNoiseSpec> blendedNoiseSpecsList() {
-        return java.util.List.copyOf(blendedNoiseSpecs);
+    /** Snapshot of blended-noise specs in constant-pool order. */
+    public List<BlendedNoiseSpec> blendedNoiseSpecsList() {
+        return List.copyOf(blendedNoiseSpecs);
     }
 
     /**

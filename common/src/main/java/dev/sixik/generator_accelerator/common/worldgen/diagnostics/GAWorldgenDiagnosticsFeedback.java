@@ -17,12 +17,12 @@ public final class GAWorldgenDiagnosticsFeedback {
     }
 
     public static Map<String, Object> snapshot(
-            Map<String, ?> profileMetrics,
-            Map<String, ?> registryScan,
-            Map<String, ?> scheduler,
-            Map<String, ?> workspace,
-            Map<String, ?> commitEngine,
-            Map<String, ?> pipelineStatus
+            Map<String, Object> profileMetrics,
+            Map<String, Object> registryScan,
+            Map<String, Object> scheduler,
+            Map<String, Object> workspace,
+            Map<String, Object> commitEngine,
+            Map<String, Object> pipelineStatus
     ) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("schema", "ga-worldgen-feedback-v1");
@@ -38,8 +38,8 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static List<Map<String, Object>> quarantineList(Map<String, ?> profileMetrics) {
-        Map<String, ?> fallbackReasons = map(profileMetrics, "fallbackReasons");
+    private static List<Map<String, Object>> quarantineList(Map<String, Object> profileMetrics) {
+        Map<String, Object> fallbackReasons = map(profileMetrics, "fallbackReasons");
         List<Map<String, Object>> out = new ArrayList<>();
         fallbackReasons.entrySet().stream()
                 .filter(entry -> isQuarantineReason(entry.getKey()))
@@ -55,8 +55,8 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static List<Map<String, Object>> topSlowUnsafeUnits(Map<String, ?> profileMetrics) {
-        Map<String, ?> classes = map(profileMetrics, "classes");
+    private static List<Map<String, Object>> topSlowUnsafeUnits(Map<String, Object> profileMetrics) {
+        Map<String, Object> classes = map(profileMetrics, "classes");
         long serial = number(map(profileMetrics, "tiers").get("SERIAL_ISOLATED"));
         long disabled = number(map(profileMetrics, "tiers").get("VANILLA_FALLBACK_DISABLED"));
         boolean unsafeDominates = serial + disabled > 0L;
@@ -78,8 +78,8 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static List<Map<String, Object>> tierTimePerNamespace(Map<String, ?> profileMetrics) {
-        Map<String, ?> namespaces = map(profileMetrics, "namespaces");
+    private static List<Map<String, Object>> tierTimePerNamespace(Map<String, Object> profileMetrics) {
+        Map<String, Object> namespaces = map(profileMetrics, "namespaces");
         long totalCost = number(profileMetrics == null ? null : profileMetrics.get("estimatedCostTotal"));
         List<Map<String, Object>> out = new ArrayList<>();
         namespaces.entrySet().stream()
@@ -105,10 +105,10 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static List<Map<String, Object>> suggestedCompatTargets(Map<String, ?> profileMetrics, Map<String, ?> registryScan) {
-        Map<String, ?> namespaces = map(profileMetrics, "namespaces");
-        Map<String, ?> fallbackReasons = map(profileMetrics, "fallbackReasons");
-        Map<String, ?> scanFallback = map(registryScan, "countsByFallbackReason");
+    private static List<Map<String, Object>> suggestedCompatTargets(Map<String, Object> profileMetrics, Map<String, Object> registryScan) {
+        Map<String, Object> namespaces = map(profileMetrics, "namespaces");
+        Map<String, Object> fallbackReasons = map(profileMetrics, "fallbackReasons");
+        Map<String, Object> scanFallback = map(registryScan, "countsByFallbackReason");
         List<Map<String, Object>> out = new ArrayList<>();
         namespaces.entrySet().stream()
                 .sorted(countComparator())
@@ -133,9 +133,9 @@ public final class GAWorldgenDiagnosticsFeedback {
                 .toList();
     }
 
-    private static Map<String, Object> workspaceBreakdown(Map<String, ?> workspace) {
+    private static Map<String, Object> workspaceBreakdown(Map<String, Object> workspace) {
         Map<String, Object> out = new LinkedHashMap<>();
-        Map<String, ?> metrics = map(workspace, "metrics");
+        Map<String, Object> metrics = map(workspace, "metrics");
         out.put("inFlight", number(workspace == null ? null : workspace.get("inFlight")));
         out.put("maxInFlightSeen", number(workspace == null ? null : workspace.get("maxInFlightSeen")));
         out.put("pooledEstimatedRetainedBytes", number(workspace == null ? null : workspace.get("pooledEstimatedRetainedBytes")));
@@ -148,7 +148,7 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static Map<String, Object> commitHints(Map<String, ?> commitEngine) {
+    private static Map<String, Object> commitHints(Map<String, Object> commitEngine) {
         Map<String, Object> out = new LinkedHashMap<>();
         long collisions = number(commitEngine == null ? null : commitEngine.get("collisions"));
         long failures = number(commitEngine == null ? null : commitEngine.get("failures"));
@@ -158,9 +158,9 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static Map<String, Object> schedulerHints(Map<String, ?> scheduler) {
+    private static Map<String, Object> schedulerHints(Map<String, Object> scheduler) {
         Map<String, Object> out = new LinkedHashMap<>();
-        Map<String, ?> governor = map(scheduler, "governor");
+        Map<String, Object> governor = map(scheduler, "governor");
         out.put("worldgenPressure", number(governor.get("worldgenPressure")));
         out.put("worldgenPressureTarget", number(governor.get("worldgenPressureTarget")));
         out.put("compileActiveLimit", number(governor.get("compileActiveLimit")));
@@ -168,8 +168,8 @@ public final class GAWorldgenDiagnosticsFeedback {
         return out;
     }
 
-    private static List<String> missingRuntimeGates(Map<String, ?> pipelineStatus) {
-        Map<String, ?> gates = map(pipelineStatus, "runtimeGates");
+    private static List<String> missingRuntimeGates(Map<String, Object> pipelineStatus) {
+        Map<String, Object> gates = map(pipelineStatus, "runtimeGates");
         return gates.entrySet().stream()
                 .filter(entry -> Boolean.FALSE.equals(entry.getValue()))
                 .map(Map.Entry::getKey)
@@ -210,20 +210,20 @@ public final class GAWorldgenDiagnosticsFeedback {
         return "inspect unit and add guard/parity sample";
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
     private static Comparator<Map.Entry<String, ?>> countComparator() {
-        return Comparator
-                .<Map.Entry<String, ?>>comparingLong(entry -> number(entry.getValue()))
-                .reversed()
-                .thenComparing(Map.Entry::getKey);
+        Comparator<Map.Entry<String, ?>> byCount = (left, right) -> Long.compare(number(right.getValue()), number(left.getValue()));
+        Comparator<Map.Entry<String, ?>> byKey = (left, right) -> String.valueOf(left.getKey()).compareTo(String.valueOf(right.getKey()));
+        return byCount.thenComparing(byKey);
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, ?> map(Map<String, ?> source, String key) {
+    private static Map<String, Object> map(Map<String, Object> source, String key) {
         if (source == null) {
             return Map.of();
         }
         Object value = source.get(key);
-        return value instanceof Map<?, ?> map ? (Map<String, ?>) map : Map.of();
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
     }
 
     private static long number(Object value) {

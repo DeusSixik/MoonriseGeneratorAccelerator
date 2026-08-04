@@ -113,12 +113,6 @@ public final class GACommitConflictGroups<T> {
             GACommitConflictKey key,
             List<GACommitCommand<T>> commands
     ) {
-        public GACommitConflictGroup {
-            if (key == null) {
-                throw new NullPointerException("key");
-            }
-            commands = commands == null ? List.of() : List.copyOf(commands);
-        }
     }
 
     public record GACommitConflictStats(
@@ -127,19 +121,5 @@ public final class GACommitConflictGroups<T> {
             int collidingGroupCount,
             int largestGroupSize
     ) {
-        public GACommitConflictStats {
-            if (commandCount < 0) {
-                throw new IllegalArgumentException("commandCount must be non-negative");
-            }
-            if (groupCount < 0) {
-                throw new IllegalArgumentException("groupCount must be non-negative");
-            }
-            if (collidingGroupCount < 0) {
-                throw new IllegalArgumentException("collidingGroupCount must be non-negative");
-            }
-            if (largestGroupSize < 0) {
-                throw new IllegalArgumentException("largestGroupSize must be non-negative");
-            }
-        }
     }
 }

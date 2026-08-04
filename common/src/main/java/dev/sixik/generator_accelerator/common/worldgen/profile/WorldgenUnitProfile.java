@@ -17,19 +17,6 @@ public record WorldgenUnitProfile(
         List<String> guards,
         String fallbackReason
 ) {
-    public WorldgenUnitProfile {
-        id = id == null ? "" : id;
-        namespace = namespace == null ? "" : namespace;
-        className = className == null ? "" : className;
-        bytecodeHash = bytecodeHash == null ? "" : bytecodeHash;
-        configHash = configHash == null ? "" : configHash;
-        entryPointMethod = entryPointMethod == null ? "" : entryPointMethod;
-        effectFlags = effectFlags == null ? Set.of() : Set.copyOf(effectFlags);
-        safetyTier = safetyTier == null ? WorldgenSafetyTier.SERIAL_ISOLATED : safetyTier;
-        guards = guards == null ? List.of() : List.copyOf(guards);
-        fallbackReason = fallbackReason == null ? "" : fallbackReason;
-    }
-
     public boolean hasEffect(WorldgenEffectFlag flag) {
         return this.effectFlags.contains(flag);
     }

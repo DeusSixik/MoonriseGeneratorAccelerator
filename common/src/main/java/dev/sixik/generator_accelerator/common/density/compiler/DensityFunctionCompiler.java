@@ -2,11 +2,8 @@ package dev.sixik.generator_accelerator.common.density.compiler;
 
 import com.mojang.brigadier.CommandDispatcher;
 import dev.sixik.generator_accelerator.GARuntimeCaches;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCacheFastPath;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillParity;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcCellFillStats;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcNativePlanningStats;
-import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcRuntimeTelemetry;
 import dev.sixik.generator_accelerator.common.density.compiler.cache.DfcSplineStats;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.Compiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline.RegistryWarmer;
@@ -35,7 +32,6 @@ public final class DensityFunctionCompiler {
         initialized = true;
         LOGGER.info("DensityFunctionCompiler initialising - runtime DF JIT pipeline enabling.");
         DfcVectorSupport.logStatusOnce();
-        LOGGER.info("DFC native noise: disabled (Java-only density compiler path).");
     }
 
     public static void onServerStarting(MinecraftServer server) {
@@ -68,39 +64,6 @@ public final class DensityFunctionCompiler {
                                     false);
                             return result.classesDumped();
                         }))
-                .then(Commands.literal("stats")
-                        .executes(context -> {
-                            DfcRuntimeTelemetry.Stats stats = DfcRuntimeTelemetry.snapshot();
-                            DfcCacheFastPath.Stats cacheStats = DfcCacheFastPath.snapshotStats();
-                            context.getSource().sendSuccess(() -> Component.literal(DfcRuntimeTelemetry.summary()), false);
-                            context.getSource().sendSuccess(() -> Component.literal(
-                                    "DFC cache fast-path: eligible=" + cacheStats.eligibleCalls()
-                                            + ", hits=" + cacheStats.hits()
-                                            + ", misses=" + cacheStats.misses()
-                                            + ", nonAccessFallbacks=" + cacheStats.nonAccessFallbacks()), false);
-                            if (!stats.topExternClasses().isEmpty()) {
-                                context.getSource().sendSuccess(() -> Component.literal(
-                                        "DFC top externs: " + stats.topExternClasses().stream()
-                                                .map(DensityFunctionCompiler::formatTelemetryTopEntry)
-                                                .reduce((a, b) -> a + ", " + b)
-                                                .orElse("")), false);
-                            }
-                            if (!stats.topMarkerClasses().isEmpty()) {
-                                context.getSource().sendSuccess(() -> Component.literal(
-                                        "DFC top markers: " + stats.topMarkerClasses().stream()
-                                                .map(DensityFunctionCompiler::formatTelemetryTopEntry)
-                                                .reduce((a, b) -> a + ", " + b)
-                                                .orElse("")), false);
-                            }
-                            return (int) Math.min(Integer.MAX_VALUE, stats.compiledComputeCalls());
-                        }))
-                .then(Commands.literal("benchmark-summary")
-                        .executes(context -> {
-                            context.getSource().sendSuccess(() -> Component.literal(DfcRuntimeTelemetry.summary()), false);
-                            return 1;
-                        }))
-                .then(Commands.literal("parity")
-                        .executes(context -> sendParityStatus(context.getSource())))
                 .then(Commands.literal("splinestats")
                         .executes(context -> {
                             DfcSplineStats.Stats stats = DfcSplineStats.snapshot();
@@ -154,7 +117,28 @@ public final class DensityFunctionCompiler {
                                     return 1;
                                 })))
                 .then(Commands.literal("cellfillparity")
-                        .executes(context -> sendParityStatus(context.getSource())))
+                        .executes(context -> {
+                            DfcCellFillParity.Stats stats = DfcCellFillParity.snapshotStats();
+                            context.getSource().sendSuccess(() -> Component.literal(
+                                    "DFC cell-fill parity: enabled=" + stats.enabled()
+                                            + ", candidates=" + stats.candidates()
+                                            + ", fastEligible=" + stats.fastEligible()
+                                            + ", lazyFastEligible=" + stats.lazyFastEligible()
+                                            + ", fallbacks=" + stats.fallbacks()
+                                            + ", checks=" + stats.checks()
+                                            + ", passes=" + stats.passes()
+                                            + ", failures=" + stats.failures()
+                                            + ", skipped=" + stats.skipped()
+                                            + ", remaining=" + stats.remaining() + "/" + stats.maxChecks()
+                                            + ", epsilon=" + stats.epsilon()),
+                                    false);
+                            if (!stats.fallbackClasses().isEmpty()) {
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "DFC cell-fill fallback classes: " + String.join(", ", stats.fallbackClasses())),
+                                        false);
+                            }
+                            return (int) stats.failures();
+                        }))
                 .then(Commands.literal("cellfillstats")
                         .executes(context -> {
                             DfcCellFillStats.Stats stats = DfcCellFillStats.snapshot();
@@ -162,20 +146,17 @@ public final class DensityFunctionCompiler {
                                     "DFC cell-fill stats: enabled=" + stats.enabled()
                                             + ", cellScalar=" + stats.cellScalar()
                                             + ", cellCompiled=" + stats.cellCompiled()
-                                            + ", cellNativeSlabInner=" + stats.cellNativeSlabInner()
                                             + ", cellUnknown=" + stats.cellUnknown()
                                             + ", cellXzSlab=" + stats.cellXzSlab()
                                             + ", columnsScalar=" + stats.columnsScalar()
                                             + ", cellExternAccumulate=" + stats.cellExternAccumulate()
                                             + ", cellExternScalarResidual=" + stats.cellExternScalarResidual()
-                                            + ", columnsJavaBatched=" + stats.columnsJavaBatched()
-                                            + ", columnsNativeInner=" + stats.columnsNativeInner()),
+                                            + ", columnsJavaBatched=" + stats.columnsJavaBatched()),
                                     false);
                             if (!stats.fastFillerClasses().isEmpty()) {
                                 context.getSource().sendSuccess(() -> Component.literal(
                                         "DFC cell-fill fast classes: " + stats.fastFillerClasses().stream()
-                                                .map(s -> s.className() + "=" + s.calls()
-                                                        + "/" + s.nativeSlabInnerCalls())
+                                                .map(s -> s.className() + "=" + s.calls())
                                                 .reduce((a, b) -> a + ", " + b)
                                                 .orElse("")),
                                         false);
@@ -186,9 +167,10 @@ public final class DensityFunctionCompiler {
                                                 .map(s -> s.className()
                                                         + "{src=" + s.sourceRootClass()
                                                         + ", lattice=" + s.latticeEmitted()
-                                                        + ", slabProgram=" + s.slabInnerProgramPresent()
                                                         + ", cellAddLattice=" + s.cellAddLatticeSpecialized()
+                                                        + ", cellAddBeardifier=" + s.cellAddBeardifierSpecialized()
                                                         + ", cellAddExtern=" + s.cellAddExternSpecialized()
+                                                        + ", cellScalarMarker=" + s.cellScalarMarkerSpecialized()
                                                         + ", root=" + s.rootDebug()
                                                         + "}")
                                                 .reduce((a, b) -> a + ", " + b)
@@ -207,59 +189,12 @@ public final class DensityFunctionCompiler {
                                                 + String.join(", ", stats.residualExternFallbackClasses())),
                                         false);
                             }
-                            DfcNativePlanningStats.Stats nativeStats = DfcNativePlanningStats.snapshot();
-                            context.getSource().sendSuccess(() -> Component.literal(
-                                    "DFC native planning stats: latticeRoots=" + nativeStats.latticeRoots()
-                                            + ", nativeOpsDisabled=" + nativeStats.nativeOpsDisabled()
-                                            + ", slabPlanPresent=" + nativeStats.slabPlanPresent()
-                                            + ", slabPlanMissing=" + nativeStats.slabPlanMissing()
-                                            + ", slabPlanMissingNoSlots=" + nativeStats.slabPlanMissingNoSlots()
-                                            + ", slabPlanMissingUnsafeCoords=" + nativeStats.slabPlanMissingUnsafeCoords()
-                                            + ", slabPlanMissingBadHandleIndex=" + nativeStats.slabPlanMissingBadHandleIndex()
-                                            + ", slabInnerVmPresent=" + nativeStats.slabInnerVmPresent()
-                                            + ", slabInnerVmMissing=" + nativeStats.slabInnerVmMissing()
-                                            + ", slabInnerMissingExtracted=" + nativeStats.slabInnerVmMissingExtracted()
-                                            + ", slabInnerMissingUnsupportedNode=" + nativeStats.slabInnerVmMissingUnsupportedNode()
-                                            + ", slabInnerMissingInvalidProgram=" + nativeStats.slabInnerVmMissingInvalidProgram()
-                                            + ", slabInnerMissingIo=" + nativeStats.slabInnerVmMissingIo()
-                                            + ", axisYOnly=" + nativeStats.axisYOnly()
-                                            + ", axisXzOnly=" + nativeStats.axisXzOnly()),
-                                    false);
-                            if (!nativeStats.slabInnerUnsupportedClasses().isEmpty()) {
-                                context.getSource().sendSuccess(() -> Component.literal(
-                                        "DFC slab-inner unsupported classes: "
-                                                + String.join(", ", nativeStats.slabInnerUnsupportedClasses())),
-                                        false);
-                            }
                             return 1;
                         })));
     }
 
     private static String formatBucket(DfcSplineStats.BucketStats bucket) {
         return bucket.calls() + "/" + formatNanosMillis(bucket.nanos()) + "ms";
-    }
-
-    private static int sendParityStatus(CommandSourceStack source) {
-        DfcCellFillParity.Stats stats = DfcCellFillParity.snapshotStats();
-        source.sendSuccess(() -> Component.literal(
-                "DFC cell-fill parity: enabled=" + stats.enabled()
-                        + ", candidates=" + stats.candidates()
-                        + ", fastEligible=" + stats.fastEligible()
-                        + ", lazyFastEligible=" + stats.lazyFastEligible()
-                        + ", fallbacks=" + stats.fallbacks()
-                        + ", checks=" + stats.checks()
-                        + ", passes=" + stats.passes()
-                        + ", failures=" + stats.failures()
-                        + ", skipped=" + stats.skipped()
-                        + ", remaining=" + stats.remaining() + "/" + stats.maxChecks()
-                        + ", epsilon=" + stats.epsilon()),
-                false);
-        if (!stats.fallbackClasses().isEmpty()) {
-            source.sendSuccess(() -> Component.literal(
-                    "DFC cell-fill fallback classes: " + String.join(", ", stats.fallbackClasses())),
-                    false);
-        }
-        return (int) stats.failures();
     }
 
     private static String formatNanosMillis(long nanos) {
@@ -273,11 +208,6 @@ public final class DensityFunctionCompiler {
         return String.format(Locale.ROOT, "%.1f", nanos / (double) calls);
     }
 
-    private static String formatTelemetryTopEntry(DfcRuntimeTelemetry.ClassStats stats) {
-        return stats.className() + "{calls=" + stats.calls()
-                + ", sampleMs=" + formatNanosMillis(stats.sampledNanos()) + "}";
-    }
-
     private static String formatSplineTopEntry(DfcSplineStats.ClassStats stats) {
         return stats.className()
                 + "{ms=" + formatNanosMillis(stats.totalNanos())
@@ -286,14 +216,24 @@ public final class DensityFunctionCompiler {
                 + ", linear=" + stats.linearCalls()
                 + ", binary=" + stats.binaryCalls()
                 + ", lut=" + stats.lutCalls()
+                + ", interior=" + stats.interiorCalls()
                 + ", leftExt=" + stats.leftExtrapolationCalls()
                 + ", rightExt=" + stats.rightExtrapolationCalls()
+                + ", point3=" + stats.point3().calls()
+                + "/" + formatNanosMillis(stats.point3().nanos()) + "ms"
+                + ", point4=" + stats.point4().calls()
+                + "/" + formatNanosMillis(stats.point4().nanos()) + "ms"
+                + ", <=2=" + stats.bucketLe2().calls()
+                + "/" + formatNanosMillis(stats.bucketLe2().nanos()) + "ms"
+                + ", 3..4=" + stats.bucket3To4().calls()
+                + "/" + formatNanosMillis(stats.bucket3To4().nanos()) + "ms"
                 + ", 5..8=" + stats.bucket5To8().calls()
                 + "/" + formatNanosMillis(stats.bucket5To8().nanos()) + "ms"
                 + ", >=9=" + stats.bucketGe9().calls()
                 + "/" + formatNanosMillis(stats.bucketGe9().nanos()) + "ms"
                 + ", src=" + stats.sourceRootClass()
                 + ", root=" + stats.rootDebug()
+                + ", spline=" + stats.splineDebug()
                 + "}";
     }
 

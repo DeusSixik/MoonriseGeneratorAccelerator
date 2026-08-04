@@ -1,5 +1,7 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.ir;
 
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
+
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -38,10 +40,9 @@ import java.util.Optional;
  *       the maximal Y-only ancestor on its branch.</li>
  *   <li>If no Y-only candidate of meaningful size is found, repeat for
  *       XZ-only.</li>
- *   <li>When {@code dfc.cell_lattice.rootHoist=true}, allow the candidate to be
- *       the {@code root} itself. This lets whole-root Y-only/XZ-only fields use the
- *       same batched fill path instead of recomputing a coordinate-only expression
- *       for every point in a cell.</li>
+ *   <li>Reject if the candidate is the {@code root} itself (degenerate;
+ *       the whole DF would just be a constant per Y, which a smarter
+ *       caching layer would already collapse).</li>
  *   <li>Reject if the candidate's size is below {@link #MIN_HOIST_SIZE} —
  *       below that, the helper-call overhead outweighs the savings.</li>
  * </ol>
@@ -56,8 +57,8 @@ import java.util.Optional;
  */
 public final class CellLatticeOption {
 
-    public static final boolean ROOT_HOIST_ENABLED =
-            Boolean.parseBoolean(System.getProperty("dfc.cell_lattice.rootHoist", "true"));
+    private static final int CONFIGURED_MIN_HOIST_SIZE =
+            Math.max(3, GAConfigHolder.getConfig().dfc.latticeMinHoistSize);
 
     /**
      * Minimum number of distinct IR nodes a hoist candidate must contain
@@ -67,7 +68,7 @@ public final class CellLatticeOption {
      * call site anyway. Tuned against the {@code YClampedGradient} chain
      * which sits at exactly 5 IR nodes (gradient, mul, add, clamp, etc.).
      */
-    public static final int MIN_HOIST_SIZE = 5;
+    public static final int MIN_HOIST_SIZE = CONFIGURED_MIN_HOIST_SIZE;
 
     /** Which axis-slab the hoisted sub-expression varies along. */
     public enum Axis {
@@ -114,8 +115,8 @@ public final class CellLatticeOption {
         subtreeSize(root, sizes);
 
         Optional<LatticePlan> y = findLargestAxisOnly(root, dep, sizes, /* yOnly */ true);
-        if (y.isPresent()) return y;
-        return findLargestAxisOnly(root, dep, sizes, /* yOnly */ false);
+        Optional<LatticePlan> xz = findLargestAxisOnly(root, dep, sizes, /* yOnly */ false);
+        return chooseBestPlan(y, xz);
     }
 
     /** Convenience that computes {@code dep} itself. */
@@ -160,18 +161,16 @@ public final class CellLatticeOption {
         java.util.ArrayDeque<IRNode> stack = new java.util.ArrayDeque<>();
         stack.push(root);
 
-        CoordDep.Flags mutableFlag = new CoordDep.Flags();
-
         while (!stack.isEmpty()) {
             IRNode n = stack.pop();
             if (visited.put(n, Boolean.TRUE) != null) continue;
             CoordDep.Flags f = dep.get(n);
             if (f != null && matchesAxisOnly(f, yOnly)) {
-                // Whole-root axis-only expressions are safe to batch too: the
-                // generated inner helper simply returns the precomputed value for
-                // every orthogonal point, preserving vanilla iteration state while
-                // skipping redundant arithmetic/noise-free tree walks.
-                if (n != root || ROOT_HOIST_ENABLED) {
+                // Reject the root itself — the whole DF being axis-only means
+                // the lattice would replace the entire compute with a single
+                // table lookup, which is strictly the job of an outer cache
+                // marker (CacheOnce / FlatCache) the user already wrote.
+                if (n != root) {
                     int sz = sizes.getOrDefault(n, 0);
                     if (sz >= MIN_HOIST_SIZE && sz > bestSize) {
                         best = n;
@@ -193,6 +192,23 @@ public final class CellLatticeOption {
         if (best == null) return Optional.empty();
         Axis ax = yOnly ? Axis.Y_ONLY : Axis.XZ_ONLY;
         return Optional.of(new LatticePlan(root, ax, best, bestSize));
+    }
+
+    private static Optional<LatticePlan> chooseBestPlan(Optional<LatticePlan> y, Optional<LatticePlan> xz) {
+        if (y.isEmpty()) {
+            return xz;
+        }
+        if (xz.isEmpty()) {
+            return y;
+        }
+
+        LatticePlan yPlan = y.get();
+        LatticePlan xzPlan = xz.get();
+        if (yPlan.hoistedNodeCount() != xzPlan.hoistedNodeCount()) {
+            return yPlan.hoistedNodeCount() > xzPlan.hoistedNodeCount() ? y : xz;
+        }
+
+        return y;
     }
 
     /**

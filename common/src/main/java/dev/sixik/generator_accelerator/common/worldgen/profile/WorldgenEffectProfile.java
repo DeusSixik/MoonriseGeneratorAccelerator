@@ -14,14 +14,6 @@ public record WorldgenEffectProfile(
         int scannedConstants,
         int scannedMethods
 ) {
-    public WorldgenEffectProfile {
-        className = className == null ? "" : className;
-        methodHint = methodHint == null ? "" : methodHint;
-        fingerprint = fingerprint == null ? "" : fingerprint;
-        effectFlags = effectFlags == null ? Set.of() : Set.copyOf(effectFlags);
-        unsafeReasons = unsafeReasons == null ? List.of() : List.copyOf(unsafeReasons);
-    }
-
     public boolean hasEffect(WorldgenEffectFlag flag) {
         return this.effectFlags.contains(flag);
     }

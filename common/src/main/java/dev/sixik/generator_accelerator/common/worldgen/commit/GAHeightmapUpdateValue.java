@@ -10,10 +10,4 @@ public record GAHeightmapUpdateValue(
         int height,
         boolean dirtyOnly
 ) {
-    public GAHeightmapUpdateValue {
-        Objects.requireNonNull(heightmapId, "heightmapId");
-        if (heightmapId.isBlank()) {
-            throw new IllegalArgumentException("heightmapId must not be blank");
-        }
-    }
 }

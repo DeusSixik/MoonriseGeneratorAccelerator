@@ -1,8 +1,10 @@
 package dev.sixik.generator_accelerator.common.density.compiler.compiler.pipeline;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import dev.sixik.generator_accelerator.api.config.GAConfigHolder;
 import dev.sixik.generator_accelerator.common.density.compiler.DensityFunctionCompiler;
 import dev.sixik.generator_accelerator.common.density.compiler.compiler.codegen.CompiledDensityFunction;
+import dev.sixik.generator_accelerator.common.density.mixin.RandomStateMixin;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
@@ -26,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * point every {@link net.minecraft.core.Holder.Reference Holder.Reference} into
  * {@link Registries#DENSITY_FUNCTION} is resolvable. That makes it the right place to
  * construct a {@link RandomState} for every {@link NoiseGeneratorSettings} so the
- * {@link dev.sixik.generator_accelerator.common.density.compiler.mixin.RandomStateMixin RandomStateMixin}
+ * {@link RandomStateMixin RandomStateMixin}
  * runs the same wired {@link NoiseRouter} compile as real worldgen.
  *
  * <p>We cannot use {@link NoiseGeneratorSettings#noiseRouter()} alone: that returns the
@@ -42,10 +44,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * preset, which is exactly the latency we're trying to remove.
  */
 public final class RegistryWarmer {
-
-    private static final String MAX_SETTINGS_PROPERTY = "dfc.warmer.maxSettings";
-    private static final String MAX_DENSITY_FUNCTIONS_PROPERTY = "dfc.warmer.maxDensityFunctions";
-    private static final String RAW_DENSITY_FUNCTIONS_PROPERTY = "dfc.warmer.rawDensityFunctions";
 
     private static final Set<RegistryGenerationKey> WARMED_GENERATIONS = ConcurrentHashMap.newKeySet();
     private static final Set<NoiseGeneratorSettings> WARMED_NOISE_SETTINGS = Collections.newSetFromMap(
@@ -90,9 +88,14 @@ public final class RegistryWarmer {
         }
 
         // Trigger the same RandomState + wired router compile as production (mixin@RETURN).
-        boolean noiseOk = warmNoiseSettings(server);
+        // Keep this opt-in: large modpacks can register many noise_settings presets, and
+        // warming all of them can stall world load before the first chunk is usable.
+        boolean noiseOk = true;
+        if (GAConfigHolder.getConfig().dfc.warmerNoiseSettings) {
+            noiseOk = warmNoiseSettings(server);
+        }
         boolean densityOk = true;
-        if (Boolean.getBoolean(RAW_DENSITY_FUNCTIONS_PROPERTY)) {
+        if (GAConfigHolder.getConfig().dfc.warmerRawDensityFunctions) {
             // Raw registry DensityFunctions may still contain unbound NoiseHolders; keep this opt-in.
             densityOk = warmDensityFunctions(server);
         }
@@ -114,7 +117,7 @@ public final class RegistryWarmer {
                 return false;
             }
             long levelSeed = overworld.getSeed();
-            int maxSettings = budgetLimit(MAX_SETTINGS_PROPERTY);
+            int maxSettings = budgetLimit(GAConfigHolder.getConfig().dfc.warmerMaxSettings);
 
             int total = 0;
             int compiled = 0;
@@ -169,7 +172,7 @@ public final class RegistryWarmer {
             Registry<DensityFunction> registry = server.registryAccess()
                     .registryOrThrow(Registries.DENSITY_FUNCTION);
             CompilingVisitor visitor = CompilingVisitor.global();
-            int maxDensityFunctions = budgetLimit(MAX_DENSITY_FUNCTIONS_PROPERTY);
+            int maxDensityFunctions = budgetLimit(GAConfigHolder.getConfig().dfc.warmerMaxDensityFunctions);
             int total = 0;
             int warmed = 0;
             int duplicates = 0;
@@ -230,23 +233,11 @@ public final class RegistryWarmer {
         }
     }
 
-    private static int budgetLimit(String property) {
-        String raw = System.getProperty(property);
-        if (raw == null || raw.isBlank()) {
+    private static int budgetLimit(int configured) {
+        if (configured < 0) {
             return Integer.MAX_VALUE;
         }
-        try {
-            long parsed = Long.parseLong(raw.trim());
-            if (parsed < 0L) {
-                return Integer.MAX_VALUE;
-            }
-            return parsed > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) parsed;
-        } catch (NumberFormatException e) {
-            DensityFunctionCompiler.LOGGER.warn(
-                    "DFC: ignoring invalid warmer budget {}={} (expected non-negative integer or unset)",
-                    property, raw);
-            return Integer.MAX_VALUE;
-        }
+        return configured;
     }
 
     public static Stats snapshotStats() {

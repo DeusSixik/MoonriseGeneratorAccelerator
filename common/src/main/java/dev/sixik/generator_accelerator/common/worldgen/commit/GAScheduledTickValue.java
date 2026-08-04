@@ -12,17 +12,6 @@ public record GAScheduledTickValue(
         int priority,
         long sourceSequence
 ) {
-    public GAScheduledTickValue {
-        Objects.requireNonNull(type, "type");
-        Objects.requireNonNull(target, "target");
-        if (delay < 0) {
-            throw new IllegalArgumentException("delay must be non-negative");
-        }
-        if (sourceSequence < 0L) {
-            throw new IllegalArgumentException("sourceSequence must be non-negative");
-        }
-    }
-
     public enum GAScheduledTickType {
         BLOCK,
         FLUID

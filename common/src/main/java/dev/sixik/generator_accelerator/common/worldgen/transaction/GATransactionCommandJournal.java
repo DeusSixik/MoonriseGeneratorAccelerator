@@ -17,10 +17,6 @@ import java.util.Objects;
  * Success-only replay view for sealed transaction commands.
  */
 public record GATransactionCommandJournal(List<GACommitCommand<Object>> commands) {
-    public GATransactionCommandJournal {
-        commands = List.copyOf(Objects.requireNonNull(commands, "commands"));
-    }
-
     public static GATransactionCommandJournal fromSuccessfulRun(
             GATransactionRunResult result,
             GACommitOrderKey baseOrderKey

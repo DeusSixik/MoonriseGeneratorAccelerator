@@ -231,9 +231,6 @@ public final class SurfaceRuleScanner {
             this(rootClassName, vanillaOwned, containsOpaqueCallouts, root, vanillaNodes, opaqueCallouts, statefulNodes, List.of());
         }
 
-        public SurfaceScanResult {
-            opaqueNodes = List.copyOf(opaqueNodes == null ? List.of() : opaqueNodes);
-        }
     }
 
     public record OpaqueNode(String sourceClassName, String reason, boolean vanillaOwned, boolean condition) {

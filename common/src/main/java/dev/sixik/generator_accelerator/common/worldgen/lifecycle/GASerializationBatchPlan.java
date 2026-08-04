@@ -8,11 +8,6 @@ import java.util.List;
  * Safe serialization batch plan: orders dirty chunks and cuts by count/bytes budget.
  */
 public record GASerializationBatchPlan(List<GASerializationChunk> chunks, long estimatedBytes, boolean truncated) {
-    public GASerializationBatchPlan {
-        chunks = chunks == null ? List.of() : List.copyOf(chunks);
-        estimatedBytes = Math.max(0L, estimatedBytes);
-    }
-
     public static GASerializationBatchPlan plan(List<GASerializationChunk> dirtyChunks, int maxChunks, long maxBytes) {
         if (dirtyChunks == null || dirtyChunks.isEmpty() || maxChunks <= 0 || maxBytes <= 0L) {
             return new GASerializationBatchPlan(List.of(), 0L, dirtyChunks != null && !dirtyChunks.isEmpty());
