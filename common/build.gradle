@@ -172,14 +172,14 @@ dependencies {
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
 
-    compileOnly javaToGpuLocalCoordinate
-    compileOnly "io.github.deussixik:packager:1.0.0-alpha.1"
-    compileOnly "org.lwjgl:lwjgl:3.3.3"
-    compileOnly "org.lwjgl:lwjgl-opencl:3.3.3"
-    runtimeOnly javaToGpuLocalCoordinate
-    runtimeOnly "io.github.deussixik:packager:1.0.0-alpha.1"
-    runtimeOnly "org.lwjgl:lwjgl:3.3.3"
-    runtimeOnly "org.lwjgl:lwjgl-opencl:3.3.3"
+    modImplementation javaToGpuLocalCoordinate
+    modImplementation "io.github.deussixik:packager:1.0.0-alpha.1"
+    modImplementation "org.lwjgl:lwjgl:3.3.3"
+    modImplementation "org.lwjgl:lwjgl-opencl:3.3.3"
+//    runtimeOnly javaToGpuLocalCoordinate
+//    runtimeOnly "io.github.deussixik:packager:1.0.0-alpha.1"
+//    runtimeOnly "org.lwjgl:lwjgl:3.3.3"
+//    runtimeOnly "org.lwjgl:lwjgl-opencl:3.3.3"
     annotationProcessor javaToGpuLocalCoordinate
     annotationProcessor "com.github.javaparser:javaparser-core:3.28.1"
     annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"

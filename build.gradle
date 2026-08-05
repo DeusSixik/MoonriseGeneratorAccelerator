@@ -110,9 +110,6 @@ subprojects {
     apply plugin: 'architectury-plugin'
     apply plugin: 'maven-publish'
 
-    configurations.configureEach {
-        exclude group: 'io.github.deussixik', module: 'javatogpu'
-    }
 
     def dfcNativeMissingMarker = rootProject.layout.buildDirectory.file("dfcNative/status/no-natives.marker").get().asFile
     def dfcArchiveFileName = { AbstractArchiveTask archiveTask ->

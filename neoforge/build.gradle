@@ -48,9 +48,9 @@ repositories {
 dependencies {
     neoForge "net.neoforged:neoforge:$rootProject.neoforge_version"
 
-    implementation files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
-    runtimeOnly files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
-    developmentNeoForge files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
+//    implementation files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
+//    runtimeOnly files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
+//    developmentNeoForge files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
     implementation "com.github.javaparser:javaparser-core:3.28.1"
     runtimeOnly "com.github.javaparser:javaparser-core:3.28.1"
     developmentNeoForge "com.github.javaparser:javaparser-core:3.28.1"
@@ -113,7 +113,7 @@ tasks.matching { it.name.startsWith("run") || it.name.startsWith("prepareRun") }
 }
 
 tasks.withType(JavaExec).configureEach {
-    classpath += files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
+//    classpath += files(rootProject.file("libs/processor-0.1.0-alpha.4.jar"))
     classpath += configurations.detachedConfiguration(dependencies.create("com.github.javaparser:javaparser-core:3.28.1"))
     if (rootProject.hasProperty("gaJvmArgs")) {
         jvmArgs rootProject.property("gaJvmArgs").toString().split("\\s+").findAll { !it.isBlank() }
