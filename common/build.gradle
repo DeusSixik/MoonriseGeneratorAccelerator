@@ -121,7 +121,7 @@ tasks.register("surfaceExecuteQuickBenchmark") {
 }
 
 dependencies {
-    def javaToGpuLocalCoordinate = "io.github.deussixik:processor:${rootProject.java_to_gpu_version}"
+    def javaToGpuLocalCoordinate = "io.github.deussixik:javatogpu:${rootProject.java_to_gpu_version}"
     // We depend on Fabric Loader here to use the Fabric @Environment annotations,
     // which get remapped to the correct annotations on each platform.
     // Do NOT use other classes from Fabric Loader.
@@ -131,7 +131,6 @@ dependencies {
     compileOnly("com.github.JCTools.JCTools:jctools-core:v4.0.3")
     compileOnly "org.ow2.asm:asm:9.8"
     compileOnly "org.ow2.asm:asm-tree:9.8"
-
 
     testImplementation "com.github.ben-manes.caffeine:caffeine:3.1.8"
     testImplementation "com.github.JCTools.JCTools:jctools-core:v4.0.3"
