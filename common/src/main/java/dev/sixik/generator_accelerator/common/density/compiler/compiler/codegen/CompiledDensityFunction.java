@@ -433,23 +433,9 @@ public abstract class CompiledDensityFunction implements DensityFunction, DfcCel
         if (GPU_CELL_FILL_PROTOTYPE_ENABLED && tryFillArrayWithGpuPayload(out, chunk)) {
             return;
         }
-        int cellW = chunk.cellWidth;
-        int cellH = chunk.cellHeight;
-        int idx = 0;
-        chunk.arrayIndex = 0;
-        for (int inCellY = cellH - 1; inCellY >= 0; inCellY--) {
-            chunk.inCellY = inCellY;
-            for (int inCellX = 0; inCellX < cellW; inCellX++) {
-                chunk.inCellX = inCellX;
-                for (int inCellZ = 0; inCellZ < cellW; inCellZ++) {
-                    chunk.inCellZ = inCellZ;
-                    chunk.arrayIndex = idx;
-                    out[idx] = this.compute(chunk);
-                    idx++;
-                }
-            }
-        }
-        chunk.arrayIndex = idx;
+        // Generated lattice classes override fillArray to hoist Y/XZ-invariant
+        // subtrees. A scalar loop here bypasses that generated fast path entirely.
+        this.fillArray(out, chunk);
     }
 
     @Override

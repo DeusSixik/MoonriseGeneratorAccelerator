@@ -321,13 +321,18 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
 
     @Unique
     private void bts$compileFillSliceInterpolatorRoots() {
-        boolean megaBatchEnabled = GpuFillSliceMegaBatchDispatcher.enabled();
-        if ((!Boolean.getBoolean(FILL_SLICE_LAZY_COMPILE_PROPERTY) && !megaBatchEnabled)
-                || !bts$fillSliceGpuCollectionAvailable()) {
+        final boolean gpuCollectionEnabled = bts$fillSliceGpuCollectionAvailable();
+        final boolean lazyCompileEnabled = Boolean.getBoolean(FILL_SLICE_LAZY_COMPILE_PROPERTY);
+        if (!lazyCompileEnabled && !gpuCollectionEnabled) {
             return;
         }
+
+        // CPU DFC must not depend on a GPU probe being enabled. RouterPipeline may
+        // already have compiled these roots; retain and use them for fillSlice.
         this.bts$fillSliceCompiledRoots = new CompiledDensityFunction[this.bts$interpolatorsArray.length];
-        this.bts$fillSliceGpuPayloads = new GpuIrPayload[this.bts$interpolatorsArray.length];
+        if (gpuCollectionEnabled) {
+            this.bts$fillSliceGpuPayloads = new GpuIrPayload[this.bts$interpolatorsArray.length];
+        }
         for (int i = 0; i < this.bts$interpolatorsArray.length; i++) {
             NoiseChunk.NoiseInterpolator interpolator = this.bts$interpolatorsArray[i];
             if (!(interpolator instanceof GA$NoiseChunk$NoiseInterpolatorPatch access)) {
@@ -338,6 +343,9 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
             if (root instanceof CompiledDensityFunction compiled) {
                 compiledRoot = compiled;
             } else {
+                if (!lazyCompileEnabled) {
+                    continue;
+                }
                 if (!bts$claimFillSliceLazyCompile()) {
                     break;
                 }
@@ -357,7 +365,9 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
                 }
             }
             this.bts$fillSliceCompiledRoots[i] = compiledRoot;
-            this.bts$fillSliceGpuPayloads[i] = GpuPayloadRuntimeRegistry.lookup(compiledRoot);
+            if (gpuCollectionEnabled) {
+                this.bts$fillSliceGpuPayloads[i] = GpuPayloadRuntimeRegistry.lookup(compiledRoot);
+            }
         }
     }
 
@@ -1042,6 +1052,9 @@ public abstract class MixinNoiseChunk$optimization_math implements GA$NoiseChunk
                     continue;
                 }
                 NoiseChunk.NoiseInterpolator noisechunk$noiseinterpolator = interpolatorsArray[k];
+                // The CPU generated fillArray path is not beneficial for the small
+                // per-interpolator slice shape. Keep the compiled roots for the GPU
+                // collector, but use the vanilla/JIT-friendly marker path on CPU.
                 noisechunk$noiseinterpolator.fillArray(this.sliceBuffer, this.sliceFillingContextProvider);
                 System.arraycopy(
                         this.sliceBuffer,

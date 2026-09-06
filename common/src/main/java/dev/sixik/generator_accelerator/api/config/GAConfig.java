@@ -287,7 +287,7 @@ public final class GAConfig {
                         Mirrors old VM arg: -Dga.dfc.fillSliceLazyCompile=true
                         """
         )
-        public boolean fillSliceLazyCompile = true;
+        public boolean fillSliceLazyCompile = false;
 
         @Serializable(
                 comment = """
