@@ -138,6 +138,9 @@ dependencies {
     modCompileOnly "curse.maven:yungs-bridges-536660:5812552"
     modCompileOnly "curse.maven:dynamictrees-252818:7661136"
 
+    // Fast Noise (Loom (1.17.3)) we use (1.13.469)
+    // modCompileOnly "curse.maven:zfastnoise-1460602:8393202"
+
     c2meDownload "curse.maven:c2me-533097:7967514"
     compileOnly fileTree(dir: "$buildDir/extracted-c2me/META-INF/jars", include: "*.jar")
 

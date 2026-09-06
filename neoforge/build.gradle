@@ -80,7 +80,9 @@ dependencies {
     include(minecraftRuntimeLibraries("com.github.Team-Argentum:ConcurrentLibrary:${concurrent_library_version}"))
 
     javaToGpuRuntimeLibraries.each { coordinate ->
-        include(minecraftRuntimeLibraries(coordinate))
+        if(coordinate.contains("org.lwjgl:lwjgl:3.3.3")) {
+            minecraftRuntimeLibraries(coordinate)
+        } else include(minecraftRuntimeLibraries(coordinate))
     }
     annotationProcessor javaToGpuLocalCoordinate
     annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"
