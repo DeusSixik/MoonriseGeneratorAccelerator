@@ -35,7 +35,7 @@ public class MixinBiomeManager$_better_biome_getting {
     @Overwrite
     public static long obfuscateSeed(final long seed) {
         final GA$SeedCache cache = ga$seed_cache.get();
-        if(cache.hasValue && cache.seed == seed) {
+        if (cache.hasValue && cache.seed == seed) {
             return cache.obfuscated;
         }
 
@@ -56,67 +56,167 @@ public class MixinBiomeManager$_better_biome_getting {
         final int y = pos.getY() - 2;
         final int z = pos.getZ() - 2;
 
-        /*
-            Bit shifts instead of division
-         */
-        final int quartX = x >> 2;
-        final int quartY = y >> 2;
-        final int quartZ = z >> 2;
+        final int qx0 = x >> 2;
+        final int qy0 = y >> 2;
+        final int qz0 = z >> 2;
+        final int qx1 = qx0 + 1;
+        final int qy1 = qy0 + 1;
+        final int qz1 = qz0 + 1;
 
-        /*
-            Pre-calculate fractions
-         */
-        final double fracX = (double) (x & 3) * 0.25D;
-        final double fracY = (double) (y & 3) * 0.25D;
-        final double fracZ = (double) (z & 3) * 0.25D;
+        final double ox0 = (double) (x & 3) * 0.25D;
+        final double oy0 = (double) (y & 3) * 0.25D;
+        final double oz0 = (double) (z & 3) * 0.25D;
+        final double ox1 = ox0 - 1.0D;
+        final double oy1 = oy0 - 1.0D;
+        final double oz1 = oz0 - 1.0D;
 
-        final int[] cX = { quartX, quartX + 1 };
-        final int[] cY = { quartY, quartY + 1 };
-        final int[] cZ = { quartZ, quartZ + 1 };
-
-        final double[] oX = { fracX, fracX - 1.0D };
-        final double[] oY = { fracY, fracY - 1.0D };
-        final double[] oZ = { fracZ, fracZ - 1.0D };
-
-        int bestIndex = 0;
-        double minDistance = Double.POSITIVE_INFINITY;
         final long baseSeed = this.biomeZoomSeed;
 
-        for (int p = 0; p < 8; ++p) {
-            final int ix = (p >> 2) & 1;
-            final int iy = (p >> 1) & 1;
-            final int iz = p & 1;
+        int bestX = qx0;
+        int bestY = qy0;
+        int bestZ = qz0;
+        double minDistance;
 
-            long m = baseSeed * LCG_MUL + LCG_ADD + cX[ix];
-            m = m * LCG_MUL + LCG_ADD + cY[iy];
-            m = m * LCG_MUL + LCG_ADD + cZ[iz];
+        // Step for X0
+        final long mX0 = baseSeed * LCG_MUL + LCG_ADD + qx0;
+        {
+            // Y0
+            final long mXY00 = mX0 * LCG_MUL + LCG_ADD + qy0;
+            {
+                // Z0: point (0, 0, 0)
+                long m = (mXY00 * LCG_MUL + LCG_ADD + qz0) * LCG_MUL + LCG_ADD + qx0;
+                m = (m * LCG_MUL + LCG_ADD + qy0) * LCG_MUL + LCG_ADD + qz0;
+                double dX = ox0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dY = oy0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dZ = oz0 + bts$getFiddle(m);
+                minDistance = (dX * dX) + (dY * dY) + (dZ * dZ);
 
-            m = m * LCG_MUL + LCG_ADD + cX[ix];
-            m = m * LCG_MUL + LCG_ADD + cY[iy];
-            m = m * LCG_MUL + LCG_ADD + cZ[iz];
+                // Z1: point (0, 0, 1)
+                m = (mXY00 * LCG_MUL + LCG_ADD + qz1) * LCG_MUL + LCG_ADD + qx0;
+                m = (m * LCG_MUL + LCG_ADD + qy0) * LCG_MUL + LCG_ADD + qz1;
+                dX = ox0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dY = oy0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dZ = oz1 + bts$getFiddle(m);
+                double dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestZ = qz1;
+                }
+            }
+            // Y1
+            final long mXY01 = mX0 * LCG_MUL + LCG_ADD + qy1;
+            {
+                // Z0: point (0, 1, 0)
+                long m = (mXY01 * LCG_MUL + LCG_ADD + qz0) * LCG_MUL + LCG_ADD + qx0;
+                m = (m * LCG_MUL + LCG_ADD + qy1) * LCG_MUL + LCG_ADD + qz0;
+                double dX = ox0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dY = oy1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dZ = oz0 + bts$getFiddle(m);
+                double dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestY = qy1;
+                    bestZ = qz0;
+                }
 
-            final double fidX = bts$getFiddle(m);
-            m = m * LCG_MUL + LCG_ADD + baseSeed;
-            final double fidY = bts$getFiddle(m);
-            m = m * LCG_MUL + LCG_ADD + baseSeed;
-            final double fidZ = bts$getFiddle(m);
-
-            final double dX = oX[ix] + fidX;
-            final double dY = oY[iy] + fidY;
-            final double dZ = oZ[iz] + fidZ;
-            final double dist = (dX * dX) + (dY * dY) + (dZ * dZ);
-
-            if (dist < minDistance) {
-                bestIndex = p;
-                minDistance = dist;
+                // Z1: point (0, 1, 1)
+                m = (mXY01 * LCG_MUL + LCG_ADD + qz1) * LCG_MUL + LCG_ADD + qx0;
+                m = (m * LCG_MUL + LCG_ADD + qy1) * LCG_MUL + LCG_ADD + qz1;
+                dX = ox0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dY = oy1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dZ = oz1 + bts$getFiddle(m);
+                dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestY = qy1;
+                    bestZ = qz1;
+                }
             }
         }
 
-        return this.noiseBiomeSource.getNoiseBiome(
-                cX[(bestIndex >> 2) & 1],
-                cY[(bestIndex >> 1) & 1],
-                cZ[bestIndex & 1]
-        );
+        // Step for X1
+        final long mX1 = baseSeed * LCG_MUL + LCG_ADD + qx1;
+        {
+            // Y0
+            final long mXY10 = mX1 * LCG_MUL + LCG_ADD + qy0;
+            {
+                // Z0: point (1, 0, 0)
+                long m = (mXY10 * LCG_MUL + LCG_ADD + qz0) * LCG_MUL + LCG_ADD + qx1;
+                m = (m * LCG_MUL + LCG_ADD + qy0) * LCG_MUL + LCG_ADD + qz0;
+                double dX = ox1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dY = oy0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dZ = oz0 + bts$getFiddle(m);
+                double dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestX = qx1;
+                    bestY = qy0;
+                    bestZ = qz0;
+                }
+
+                // Z1: point (1, 0, 1)
+                m = (mXY10 * LCG_MUL + LCG_ADD + qz1) * LCG_MUL + LCG_ADD + qx1;
+                m = (m * LCG_MUL + LCG_ADD + qy0) * LCG_MUL + LCG_ADD + qz1;
+                dX = ox1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dY = oy0 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dZ = oz1 + bts$getFiddle(m);
+                dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestX = qx1;
+                    bestY = qy0;
+                    bestZ = qz1;
+                }
+            }
+            // Y1
+            final long mXY11 = mX1 * LCG_MUL + LCG_ADD + qy1;
+            {
+                // Z0: point (1, 1, 0)
+                long m = (mXY11 * LCG_MUL + LCG_ADD + qz0) * LCG_MUL + LCG_ADD + qx1;
+                m = (m * LCG_MUL + LCG_ADD + qy1) * LCG_MUL + LCG_ADD + qz0;
+                double dX = ox1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dY = oy1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                double dZ = oz0 + bts$getFiddle(m);
+                double dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestX = qx1;
+                    bestY = qy1;
+                    bestZ = qz0;
+                }
+
+                // Z1: point (1, 1, 1)
+                m = (mXY11 * LCG_MUL + LCG_ADD + qz1) * LCG_MUL + LCG_ADD + qx1;
+                m = (m * LCG_MUL + LCG_ADD + qy1) * LCG_MUL + LCG_ADD + qz1;
+                dX = ox1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dY = oy1 + bts$getFiddle(m);
+                m = m * LCG_MUL + LCG_ADD + baseSeed;
+                dZ = oz1 + bts$getFiddle(m);
+                dist = (dX * dX) + (dY * dY) + (dZ * dZ);
+                if (dist < minDistance) {
+                    bestX = qx1;
+                    bestY = qy1;
+                    bestZ = qz1;
+                }
+            }
+        }
+
+        return this.noiseBiomeSource.getNoiseBiome(bestX, bestY, bestZ);
     }
 
     /**

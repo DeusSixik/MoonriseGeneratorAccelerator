@@ -150,6 +150,8 @@ dependencies {
     compileOnly "io.github.deussixik:packager:1.0.0-alpha.1"
     compileOnly "org.lwjgl:lwjgl:3.3.3"
     compileOnly "org.lwjgl:lwjgl-opencl:3.3.3"
+    compileOnly "com.github.Team-Argentum:ConcurrentLibrary:${concurrent_library_version}"
+
     annotationProcessor javaToGpuLocalCoordinate
     annotationProcessor "com.github.javaparser:javaparser-core:3.28.1"
     annotationProcessor "io.github.deussixik:javatogpu-ir-validation:${rootProject.java_to_gpu_version}"

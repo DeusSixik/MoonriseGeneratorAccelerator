@@ -53,6 +53,7 @@ dependencies {
 
     include(minecraftRuntimeLibraries("org.yaml:snakeyaml:2.2"))
     include(minecraftRuntimeLibraries("ca.spottedleaf:yamlconfig:1.0.2"))
+    include(minecraftRuntimeLibraries("com.github.Team-Argentum:ConcurrentLibrary:${concurrent_library_version}"))
 
     javaToGpuRuntimeLibraries.each { coordinate ->
         include(minecraftRuntimeLibraries(coordinate))
