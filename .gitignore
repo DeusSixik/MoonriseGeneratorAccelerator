@@ -21,3 +21,4 @@ TASK.md
 common/src/main/resources/natives/dfc_native.dll
 /other_library
 *.jfr
+/net/minecraft

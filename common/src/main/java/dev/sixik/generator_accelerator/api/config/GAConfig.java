@@ -324,7 +324,7 @@ public final class GAConfig {
                         Mirrors old VM arg: -Dga.dfc.randomStateCompile.max=0
                         """
         )
-        public int randomStateCompileMax = 0;
+        public int randomStateCompileMax = 1;
 
         @Serializable(
                 comment = """
